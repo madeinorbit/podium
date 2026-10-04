@@ -317,8 +317,11 @@ describe('rendered mission pane parity', () => {
         node.getAttribute('data-flight-issue'),
       )
     const before = rows()
-    expect(before).toContain(child.id)
-    state.selectedIssueId = child.id
+    // A large mission now mounts a viewport, so select a row in that viewport
+    // while holding the existing per-root derivation contract.
+    const mountedChild = before[0]
+    expect(mountedChild).toBeTruthy()
+    state.selectedIssueId = mountedChild!
     current.rerender(deck())
     await settled()
     // Review finding 2: the pane is cached per mission root, not per selection.

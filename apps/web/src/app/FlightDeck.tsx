@@ -78,6 +78,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ReactNode,
+  RefObject,
   PointerEvent as ReactPointerEvent,
 } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -117,6 +118,14 @@ import { FlightDeckHandoff } from './FlightDeckHandoff'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
+import {
+  type DeckWindow,
+  type DeckWindowRow,
+  DeckRowPlaceholder,
+  deckSessionKey,
+  deckTaskKey,
+  useFlightDeckWindow,
+} from './flight-deck-window'
 import { useRuntimeDraft } from './keyed-runtime'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
@@ -510,6 +519,36 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
     issueDisplayRef(row.issue).toLowerCase().includes(needle) ||
     row.sessions.some((session) => sessionDisplayName(session).toLowerCase().includes(needle))
   )
+}
+
+function sessionSearchText(
+  session: SessionView,
+  issue: IssueNavigationModel | null = null,
+  label?: string | null,
+): string {
+  const retired = session.archived || session.status === 'exited'
+  const needs =
+    !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
+  return [
+    session.handoffTarget ? `Handing over → ${session.handoffTarget}` : sessionDisplayName(session),
+    session.displayRef,
+    label,
+    sessionUnreadEmphasized(session) ? 'unread' : null,
+    retired ? 'Retired' : needs ? 'Needs you' : null,
+    session.status === 'starting' || session.status === 'reconnecting' ? 'Starting' : null,
+    ...nativeSubagentRows(session).map((agent) =>
+      [
+        agent.type,
+        agent.anonymous ? null : agent.id.slice(0, 8),
+        'native',
+        agent.working ? 'working' : 'waiting',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    ),
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -1406,20 +1445,26 @@ interface HungContext {
   tail: boolean
   onSelectSession: (session: SessionView, permanent: boolean) => void
   onSelectNative: (session: SessionView) => void
+  window?: DeckWindow
 }
 
 function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
   const { sessions } = ctx
   if (sessions.length === 0) return null
-  let placed = 0
-  const isLast = (): boolean => {
-    placed += 1
-    return !ctx.tail && placed === sessions.length
-  }
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
-      {sessions.map((session) => {
+      {sessions.map((session, index) => {
+        const key = deckSessionKey(ctx.issue.id, session.sessionId)
+        if (ctx.window?.enabled && !ctx.window.contains(key)) {
+          return (
+            <DeckRowPlaceholder
+              key={session.sessionId}
+              row={{ key, size: 46, text: ctx.window.text(key) }}
+              window={ctx.window}
+            />
+          )
+        }
         const role = sessionRole(ctx.issue, session, {
           rootId: ctx.rootId,
           siblings: sessions,
@@ -1433,7 +1478,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             role={role}
             label={roleLabel(role, ctx.nameOf)}
             active={ctx.activeSessionId === session.sessionId}
-            last={isLast()}
+            last={!ctx.tail && index === sessions.length - 1}
             rail={ctx.rail}
             onOpen={(permanent) => ctx.onSelectSession(session, permanent)}
             onOpenNative={() => ctx.onSelectNative(session)}
@@ -1446,6 +1491,7 @@ function HungRows(ctx: HungContext): JSX.Element | null {
         return ctx.arrivals.has(session.sessionId) && !reduce ? (
           <motion.div
             key={session.sessionId}
+            ref={ctx.window?.enabled ? ctx.window.measure(key) : undefined}
             className="overflow-hidden"
             // CONTAINED, BECAUSE THIS ONE ANIMATES HEIGHT (POD-1146).
             //
@@ -1469,9 +1515,59 @@ function HungRows(ctx: HungContext): JSX.Element | null {
             {row}
           </motion.div>
         ) : (
-          <div key={session.sessionId}>{row}</div>
+          <div
+            key={session.sessionId}
+            ref={ctx.window?.enabled ? ctx.window.measure(key) : undefined}
+          >
+            {row}
+          </div>
         )
       })}
+    </div>
+  )
+}
+
+/** Flat tails use the same measured window as the spine. An unbounded proposal
+ * or archived tail would defeat the mount budget even while it is offscreen. */
+function DeckFlatRows({
+  rows,
+  scrollRef,
+  scope,
+  className,
+  gap,
+  revealSessionId,
+  children,
+}: {
+  rows: DeckWindowRow[]
+  scrollRef: RefObject<HTMLElement | null>
+  scope: string
+  className: string
+  gap: number
+  revealSessionId?: string | null
+  children: (index: number) => ReactNode
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const window = useFlightDeckWindow(rows, scrollRef, ref, scope)
+  useLayoutEffect(() => {
+    if (!revealSessionId || !window.enabled) return
+    const target = rows.find((row) => row.key.endsWith(`:${revealSessionId}`))
+    if (target && !window.contains(target.key)) window.reveal(target.key)
+  }, [revealSessionId, rows, window])
+  return (
+    <div ref={ref} className={className} style={window.enabled ? { gap: 0 } : undefined}>
+      {rows.map((row, index) =>
+        window.enabled ? (
+          window.contains(row.key) ? (
+            <div key={row.key} ref={window.measure(row.key)} style={{ paddingBottom: gap }}>
+              {children(index)}
+            </div>
+          ) : (
+            <DeckRowPlaceholder key={row.key} row={row} window={window} />
+          )
+        ) : (
+          children(index)
+        ),
+      )}
     </div>
   )
 }
@@ -1496,6 +1592,7 @@ const TaskRow = memo(
     rails,
     agentRail,
     childFollows,
+    window: deckWindow,
     onToggle,
     onSelectIssue,
     onSelectSession,
@@ -1524,6 +1621,7 @@ const TaskRow = memo(
      *  children share one line, so the line has to survive the gap between this
      *  block and the next row instead of stopping at the last agent's elbow. */
     childFollows: boolean
+    window?: DeckWindow
     mode: FlightDeckMode
     rootId: string | undefined
     inMission: ReadonlySet<string>
@@ -1660,6 +1758,7 @@ const TaskRow = memo(
           into its full strip rather than snapping (§7c). */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the strip; its buttons provide keyboard actions. */}
         <div
+          ref={deckWindow?.enabled ? deckWindow.measure(deckTaskKey(row.issue.id)) : undefined}
           className={cn(
             'deck-strip group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
             context ? 'bg-transparent' : 'bg-tabstrip',
@@ -1816,21 +1915,24 @@ const TaskRow = memo(
           style={{ gridTemplateRows: collapsed ? '0fr' : '1fr' }}
         >
           <div className="min-h-0 overflow-hidden">
-            <HungRows
-              issue={row.issue}
-              sessions={sessions}
-              rootId={rootId}
-              inMission={inMission}
-              nameOf={nameOf}
-              activeSessionId={activeSessionId}
-              arrivals={arrivals}
-              settle={settle}
-              inset={bandLeft}
-              rail={agentRail}
-              tail={childFollows}
-              onSelectSession={onSelectSession}
-              onSelectNative={onSelectNative}
-            />
+            {(!collapsed || !deckWindow?.enabled) && (
+              <HungRows
+                issue={row.issue}
+                sessions={sessions}
+                rootId={rootId}
+                inMission={inMission}
+                nameOf={nameOf}
+                activeSessionId={activeSessionId}
+                arrivals={arrivals}
+                settle={settle}
+                inset={bandLeft}
+                rail={agentRail}
+                tail={childFollows}
+                onSelectSession={onSelectSession}
+                onSelectNative={onSelectNative}
+                window={deckWindow}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -1846,6 +1948,7 @@ const TaskRow = memo(
     previous.rails === next.rails &&
     previous.agentRail === next.agentRail &&
     previous.childFollows === next.childFollows &&
+    previous.window === next.window &&
     previous.mode === next.mode &&
     previous.rootId === next.rootId &&
     previous.inMission === next.inMission &&
@@ -3058,11 +3161,15 @@ export function FlightDeckContent({
   const [searchOpen, setSearchOpen] = useState(false)
   const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
-  type DeckScrollKey = 'spine' | 'waterfall' | 'handoff'
-  const scrollKey: DeckScrollKey =
-    view === 'handoff' ? 'handoff' : view === 'waterfall' ? 'waterfall' : 'spine'
+  const deckRowsRef = useRef<HTMLDivElement | null>(null)
+  const [revealSessionId, setRevealSessionId] = useState<string | null>(null)
+  type DeckScrollKey = FlightDeckView
+  const scrollKey: DeckScrollKey = view
+  const spineView = view !== 'waterfall' && view !== 'handoff'
   const scrollPositionsRef = useRef<Record<DeckScrollKey, number>>({
-    spine: 0,
+    full: 0,
+    working: 0,
+    'needs-you': 0,
     waterfall: 0,
     handoff: 0,
   })
@@ -3071,7 +3178,8 @@ export function FlightDeckContent({
     const scroller = deckScrollerRef.current
     const previous = previousScrollKeyRef.current
     if (!scroller || previous === scrollKey) return
-    scrollPositionsRef.current[previous] = scroller.scrollTop
+    // Scroll events saved the old view before the shorter new DOM could clamp
+    // it. Reading scrollTop here would overwrite that position with the clamp.
     scroller.scrollTop = scrollPositionsRef.current[scrollKey]
     previousScrollKeyRef.current = scrollKey
   }, [scrollKey])
@@ -3385,6 +3493,89 @@ export function FlightDeckContent({
   )
   const { arrivals, settle } = useArrivals(sessionKeys)
 
+  const spineGeometry = useMemo(() => {
+    const leaves: DeckWindowRow[] = [{ key: 'spine:pad', size: 6 }]
+    const blocks = new Map<string, DeckWindowRow[]>()
+    const sessionLeaf = (
+      issue: IssueNavigationModel,
+      siblings: readonly SessionView[],
+      session: SessionView,
+    ): DeckWindowRow => ({
+      key: deckSessionKey(issue.id, session.sessionId),
+      size: 46 + nativeSubagentRows(session).length * 22,
+      text: sessionSearchText(
+        session,
+        issue,
+        roleLabel(
+          sessionRole(issue, session, { rootId: root?.id, siblings, inMission: missionSessionIds }),
+          nameOf,
+        ),
+      ),
+    })
+    for (const session of rootSessions)
+      if (rootRow) leaves.push(sessionLeaf(rootRow.issue, rootSessions, session))
+    if (rootSessions.length && visibleRows.length) leaves.push({ key: 'spine:gap', size: 8 })
+    for (const row of visibleRows) {
+      const collapsed = isFolded(row, folds)
+      const presentation = poolValues.rowPresentation.get(row.issue.id)!
+      const seat = row.issue.stage === 'proposed' ? null : seatFor(presentation.presence)
+      const folded = collapsed && hasPayload(row)
+      const meta =
+        mode !== 'full' && !row.matched
+          ? []
+          : [
+              presentation.note?.label,
+              presentation.note?.short,
+              seat ? (seat.attention ? 'no agent' : 'seat open') : null,
+              folded && row.collapsedSummary.tasks
+                ? `${row.collapsedSummary.tasks} task${row.collapsedSummary.tasks === 1 ? '' : 's'}`
+                : null,
+              folded && row.descendantIds.length && row.workingAgentCount
+                ? `${row.workingAgentCount} running`
+                : presentation.state.label,
+            ]
+      const block: DeckWindowRow[] = [
+        {
+          key: deckTaskKey(row.issue.id),
+          size: row.issue.stage === 'proposed' ? PROPOSED_BAND : BAND_HEIGHT,
+          text: [
+            issueDisplayRef(row.issue),
+            rowDisplayTitles.get(row.issue.id) ?? row.issue.title,
+            ...meta,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        },
+      ]
+      if (!collapsed) {
+        const sessions = deckSessions(row, mode)
+        for (const session of sessions) block.push(sessionLeaf(row.issue, sessions, session))
+      }
+      block.push({ key: `padding:${row.issue.id}`, size: 6 })
+      blocks.set(row.issue.id, block)
+      leaves.push(...block)
+    }
+    return { leaves, blocks }
+  }, [
+    root?.id,
+    rootRow,
+    rootSessions,
+    visibleRows,
+    rowDisplayTitles,
+    folds,
+    mode,
+    poolValues.rowPresentation,
+    missionSessionIds,
+    nameOf,
+  ])
+  const spineWindow = useFlightDeckWindow(
+    spineView ? spineGeometry.leaves : [],
+    deckScrollerRef,
+    deckRowsRef,
+    root?.id ?? '',
+    view,
+  )
+
   /** A fold the operator performed is always written EXPLICITLY, whichever way
    *  it went — that is what stops the default rule from re-closing a branch the
    *  operator just opened. */
@@ -3420,6 +3611,7 @@ export function FlightDeckContent({
       if (!sessionId) return
       const target = source.session(sessionId)
       if (!target) return
+      const open = new Map(folds)
       if (target.issueId) {
         const owner = source.issue(target.issueId)
         const nextRoot = owner ? source.rootFor(owner.id) : null
@@ -3428,26 +3620,44 @@ export function FlightDeckContent({
         // Every row whose subtree contains the owner is an ancestor of it, plus
         // the owner itself — one pass over the rows rather than walking parents,
         // because `descendantIds` is already the closure the deck computed.
-        const open = new Map(folds)
         for (const row of rows) {
           if (row.issue.id === target.issueId || row.descendantIds.includes(target.issueId)) {
             open.set(row.issue.id, 'open')
           }
         }
-        setFolds(open)
       }
-      requestAnimationFrame(() => {
-        // The mission chrome is sticky inside the full-height scrollport. End
-        // alignment keeps an explicitly revealed row below that overlay;
-        // `nearest` may place an above-viewport row underneath the header.
-        document
-          .querySelector(`[data-flight-session="${sessionId}"]`)
-          ?.scrollIntoView({ block: 'end' })
-      })
+      // A reveal must also escape a narrowed view and a folded owner in another
+      // mission. Those ancestors are not necessarily in the current roster.
+      const seen = new Set<string>()
+      let owner = target.issueId ? source.issue(target.issueId) : undefined
+      while (owner && !seen.has(owner.id)) {
+        seen.add(owner.id)
+        open.set(owner.id, 'open')
+        owner = owner.parentId ? source.issue(owner.parentId) : undefined
+      }
+      setFolds(open)
+      if (target.archived) setArchivedOpen(true)
+      if (view !== 'full') setPreferredView('full')
+      setRevealSessionId(sessionId)
     }
     window.addEventListener(REVEAL_IN_DECK_EVENT, onReveal)
     return () => window.removeEventListener(REVEAL_IN_DECK_EVENT, onReveal)
-  }, [source, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId])
+  }, [source, rows, folds, setFolds, setSelectedIssueId, setFocusedIssueId, view, setPreferredView])
+
+  useLayoutEffect(() => {
+    if (!revealSessionId || !spineView) return
+    const leaf = spineGeometry.leaves.find((row) => row.key.endsWith(`:${revealSessionId}`))
+    if (leaf && spineWindow.enabled && !spineWindow.contains(leaf.key)) spineWindow.reveal(leaf.key)
+    const frame = requestAnimationFrame(() => {
+      const row = Array.from(
+        deckScrollerRef.current?.querySelectorAll<HTMLElement>('[data-flight-session]') ?? [],
+      ).find((node) => node.dataset.flightSession === revealSessionId)
+      if (!row) return
+      row.scrollIntoView({ block: 'end' })
+      setRevealSessionId(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [revealSessionId, spineView, spineGeometry, spineWindow])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
     // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
@@ -3733,6 +3943,10 @@ export function FlightDeckContent({
       data-testid={root ? 'flight-deck-scroller' : undefined}
       aria-label="Flight Deck"
       ref={deckScrollerRef}
+      onScroll={(event) => {
+        scrollPositionsRef.current[previousScrollKeyRef.current] = event.currentTarget.scrollTop
+      }}
+      style={spineWindow.enabled ? { overflowAnchor: 'none' } : undefined}
     >
       {!root && collapseButton(true)}
 
@@ -4021,6 +4235,7 @@ export function FlightDeckContent({
             )}
           </div>
           <div
+            ref={deckRowsRef}
             className={
               view === 'waterfall'
                 ? 'contents'
@@ -4112,6 +4327,7 @@ export function FlightDeckContent({
                       inset={ROOT_BLOCK_INSET}
                       rail={spineRail}
                       tail={visibleRows.length > 0}
+                      window={spineWindow}
                       onSelectSession={(session, permanent) =>
                         selectSession(rootRow.issue.id, session, { permanent })
                       }
@@ -4129,53 +4345,69 @@ export function FlightDeckContent({
                     )}
                   </>
                 )}
-                {visibleRows.map((row, index) => (
-                  <TaskRow
-                    key={row.issue.id}
-                    row={row}
-                    displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
-                    renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
-                    byId={byId}
-                    presentation={poolValues.rowPresentation.get(row.issue.id)!}
-                    carries={guides[index] ?? []}
-                    rails={rails[index] ?? []}
-                    agentRail={railFor(leadTone(row.issue.id))}
-                    childFollows={(visibleRows[index + 1]?.depth ?? 0) > row.depth}
-                    mode={mode}
-                    rootId={root.id}
-                    inMission={missionSessionIds}
-                    nameOf={nameOf}
-                    selected={focused === row.issue.id}
-                    activeSessionId={activeSessionId}
-                    arrivals={arrivals}
-                    settle={settle}
-                    collapsed={isFolded(row, folds)}
-                    folds={folds}
-                    onToggle={() => toggleFold(row)}
-                    onSelectIssue={(permanent) => {
-                      if (!permanent && hasPayload(row)) toggleFold(row)
-                      selectIssue(row, permanent)
-                    }}
-                    onSelectSession={(session, permanent) =>
-                      selectSession(row.issue.id, session, { permanent })
-                    }
-                    onSelectNative={(session) =>
-                      selectSession(row.issue.id, session, { permanent: false, native: true })
-                    }
-                    onMenu={(event) => openIssueMenu(row.issue.id, event)}
-                    onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
-                    onRenameIssue={(title) =>
-                      renameIssue(
-                        row.issue.id,
-                        title,
-                        renameTarget?.id === row.issue.id
-                          ? renameTarget.seed
-                          : (rowDisplayTitles.get(row.issue.id) ?? row.issue.title),
-                      )
-                    }
-                    onRenameDone={() => setRenameTarget(null)}
-                  />
-                ))}
+                {visibleRows.map((row, index) => {
+                  const block = spineGeometry.blocks.get(row.issue.id)!
+                  if (
+                    spineWindow.enabled &&
+                    !block.some((leaf) => spineWindow.contains(leaf.key))
+                  ) {
+                    return (
+                      <div key={row.issue.id}>
+                        {block.map((leaf) => (
+                          <DeckRowPlaceholder key={leaf.key} row={leaf} window={spineWindow} />
+                        ))}
+                      </div>
+                    )
+                  }
+                  return (
+                    <TaskRow
+                      key={row.issue.id}
+                      row={row}
+                      displayTitle={rowDisplayTitles.get(row.issue.id) ?? row.issue.title}
+                      renameSeed={renameTarget?.id === row.issue.id ? renameTarget.seed : null}
+                      byId={byId}
+                      presentation={poolValues.rowPresentation.get(row.issue.id)!}
+                      carries={guides[index] ?? []}
+                      rails={rails[index] ?? []}
+                      agentRail={railFor(leadTone(row.issue.id))}
+                      childFollows={(visibleRows[index + 1]?.depth ?? 0) > row.depth}
+                      window={spineWindow}
+                      mode={mode}
+                      rootId={root.id}
+                      inMission={missionSessionIds}
+                      nameOf={nameOf}
+                      selected={focused === row.issue.id}
+                      activeSessionId={activeSessionId}
+                      arrivals={arrivals}
+                      settle={settle}
+                      collapsed={isFolded(row, folds)}
+                      folds={folds}
+                      onToggle={() => toggleFold(row)}
+                      onSelectIssue={(permanent) => {
+                        if (!permanent && hasPayload(row)) toggleFold(row)
+                        selectIssue(row, permanent)
+                      }}
+                      onSelectSession={(session, permanent) =>
+                        selectSession(row.issue.id, session, { permanent })
+                      }
+                      onSelectNative={(session) =>
+                        selectSession(row.issue.id, session, { permanent: false, native: true })
+                      }
+                      onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                      onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                      onRenameIssue={(title) =>
+                        renameIssue(
+                          row.issue.id,
+                          title,
+                          renameTarget?.id === row.issue.id
+                            ? renameTarget.seed
+                            : (rowDisplayTitles.get(row.issue.id) ?? row.issue.title),
+                        )
+                      }
+                      onRenameDone={() => setRenameTarget(null)}
+                    />
+                  )
+                })}
               </>
             )}
             <div
@@ -4227,19 +4459,32 @@ export function FlightDeckContent({
                   tone="text-fuchsia-500"
                   testId="flight-proposed"
                 >
-                  <div className="flex flex-col gap-1">
-                    {proposedRows.map((row) => (
-                      <ProposalRow
-                        key={row.issue.id}
-                        issue={row.issue}
-                        author={authorOf(row.issue)}
-                        selected={focused === row.issue.id}
-                        onSelect={(permanent) => selectIssue(row, permanent)}
-                        onMenu={(event) => openIssueMenu(row.issue.id, event)}
-                        onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
-                      />
-                    ))}
-                  </div>
+                  <DeckFlatRows
+                    className="flex flex-col gap-1"
+                    gap={4}
+                    scrollRef={deckScrollerRef}
+                    scope={`${root.id}:proposed:${scrollKey}`}
+                    rows={proposedRows.map((row) => ({
+                      key: `proposal:${row.issue.id}`,
+                      size: 30,
+                      text: `${issueDisplayRef(row.issue)} ${row.issue.title}`,
+                    }))}
+                  >
+                    {(index) => {
+                      const row = proposedRows[index]!
+                      return (
+                        <ProposalRow
+                          key={row.issue.id}
+                          issue={row.issue}
+                          author={authorOf(row.issue)}
+                          selected={focused === row.issue.id}
+                          onSelect={(permanent) => selectIssue(row, permanent)}
+                          onMenu={(event) => openIssueMenu(row.issue.id, event)}
+                          onStatusPick={(value) => pickRowStatus(row.issue.id, value)}
+                        />
+                      )
+                    }}
+                  </DeckFlatRows>
                 </DeckSection>
               )}
               {/* No count on this divider: the disclosure under it already carries
@@ -4271,26 +4516,40 @@ export function FlightDeckContent({
                   {archivedOpen && (
                     <ArchivedSessions rootId={root.id} mode={mode}>
                       {(archivedSessions) => (
-                        <div className="mt-1 flex flex-col gap-0.5">
-                          {archivedSessions.map((session) => (
-                            <SessionRow
-                              key={session.sessionId}
-                              session={session}
-                              active={activeSessionId === session.sessionId}
-                              last
-                              flat
-                              onOpen={(permanent) =>
-                                selectSession(session.issueId ?? null, session, { permanent })
-                              }
-                              onOpenNative={() =>
-                                selectSession(session.issueId ?? null, session, {
-                                  permanent: false,
-                                  native: true,
-                                })
-                              }
-                            />
-                          ))}
-                        </div>
+                        <DeckFlatRows
+                          revealSessionId={revealSessionId}
+                          className="mt-1 flex flex-col gap-0.5"
+                          gap={2}
+                          scrollRef={deckScrollerRef}
+                          scope={`${root.id}:archived:${scrollKey}`}
+                          rows={archivedSessions.map((session) => ({
+                            key: `archived:${session.sessionId}`,
+                            size: 48,
+                            text: sessionSearchText(session),
+                          }))}
+                        >
+                          {(index) => {
+                            const session = archivedSessions[index]!
+                            return (
+                              <SessionRow
+                                key={session.sessionId}
+                                session={session}
+                                active={activeSessionId === session.sessionId}
+                                last
+                                flat
+                                onOpen={(permanent) =>
+                                  selectSession(session.issueId ?? null, session, { permanent })
+                                }
+                                onOpenNative={() =>
+                                  selectSession(session.issueId ?? null, session, {
+                                    permanent: false,
+                                    native: true,
+                                  })
+                                }
+                              />
+                            )
+                          }}
+                        </DeckFlatRows>
                       )}
                     </ArchivedSessions>
                   )}

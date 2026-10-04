@@ -1,5 +1,6 @@
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -70,7 +71,7 @@ const harness = vi.hoisted(() => ({
   updateIssue: vi.fn(async (_id: string, _patch: unknown) => undefined),
   closeIssue: vi.fn(async (_id: string, _reason?: string) => undefined),
   ui: new Map<string, string>(),
-  listeners: new Set<() => void>(),
+  listeners: new Set<(keys: ReadonlySet<string>) => void>(),
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
   addSession: vi.fn(async (_input: unknown) => undefined),
@@ -112,9 +113,9 @@ const uiState = {
   set: (key: string, value: string | null): void => {
     if (value === null) harness.ui.delete(key)
     else harness.ui.set(key, value)
-    for (const listener of harness.listeners) listener()
+    for (const listener of harness.listeners) listener(new Set([key]))
   },
-  subscribe: (cb: () => void): (() => void) => {
+  subscribe: (cb: (keys: ReadonlySet<string>) => void): (() => void) => {
     harness.listeners.add(cb)
     return () => {
       harness.listeners.delete(cb)
@@ -122,7 +123,7 @@ const uiState = {
   },
 }
 
-const owner = {
+const owner = withKeyedInputs({
   getSnapshot: () =>
     fixtureStoreSnapshot(
       selectFixtureSnapshot((state) => state),
@@ -133,7 +134,7 @@ const owner = {
         ),
     ),
   subscribe: () => () => {},
-}
+})
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => owner,
@@ -452,30 +453,65 @@ function briefRect(top: number, height: number, width = 320): DOMRect {
   }
 }
 
+/** Each observer owns its callback and targets, as in the browser. The deck
+ * also observes its row window; a last-callback-only fake hides brief reports. */
+function fixtureResizeObservers() {
+  const observers = new Map<
+    ResizeObserver,
+    { callback: ResizeObserverCallback; targets: Set<Element>; initial: Set<Element> }
+  >()
+  class FixtureResizeObserver {
+    private readonly state
+    constructor(callback: ResizeObserverCallback) {
+      this.state = { callback, targets: new Set<Element>(), initial: new Set<Element>() }
+      observers.set(this as unknown as ResizeObserver, this.state)
+    }
+    observe(target: Element): void {
+      if (!this.state.targets.has(target)) this.state.initial.add(target)
+      this.state.targets.add(target)
+    }
+    unobserve(target: Element): void {
+      this.state.targets.delete(target)
+      this.state.initial.delete(target)
+    }
+    disconnect(): void {
+      this.state.targets.clear()
+      this.state.initial.clear()
+    }
+  }
+  vi.stubGlobal('ResizeObserver', FixtureResizeObserver)
+  return {
+    get observed(): Set<Element> {
+      return new Set([...observers.values()].flatMap((state) => [...state.targets]))
+    },
+    flush(changed: readonly Element[] = []): number {
+      let delivered = false
+      act(() => {
+        for (const [observer, state] of observers) {
+          const targets = new Set([
+            ...state.initial,
+            ...changed.filter((target) => state.targets.has(target)),
+          ])
+          state.initial.clear()
+          if (targets.size === 0) continue
+          state.callback(
+            [...targets].map((target) => ({ target }) as ResizeObserverEntry),
+            observer,
+          )
+          delivered = true
+        }
+      })
+      return delivered ? 1 : 0
+    },
+  }
+}
+
 /** Supply the handful of layout facts happy-dom cannot calculate. */
 async function measuredBrief() {
   const deckHeight = 400
   const contentHeight = 600
   let briefTop = 80
-  let resize: ResizeObserverCallback | null = null
-  const observed = new Set<Element>()
-
-  class BriefResizeObserver {
-    constructor(callback: ResizeObserverCallback) {
-      resize = callback
-    }
-    observe(target: Element): void {
-      observed.add(target)
-    }
-    unobserve(target: Element): void {
-      observed.delete(target)
-    }
-    disconnect(): void {
-      observed.clear()
-    }
-  }
-
-  vi.stubGlobal('ResizeObserver', BriefResizeObserver)
+  const observers = fixtureResizeObservers()
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
     configurable: true,
     get(this: HTMLElement) {
@@ -498,16 +534,14 @@ async function measuredBrief() {
   })
 
   await deck()
-  const callback = resize as ResizeObserverCallback | null
-  if (!callback) throw new Error('brief ResizeObserver was not installed')
-  act(() => callback([], {} as ResizeObserver))
+  observers.flush()
   return {
-    observed,
+    get observed() {
+      return observers.observed
+    },
     reflowHeader(nextTop: number): void {
       briefTop = nextTop
-      const callback = resize
-      if (!callback) throw new Error('brief ResizeObserver was not installed')
-      act(() => callback([], {} as ResizeObserver))
+      observers.flush([document.querySelector('.deck-header')!])
     },
   }
 }
@@ -661,27 +695,7 @@ describe('mission brief measurement after layout', () => {
     const briefTop = 80
     const endGap = 10
     let rectReads = 0
-    let resize: ResizeObserverCallback | null = null
-    const observed = new Set<Element>()
-    let initial = new Set<Element>()
-
-    class CountingResizeObserver {
-      constructor(callback: ResizeObserverCallback) {
-        resize = callback
-      }
-      observe(target: Element): void {
-        if (!observed.has(target)) initial.add(target)
-        observed.add(target)
-      }
-      unobserve(target: Element): void {
-        observed.delete(target)
-        initial.delete(target)
-      }
-      disconnect(): void {
-        observed.clear()
-        initial.clear()
-      }
-    }
+    const observers = fixtureResizeObservers()
 
     const appliedMax = (el: HTMLElement): number => {
       const value = el.style.maxHeight ? Number.parseFloat(el.style.maxHeight) : Number.NaN
@@ -693,7 +707,6 @@ describe('mission brief measurement after layout', () => {
       return Math.min(contentHeight, el ? appliedMax(el) : Number.POSITIVE_INFINITY)
     }
 
-    vi.stubGlobal('ResizeObserver', CountingResizeObserver)
     Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
       configurable: true,
       get(this: HTMLElement) {
@@ -722,7 +735,9 @@ describe('mission brief measurement after layout', () => {
     })
 
     return {
-      observed,
+      get observed() {
+        return observers.observed
+      },
       setContentHeight(height: number): void {
         contentHeight = height
       },
@@ -730,27 +745,13 @@ describe('mission brief measurement after layout', () => {
         deckHeight = height
       },
       unmountObservations(): boolean {
-        return observed.size === 0 && initial.size === 0
+        return observers.observed.size === 0
       },
       briefRectReads(): number {
         return rectReads
       },
       flushResizes(changed: Element[] = []): number {
-        const callback = resize
-        if (!callback) throw new Error('brief ResizeObserver was not installed')
-        const targets = new Set<Element>([
-          ...initial,
-          ...changed.filter((target) => observed.has(target)),
-        ])
-        initial = new Set<Element>()
-        if (targets.size === 0) return 0
-        act(() =>
-          callback(
-            [...targets].map((target) => ({ target }) as ResizeObserverEntry),
-            {} as ResizeObserver,
-          ),
-        )
-        return 1
+        return observers.flush(changed)
       },
     }
   }
@@ -2119,8 +2120,10 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     if (!row) throw new Error('no agent row')
     row.scrollIntoView = vi.fn()
 
-    act(() => {
+    await act(async () => {
       window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 's1' }))
+    })
+    act(() => {
       vi.advanceTimersByTime(20)
     })
 
@@ -2144,6 +2147,30 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
       fireEvent.click(toggle)
     })
     expect(document.querySelector('[data-flight-session="gone"]')).not.toBeNull()
+  })
+
+  it('reveals an offscreen archived session by index after opening its tail', async () => {
+    const archived = Array.from({ length: 300 }, (_, index) =>
+      session(`archived-${index}`, { issueId: 't1', archived: true }),
+    )
+    harness.sessions.push(...archived)
+    harness.issues = harness.issues.map((raw) => {
+      const candidate = raw as Issue
+      return candidate.id === 't1'
+        ? { ...candidate, memberSessionIds: ['s1', ...archived.map((row) => row.sessionId)] }
+        : candidate
+    })
+    const scrollIntoView = vi.fn()
+    vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(scrollIntoView)
+    await deck()
+    expect(document.querySelector('[data-flight-session="archived-299"]')).toBeNull()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(REVEAL_IN_DECK_EVENT, { detail: 'archived-299' }))
+    })
+    act(() => vi.advanceTimersByTime(40))
+    expect(document.querySelector('[data-flight-session="archived-299"]')).not.toBeNull()
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'end' })
+    expect(document.querySelectorAll('[data-flight-session]').length).toBeLessThan(32)
   })
 
   // POD-1314: a retirement reading is one operational fact. The responsive row
@@ -2190,7 +2217,7 @@ describe('flight deck task menu (POD-771)', () => {
   it('right-clicking a task opens the shared task menu on THAT task', async () => {
     await deck()
     fireEvent.contextMenu(stripOf('t1'))
-    expect(screen.getByText('Set status')).toBeTruthy()
+    expect(await screen.findByText('Set status')).toBeTruthy()
     // The menu's header names the task it will act on, not the mission.
     expect(screen.getByText('Task t1')).toBeTruthy()
   })
@@ -2200,7 +2227,7 @@ describe('flight deck task menu (POD-771)', () => {
     fireEvent.contextMenu(stripOf('t4'))
     // t4 hangs under t3, so the placement correction is the one that applies —
     // and it states the OUTCOME, which is the row appearing in the sidebar.
-    fireEvent.click(screen.getByText('Move to top level (out of POD-3)'))
+    fireEvent.click(await screen.findByText('Move to top level (out of POD-3)'))
     expect(harness.setPlacement).toHaveBeenCalledWith({
       id: 't4',
       placement: 'own',
@@ -2213,7 +2240,7 @@ describe('flight deck task menu (POD-771)', () => {
     const proposal = document.querySelector('[data-flight-issue="p1"] button')
     expect(proposal).not.toBeNull()
     fireEvent.contextMenu(proposal as HTMLElement)
-    expect(screen.getByText('Set status')).toBeTruthy()
+    expect(await screen.findByText('Set status')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'Start issue' })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
   })
@@ -2222,7 +2249,7 @@ describe('flight deck task menu (POD-771)', () => {
     await deck()
     const proposal = document.querySelector('[data-flight-issue="p1"] button')
     fireEvent.contextMenu(proposal as HTMLElement)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Start issue' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Start issue' }))
     expect(harness.startIssue).toHaveBeenCalledWith({ id: 'p1' })
   })
 
