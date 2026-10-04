@@ -52,7 +52,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
   httpCache:'disabled by bootstrap request routing',
-  warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
+  warmStartup:'Reload with retained durable data and preferences; snapshot responses augmented, delta/cursor-resume responses passed through',
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
@@ -150,6 +150,8 @@ async function bindContext(context) {
   await context.route('**/sync/bootstrap*',async route=>{
     const response=await route.fetch(), records=(await response.text()).trim().split('\n').map(x=>JSON.parse(x))
     const prepared=bootstrapBody(records)
+    result.bootstrapResponses??=[]
+    result.bootstrapResponses.push({at:new Date().toISOString(),mode:records[0]?.mode,augmented:!!prepared})
     if(!prepared){await route.fulfill({response});return}
     const {body,first,chunks,count,changes}=prepared
     meta={...chunks[0]}; seq=meta.seq

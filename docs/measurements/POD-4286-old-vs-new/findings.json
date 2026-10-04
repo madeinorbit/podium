@@ -271,5 +271,21 @@
         }
       ]
     }
+  ],
+  "methodCorrections": [
+    {
+      "field": "warmStartup",
+      "originalLabel": "Reload with retained durable data and preferences; full augmented bootstrap replay",
+      "correctMethod": "Reload with retained durable rows and preferences; HTTP cache disabled. Augment snapshot responses only and pass delta/cursor-resume responses through unchanged.",
+      "currentWebSamples": {
+        "cold": 40,
+        "warm": 40,
+        "coldAugmentedSnapshotResponses": 40,
+        "warmAugmentedSnapshotResponses": 0,
+        "includesProfiledSamples": true
+      },
+      "timingValuesChanged": false,
+      "originalLedgersPreserved": true
+    }
   ]
 }
