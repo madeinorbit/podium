@@ -30,6 +30,7 @@ const productDirectories = ['apps/web/src', 'apps/mobile/src', 'apps/mobile/app'
 const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-tree', '-r', 'HEAD', '--', ...productDirectories])).digest('hex')
 const result = { version:1, mode, arm, round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
+  durationTimeDomain:'threadTicks',
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -63,9 +64,10 @@ async function trace(cdp) {
     await cdp.send('Tracing.end'); await completed; cdp.off('Tracing.dataCollected',collect); return events
   }
 }
-function intervalMs(events, names, pid, tid, begin, end) {
+function intervalMs(events, names, pid, tid, begin, end,thread=false) {
   const all = events.filter(e=>names.includes(e.name) && e.ph==='X' && e.pid===pid && (tid===undefined || e.tid===tid))
-    .map(e=>[Math.max(begin,e.ts),Math.min(end,e.ts+(e.dur??0))]).filter(([a,b])=>b>a).sort((a,b)=>a[0]-b[0])
+    .filter(e=>!thread || typeof e.tts==='number' && typeof e.tdur==='number')
+    .map(e=>[Math.max(begin,thread?e.tts:e.ts),Math.min(end,thread?e.tts+e.tdur:e.ts+(e.dur??0))]).filter(([a,b])=>b>a).sort((a,b)=>a[0]-b[0])
   const merged=[]
   for(const [a,b] of all) { const last=merged.at(-1); if(last && a<=last[1]) last[1]=Math.max(b,last[1]); else merged.push([a,b]) }
   return merged.reduce((sum,[a,b])=>sum+b-a,0)/1000
@@ -200,7 +202,7 @@ async function makePage() {
     const startupObserver=new MutationObserver(observeStartup)
     startupObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
   },{now:corpus.fixedNow})
-  const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable')
+  const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
 }
 const url=()=>surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
@@ -273,9 +275,11 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
   const input=events.find(x=>x.name==='comparison:input'), dom=events.find(x=>x.name==='comparison:dom')
   const paint=events.filter(e=>e.name==='Paint' && e.ph==='X' && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
   const end=paint.ts+(paint.dur??0), stem=`${String(recordIndex++).padStart(4,'0')}-${name}`
+  if(typeof input.tts!=='number' || typeof paint.tts!=='number' || typeof paint.tdur!=='number')throw Error('CPU thread timestamps absent; no hardware CPU claim permitted')
+  const cpuEnd=paint.tts+paint.tdur
   writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
   if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
-  const row={action:name,index:recordIndex-1,startedAt:began,load,...measured,profiled:profile,mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null}
+  const row={action:name,index:recordIndex-1,startedAt:began,load,...measured,profiled:profile,mainThreadCpuMs:(cpuEnd-input.tts)/1000,layoutCpuMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.tts,cpuEnd,true),mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null}
   result.actions.push(row); save(); console.log(`${name}: ${measured.inputToPaintMs.toFixed(1)} ms`)
   return row
 }
@@ -294,7 +298,9 @@ async function startup(fixture,name,profile=false) {
   const input=events.find(x=>x.name==='comparison:navigation-start'), dom=events.find(x=>x.name==='comparison:startup-dom')
   const paint=events.filter(e=>e.name==='Paint' && e.ph==='X' && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
   const end=paint.ts+(paint.dur??0)
-  result.actions.push({action:name,startedAt:began,load,...measured,profiled:profile,mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null})
+  if(typeof input.tts!=='number' || typeof paint.tts!=='number' || typeof paint.tdur!=='number')throw Error('Startup CPU thread timestamps absent')
+  const cpuEnd=paint.tts+paint.tdur
+  result.actions.push({action:name,startedAt:began,load,...measured,profiled:profile,mainThreadCpuMs:(cpuEnd-input.tts)/1000,layoutCpuMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.tts,cpuEnd,true),mainThreadBusyMs:intervalMs(events,['RunTask','ThreadControllerImpl::RunTask','ThreadControllerImpl::DoWork'],input.pid,paint.tid,input.ts,end),layoutMs:intervalMs(events,['Layout','UpdateLayoutTree'],input.pid,paint.tid,input.ts,end),taskWindowMs:(after.TaskDuration-before.TaskDuration)*1000,scriptWindowMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutWindowMs:(after.LayoutDuration-before.LayoutDuration)*1000,trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null})
   save()
 }
 async function runActions(f) {
@@ -474,29 +480,38 @@ async function runActions(f) {
   } else {
     const work=()=>page.getByRole('tab',{name:'Work',exact:true})
     const tasks=()=>page.getByRole('tab',{name:'Tasks',exact:true})
+    const backToTabs=async()=>{
+      for(let i=0;i<4 && !await work().isVisible().catch(()=>false);i++) {
+        const done=page.getByRole('button',{name:'Done',exact:true})
+        if(await done.isVisible().catch(()=>false))await done.click()
+        else await page.getByRole('button',{name:'Back',exact:true}).click()
+      }
+    }
+    const toWork=async()=>{await backToTabs();await work().click()}
+    const toTasks=async()=>{await backToTabs();await tasks().click()}
     const target=()=>page.getByRole('button',{name:new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`)})
     await attempt('phone-navigation',async()=>{
       for(let i=0;i<samples+2;i++) {
         await capture(f,'phone-issue-screen',()=>tasks().click(),()=>location.pathname==='/mobile/issues' && !!document.querySelector('[aria-label="Search tasks"]'))
-        await capture(f,'phone-work-screen',()=>work().click(),'[aria-label="Search work"]')
+        await capture(f,'phone-work-screen',()=>work().click(),()=>location.pathname==='/mobile/work' && document.querySelector('[role="tab"][aria-label="Work"]')?.getAttribute('aria-selected')==='true')
       }
     })
     await attempt('phone-mission-open',async()=>{
-      await work().click()
+      await toWork()
       for(let i=0;i<samples+2;i++) {
         await capture(f,'phone-mission-open',()=>target().click(),'[aria-label="Mission actions"]')
-        await work().click();await target().waitFor()
+        await toWork();await target().waitFor()
       }
     })
     await attempt('phone-inbox',async()=>{
       if(!await page.getByRole('tab',{name:'Inbox',exact:true}).count())throw Error('No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement')
       for(let i=0;i<samples+2;i++) {
         await capture(f,'phone-inbox',()=>page.getByRole('tab',{name:'Inbox',exact:true}).click(),()=>location.pathname.includes('/inbox'))
-        await work().click()
+        await toWork()
       }
     })
     await attempt('phone-long-press',async()=>{
-      await work().click()
+      await toWork()
       for(let i=0;i<samples+2;i++) {
         await target().click({trial:true});const box=await target().boundingBox()
         await capture(f,'phone-long-press',async()=>{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await page.waitForTimeout(500)},()=>[...document.querySelectorAll('[role="button"],button')].some(x=>x.textContent?.trim()==='Rename'))
@@ -505,21 +520,23 @@ async function runActions(f) {
       }
     })
     await attempt('phone-mission-details',async()=>{
-      await work().click();await target().click()
+      await toWork();await target().click()
       for(let i=0;i<samples+2;i++){
         await capture(f,'phone-mission-details',()=>page.getByRole('button',{name:'Mission details',exact:true}).click(),()=>location.pathname.endsWith('/details') && !!document.querySelector('[aria-label="Launch an agent on this mission"]'))
-        await page.getByRole('button',{name:'Back',exact:true}).click()
+        await page.getByRole('button',{name:'Done',exact:true}).click()
       }
     })
     await attempt('phone-composer-typing',async()=>{
-      await work().click();await target().click()
+      await toWork();await target().click()
       const input=page.locator('textarea').last()
       await input.focus();await input.fill('')
       for(let i=0;i<samples+2;i++)await capture(f,'phone-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.value===${JSON.stringify('x'.repeat(i+1))})`)
       await input.fill('')
     })
     await attempt('phone-issue-open',async()=>{
-      await tasks().click()
+      await toTasks()
+      const searchToggle=page.getByRole('button',{name:'Search tasks',exact:true})
+      if(await searchToggle.isVisible().catch(()=>false))await searchToggle.click()
       const input=page.getByRole('textbox',{name:'Search tasks',exact:true})
       await input.fill(title);await pause(250)
       await inspect(page,'phone-board')
@@ -547,12 +564,12 @@ async function runActions(f) {
         const renamed=`Comparison target A revision ${i}`
         await page.getByRole('button',{name:'Task title — edit',exact:true}).click()
         await page.getByRole('textbox',{name:'Task title',exact:true}).fill(renamed)
-        await capture(f,'phone-issue-rename',()=>page.getByRole('button',{name:'Save',exact:true}).click(),`()=>[...document.querySelectorAll('[role="button"]')].some(x=>x.getAttribute('aria-label')==='Task title — edit' && x.textContent===${JSON.stringify(renamed)})`)
+        await capture(f,'phone-issue-rename',()=>page.getByRole('button',{name:'Save',exact:true}).click(),`()=>[...document.querySelectorAll('[role="button"]')].some(x=>x.getAttribute('aria-label')==='Task title — edit' && x.textContent?.trim()===${JSON.stringify(renamed)})`)
       }
       await rpc('issues.update',{id:issue.id,patch:{title}})
     })
     await attempt('phone-search',async()=>{
-      await work().click();await page.getByRole('button',{name:'Search work',exact:true}).click()
+      await toWork();await page.getByRole('button',{name:'Search work',exact:true}).click()
       const input=page.getByRole('textbox',{name:'Search work',exact:true})
       await input.fill(otherTitle);await pause(300)
       for(let i=0;i<samples+2;i++){
@@ -584,6 +601,9 @@ async function background(f) {
     for(let i=0;i<100 && !outputEpochs.has(targetSession);i++)await pause(100)
     if(!outputEpochs.has(targetSession))throw Error('No output subscription on visible comparison terminal')
     await pause(1000)
+    output(targetSession,'comparison delivery witness\r\n')
+    await f.page.waitForFunction(()=>window.__podium?.screenText?.().includes('comparison delivery witness'),undefined,{timeout:15000})
+    result.outputDeliveryWitness=true;save()
   })
   const outputAvailable=outputEpochs.has(targetSession)
   const metricWindow=async(kind,perform)=>{
@@ -642,7 +662,22 @@ try {
   // Validate the complete augmented wire stream before taking a capture lease.
   // Captured bootstrap delivery reuses serialized rows and changes only cursor
   // metadata, avoiding fixture schema-validation CPU in navigation timings.
-  const preflight=bootstrapBody((await (await fetch(`${base}/sync/bootstrap`)).text()).trim().split('\n').map(line=>JSON.parse(line)))
+  let canonical
+  result.preflightAttempts=[]
+  for(let attempt=0;attempt<120;attempt++) {
+    const response=await fetch(`${base}/sync/bootstrap`), body=await response.text()
+    writeFileSync(resolve(out,'canonical-preflight.ndjson'),body)
+    if(!response.ok)throw Error(`Preflight bootstrap HTTP ${response.status}: ${body.slice(0,500)}`)
+    canonical=body.trim().split('\n').map(line=>JSON.parse(line))
+    const sessions=canonical.filter(row=>row.type==='feedBootstrap').flatMap(row=>row.changes).filter(row=>row.entity==='session')
+    result.preflightAttempts.push({seq:canonical[0].seq,sessions:sessions.length,statuses:sessions.map(row=>row.value.status)})
+    // Session creation returns before the daemon's spawn and sync publication.
+    // Wait outside the capture lease for the same ready fixture in both arms.
+    if(canonical[0].seq>=64 && controls.every(control=>sessions.some(row=>row.entityId===control.session.sessionId && row.value.status==='live')) && sessions.some(row=>row.entityId===controls[0].secondSession.sessionId && row.value.status==='live'))break
+    if(attempt===119)throw Error('Comparison sessions did not become live in canonical sync')
+    await pause(250)
+  }
+  const preflight=bootstrapBody(canonical)
   if(!preflight)throw Error('No canonical preflight snapshot')
   result.preflightSessions=preflight.changes.filter(row=>row.entity==='session').map(row=>({entityId:row.entityId,sessionId:row.value.sessionId,title:row.value.title,name:row.value.name,transcriptAvailable:row.value.transcriptAvailable,driverFamily:row.value.driverFamily,status:row.value.status}))
   async function* preflightLines(){yield* preflight.body.trim().split('\n')}
@@ -680,14 +715,60 @@ try {
   if(mode==='timing'){await runActions(f);await background(f)}
   if(mode==='memory') {
     await f.cdp.send('HeapProfiler.collectGarbage');result.heapStartup=await f.cdp.send('Runtime.getHeapUsage');save()
-    const began=Date.now(), loads=[]
+    const began=Date.now(), loads=[], steps=[]
+    const page=f.page, issue=controls[0].issue, title='Comparison target A'
+    const step=async(i)=>{
+      if(surface==='web') {
+        if(i%3===0) {
+          await page.getByTestId('topbar-nav-workspace').click()
+          await page.locator(`aside [data-issue-row="${issue.id}"]`).first().click()
+          const expand=page.getByRole('button',{name:'Expand Flight Deck',exact:true})
+          if(await expand.isVisible().catch(()=>false))await expand.click()
+          const id=i%2?controls[0].session.sessionId:controls[0].secondSession.sessionId
+          await page.locator(`[data-flight-session="${id}"] button.deck-agent`).first().click()
+          return 'mission and session switch'
+        }
+        if(i%3===1) {
+          await page.getByTestId('topbar-nav-issues').click()
+          await page.getByRole('textbox',{name:'Search tasks'}).fill(title)
+          await page.locator('[data-issue-id]').filter({hasText:title}).first().click()
+          await page.locator('[data-testid="issue-page"] button[title="Back"]').click()
+          return 'board search and issue page'
+        }
+        await page.keyboard.press('Control+k')
+        await page.getByRole('combobox').fill(title)
+        await page.keyboard.press('Escape');await page.keyboard.press('Escape')
+        const trigger=page.getByTestId('right-rail').getByRole('button',{name:'Superagent',exact:true})
+        await trigger.click()
+        const input=page.getByPlaceholder('Ask across all tasks…')
+        await input.fill('five minute comparison draft');await input.fill('')
+        await trigger.click()
+        return 'palette search and composer draft'
+      }
+      const work=page.getByRole('tab',{name:'Work',exact:true})
+      if(i%2===0) {
+        await work.click()
+        await page.getByRole('button',{name:new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`)}).click()
+        await page.getByRole('button',{name:'Mission details',exact:true}).click()
+        await page.getByRole('button',{name:'Done',exact:true}).click()
+        await page.getByRole('button',{name:'Back',exact:true}).click()
+        return 'work mission and details'
+      }
+      await page.getByRole('tab',{name:'Tasks',exact:true}).click()
+      const searchToggle=page.getByRole('button',{name:'Search tasks',exact:true})
+      if(await searchToggle.isVisible().catch(()=>false))await searchToggle.click()
+      await page.getByRole('textbox',{name:'Search tasks',exact:true}).fill(title)
+      await page.getByRole('button',{name:new RegExp(`^Task .*${title}`)}).first().click()
+      await page.getByRole('button',{name:'Back',exact:true}).click()
+      return 'task search and issue page'
+    }
     for(let i=0;i<60;i++) {
-      loads.push(loadavg())
-      if(surface==='phone'){await f.page.getByRole('tab',{name:i%2?'Work':'Tasks',exact:true}).click()}
-      else {await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('textbox',{name:'Search tasks'}).fill(i%2?'Comparison':'')}
+      loads.push(loadavg());const started=Date.now()
+      steps.push({step:i,kind:await step(i),durationMs:Date.now()-started})
+      await frames(page)
       await pause(Math.max(0,began+(i+1)*5000-Date.now()))
     }
-    await f.cdp.send('HeapProfiler.collectGarbage');result.heapFiveMinutes=await f.cdp.send('Runtime.getHeapUsage');result.heapUse={durationSeconds:(Date.now()-began)/1000,actions:60,loads};save()
+    await f.cdp.send('HeapProfiler.collectGarbage');result.heapFiveMinutes=await f.cdp.send('Runtime.getHeapUsage');result.heapUse={durationSeconds:(Date.now()-began)/1000,steps:60,actions:60,workload:'60 action groups at five-second cadence; see steps for actual interactions',loads,stepsCompleted:steps};save()
   }
   result.status='complete'
 } catch(error) {
