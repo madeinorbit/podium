@@ -40,7 +40,7 @@ if (!operator && (hostname() !== 'flatblock' || !process.argv.includes('--lease-
 }
 const samples = Number(arg('samples', '5'))
 const cells = operator ? ['operator'] : arg('cells', '1x,4x').split(',')
-const modes = arg('modes', 'legacy,pool').split(',')
+const modes = arg('modes', 'pool').split(',')
 const build = resolve('.artifacts/pool-memory/build')
 const out = resolve(arg('out', '.artifacts/issue-record-memory/counts.json'))
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { timeout: 10_000 }).toString().trim()

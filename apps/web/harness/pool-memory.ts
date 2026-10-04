@@ -1,6 +1,6 @@
 /** POD-5133 heap-ownership capture (measurement only, synthetic corpus).
  *
- *   --phase=build                      build the fixture once; both arms use it
+ *   --phase=build                      build the pool fixture once
  *   --phase=capture --lease-confirmed  per cell and arm: heap usage after GC in
  *                                      --samples fresh contexts (POD-4959's
  *                                      retained statistic), then one gzip heap
@@ -28,7 +28,7 @@ const arg = (name: string, fallback: string) =>
     .join('=') ?? fallback
 const phase = arg('phase', 'capture')
 const cells = arg('cells', '1x,4x,h10a1').split(',')
-const arms = arg('arms', 'legacy,pool').split(',') as ('legacy' | 'pool')[]
+const arms = arg('arms', 'pool').split(',') as ('legacy' | 'pool')[]
 const samples = Number(arg('samples', '5'))
 const devLocal = process.argv.includes('--dev-local')
 const base = resolve(process.cwd(), '.artifacts/pool-memory')
