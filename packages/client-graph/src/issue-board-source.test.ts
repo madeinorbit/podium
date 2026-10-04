@@ -100,20 +100,32 @@ it('indexes residents only while a board or catalogue reader observes them', () 
 
 it('updates explorer counts by address at 1x/4x and releases all count demand when closed', async () => {
   async function measured(scale: 1 | 4) {
-    const rows = Array.from({ length: 128 * scale }, (_, n) => row(`count-${n}`))
+    const rows = [row('count-parent'), ...Array.from({ length: 128 * scale }, (_, n) =>
+      row(`count-${n}`, { audience: 'agent', parentId: 'count-parent' })),
+      ...Array.from({ length: 128 * scale }, (_, n) => row(`other-parent-${n}`))]
     const f = setup(rows)
+    // Many distinct addressed observers must not become a new scan on ingest.
+    const scopeStops = Array.from({ length: 128 * scale }, (_, n) =>
+      autorun(() => f.pool.queries.issueScope(`other-parent-${n}`)))
     let counts: unknown
     const stop = autorun(() => { counts = f.source.explorerCounts() })
     try {
       expect(counts).toMatchObject({ in_progress: rows.length, planning: 0 })
       const ids = vi.spyOn(f.pool.queries, 'ids')
       const { work } = await measureWork(async () => insideReader('explorer count update', () => {
-        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', { stage: 'planning' }) }] })
+        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', {
+          stage: 'planning', audience: 'agent', parentId: 'count-parent',
+        }) }] })
       }), { pool: f.pool })
       expect(counts).toMatchObject({ in_progress: rows.length - 1, planning: 1 })
       expect(ids).not.toHaveBeenCalled()
+      const ancestor = await measureWork(async () => insideReader('explorer ancestor title update', () => {
+        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-parent', value: row('count-parent', { title: 'Renamed parent' }) }] })
+      }), { pool: f.pool })
+      expect(counts).toMatchObject({ in_progress: rows.length - 1, planning: 1 })
       ids.mockRestore()
       stop()
+      for (const stop of scopeStops) stop()
       const closed = vi.spyOn(f.pool, 'row')
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', { stage: 'review' }) }] })
       // Ingest may inspect the changed issue, but no aggregate reader remains.
@@ -121,14 +133,17 @@ it('updates explorer counts by address at 1x/4x and releases all count demand wh
       expect(f.source.stats()).toMatchObject({ residentRows: 0, cached: 0 })
       closed.mockRestore()
       expect(f.load).not.toHaveBeenCalled()
-      return work
-    } finally { stop(); f.stop() }
+      return { work, ancestor: ancestor.work }
+    } finally { stop(); for (const stop of scopeStops) stop(); f.stop() }
   }
   const first = await measured(1), second = await measured(4)
   console.info('explorer count update work 1x/4x', JSON.stringify({ first, second }))
-  expect(second.rows).toBe(first.rows)
-  expect(second.derivations).toBe(first.derivations)
-  expect(second.elements).toBe(first.elements)
+  for (const action of ['work', 'ancestor'] as const) {
+    expect(second[action].rows).toBe(first[action].rows)
+    expect(second[action].derivations).toBe(first[action].derivations)
+    expect(second[action].elements).toBe(first[action].elements)
+    expect(second[action].visits).toBe(first[action].visits)
+  }
 })
 
 it('releases demanded ID results on filter change and unmount', () => {

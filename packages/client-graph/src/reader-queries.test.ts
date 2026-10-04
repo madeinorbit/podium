@@ -34,6 +34,46 @@ import { LOADING } from './worklist/rollup'
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
 
+it('addresses ancestor scope independently of presentation, resident overlays and source replacement', () => {
+  const issue = (patch: object = {}): RowRecord => ({ kind: 'issue', id: 'scope-parent', value: {
+    id: 'scope-parent', title: 'Parent', stage: 'in_progress', audience: 'human',
+    createdAt: old, updatedAt: old, repoPath: '/scope', seq: 1, priority: 2,
+    labels: [], deps: [], description: '', ...patch,
+  } } as RowRecord)
+  let source = createColdIndex(SCHEMA)
+  source.apply({ type: 'replace', rows: [issue()] })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    cold: () => source, load: () => undefined, schedule: () => () => {},
+  })
+  pool.apply({ type: 'replace', rows: [issue()] })
+  const seen: unknown[] = []
+  const stop = autorun(() => { seen.push(pool.queries.issueScope('scope-parent')) })
+  const publish = (record: RowRecord) => {
+    const event = { type: 'update' as const, rows: [record] }
+    source.apply(event); pool.apply(event)
+  }
+  try {
+    expect(seen).toEqual([{ draft: false, deleted: false, archived: false, agent: false }])
+    publish(issue({ title: 'Renamed' }))
+    expect(seen).toHaveLength(1)
+    // A local table overlay wins even while the source is already ahead.
+    source.apply({ type: 'update', rows: [issue({ audience: 'agent' })] })
+    runInAction(() => pool.tables.issue.set('scope-parent', issue({ isDraftVessel: true }).value as never))
+    expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: false })
+    runInAction(() => pool.tables.issue.delete('scope-parent'))
+    expect(seen.at(-1)).toEqual({ draft: false, deleted: false, archived: false, agent: true })
+    publish(issue({ archived: true, deletedAt: old }))
+    expect(seen.at(-1)).toEqual({ draft: false, deleted: true, archived: true, agent: false })
+    publish({ kind: 'issue', id: 'scope-parent', value: undefined })
+    expect(seen.at(-1)).toBeUndefined()
+    // A new source may reuse every numeric revision from the previous one.
+    source = createColdIndex(SCHEMA)
+    source.apply({ type: 'replace', rows: [issue({ audience: 'agent', isDraftVessel: true })] })
+    pool.apply({ type: 'replace', rows: [] })
+    expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: true })
+  } finally { stop(); pool.dispose() }
+})
+
 it('keeps spawn placement in its declared source subset across reassignment, readmission and rescope', () => {
   const issue = (id: string, patch: object = {}): RowRecord =>
     ({

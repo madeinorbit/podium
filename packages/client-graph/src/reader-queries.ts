@@ -3,7 +3,7 @@ import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
-import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
+import { createReaderIndex, type IssueScopeFacts, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { SessionQuestions } from './shared/session-questions'
@@ -22,6 +22,7 @@ interface IdentityResult {
  * consumers) answers from its own (`MobxPool.coldIndex`). */
 export class ReaderQueries {
   private readonly sessionAtoms = new Map<string, IAtom>()
+  private readonly issueScopeAtoms = new Map<string, { atom: IAtom; bits: number }>()
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: ColdQueries | undefined
   private readonly observed = new Map<
@@ -72,7 +73,7 @@ export class ReaderQueries {
     if (entity === 'session') {
       if (present) this.sessionQuestions().set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
       else this.sessionQuestions().setFacts(id, this.index().sessionQuestionFact(id))
-    }
+    } else this.publishIssueScope(id)
     // Ranked windows do not have an identity answer to publish a delta through.
     for (const [key, state] of this.observed) {
       if (this.identities.has(key) || key.startsWith('count:')) continue
@@ -117,6 +118,32 @@ export class ReaderQueries {
   /** Addressed predicate membership; no identity answer is enumerated. */
   has(question: ReaderQuestion, id: string): boolean {
     return this.includes(question, id)
+  }
+  /** Ancestor scope follows only its four visibility bits, never its title or
+   * other presentation fields. Resident writes shadow the source by address. */
+  issueScope(id: string): IssueScopeFacts | undefined {
+    const value = this.issueScopeValue(id)
+    let state = this.issueScopeAtoms.get(id)
+    if (!state) {
+      const atom = createAtom(`history.issueScope:${id}`, undefined, () => this.issueScopeAtoms.delete(id))
+      if (atom.reportObserved()) this.issueScopeAtoms.set(id, { atom, bits: this.scopeBits(value) })
+    } else state.atom.reportObserved()
+    return value
+  }
+  private issueScopeValue(id: string): IssueScopeFacts | undefined {
+    return this.residentIssueIds.has(id) ? this.residents.issueScope(id) : this.index().issueScope(id)
+  }
+  private scopeBits(value: IssueScopeFacts | undefined): number {
+    return value === undefined ? -1 : Number(value.draft) | (Number(value.deleted) << 1) |
+      (Number(value.archived) << 2) | (Number(value.agent) << 3)
+  }
+  private publishIssueScope(id: string): void {
+    const state = this.issueScopeAtoms.get(id)
+    if (!state) return
+    const bits = this.scopeBits(this.issueScopeValue(id))
+    if (bits === state.bits) return
+    state.bits = bits
+    state.atom.reportChanged()
   }
   private updateIdentity(entity: 'issue' | 'session', id: string): void {
     for (const [key, result] of this.identities) {
@@ -192,7 +219,10 @@ export class ReaderQueries {
         }
         if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
           this.sessionQuestions().setFacts(row.id, index.sessionQuestionFact(row.id))
+        if (row.kind === 'issue') this.publishIssueScope(row.id)
       }
+    if (event.type === 'replace' || fresh)
+      for (const id of this.issueScopeAtoms.keys()) this.publishIssueScope(id)
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
       const result = this.identities.get(key)
@@ -415,6 +445,7 @@ export class ReaderQueries {
     this.memberListeners.clear()
     this.observed.clear()
     this.sessionAtoms.clear()
+    this.issueScopeAtoms.clear()
     this.residentIssueIds.clear()
     this.residents.apply({ type: 'replace', rows: [] })
     this.effectiveSessions?.clear()

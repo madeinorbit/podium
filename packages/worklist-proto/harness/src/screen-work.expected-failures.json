@@ -135,16 +135,6 @@
         }
       },
       {
-        "reader": "consumer:board.explorer/IssueBoard@explorerCounts",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
         "reader": "consumer:board.explorer/IssueBoard@query:{\"kind\":\"explorer\",\"tab\":\"needs\",\"query\":\"\"}",
         "actions": {
           "lane-change": ["elements"]

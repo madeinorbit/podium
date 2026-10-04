@@ -61,6 +61,13 @@ export const questionEntity = (question: ReaderQuestion): 'issue' | 'session' =>
     : 'issue'
 
 type Row = Readonly<Record<string, unknown>>
+/** The fields that decide ancestor visibility, independent of row presentation. */
+export interface IssueScopeFacts {
+  readonly draft: boolean
+  readonly deleted: boolean
+  readonly archived: boolean
+  readonly agent: boolean
+}
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const commandIssueKey = (question: Extract<ReaderQuestion, { kind: 'commandIssueSessions' }>) =>
   `session:commandIssue${question.archived === false ? 'Live' : ''}${question.includeShells ? 'WithShells' : ''}:${question.issueId}`
@@ -76,6 +83,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const recent: { id: string; at: string }[] = []
   const positions = new Map<string, number>()
   const revisions = new Map<string, number>()
+  const issueScopes = new Map<string, number>()
   // Compact source scalars, never pool objects or cached row payloads. One
   // ordered ID array per path keeps empty-query opens bounded by the window.
   // Text questions scan these scalars instead of retaining every row's grams
@@ -195,6 +203,14 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       before = filed.get(address) ?? new Set<string>()
     const after = row ? keys(kind, row) : new Set<string>()
     if (kind === 'issue') {
+      const scope = row
+        ? Number(Boolean(row.isDraftVessel)) | (Number(Boolean(row.deletedAt)) << 1) |
+          (Number(Boolean(row.archived)) << 2) | (Number(row.audience === 'agent') << 3)
+        : undefined
+      if (issueScopes.get(id) !== scope) {
+        if (scope === undefined) issueScopes.delete(id)
+        else issueScopes.set(id, scope)
+      }
       const beforeEligible = before.has('issue:undeleted'),
         afterEligible = after.has('issue:undeleted')
       const facet = (keys: Set<string>, prefix: string) =>
@@ -323,6 +339,13 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     repoPathRevision(path: string): number {
       return Math.max(replacement, revisions.get(`issueRepoPath:${path}`) ?? 0)
     },
+    issueScope(id: string): IssueScopeFacts | undefined {
+      const bits = issueScopes.get(id)
+      return bits === undefined ? undefined : {
+        draft: Boolean(bits & 1), deleted: Boolean(bits & 2),
+        archived: Boolean(bits & 4), agent: Boolean(bits & 8),
+      }
+    },
     revision(question: ReaderQuestion): number {
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
@@ -389,6 +412,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         recent.length = 0
         positions.clear()
         revisions.clear()
+        issueScopes.clear()
         targetDetails.clear()
         targetPostings.clear()
         targetRepos.clear()

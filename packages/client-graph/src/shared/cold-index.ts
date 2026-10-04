@@ -63,7 +63,7 @@ import {
   viaTargetOf,
 } from './schema'
 import type { RowRecord, RowSourceEvent } from './source'
-import { createReaderIndex, type ReaderQuestion } from './reader-questions'
+import { createReaderIndex, type IssueScopeFacts, type ReaderQuestion } from './reader-questions'
 import type { SessionActivityQuestion } from './session-activity'
 import { createSessionQuestions, type MachineSession, type TriageSession, type SessionQuestions, type SessionQuestionFacts } from './session-questions'
 import { createRelationIndex, type RelationDelta, type RelationQueries } from './relation-index'
@@ -96,6 +96,7 @@ export interface ColdQueries {
   readerRevision(question: ReaderQuestion): number
   readonly issueRepoRevision: number
   issueRepoPathRevision(path: string): number
+  issueScope(id: string): IssueScopeFacts | undefined
   readonly sessionRevision: number
   /** Session presence, issue/path membership and resume-collapse changes; not display metadata or heartbeats. */
   readonly sessionTopologyVersion: number
@@ -597,6 +598,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       return readers.repoRevision
     },
     issueRepoPathRevision: path => readers.repoPathRevision(path),
+    issueScope: id => readers.issueScope(id),
     get sessionRevision() {
       return collapseVersion
     },

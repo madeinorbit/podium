@@ -186,15 +186,14 @@ export function createIssueBoardSource(
     let parent = pool.graph.one('issue', id, 'treeParent')
     while (parent && !seen.has(parent)) {
       seen.add(parent)
-      const value = facts(parent)
+      const value = pool.queries.issueScope(parent)
       if (
         !value ||
-        value === LOADING ||
-        (value.isDraftVessel && !value.deletedAt) ||
-        (liveParents && (value.archived || value.deletedAt))
+        (value.draft && !value.deleted) ||
+        (liveParents && (value.archived || value.deleted))
       )
         return false
-      if (value.deletedAt || value.audience !== 'agent') return true
+      if (value.deleted || !value.agent) return true
       parent = pool.graph.one('issue', parent, 'treeParent')
     }
     return false
