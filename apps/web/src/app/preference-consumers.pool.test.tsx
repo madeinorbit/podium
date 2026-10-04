@@ -52,11 +52,11 @@ describe('pool-only preference consumers', () => {
   let container: HTMLDivElement
   let ui: RoutedUiState
   const values = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const publish = (key: string, value: string | null) => {
     if (value === null) values.delete(key)
     else values.set(key, value)
-    for (const wake of listeners) wake()
+    for (const wake of listeners) wake(new Set([key]))
   }
   const paint = (node: ReactNode) => act(() => root.render(node))
   const settle = () =>
@@ -70,7 +70,7 @@ describe('pool-only preference consumers', () => {
     ui = {
       get: vi.fn((key: string) => values.get(key) ?? null),
       set: vi.fn(publish),
-      subscribe: (wake: () => void) => {
+      subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
         listeners.add(wake)
         return () => {
           listeners.delete(wake)

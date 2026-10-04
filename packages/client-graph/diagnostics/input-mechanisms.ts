@@ -5,6 +5,7 @@ import { autorun } from 'mobx'
 import { COMMAND_ENTITIES } from '../src/command-launch-schema'
 import { CommandLaunchSource } from '../src/command-launch-source'
 import { attachHeaderSource } from '../src/header-source'
+import type { HeaderRows } from '../src/header-schema'
 import { attachIssuePageSource } from '../src/issue-page-source'
 import { createMobileSessionSource } from '../src/mobile-session-context'
 import { PreferenceSource } from '../src/preference-source'
@@ -114,7 +115,7 @@ export async function inputMechanisms(scale: 1 | 4) {
     runs[name] = 0
     stops.push(
       autorun(() => {
-        runs[name]++
+        runs[name] = (runs[name] ?? 0) + 1
         read()
       }),
     )
@@ -128,12 +129,12 @@ export async function inputMechanisms(scale: 1 | 4) {
     return row && row !== LOADING ? row.paneA : row
   })
   watch('header.shipping', () => {
-    const row = f.pool.row('window', 'window')
-    return row && row !== LOADING ? row.paneA : row
+    const row = f.pool.row('window', 'window') as HeaderRows['window'] | undefined
+    return row?.paneA
   })
   watch('header.outbox', () => {
-    const row = f.pool.row('window', 'window')
-    return row && row !== LOADING ? row.outboxSize : row
+    const row = f.pool.row('window', 'window') as HeaderRows['window'] | undefined
+    return row?.outboxSize
   })
   watch('command.pane', () => {
     const row = f.pool.row('commandWindow', 'window')

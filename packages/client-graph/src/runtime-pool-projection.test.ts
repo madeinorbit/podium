@@ -49,7 +49,7 @@ it('uses reference equality without reading collection fields at either scale', 
 
 it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
   const f = fixture()
-  const read = vi.fn((pool: MobxPool) => [...pool.selection])
+  const read = vi.fn((pool: MobxPool) => [...pool.selection.keys()])
   const equals = vi.fn((before: string[], next: string[]) => before.join() === next.join())
   const view = createPoolProjection(f.pool, read, { equals })
   const first = view.getSnapshot()

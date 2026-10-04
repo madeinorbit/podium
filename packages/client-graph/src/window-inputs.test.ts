@@ -21,7 +21,7 @@ function observeFields(fields: readonly string[], read: () => unknown) {
   const runs = zero(fields)
   const stops = fields.map((field) =>
     autorun(() => {
-      runs[field]++
+      runs[field] = (runs[field] ?? 0) + 1
       const row = read()
       if (row && row !== LOADING) Reflect.get(row as object, field)
     }),

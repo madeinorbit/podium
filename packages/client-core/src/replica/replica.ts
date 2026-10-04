@@ -1430,7 +1430,7 @@ class TanstackReplica implements Replica {
       },
       subscribe: (cb) => {
         try {
-          const sub = col.subscribeChanges(() => cb())
+          const sub = col.subscribeChanges((changes) => cb(new Set(changes.map((change) => String(change.key)))))
           return () => sub.unsubscribe()
         } catch {
           return () => {}

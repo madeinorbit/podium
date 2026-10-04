@@ -68,7 +68,7 @@ it('publishes only changed layout keys through optimism, queue drain and authori
   controller = createReplicatedLayoutController({
     api: {} as PodiumClientApi,
     outbox,
-    notices: { error: () => {} } as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as StoreNotices,
     seed: { 'sidebar.section.one': 'saved' },
   })
   const changes: string[][] = []

@@ -44,9 +44,9 @@ const serialize = (value: string) => (value === 'default' ? null : value)
 const pools: MobxPool[] = []
 function port() {
   const values = new Map<string, string>()
-  const listeners = new Set<() => void>()
-  const emit = () => {
-    for (const wake of [...listeners]) wake()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
+  const emit = (keys: ReadonlySet<string> = new Set()) => {
+    for (const wake of [...listeners]) wake(keys)
   }
   return {
     values,
@@ -57,9 +57,9 @@ function port() {
     set: vi.fn((key: string, value: string | null) => {
       if (value === null) values.delete(key)
       else values.set(key, value)
-      emit()
+      emit(new Set([key]))
     }),
-    subscribe: (wake: () => void) => {
+    subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
       listeners.add(wake)
       return () => {
         listeners.delete(wake)
@@ -109,7 +109,7 @@ describe('mobile preferences', () => {
     expect(result.current[0]).toBe('optimistic')
     act(() => {
       ui.values.set(VALUE, 'authoritative')
-      ui.emit()
+      ui.emit(new Set([VALUE]))
     })
     await flush()
     expect(result.current[0]).toBe('authoritative')
@@ -128,7 +128,7 @@ describe('mobile preferences', () => {
     const initial = result.current[0]
     act(() => {
       ui.values.set('podium.shell.density', 'compact')
-      ui.emit()
+      ui.emit(new Set(['podium.shell.density']))
     })
     await flush()
     rerender()
@@ -145,7 +145,7 @@ describe('mobile preferences', () => {
     await flush()
     act(() => {
       ui.values.set(FOLD, 'true')
-      ui.emit()
+      ui.emit(new Set([FOLD]))
     })
     await flush()
     expect(result.current[0]).toBe(true)

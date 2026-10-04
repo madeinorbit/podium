@@ -72,14 +72,14 @@ const counts = () =>
 
 it('compares all file modes through declared, batched preference rows, including corrupt and missing maps', async () => {
   const values = new Map<string, string>(),
-    listeners = new Set<() => void>()
+    listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const port = {
     get: (key: string) => values.get(key) ?? null,
     set: (key: string, value: string | null) => {
       value === null ? values.delete(key) : values.set(key, value)
-      for (const wake of listeners) wake()
+      for (const wake of listeners) wake(new Set([key]))
     },
-    subscribe: (wake: () => void) => {
+    subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
       listeners.add(wake)
       return () => {
         listeners.delete(wake)
@@ -88,7 +88,7 @@ it('compares all file modes through declared, batched preference rows, including
     hydrate: async () => {},
     clear: (key: string) => {
       values.delete(key)
-      for (const wake of listeners) wake()
+      for (const wake of listeners) wake(new Set([key]))
     },
   }
   const ui = createRoutedUiState({ local: port, replicated: port }),
