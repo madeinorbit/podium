@@ -148,6 +148,7 @@ function useIssueSearch(
  */
 export function CommandPalette(): JSX.Element {
   const paletteOpen = useCommandPaletteOpen()
+  const data = useCommandPaletteData(paletteOpen)
   const { setPaletteOpen, closeIssue } = useCommandLaunchActions()
   const suppliedSessions = useCommandGuardSessions()
   // These flows outlive the palette (which closes on execute), so they live
@@ -181,6 +182,7 @@ export function CommandPalette(): JSX.Element {
     <>
       {paletteOpen && (
         <PaletteDialog
+          data={data}
           onClose={() => setPaletteOpen(false)}
           onNewIssue={() => setNewIssueOpen(true)}
           onAddRepo={openAddProject}
@@ -224,8 +226,12 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'>): JSX.Element {
-  const data = useCommandPaletteData()
+function PaletteDialog({
+  data,
+  ...props
+}: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'> & {
+  data: ReturnType<typeof useCommandPaletteData>
+}): JSX.Element {
   if (!data || data === LOADING)
     return (
       <Dialog open onOpenChange={(open) => !open && props.onClose()}>

@@ -58,8 +58,10 @@ export function useCommandLaunchActions(): CommandLaunchActions {
 export function useCommandLaunchData(): Loaded<CommandLaunchData> {
   return useWorklistPoolProjection(readLaunch, LOADING)
 }
-export function useCommandPaletteData(): Loaded<CommandLaunchData> {
-  return useWorklistPoolProjection(readPalette, LOADING)
+export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
+  // The shell owns the visited palette's lazy graph. Closing its dialog pauses
+  // reads without discarding every issue summary; opening catches up once.
+  return useWorklistPoolProjection(readPalette, LOADING, active, true)
 }
 export function useCommandPaletteOpen() {
   return useWorklistPoolProjection(readOpen, false)
