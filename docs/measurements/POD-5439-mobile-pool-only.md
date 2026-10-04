@@ -197,7 +197,7 @@ until approximately03:48Z while POD-5430 runs its final4x meter. The newer03:31
 stable-meter notice and POD-5430's explicit03:33 completion supersede that hold.
 No timing is started under another session's lease.
 
-The latest filtered mobile/e2e compiler is green after the mission dependency
+The mission-rebased filtered mobile/e2e compiler is green after the dependency
 rebase at source `935646f2a6`, flatblock WIP
 `ff4703196399dc553d8a502c364c738fb8f506e6`, tree
 `cd608e7116c031f4878b081cd04e10b50249ef14`.
@@ -207,6 +207,23 @@ and303 procedure contracts are generated. The bench owner has its overlap
 bounds. No new run starts at the high end load. The generated API declaration
 has only property/union/procedure ordering changes; that diff is retained and
 the generator output is restored to the candidate's tracked bytes.
+
+The final compiler after the settled phone proof is green on source
+`7a1f2b0b14`, flatblock WIP `892dd7782f0ac6ba814b7957f971ffc1cc083ca1`,
+tree `32b81676bc5db66ec586cd6ad50c4d7c1d3ac089`,
+UTC04:11:46.652–04:12:18.805Z, load7.50→11.05. All16 tasks succeed,
+including8 trusted cache hits;216 runtime imports and303 procedure contracts
+are checked. The real root wrapper fixes compiler concurrency at1. No cache
+bypass is used. The capture owner POD-5421 receives these exact bounds.
+The two changed files since the earlier lint (the empty-deck compatibility
+and the production proof) pass focused Biome at WIP
+`971c597fa2564c8b2c1e6e9af706dd13890e32ec`, the same tree,
+UTC04:14:36.593–04:14:36.919Z, load6.79. No fixes are applied.
+
+At04:11:11Z the fresh process audit finds POD-5433's
+`work-per-change.test.tsx` meter still running. This lane does not start its
+meter beside it; completion is requested so the required run can be staggered.
+POD-5421 holds `bench:flatblock` from04:04:04Z, so this lane's timing is held.
 
 The preceding filtered mobile/e2e compiler is green at source`52b7940f9f`,
 flatblock WIP`e2bd21033e20dc5d99e80cc6c2453f333d215f29`,
