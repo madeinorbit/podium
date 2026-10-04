@@ -437,6 +437,7 @@ try {
             dom: null,
             twoRaf: false,
             twoRafAt: 0,
+            rowSelectionRecovery: false,
             events: [],
             mutations: [],
           })
@@ -476,9 +477,36 @@ try {
       if (issuePageAction) await row.click({ timeout: 60_000 })
       else if (trigger.startsWith('[data-speed-issue')) await row.click({ timeout: 60_000 })
       else await row.locator('button[data-pressable]').first().click({ timeout: 60_000 })
-      await page.waitForFunction(() => (window as any).__speedCapture.twoRaf, null, {
-        timeout: 60_000,
-      })
+      await page.waitForFunction(
+        () => {
+          const state = (window as any).__speedCapture
+          const trace = (window as any).__podiumSwitchTraces?.recent().at(-1)
+          // A sub-issue activates its mission root. Its own row stays unselected;
+          // the correlated new trace and actual pane mutation prove activation.
+          if (
+            state.dom === null &&
+            !state.pageAction &&
+            state.lastContentDom > state.input &&
+            trace?.issueId === state.target &&
+            trace.switchId !== state.previousTrace
+          ) {
+            state.dom = state.lastContentDom
+            state.rowSelectionRecovery = true
+            performance.mark('speed:dom', { startTime: state.dom })
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                state.twoRaf = true
+                state.twoRafAt = performance.now()
+              }),
+            )
+          }
+          return state.twoRaf
+        },
+        null,
+        {
+          timeout: 60_000,
+        },
+      )
       await page.waitForFunction(
         () => {
           const state = (window as any).__speedCapture
@@ -627,6 +655,7 @@ try {
           : null,
         confirmed: state.boundary.confirmed,
         nativeOnlyRecovery: Boolean(state.boundary.nativeOnlyRecovery),
+        rowSelectionRecovery: Boolean(state.boundary.rowSelectionRecovery),
         traceTimedOut:
           !issuePageAction && state.traces?.[0]?.issueId === item.id
             ? state.traces[0].timedOut
