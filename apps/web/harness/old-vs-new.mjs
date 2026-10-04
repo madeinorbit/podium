@@ -49,6 +49,7 @@ writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./bro
 const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
+  sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
@@ -218,6 +219,10 @@ async function makePage() {
   const context=await browser.newContext(surface==='phone'? {...devices['Pixel 7'],serviceWorkers:'block'}:{viewport:{width:1800,height:1000},reducedMotion:'reduce',serviceWorkers:'block'})
   await bindContext(context)
   const page=await context.newPage(); page.setDefaultTimeout(60000)
+  // A newly spawned cross-site renderer can join global tracing after its
+  // earliest initialization mark. Arm it on a neutral same-origin response;
+  // the app's assets, storage and code remain untouched before cold navigation.
+  await page.goto(`${base}/health`,{waitUntil:'domcontentloaded',timeout:120000})
   page.on('pageerror',error=>result.errors.push(error.message))
   page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
   await page.addInitScript(({now})=>{
