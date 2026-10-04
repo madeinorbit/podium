@@ -1,11 +1,29 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueStatusPicker } from './IssueStatusPicker'
 
+const roots = vi.hoisted(() => ({ mounts: 0, live: 0 }))
+vi.mock('@/components/ui/dropdown-menu', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/dropdown-menu')>()
+  const { useEffect } = await import('react')
+  return {
+    ...actual,
+    DropdownMenu(props: Parameters<typeof actual.DropdownMenu>[0]) {
+      useEffect(() => {
+        roots.mounts++
+        roots.live++
+        return () => { roots.live-- }
+      }, [])
+      return <actual.DropdownMenu {...props} />
+    },
+  }
+})
+
 afterEach(cleanup)
+beforeEach(() => { roots.mounts = 0; roots.live = 0 })
 
 /** The picker as every list mounts it: inside the row's own button. */
 function Row({
@@ -28,6 +46,68 @@ function Row({
 }
 
 describe('IssueStatusPicker', () => {
+  it('mounts zero menus for 337 rows, then only the intended menu across row updates', () => {
+    const onPick = vi.fn()
+    const onRowClick = vi.fn()
+    const rows = (stage: 'backlog' | 'in_progress') => Array.from({ length: 337 }, (_, id) => (
+      <Row key={id} stage={stage} onPick={onPick} onRowClick={onRowClick} />
+    ))
+    const view = render(<>{rows('backlog')}</>)
+    expect(roots.mounts).toBe(0)
+    expect(roots.live).toBe(0)
+    const trigger = screen.getAllByTestId('issue-status-picker')[12]!
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.pointerEnter(trigger)
+    expect(roots.mounts).toBe(1)
+    expect(screen.queryByRole('menu')).toBeNull()
+    view.rerender(<>{rows('in_progress')}</>)
+    expect(roots.mounts).toBe(1)
+    expect(roots.live).toBe(1)
+  })
+
+  it('keeps keyboard focus on the trigger when first focus mounts its menu', async () => {
+    const onRowClick = vi.fn()
+    render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
+    const cold = screen.getByLabelText('Status: Backlog')
+    act(() => cold.focus())
+    const trigger = screen.getByLabelText('Status: Backlog')
+    expect(document.activeElement).toBe(trigger)
+    expect(roots.mounts).toBe(1)
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(await screen.findByRole('menuitem', { name: 'Backlog' })).toBeTruthy()
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it('opens on a first pointerdown without hover or row activation', async () => {
+    const onRowClick = vi.fn()
+    render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
+    const cold = screen.getByLabelText('Status: Backlog')
+    const owner = cold.parentElement!
+    fireEvent.pointerDown(cold, { button: 0, pointerType: 'touch' })
+    expect(await screen.findByRole('menu')).toBeTruthy()
+    // Down and up straddle the trigger replacement, so the browser's click
+    // lands on their stable common ancestor rather than the old span.
+    fireEvent.click(owner)
+    expect(screen.getByRole('menu')).toBeTruthy()
+    expect(roots.mounts).toBe(1)
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it.each(['Enter', 'ArrowDown', 'ArrowUp', ' '])('handles a first %s key without prior focus', async (key) => {
+    const onRowClick = vi.fn()
+    render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
+    fireEvent.keyDown(screen.getByLabelText('Status: Backlog'), { key })
+    if (key === ' ') fireEvent.keyUp(screen.getByLabelText('Status: Backlog'), { key })
+    expect(await screen.findByRole('menu')).toBeTruthy()
+    expect(roots.mounts).toBe(1)
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
   it('moves a lane without opening the row it sits in', async () => {
     const onPick = vi.fn()
     const onRowClick = vi.fn()
@@ -87,5 +167,6 @@ describe('IssueStatusPicker', () => {
     render(<Row stage="shipping" onPick={vi.fn()} onRowClick={vi.fn()} />)
     expect(screen.queryByTestId('issue-status-picker')).toBeNull()
     expect(screen.getByLabelText('Shipping')).toBeTruthy()
+    expect(roots.mounts).toBe(0)
   })
 })
