@@ -95,6 +95,8 @@ export interface ColdQueries {
   readerRevision(question: ReaderQuestion): number
   readonly issueRepoRevision: number
   readonly sessionRevision: number
+  /** Session presence, issue/path membership and resume-collapse changes; not display metadata or heartbeats. */
+  readonly sessionTopologyVersion: number
   readerIds(question: ReaderQuestion): string[]
   /** Membership of one changed identity, without reconstructing the answer. */
   readerContains(question: ReaderQuestion, id: string): boolean
@@ -198,6 +200,9 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   const readers = createReaderIndex()
   const relations = createRelationIndex(schema)
   let collapseVersion = 0
+  let sessionTopologyVersion = 0
+  let topologyMoved = false
+  const navigationPath = schema.session.relations.worktree?.kind === 'prefix'
   const noDelta: RelationDelta = { forwards: [], buckets: [], subsets: [], flips: [], orders: [], roots: [] }
   let delta = noDelta
   /** The publication `delta` belongs to. */
@@ -447,6 +452,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     const held = rules.get(entity)
     const previous = held?.get(record.id)
     const existed = previous !== undefined || roots?.has(record.id) === true
+    const previousPath = entity === 'session' && navigationPath
+      ? relations.prefixPath('session', record.id, 'worktree') : null
     if (roots !== undefined) {
       if (row === undefined) roots.delete(record.id)
       else roots.add(record.id)
@@ -468,6 +475,10 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       }
     }
     relations.changed(entity, record.id, existed, row)
+    if (entity === 'session' && (
+      existed !== (row !== undefined) || previous?.issueId !== row?.issueId ||
+      (navigationPath && previousPath !== relations.prefixPath('session', record.id, 'worktree'))
+    )) topologyMoved = true
     setMember(entity, record.id, row)
     setVia(entity, record.id, row, previous)
     mark(entity, record.id)
@@ -570,6 +581,9 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     get sessionRevision() {
       return collapseVersion
     },
+    get sessionTopologyVersion() {
+      return sessionTopologyVersion
+    },
     readerIds: (question) => readers.ids(question),
     readerContains: (question, id) => readers.contains(question, id),
     issueRepoIds: (path) => readers.repoIds(path),
@@ -635,6 +649,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     },
     apply(event) {
       version += 1
+      topologyMoved = event.type === 'replace'
       if (event.type === 'replace') {
         clear()
         activity.clear()
@@ -655,6 +670,9 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       for (const record of event.rows) ingest(record)
       delta = relations.flush()
       deltaOf = event
+      if (topologyMoved || delta.forwards.some(([key]) => key.startsWith('session.')) ||
+        delta.flips.some(([entity]) => entity === 'session') ||
+        delta.orders.some(([entity]) => entity === 'session')) sessionTopologyVersion++
       // A lane subset that gained or lost a member moves its owners' deadlines.
       for (const [key, target] of delta.subsets) {
         for (const lane of lanes) {

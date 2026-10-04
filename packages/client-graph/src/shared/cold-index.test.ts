@@ -74,14 +74,19 @@ describe('cold index (POD-5405)', () => {
     f.put('session', 's1', runningSession('s1', { cwd: '/unscanned/old/', headless: true }))
     expect(f.index.relations.forward('session', 's1', 'worktree')).toBeNull()
     expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/unscanned/old')
+    const version = f.index.sessionTopologyVersion
+    f.put('session', 's1', runningSession('s1', { cwd: '/unscanned/old/', headless: true, title: 'Rename', lastActiveAt: iso(T0 + 1) }))
+    expect(f.index.sessionTopologyVersion).toBe(version)
     f.put('session', 's1', runningSession('s1', { cwd: '/unscanned/new', headless: true }))
     expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/unscanned/new')
+    expect(f.index.sessionTopologyVersion).toBe(version + 1)
     f.put('session', 's1', undefined)
     expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBeNull()
     f.put('session', 's1', runningSession('s1', { cwd: '/readmitted' }))
     expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/readmitted')
     f.index.apply({ type: 'replace', rows: [] })
     expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBeNull()
+    expect(f.index.sessionTopologyVersion).toBe(version + 4)
   })
 
   it('follows member keeps and their decay with the clock', () => {

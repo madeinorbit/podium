@@ -13,36 +13,16 @@ import { LOADING } from './worklist/rollup'
 /** An addressed read port over the existing principal's pool. Row reads use
  * its single loading reader; mission invalidation belongs to the pool cache. */
 export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider {
-  const signatures = new Map<string, string>()
-  const signature = (id: string): string | undefined => {
-    const index = pool.coldIndex()
-    const row = index.heldFields('session', id, ['issueId'])
-    if (!row) return undefined
-    return JSON.stringify([index.relations.prefixPath('session', id, 'worktree'),
-      row.issueId, index.sessionCollapsed(id)])
-  }
-  // Topology follows source metadata, not a reaction over every pool row.
-  // These scalars already belong to the cold index and allocate no row facets.
-  for (const id of pool.coldIndex().readerIds({ kind: 'shellSessions' })) {
-    const value = signature(id)
-    if (value !== undefined) signatures.set(id, value)
-  }
   const provider: NavigationProvider = {
     onTopology(changed) {
+      // The source owns these facts once. Following its revision needs no
+      // history scan, row facets or second per-session metadata map.
+      let index = pool.coldIndex(), version = index.sessionTopologyVersion
       return pool.queries.onChange(event => {
-        const delta = pool.coldIndex().changes(event)
-        let moved = event.type === 'replace' ||
-          delta.forwards.some(([relation]) => relation.startsWith('session.')) ||
-          delta.flips.some(([entity]) => entity === 'session') ||
-          delta.orders.some(([entity]) => entity === 'session')
-        if (event.type === 'replace') signatures.clear()
-        for (const row of event.rows) {
-          if (row.kind !== 'session') continue
-          const value = signature(row.id)
-          if (signatures.get(row.id) !== value) moved = true
-          if (value === undefined) signatures.delete(row.id)
-          else signatures.set(row.id, value)
-        }
+        const next = pool.coldIndex(), revision = next.sessionTopologyVersion
+        const moved = event.type === 'replace' || next !== index || revision !== version
+        index = next
+        version = revision
         if (moved) changed()
       })
     },
