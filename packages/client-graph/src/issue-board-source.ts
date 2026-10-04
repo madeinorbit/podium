@@ -8,17 +8,17 @@ import {
   flattenRowGroups,
   groupIssuesByStage,
   issueIsActionable,
-  sessionPresentOnTask,
-  sessionNeedsHuman,
   issueRowsByStage,
   partitionIssueTree,
+  sessionNeedsHuman,
+  sessionPresentOnTask,
 } from '@podium/client-core/values'
 import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
   _isComputingDerivation,
-  createAtom,
   compareStructural,
   computed,
+  createAtom,
   type IComputedValue,
   observable,
   observe,
@@ -381,85 +381,91 @@ export function createIssueBoardSource(
     return query.tab === 'needs' ? actionable(row) : tabOf(row) === query.tab
   }
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
-    return memo(`query:${JSON.stringify(query)}`, () => indexed(() => {
-      countIssueBoard('queries')
-      const ids: string[] = []
-      let pending = false
-      for (const id of candidates(query)) {
-        const row = facts(id)
-        if (row === LOADING) pending = true
-        else if (row && matches(row, query)) ids.push(id)
-      }
-      const start = performance.now()
-      const cold = pool.queries
-        .ids({
-          kind: 'boardIssues',
-          ...query.filter,
-          ...(query.kind === 'explorer'
-            ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() }
-            : {}),
-        })
-        .filter((id) => !pool.tables.issue.has(id))
-      for (const id of cold) {
-        // Stage, priority, path and ordinary status filters read only their
-        // declared scalar inputs. Build text/ready/deferred values on demand.
-        const f = query.filter
-        const scalarBoard =
-          query.kind === 'board' &&
-          !f?.text?.trim() &&
-          f?.status !== 'ready' &&
-          f?.status !== 'deferred'
-        const scalarExplorer =
-          query.kind === 'explorer' && !query.query?.trim() && query.tab !== 'needs'
-        const row =
-          scalarBoard || scalarExplorer
-            ? (pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>)
-            : facts(id)
-        if (row === LOADING) pending = true
-        else if (row && matches(row, query, id)) ids.push(id)
-      }
-      countIssueBoard('coldSummaryVisits', cold.length)
-      countIssueBoard('coldSummaryMs', performance.now() - start)
-      countIssueBoard('matchedIds', ids.length)
-      return pending ? LOADING : { ids: [...new Set(ids)].sort(byId) }
-    }))
+    return memo(`query:${JSON.stringify(query)}`, () =>
+      indexed(() => {
+        countIssueBoard('queries')
+        const ids: string[] = []
+        let pending = false
+        for (const id of candidates(query)) {
+          const row = facts(id)
+          if (row === LOADING) pending = true
+          else if (row && matches(row, query)) ids.push(id)
+        }
+        const start = performance.now()
+        const cold = pool.queries
+          .ids({
+            kind: 'boardIssues',
+            ...query.filter,
+            ...(query.kind === 'explorer'
+              ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() }
+              : {}),
+          })
+          .filter((id) => !pool.tables.issue.has(id))
+        for (const id of cold) {
+          // Stage, priority, path and ordinary status filters read only their
+          // declared scalar inputs. Build text/ready/deferred values on demand.
+          const f = query.filter
+          const scalarBoard =
+            query.kind === 'board' &&
+            !f?.text?.trim() &&
+            f?.status !== 'ready' &&
+            f?.status !== 'deferred'
+          const scalarExplorer =
+            query.kind === 'explorer' && !query.query?.trim() && query.tab !== 'needs'
+          const row =
+            scalarBoard || scalarExplorer
+              ? (pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>)
+              : facts(id)
+          if (row === LOADING) pending = true
+          else if (row && matches(row, query, id)) ids.push(id)
+        }
+        countIssueBoard('coldSummaryVisits', cold.length)
+        countIssueBoard('coldSummaryMs', performance.now() - start)
+        countIssueBoard('matchedIds', ids.length)
+        return pending ? LOADING : { ids: [...new Set(ids)].sort(byId) }
+      }),
+    )
   }
   function catalog(agents: boolean): Loaded<BoardCatalog> {
-    return memo(`catalog:${agents}`, () => indexed(() => {
-      const scope: string[] = [],
-        paths = new Set<string>(),
-        assignees = new Set<string>(),
-        labels = new Set<string>()
-      const visit = (id: string) => {
-        const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
-        if (row === LOADING) return false
-        if (!row) return true
-        if (row.repoPath) paths.add(row.repoPath)
-        if (!row.archived && !row.deletedAt && scoped(row, agents, true, id)) {
-          scope.push(id)
-          if (row.assignee) assignees.add(row.assignee)
-          for (const label of row.labels) labels.add(label)
-        }
-        return true
-      }
-      let pending = false
-      for (const id of bucket('all')) if (!visit(id)) pending = true
-      const start = performance.now(),
-        cold = pool.queries.ids({ kind: 'boardCatalog' }).filter((id) => !pool.tables.issue.has(id))
-      for (const id of cold) if (!visit(id)) pending = true
-      countIssueBoard('catalogColdVisits', cold.length)
-      countIssueBoard('catalogColdMs', performance.now() - start)
-      return pending
-        ? LOADING
-        : {
-            scope: scope.sort(byId),
-            assignees: [...assignees].sort(),
-            labels: [...labels].sort(),
-            projectPaths: [...paths].sort((a, b) =>
-              (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
-            ),
+    return memo(`catalog:${agents}`, () =>
+      indexed(() => {
+        const scope: string[] = [],
+          paths = new Set<string>(),
+          assignees = new Set<string>(),
+          labels = new Set<string>()
+        const visit = (id: string) => {
+          const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+          if (row === LOADING) return false
+          if (!row) return true
+          if (row.repoPath) paths.add(row.repoPath)
+          if (!row.archived && !row.deletedAt && scoped(row, agents, true, id)) {
+            scope.push(id)
+            if (row.assignee) assignees.add(row.assignee)
+            for (const label of row.labels) labels.add(label)
           }
-    }))
+          return true
+        }
+        let pending = false
+        for (const id of bucket('all')) if (!visit(id)) pending = true
+        const start = performance.now(),
+          cold = pool.queries
+            .ids({ kind: 'boardCatalog' })
+            .filter((id) => !pool.tables.issue.has(id))
+        for (const id of cold) if (!visit(id)) pending = true
+        countIssueBoard('catalogColdVisits', cold.length)
+        countIssueBoard('catalogColdMs', performance.now() - start)
+        return pending
+          ? LOADING
+          : {
+              scope: scope.sort(byId),
+              assignees: [...assignees].sort(),
+              labels: [...labels].sort(),
+              projectPaths: [...paths].sort((a, b) =>
+                (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+              ),
+            }
+      }),
+    )
   }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`row:${id}`, () => {

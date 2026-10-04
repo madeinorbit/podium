@@ -25,11 +25,11 @@ const row = (id: string, overrides: object = {}) => ({
 })
 function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' })]) {
   const load = vi.fn((_entity: string, id: string) => rows.find((row) => row.id === id))
-  const pool = new MobxPool(
-    { selectedIssueId: null, coarseNow: now },
-    undefined,
-    { load, summaries: ISSUE_BOARD_SUMMARIES, schedule: () => () => {} },
-  )
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    load,
+    summaries: ISSUE_BOARD_SUMMARIES,
+    schedule: () => () => {},
+  })
   pool.apply({
     type: 'replace',
     rows: rows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
@@ -44,10 +44,15 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     paint: (id: string, patch: object) =>
       pool.apply({
         type: 'update',
-        rows: [{ kind: 'issue', id, value: { ...rows.find((r) => r.id === id), ...patch } as never }],
+        rows: [
+          { kind: 'issue', id, value: { ...rows.find((r) => r.id === id), ...patch } as never },
+        ],
       }),
     rebase: (id: string) =>
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: rows.find((r) => r.id === id) as never }] }),
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id, value: rows.find((r) => r.id === id) as never }],
+      }),
     stop: () => {
       source.dispose()
       pool.dispose()
@@ -55,7 +60,9 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
   }
 }
 it('indexes residents only while a board or catalogue reader observes them', () => {
-  const rows = Array.from({ length: 512 }, (_, index) => row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }))
+  const rows = Array.from({ length: 512 }, (_, index) =>
+    row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }),
+  )
   const { source, pool, paint, stop } = setup(rows)
   let closeBoard = () => {}
   let closeCatalog = () => {}
@@ -68,7 +75,9 @@ it('indexes residents only while a board or catalogue reader observes them', () 
     expect(source.stats().residentRows).toBe(pool.tables.issue.size)
     closeCatalog = autorun(() => source.catalog(false))
     // An imperative snapshot must not release the index of an open surface.
-    expect(source.queryIds({ kind: 'board', filter: { priority: 1 } })).toEqual({ ids: ['resident-0'] })
+    expect(source.queryIds({ kind: 'board', filter: { priority: 1 } })).toEqual({
+      ids: ['resident-0'],
+    })
     expect(source.stats().residentRows).toBe(512)
     closeBoard()
     expect(source.stats().residentRows).toBe(512)
@@ -77,7 +86,9 @@ it('indexes residents only while a board or catalogue reader observes them', () 
     expect(source.stats().demandKeys).toBe(0)
     paint('resident-1', { title: 'Freshly renamed while closed' })
     expect(source.stats().residentRows).toBe(0)
-    expect(source.queryIds({ kind: 'board', filter: { text: 'Freshly renamed' } })).toEqual({ ids: ['resident-1'] })
+    expect(source.queryIds({ kind: 'board', filter: { text: 'Freshly renamed' } })).toEqual({
+      ids: ['resident-1'],
+    })
     expect(source.stats().residentRows).toBe(0)
   } finally {
     closeBoard()
