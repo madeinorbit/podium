@@ -7,8 +7,9 @@ import {
   issueStatusOf,
   issueStatusValueOf,
 } from '@podium/model/browser'
+import { mergeProps } from '@base-ui/react/merge-props'
 import { Check } from 'lucide-react'
-import { Fragment, type JSX, useId, useLayoutEffect, useRef, useState } from 'react'
+import { cloneElement, Fragment, type JSX, useId, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   DropdownMenu,
@@ -196,8 +197,20 @@ export function IssueStatusPicker({
       }}
     >
       {ready ? (
-        <DropdownMenu defaultOpen={initiallyOpen} defaultTriggerId={triggerId}>
-          <DropdownMenuTrigger nativeButton={false} id={triggerId} render={trigger} />
+        <DropdownMenu
+          defaultOpen={initiallyOpen}
+          defaultTriggerId={initiallyOpen ? triggerId : undefined}
+        >
+          <DropdownMenuTrigger
+            nativeButton={false}
+            id={triggerId}
+            ref={triggerRef}
+            render={(props, state) => cloneElement(trigger, {
+              ...mergeProps(props, trigger.props),
+              ref: props.ref,
+              'aria-expanded': state.open,
+            })}
+          />
           {/* The same list, the same order, the same rules as the dock and the
           right-click menu — `issueStatusMenuEntries()` is the single place that
           decides them (POD-1074). Narrow: the words are short, and a picker

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueStatusPicker } from './IssueStatusPicker'
@@ -85,7 +85,9 @@ describe('IssueStatusPicker', () => {
 
     fireEvent.keyDown(trigger, { key: 'Enter' })
     expect(await screen.findByRole('menuitem', { name: 'Backlog' })).toBeTruthy()
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    await waitFor(() => {
+      expect(screen.getByLabelText('Status: Backlog').getAttribute('aria-expanded')).toBe('true')
+    })
     expect(onRowClick).not.toHaveBeenCalled()
   })
 
