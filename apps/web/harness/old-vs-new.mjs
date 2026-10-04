@@ -29,8 +29,12 @@ for(const session of corpus.sessions) {
     seen.add(id);descendantSessionCounts.set(id,(descendantSessionCounts.get(id)??0)+1);id=issuesById.get(id).parentId
   }
 }
-const largeMissionTargets=corpus.issues.filter(issue=>!issue.parentId && !issue.closedAt && !issue.archived && issue.stage!=='draft')
-  .sort((a,b)=>(descendantSessionCounts.get(b.id)??0)-(descendantSessionCounts.get(a.id)??0)).slice(0,2)
+const rankedCorpusRoots=corpus.issues.filter(issue=>!issue.parentId && !issue.closedAt && !issue.archived && issue.stage!=='draft')
+  .sort((a,b)=>(descendantSessionCounts.get(b.id)??0)-(descendantSessionCounts.get(a.id)??0))
+// Keep the folding target stable while excluding unavailable missions: deferred
+// and tucked roots are intentionally absent from the Work sidebar.
+const groupCorpusRepoId=rankedCorpusRoots[0].repoId
+const largeMissionTargets=rankedCorpusRoots.filter(issue=>!issue.tuckedAt && (!issue.deferUntil || Date.parse(issue.deferUntil)<=corpus.fixedNow)).slice(0,2)
 if(controlOnly && mode!=='probe')throw Error('Control-only is diagnostic, never performance evidence')
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const dirtyProduct = execFileSync('git', ['status', '--porcelain', '--', 'apps/web/src', 'apps/mobile/src', 'apps/mobile/app', 'packages'], { encoding:'utf8' }).trim()
@@ -402,7 +406,7 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-group-fold',async()=>{
-      const ids=corpus.issues.filter(issue=>issue.repoId===largeMissionTargets[0].repoId).map(issue=>issue.id)
+      const ids=corpus.issues.filter(issue=>issue.repoId===groupCorpusRepoId).map(issue=>issue.id)
       const target=await page.evaluate(ids=>{
         const wanted=new Set(ids),groups=[...document.querySelectorAll('aside [data-testid="project-group"]')]
         for(let index=0;index<groups.length;index++) {
