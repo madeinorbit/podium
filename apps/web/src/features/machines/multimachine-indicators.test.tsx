@@ -34,11 +34,13 @@ const reclaimInventory = vi.fn(async () => ({
 }))
 const quotaSummary = vi.fn()
 let maxIdleSessions = 8
+let hibernationEnabled = false
+let hibernationMemoryPct = 80
 let sessions: SessionMeta[] = []
 const settingsGet = vi.fn(async () => ({
   hibernation: {
-    enabled: false,
-    memoryPct: 80,
+    enabled: hibernationEnabled,
+    memoryPct: hibernationMemoryPct,
     idleMinutes: 30,
     loadPerCore: 1.5,
     maxIdleSessions,
@@ -179,6 +181,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   resetPolledQueryCache()
   maxIdleSessions = 8
+  hibernationEnabled = false
+  hibernationMemoryPct = 80
   sessions = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
   quotaSummary.mockResolvedValue([])
@@ -224,6 +228,8 @@ describe('memory chip is machine-aware', () => {
   })
 
   it('keeps memory process labels for addressed sessions and unknown ids', async () => {
+    hibernationEnabled = true
+    hibernationMemoryPct = 30
     sessions = [
       agentSession('known-session', 'working'),
       { ...agentSession('parked-session', 'idle'), status: 'hibernated' },
@@ -240,7 +246,7 @@ describe('memory chip is machine-aware', () => {
     expect(await screen.findByText('Codex — known-session')).toBeTruthy()
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
-    expect(screen.getByText(/1 hibernated/)).toBeTruthy()
+    expect(await screen.findByText(/1 hibernated/)).toBeTruthy()
   })
 })
 
