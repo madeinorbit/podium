@@ -4,7 +4,6 @@ import collections
 import hashlib
 import json
 import pathlib
-import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--new-sha', required=True)
@@ -13,7 +12,7 @@ parser.add_argument('--home', type=pathlib.Path, default=pathlib.Path.home())
 args = parser.parse_args()
 checkouts = {arm: args.home / f'podium-test-5501-{arm}' for arm in ['old', 'new']}
 expected_sha = {'old': '5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb', 'new': args.new_sha, 'new-deleted': args.deleted_sha}
-web = set('sidebar-select sidebar-collapse sidebar-expand sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
+web = set('sidebar-select sidebar-collapse sidebar-expand sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch large-mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
 phone = set('phone-issue-screen phone-work-screen phone-mission-open phone-long-press phone-mission-details phone-composer-typing phone-issue-open phone-issue-picker-search phone-issue-rename phone-work-search'.split())
 errors = []
 counts = collections.Counter()
@@ -79,6 +78,8 @@ for checkout_arm, checkout in checkouts.items():
         require(run.get('outputDeliveryWitness') is True, 'visible terminal delivery not verified')
         require(run['idle']['seconds'] >= 60, 'connected-idle window too short')
         require(run['idle']['delivered'] == {'heartbeat': 30, 'issueChange': 10, 'sessionOutput': 120}, 'live replay count mismatch')
+        require(run['idleProfiles']['observed']['seconds'] >= 60, 'historical-rate idle window too short')
+        require(run['idleProfiles']['observed']['delivered'] == {'heartbeat':12,'issueChange':6,'machine':16,'conversation':28,'hostMetrics':36,'draft':2,'sessionOutput':0}, 'historical-rate replay count mismatch')
         for row in run['background']:
             require(row['taskMs'] >= 0 and (file.parent / row['trace']).is_file(), 'update CPU/evidence missing')
             evidence_count += 1

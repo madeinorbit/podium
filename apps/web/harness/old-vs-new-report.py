@@ -26,7 +26,7 @@ valid_keys={(run['arm'],run['surface'],run['scale'],run['round'],run['sha']) for
 q=lambda values,p: sorted(values)[max(0,math.ceil(len(values)*p)-1)]
 fmt=lambda value: '—' if value is None else f'{value:,.1f}'
 percent=lambda value:'—' if value is None else fmt(value)+'%'
-change=lambda old,new: (new/old-1)*100 if old is not None and new is not None and old else None
+percent_change=lambda old,new: (new/old-1)*100 if old is not None and new is not None and old else None
 cells=collections.defaultdict(list)
 for run in valid:
     if run['mode']!='timing':continue
@@ -61,15 +61,18 @@ idle_comparisons=[];heap_comparisons=[]
 for new in new_arms:
     for surface,scale in sorted({(r['surface'],r['scale']) for r in valid}):
         a=paired[(surface,scale,'old',new)];b=paired[(surface,scale,new,new)]
-        idle_stat=lambda rows: statistics.median(row['idle']['taskMs']/row['idle']['seconds']/10 for row in rows if row.get('idle')) if any(row.get('idle') for row in rows) else None
-        old_idle,new_idle=idle_stat(a),idle_stat(b)
-        if old_idle is not None or new_idle is not None:
-            idle_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'oldPercentOneCore':old_idle,'newPercentOneCore':new_idle,'changePercent':change(old_idle,new_idle)})
+        for profile in ['observed','busy']:
+            idle_values=lambda rows:[window['taskMs']/window['seconds']/10 for row in rows if (window:=row.get('idleProfiles',{}).get(profile,row.get('idle') if profile=='busy' else None))]
+            old_values,new_values=idle_values(a),idle_values(b)
+            old_idle=statistics.median(old_values) if old_values else None
+            new_idle=statistics.median(new_values) if new_values else None
+            if old_idle is not None or new_idle is not None:
+                idle_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'profile':profile,'oldN':len(old_values),'newN':len(new_values),'oldPercentOneCore':old_idle,'newPercentOneCore':new_idle,'changePercent':percent_change(old_idle,new_idle)})
         heap_stat=lambda rows,key: statistics.median(row[key]['usedSize']/1048576 for row in rows if row.get(key)) if any(row.get(key) for row in rows) else None
         old_start,new_start=heap_stat(a,'heapStartup'),heap_stat(b,'heapStartup')
         old_end,new_end=heap_stat(a,'heapFiveMinutes'),heap_stat(b,'heapFiveMinutes')
         if old_start is not None or new_start is not None:
-            heap_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'oldStartupMiB':old_start,'newStartupMiB':new_start,'startupChangePercent':change(old_start,new_start),'oldFiveMinuteMiB':old_end,'newFiveMinuteMiB':new_end,'fiveMinuteChangePercent':change(old_end,new_end)})
+            heap_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'oldStartupMiB':old_start,'newStartupMiB':new_start,'startupChangePercent':percent_change(old_start,new_start),'oldFiveMinuteMiB':old_end,'newFiveMinuteMiB':new_end,'fiveMinuteChangePercent':percent_change(old_end,new_end)})
 summary.update(idleComparisons=idle_comparisons,heapComparisons=heap_comparisons)
 pathlib.Path('docs/measurements/POD-4286-old-vs-new/results.json').write_text(json.dumps(summary,indent=2)+'\n')
 lines=['# OLD versus NEW whole-app measurements','','SUMMARY_PENDING','','## Compared applications','']
@@ -83,7 +86,7 @@ for item in metrics:
 lines.extend(['','## Main-thread work per action','','Main-thread CPU uses Chromium trace thread timestamps (tts/tdur), from the trusted input handler to the qualifying Paint end. It excludes OS descheduling; click latency includes the event queue and waiting. Startup CPU starts at the initialization script, slightly after navigation begins. Layout CPU is the union of Layout and UpdateLayoutTree thread durations in that interval and overlaps total CPU. Task busy wall time and wider CDP polling-window deltas remain in raw data. Source-map profiles separately estimate store/derive and React work; never add overlapping categories. [Chromium performance-agent implementation](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/inspector/inspector_performance_agent.cc).','','| Surface | Scale | Action | NEW arm | OLD CPU median | NEW CPU median | Median change | OLD CPU p95 | NEW CPU p95 | OLD CPU max | NEW CPU max | OLD layout CPU | NEW layout CPU |','|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|'])
 for item in metrics:
     a,b=item['old'] or {},item['new'] or {}
-    lines.append('| '+' | '.join(map(str,[item['surface'],item['scale'],item['action'],item['newArm'],fmt(a.get('cpuMedian')),fmt(b.get('cpuMedian')),percent(change(a.get('cpuMedian'),b.get('cpuMedian'))),fmt(a.get('cpuP95')),fmt(b.get('cpuP95')),fmt(a.get('cpuMax')),fmt(b.get('cpuMax')),fmt(a.get('layoutCpuMedian')),fmt(b.get('layoutCpuMedian'))]))+' |')
+    lines.append('| '+' | '.join(map(str,[item['surface'],item['scale'],item['action'],item['newArm'],fmt(a.get('cpuMedian')),fmt(b.get('cpuMedian')),percent(percent_change(a.get('cpuMedian'),b.get('cpuMedian'))),fmt(a.get('cpuP95')),fmt(b.get('cpuP95')),fmt(a.get('cpuMax')),fmt(b.get('cpuMax')),fmt(a.get('layoutCpuMedian')),fmt(b.get('layoutCpuMedian'))]))+' |')
 profile_cells=collections.defaultdict(list)
 for path in root.rglob('cpu-attribution.json'):
     run=json.loads((path.parent/'run.json').read_text())
@@ -97,18 +100,18 @@ for key,rows in sorted(profile_cells.items()):
     cpu_rows=[row for row in rows if row.get('storeDeriveCpuEstimateMs') is not None]
     middle=lambda values:statistics.median(values) if values else None
     lines.append('| '+' | '.join(map(str,[*key,len(rows),fmt(middle([row['storeDeriveCpuEstimateMs'] for row in cpu_rows])),fmt(middle([sum(value for name,value in row['cpuEstimates'].items() if 'React render' in name) for row in cpu_rows])),fmt(middle([sum(value for name,value in row['cpuEstimates'].items() if 'React commit' in name) for row in cpu_rows])),fmt(statistics.median(row['unmappedMs'] for row in rows))]))+' |')
-lines.extend(['','## Incoming updates and connected idle','','Update CPU is the CDP main-thread TaskDuration delta with Performance.enable(timeDomain=threadTicks), measured after one injected update through a 200 ms minimum window and two animation frames. Actual windows can be longer under load and are retained. Quiet windows measure the same instrumentation with no injection. These are observed total CPU costs in a window containing one update, not exclusive causal CPU per update; pending UI tasks, paints and real upstream traffic can overlap. The 60 s connected-idle replay delivers 30 heartbeat changes/minute, 10 issue changes/minute, and 120 terminal output frames/minute (two frames/second). The first two rates approximate the operator activity window; the output rate is a stated synthetic assumption. This is an idle UI with live data, not a silent disconnected app. Delivery to the visible terminal is verified before replay. Percent CPU means one renderer thread’s fraction of one core, not whole-machine or Mac desktop CPU.','','| Arm | Surface | Scale | Update | n | Task CPU ms/window median | p95 |','|---|---|---:|---|---:|---:|---:|'])
+lines.extend(['','## Incoming updates and connected idle','','Update CPU is the CDP main-thread TaskDuration delta with Performance.enable(timeDomain=threadTicks), measured after one injected update through a 200 ms minimum window and two animation frames. Actual windows can be longer under load and are retained. Quiet windows measure the same instrumentation with no injection. These are observed total CPU costs in a window containing one update, not exclusive causal CPU per update; pending UI tasks, paints and real upstream traffic can overlap. The 60 s connected-idle replay delivers 30 heartbeat changes/minute, 10 issue changes/minute, and 120 terminal output frames/minute (two frames/second). These busy-profile rates are explicit synthetic assumptions, distinct from the historical-rate replay below. This is an idle UI with live data, not a silent disconnected app. Delivery to the visible terminal is verified before replay. Percent CPU means one renderer thread’s fraction of one core, not whole-machine or Mac desktop CPU.','','| Arm | Surface | Scale | Update | n | Task CPU ms/window median | p95 |','|---|---|---:|---|---:|---:|---:|'])
 bg=collections.defaultdict(list)
 for run in valid:
     for sample in run.get('background',[]):bg[(run['arm']+' → '+run.get('comparisonArm','new') if run['arm']=='old' else run['arm'],run['surface'],run['scale'],sample['kind'])].append(sample['taskMs'])
 for key,values in sorted(bg.items()):lines.append('| '+' | '.join(map(str,[*key,len(values),fmt(statistics.median(values)),fmt(q(values,.95))]))+' |')
-lines.extend(['','| Arm | Surface | Scale | Seconds | Updates delivered | Main-thread task ms | One-core CPU % |','|---|---|---:|---:|---|---:|---:|'])
+lines.extend(['','The **observed** profile approximates the [September 18 operator publication census](POD-4286-baseline-summary.json): 12 session, 6 issue, 16 machine, 28 conversation, 36 host-metric and 2 draft changes per minute. The minute clock advances normally. These are historical publication rates replayed with validated synthetic payloads, not a capture of historical network frames or today’s traffic. OLD issue/projection rows are sent together as one logical issue update. The **busy** profile adds the stated 30 heartbeat/10 issue/120 output cadence. Both windows use the same visible terminal and selected control mission.','', '| Arm | Surface | Scale | Profile | Seconds | Updates delivered | Main-thread task ms | One-core CPU % |','|---|---|---:|---|---:|---|---:|---:|'])
 for run in valid:
-    idle=run.get('idle')
-    if idle:lines.append('| '+' | '.join(map(str,[run['arm'],run['surface'],run['scale'],fmt(idle['seconds']),json.dumps(idle['delivered']),fmt(idle['taskMs']),fmt(idle['taskMs']/idle['seconds']/10)]))+' |')
-lines.extend(['','Median of the separate 60-second windows:','','| Surface | Scale | NEW arm | OLD one-core CPU % | NEW one-core CPU % | Change |','|---|---:|---|---:|---:|---:|'])
+    for profile,idle in run.get('idleProfiles',{'busy':run['idle']} if run.get('idle') else {}).items():
+        lines.append('| '+' | '.join(map(str,[run['arm'],run['surface'],run['scale'],profile,fmt(idle['seconds']),json.dumps(idle['delivered']),fmt(idle['taskMs']),fmt(idle['taskMs']/idle['seconds']/10)]))+' |')
+lines.extend(['','Median of the separate 60-second windows:','','| Surface | Scale | NEW arm | Profile | n OLD/NEW | OLD one-core CPU % | NEW one-core CPU % | Change |','|---|---:|---|---|---|---:|---:|---:|'])
 for item in idle_comparisons:
-    lines.append('| '+' | '.join(map(str,[item['surface'],item['scale'],item['newArm'],fmt(item['oldPercentOneCore']),fmt(item['newPercentOneCore']),percent(item['changePercent'])]))+' |')
+    lines.append('| '+' | '.join(map(str,[item['surface'],item['scale'],item['newArm'],item['profile'],f'{item["oldN"]}/{item["newN"]}',fmt(item['oldPercentOneCore']),fmt(item['newPercentOneCore']),percent(item['changePercent'])]))+' |')
 lines.extend(['','## Retained JavaScript heap','','Post-GC Runtime.getHeapUsage usedSize. One startup/5-minute pair per arm/surface/scale is an observation, not leak evidence. Memory runs use meter:flatblock and do not contribute timings.','','| Arm | Surface | Scale | Startup MiB | Five minutes MiB | Duration s | Action groups |','|---|---|---:|---:|---:|---:|---:|'])
 for run in valid:
     if 'heapFiveMinutes' in run:lines.append('| '+' | '.join(map(str,[run['arm'],run['surface'],run['scale'],fmt(run['heapStartup']['usedSize']/1048576),fmt(run['heapFiveMinutes']['usedSize']/1048576),fmt(run['heapUse']['durationSeconds']),run['heapUse']['actions']]))+' |')

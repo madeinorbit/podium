@@ -27,13 +27,17 @@ if args.control_only:argv.append('--control-only')
 command=f'cd "$HOME/{checkout}" && export PATH="$PWD/.toolchain:$PATH" && export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && exec .toolchain/bun --conditions=@podium/source apps/web/harness/old-vs-new.mjs '+shlex.join(argv)
 child=subprocess.Popen(['ssh','-o','BatchMode=yes','flatblock',command],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
 held=False
+observations=0
 root=pathlib.Path('.artifacts/old-vs-new-remote')
 root.mkdir(parents=True,exist_ok=True)
 log=root/(pathlib.Path(relative).name+'.log')
 try:
     with log.open('w') as output:
         for line in child.stdout:
-            if not re.match(r'^[a-z-]+: [0-9]+\.[0-9]+ ms',line):print(line,end='',flush=True)
+            if re.match(r'^[a-z-]+: [0-9]+\.[0-9]+ ms',line):
+                observations+=1
+                if observations%20==0:print(f'PROGRESS {pathlib.Path(relative).name}: {observations} action observations; latest {line.strip()}',flush=True)
+            else:print(line,end='',flush=True)
             output.write(line);output.flush()
             if line.startswith('CAPTURE_READY '):
                 # OLD 4x can spend more than twenty minutes in its foreground

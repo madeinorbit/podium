@@ -8,6 +8,7 @@ import { gzipSync } from 'node:zlib'
 import { chromium, devices } from '@playwright/test'
 import { paintOf } from './browser-paint.ts'
 import * as model from '@podium/model'
+import { FeedChange, ServerMessage } from '@podium/protocol'
 import { readSyncStream } from '@podium/client-core/sync-stream'
 
 const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback
@@ -20,6 +21,15 @@ const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
 const corpus = JSON.parse(corpusBytes), synthetic = controlOnly?[]:JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${scale}x.json`, 'utf8'))
+const issuesById=new Map(corpus.issues.map(issue=>[issue.id,issue])), descendantSessionCounts=new Map()
+for(const session of corpus.sessions) {
+  let id=session.issueId;const seen=new Set()
+  while(issuesById.has(id) && !seen.has(id)) {
+    seen.add(id);descendantSessionCounts.set(id,(descendantSessionCounts.get(id)??0)+1);id=issuesById.get(id).parentId
+  }
+}
+const largeMissionTargets=corpus.issues.filter(issue=>!issue.parentId && !issue.closedAt && !issue.archived && issue.stage!=='draft')
+  .sort((a,b)=>(descendantSessionCounts.get(b.id)??0)-(descendantSessionCounts.get(a.id)??0)).slice(0,2)
 if(controlOnly && mode!=='probe')throw Error('Control-only is diagnostic, never performance evidence')
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const dirtyProduct = execFileSync('git', ['status', '--porcelain', '--', 'apps/web/src', 'apps/mobile/src', 'apps/mobile/app', 'packages'], { encoding:'utf8' }).trim()
@@ -33,6 +43,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   durationTimeDomain:'threadTicks',
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
+  largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
   loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[], bootstraps:[], status:'running' }
 const save = () => writeFileSync(resolve(out, 'run.json'), JSON.stringify(result, null, 2)+'\n')
@@ -77,7 +88,7 @@ const outputEpochs = new Map()
 let outputSeq = 0
 const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
-let extraChanges
+let extraChanges, observedReplay
 function prepareExtras() {
   const rows=synthetic.map(row=>{
     const value={...row.value}
@@ -161,10 +172,39 @@ function output(sessionId,text) {
   traffic.syntheticOutput++
 }
 function push(entity, entityId, value) {
+  pushChanges([{entity,entityId,value}])
+}
+function pushChanges(changes) {
   if(!meta || !live.length) throw Error('No initialized live feed')
-  const fromSeq=seq++
-  const message={type:'feedDelta',feedId:meta.feedId,epoch:meta.epoch,minAvailableSeq:meta.minAvailableSeq,fromSeq,seq,changes:[{seq,entity,entityId,op:'upsert',value}]}
+  const fromSeq=seq
+  const rows=changes.map(change=>({...change,seq:++seq,op:'upsert'}))
+  const message={type:'feedDelta',feedId:meta.feedId,epoch:meta.epoch,minAvailableSeq:meta.minAvailableSeq,fromSeq,seq,changes:rows}
   for(const socket of live) socket.client.send(JSON.stringify(message))
+}
+async function prepareObservedReplay() {
+  const machines=[...corpus.machines,...await rpc('machines.list')]
+  const heartbeat=synthetic.find(row=>row.entity==='session' && row.value.status==='live')
+  const projection=synthetic.find(row=>row.entity==='issueProjection' && !row.value.closedAt)
+  const legacy=synthetic.find(row=>row.entity==='issue' && row.entityId===projection.entityId)
+  if(!heartbeat || !projection || !machines.length)throw Error('Observed-rate replay targets missing')
+  const rates={heartbeat:12,issueChange:6,machine:16,conversation:28,hostMetrics:36,draft:2,sessionOutput:0}
+  const jobs=[]
+  for(const [kind,count] of Object.entries(rates))for(let index=0;index<count;index++) {
+    const at=new Date(corpus.fixedNow+600000+index*1000).toISOString()
+    let changes,frame
+    if(kind==='heartbeat')changes=[{...heartbeat,value:{...heartbeat.value,lastActiveAt:at}}]
+    if(kind==='issueChange')changes=[projection,...(legacy?[legacy]:[])].map(row=>({...row,value:{...row.value,title:`Observed issue revision ${index}`}}))
+    if(kind==='conversation')changes=[{entity:'conversation',entityId:'comparison-observed-conversation',value:{id:'comparison-observed-conversation',agentKind:'claude-code',providerId:'claude-code',title:'Observed conversation fixture',createdAt:at,updatedAt:at,messageCount:index+1,sizeBytes:1024*(index+1)}}]
+    if(kind==='machine')frame={type:'machinesChanged',machines:machines.map((machine,i)=>i===0?{...machine,lastSeenAt:at}:machine)}
+    if(kind==='hostMetrics')frame={type:'hostMetricsChanged',hosts:[{hostname:'comparison-host',sampledAt:at,memory:{totalBytes:8589934592,availableBytes:4294967296,swapTotalBytes:0,swapFreeBytes:0}}]}
+    if(kind==='draft')frame={type:'sessionDraftChanged',sessionId:controls[0].secondSession.sessionId,text:`Observed draft ${index}`,rev:index+1,origin:'comparison-replay',editedAt:at}
+    // Schema parsing occurs before the lease, never in a measured window.
+    if(changes)changes=changes.map((row,i)=>FeedChange.parse({...row,seq:i+1,op:'upsert'}))
+    if(frame)frame=ServerMessage.parse(frame)
+    jobs.push({kind,tick:Math.ceil((index+1)*120/count)-1,changes,frame})
+  }
+  observedReplay={source:'docs/measurements/POD-4286-baseline-summary.json: live connected-idle, 2026-09-18 (65.7874 s)',rates,jobs:jobs.sort((a,b)=>a.tick-b.tick)}
+  result.observedReplayRecipe=observedReplay;save()
 }
 async function makePage() {
   const context=await browser.newContext(surface==='phone'? {...devices['Pixel 7'],serviceWorkers:'block'}:{viewport:{width:1800,height:1000},reducedMotion:'reduce',serviceWorkers:'block'})
@@ -345,11 +385,23 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-group-fold',async()=>{
-      const button=page.locator('aside button[data-testid="project-group-label"][title^="Collapse "]').first()
-      const label=await button.getAttribute('title'), folded=label.replace('Collapse ','Expand ')
+      const ids=corpus.issues.filter(issue=>issue.repoId===largeMissionTargets[0].repoId).map(issue=>issue.id)
+      const target=await page.evaluate(ids=>{
+        const wanted=new Set(ids),groups=[...document.querySelectorAll('aside [data-testid="project-group"]')]
+        for(let index=0;index<groups.length;index++) {
+          const rows=[...groups[index].querySelectorAll('[data-issue-row]')],anchor=rows.find(row=>wanted.has(row.getAttribute('data-issue-row')))
+          if(anchor)return {index,anchorIssueId:anchor.getAttribute('data-issue-row'),initialRows:rows.length,label:groups[index].querySelector('[data-testid="project-group-label"]')?.textContent}
+        }
+        throw Error('No populated corpus project group')
+      },ids)
+      result.sidebarGroupTarget=target;save()
+      const group=page.locator('aside [data-testid="project-group"]').nth(target.index)
+      const button=group.getByTestId('project-group-label')
+      if(await button.getAttribute('data-collapsed')==='true')await button.click()
+      await button.scrollIntoViewIfNeeded()
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'sidebar-group-collapse',()=>page.locator(`aside button[data-testid="project-group-label"][title=${JSON.stringify(label)}]`).first().click(),`aside button[data-testid="project-group-label"][title=${JSON.stringify(folded)}]`)
-        await capture(f,'sidebar-group-expand',()=>page.locator(`aside button[data-testid="project-group-label"][title=${JSON.stringify(folded)}]`).first().click(),`aside button[data-testid="project-group-label"][title=${JSON.stringify(label)}]`)
+        await capture(f,'sidebar-group-collapse',()=>button.click(),`()=>document.querySelectorAll('aside [data-testid="project-group"]')[${target.index}]?.getAttribute('data-collapsed')==='true'`)
+        await capture(f,'sidebar-group-expand',()=>button.click(),`()=>document.querySelectorAll('aside [data-testid="project-group"]')[${target.index}]?.getAttribute('data-collapsed')==='false'`)
       }
     })
     await attempt('session-switch',async()=>{
@@ -438,6 +490,17 @@ async function runActions(f) {
         const id=controls[i%2].session.sessionId
         await capture(f,'mission-switch',()=>page.locator(`aside [data-issue-row="${controls[i%2].issue.id}"]`).first().click(),`[data-flight-session="${id}"]`)
         await page.getByTestId('topbar-nav-issues').click();await page.getByRole('region',{name:'Tasks'}).waitFor()
+      }
+    })
+    await attempt('large-mission-switch',async()=>{
+      for(let i=0;i<samples+2;i++) {
+        await page.getByTestId('topbar-nav-issues').click()
+        const target=largeMissionTargets[i%2]
+        await row(target.id).scrollIntoViewIfNeeded()
+        const measured=await capture(f,'large-mission-switch',()=>row(target.id).click(),`()=>{const row=document.querySelector('[data-flight-issue="${target.id}"]');return !!row && row.getBoundingClientRect().width>0 && !row.closest('[aria-hidden="true"]')}`)
+        measured.targetIssueId=target.id
+        measured.deckIssueRows=await page.locator('[data-flight-issue]').count()
+        measured.deckSessionRows=await page.locator('[data-flight-session]').count();save()
       }
     })
     await attempt('command-palette',async()=>{
@@ -663,17 +726,33 @@ async function background(f) {
     }
   }
   if(outputAvailable)for(let i=0;i<samples+2;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
+  // Approximate the historical operator publication rates, using synthetic
+  // payloads. Host/draft/conversation events were not output frames; do not
+  // silently substitute terminal activity for them.
+  const observedStart=await metrics(f.cdp), observedLoad=loadavg(), observedBegan=Date.now(), observedDelivered=Object.fromEntries(Object.keys(observedReplay.rates).map(kind=>[kind,0]))
+  for(let tick=0;tick<120;tick++) {
+    for(const job of observedReplay.jobs.filter(job=>job.tick===tick)) {
+      if(job.changes)pushChanges(job.changes)
+      else for(const socket of live)socket.client.send(JSON.stringify(job.frame))
+      observedDelivered[job.kind]++
+    }
+    await pause(Math.max(0,observedBegan+(tick+1)*500-Date.now()))
+  }
+  const observedEnd=await metrics(f.cdp)
+  result.idleProfiles={observed:{seconds:(Date.now()-observedBegan)/1000,loadStart:observedLoad,loadEnd:loadavg(),delivered:observedDelivered,taskMs:(observedEnd.TaskDuration-observedStart.TaskDuration)*1000,scriptMs:(observedEnd.ScriptDuration-observedStart.ScriptDuration)*1000,layoutMs:(observedEnd.LayoutDuration-observedStart.LayoutDuration)*1000}}
+  save()
   const start=await metrics(f.cdp), load=loadavg(), began=Date.now(), delivered={heartbeat:0,issueChange:0,sessionOutput:0}, upstreamStart={...traffic}
   // Activity-window replay: 30 heartbeats/min and 10 issue changes/min;
   // output is an explicitly synthetic assumption of two terminal frames/sec.
   for(let tick=0;tick<120;tick++) {
-    if(heartbeat && tick%4===0){push(heartbeat.entity,heartbeat.entityId,{...heartbeat.value,lastActiveAt:new Date(corpus.fixedNow+20000+tick*500).toISOString()});delivered.heartbeat++;traffic.syntheticHeartbeat++}
+    if(heartbeat && tick%4===0){push(heartbeat.entity,heartbeat.entityId,{...heartbeat.value,lastActiveAt:new Date(corpus.fixedNow+720000+tick*500).toISOString()});delivered.heartbeat++;traffic.syntheticHeartbeat++}
     if(issue && tick%12===0){push(issue.entity,issue.entityId,{...issue.value,title:`Live idle revision ${tick}`});delivered.issueChange++;traffic.syntheticIssue++}
     if(outputAvailable){output(targetSession,`operator output frame ${tick}\r\n`);delivered.sessionOutput++}
     await pause(Math.max(0,began+(tick+1)*500-Date.now()))
   }
   const end=await metrics(f.cdp)
   result.idle={seconds:(Date.now()-began)/1000,loadStart:load,loadEnd:loadavg(),delivered,upstreamStart,upstreamEnd:{...traffic},taskMs:(end.TaskDuration-start.TaskDuration)*1000,scriptMs:(end.ScriptDuration-start.ScriptDuration)*1000,layoutMs:(end.LayoutDuration-start.LayoutDuration)*1000}
+  result.idleProfiles.busy=result.idle
   save()
 }
 try {
@@ -721,6 +800,7 @@ try {
   async function* preflightLines(){yield* preflight.body.trim().split('\n')}
   for await(const record of readSyncStream(preflightLines())){/* complete production decoder */}
   result.preflightRows=preflight.count;save()
+  if(mode==='timing')await prepareObservedReplay()
   browser=await chromium.launch({headless:true,executablePath:`${process.env.HOME}/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome`,env:{...process.env,LD_LIBRARY_PATH:resolve('.toolchain/lib')},args:['--no-sandbox','--disable-dev-shm-usage']})
   result.browser=browser.version()
   if(process.argv.includes('--external-lease')) {
