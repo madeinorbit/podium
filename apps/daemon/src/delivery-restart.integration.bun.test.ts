@@ -82,6 +82,18 @@ function owner(outbox: RuntimeEventOutbox) {
 }
 
 describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
+  it('never infers fresh admission from an older forward without a recovery discriminator', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-legacy-forward-'))
+    roots.push(dir)
+    const after = owner(open(dir))
+    after.idle()
+    await after.handle.send({ ...input, deliveryRecovery: undefined }, options)
+    await Bun.sleep(250)
+    expect(after.write).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  }, 20_000)
+
   it('never retries a recovery reserved before the legacy outbox gained typing coverage', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-upgrade-'))
     roots.push(dir)
