@@ -360,10 +360,13 @@ try {
       unique[0]!
     const targets: string[] = saved?.targets ?? unique.filter((id) => id !== anchor).slice(0, limit)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
-    const labels = {
-      ...saved?.labels,
-      ...Object.fromEntries(rows.map((row) => [row.id, { number: row.number, title: row.title }])),
-    }
+    const labels = { ...saved?.labels }
+    for (const row of rows)
+      labels[row.id] = {
+        ...labels[row.id],
+        ...(row.number ? { number: row.number } : {}),
+        ...(row.title ? { title: row.title } : {}),
+      }
     await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets, labels }))
     // The client has a bounded pane cache: revisits and resident warm visits are separate labels.
     const order = issuePageAction
@@ -399,20 +402,22 @@ try {
       let trigger = issuePageAction
         ? `[data-issue-id="${item.id}"]`
         : `[data-issue-row="${item.id}"]`
-      if (!issuePageAction && !(await page.locator(trigger).count())) {
+      if (!issuePageAction && !(await page.locator(`${trigger}:visible`).count())) {
         for (const closed of await page.getByTestId('closed-fold-toggle').all())
           if ((await closed.getAttribute('aria-expanded')) === 'false') await closed.click()
         await page.waitForTimeout(1000)
         const label = labels[item.id]
-        if (!(await page.locator(trigger).count()) && label) {
+        if (!(await page.locator(`${trigger}:visible`).count()) && label) {
           const found = await page.evaluate(
             ({ id, label }) => {
               const matches = [
                 ...document.querySelectorAll<HTMLElement>('[data-testid="folded-work-row"]'),
               ].filter(
                 (node) =>
-                  node.firstElementChild?.textContent?.trim() === label.number &&
-                  node.getAttribute('title')?.endsWith(` · ${label.title}`),
+                  node.getClientRects().length > 0 &&
+                  (label.number
+                    ? node.firstElementChild?.textContent?.trim() === label.number
+                    : node.getAttribute('title')?.endsWith(` · ${label.title}`)),
               )
               if (matches.length !== 1) return false
               matches[0]!.setAttribute('data-speed-issue', id)
@@ -423,7 +428,8 @@ try {
           if (found) trigger = `[data-speed-issue="${item.id}"]`
         }
       }
-      const row = page.locator(trigger).first()
+      const row = page.locator(`${trigger}:visible`).first()
+      if (!(await row.count())) throw new Error('Target is absent from the prepared sidebar')
       await row.scrollIntoViewIfNeeded()
       let box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target has no bounds')
