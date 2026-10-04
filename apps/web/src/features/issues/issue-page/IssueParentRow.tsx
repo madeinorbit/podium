@@ -81,6 +81,7 @@ export function IssueParentRow({
   busy,
   mateOptions,
   matesById,
+  onOptionsOpenChange,
   onSetParent,
   onNavigate,
 }: {
@@ -94,6 +95,7 @@ export function IssueParentRow({
   /** Repo-mates by id — the pool the menu offers, used to resolve the chosen
    *  target's owner for the boundary check. */
   matesById: Map<string, IssueViewModel>
+  onOptionsOpenChange?: (open: boolean) => void
   onSetParent: (id: IssueId | null) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
@@ -131,6 +133,7 @@ export function IssueParentRow({
             </span>
           )}
           <PropertyMenu
+            onOpenChange={onOptionsOpenChange}
             selectedValue={issue.parentId ?? '__none__'}
             options={[{ value: '__none__', label: 'No parent' }, ...mateOptions]}
             placeholder="Set parent…"

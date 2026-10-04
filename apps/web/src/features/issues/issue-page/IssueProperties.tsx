@@ -85,7 +85,7 @@ import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
 import { useIssueEdgeResolver } from './issue-edges'
-import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageData } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
 /** The properties stack. `commands` is the page's named-command set (all
@@ -114,7 +114,8 @@ export function IssueProperties({
   )
   const machines = usePoolMachines()
   const sessions = pooled.sessions
-  const issues = useIssuePageIssues()
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const issues = useIssuePageCatalog(optionsOpen)
   const resolve = useIssueEdgeResolver()
   const memberSessions = pooled.memberSessions
   const mergeStyle = useMergeStyle(trpc)
@@ -238,6 +239,7 @@ export function IssueProperties({
               </span>
             ))}
             <PropertyMenu
+              onOpenChange={setOptionsOpen}
               allowFreeText
               options={labelPool.map((l) => ({ value: l, label: l }))}
               placeholder="Add label…"
@@ -335,6 +337,7 @@ export function IssueProperties({
           busy={busy}
           mateOptions={mateOptions}
           matesById={matesById}
+          onOptionsOpenChange={setOptionsOpen}
           onSetParent={(id) => commands.setParent(id)}
           onNavigate={onNavigate}
         />
@@ -343,7 +346,8 @@ export function IssueProperties({
           busy={busy}
           commands={commands}
           mateOptions={mateOptions}
-          hasMates={repoMates.length > 0}
+          hasMates={pooled.hasTargets ?? repoMates.length > 0}
+          onOptionsOpenChange={setOptionsOpen}
           addRelType={addRelType}
           onAddRelTypeChange={setAddRelType}
           onNavigate={onNavigate}

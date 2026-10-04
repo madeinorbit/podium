@@ -6,7 +6,7 @@ import {
   type IssuePageViews,
   issuePages,
 } from '@podium/client-graph/issue-page'
-import { createContext, useContext } from 'react'
+import { createContext, useCallback, useContext } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /** Nested controls reuse their page's addressed values. Other pool surfaces
@@ -29,6 +29,13 @@ const readIssues = (pool: MobxPool) => issuePages(pool).issues()
 const readSessions = (pool: MobxPool) => issuePages(pool).explorer()
 function usePoolIssues(): IssueViewModel[] {
   const value = useWorklistPoolProjection(readIssues, undefined)
+  return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
+}
+
+/** A closed selector owns no catalog derivation or row subscriptions. */
+export function useIssuePageCatalog(open: boolean): IssueViewModel[] {
+  const read = useCallback((pool: MobxPool) => open ? issuePages(pool).issues() : EMPTY_ISSUES, [open])
+  const value = useWorklistPoolProjection(read, EMPTY_ISSUES)
   return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
 }
 function usePoolSessions(): SessionView[] {

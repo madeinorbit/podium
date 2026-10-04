@@ -13,7 +13,9 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface IssuePageData {
   issue: IssueViewModel
+  /** Addressed display references. Full menu choices are read only on open. */
   issues: IssueViewModel[]
+  hasTargets?: boolean
   children: IssueViewModel[]
   memberSessions: SessionView[]
   /** Only the addressed page neighbourhood; no legacy session-world read. */
@@ -181,6 +183,11 @@ export function createIssuePageViews(pool: MobxPool) {
     if (disposed) return LOADING
     return pool.queries.project({ kind: 'pageIssues' }, 'IssuePage@summaries', readSummary)
   }
+  function hasTargets(id: string, repoPath: string): boolean {
+    return memo(`targets:${id}:${repoPath}`, () => pool.queries.ids({
+      kind: 'mobileIssueTargets', repoPath, excludeId: id, query: '', limit: 1, prefixes: {},
+    }).length > 0)
+  }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`issue:${id}`, () => {
       stats.issues++
@@ -275,13 +282,23 @@ export function createIssuePageViews(pool: MobxPool) {
       // Collect all addressed rows in one batch; do not render partial values
       // or build the menu world while this neighbourhood is still loading.
       if (pending || value === LOADING || members === LOADING || own === LOADING || sessions === LOADING) return LOADING
-      const world = issues()
-      if (!world || world === LOADING) return world
+      // Only displayed references belong to the page's subscription. Catalog
+      // choices must not hydrate or compare every unrelated issue on opening.
+      const references = new Set(neighbours)
+      for (const seat of sessions) {
+        if (seat.issueId) references.add(seat.issueId)
+        if (seat.refIssueId) references.add(seat.refIssueId)
+      }
+      const neighbourhood: IssueViewModel[] = []
       const exits: Record<string, ReferentExit | undefined> = {}
-      for (const neighbour of neighbours) {
+      for (const neighbour of references) {
         const target = summary(neighbour)
         if (target === LOADING) return LOADING
-        if (!target) {
+        if (target) {
+          neighbourhood.push(target)
+          // Placement and breadcrumb references can span several ancestors.
+          if (target.parentId) references.add(target.parentId)
+        } else {
           const exit = pool.row('issueExit', neighbour)
           if (exit === LOADING) return LOADING
           exits[neighbour] = exit?.kind
@@ -290,7 +307,7 @@ export function createIssuePageViews(pool: MobxPool) {
       const paths = worktreePaths()
       const presence = pagePresence(id, neighbours)
       if (presence === LOADING) return LOADING
-      return { issue: value, issues: world, children, memberSessions: members ?? [], sessions,
+      return { issue: value, issues: neighbourhood, hasTargets: hasTargets(id, value.repoPath), children, memberSessions: members ?? [], sessions,
         relations: groupRelations(value), title: issueDisplayTitle(value, sessions, paths),
         presence, worktreePaths: paths, exits,
       }

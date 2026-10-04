@@ -14,9 +14,9 @@ import { motionPhase } from '@podium/client-core/values'
 import type { IssueId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
-import { Fragment, type JSX } from 'react'
+import { Fragment, type JSX, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { useIssuePageIssues } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageIssues } from './issue-page-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -32,6 +32,7 @@ import { copyToClipboard } from '@/lib/clipboard'
 import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
+import { repoMatesOf } from '../issue-page-model'
 import {
   type IssuePageMenuAction,
   type IssuePageMenuEntry,
@@ -56,7 +57,7 @@ export function IssueDetailHeader({
   busy: boolean
   commands: IssuePageCommands
   /** Repo-mates — supersede/duplicate targets, from the page model. */
-  targets: IssueViewModel[]
+  targets?: IssueViewModel[]
   /** Member sessions — the header's live-state readout (POD-591). */
   sessions: SessionView[]
   prev?: IssueId
@@ -184,15 +185,18 @@ export function IssueOverflowMenu({
   issue,
   busy,
   commands,
-  targets,
+  targets: suppliedTargets,
   onDeleted,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
-  targets: IssueViewModel[]
+  targets?: IssueViewModel[]
   onDeleted: () => void
 }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const catalog = useIssuePageCatalog(open && suppliedTargets === undefined)
+  const targets = suppliedTargets ?? repoMatesOf(catalog, issue)
   const entries = issuePageMenuEntries({ issue, targetCount: targets.length })
 
   const flagForHuman = (): void => {
@@ -250,7 +254,7 @@ export function IssueOverflowMenu({
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
           <Button type="button" variant="ghost" size="icon-sm" title="More actions" disabled={busy}>
@@ -258,7 +262,7 @@ export function IssueOverflowMenu({
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="w-52">
+      {open && <DropdownMenuContent align="end" className="w-52">
         {entries.map((entry, index) => {
           const Icon = entry.icon(issue)
           const label = entry.label(issue)
@@ -287,7 +291,7 @@ export function IssueOverflowMenu({
             </Fragment>
           )
         })}
-      </DropdownMenuContent>
+      </DropdownMenuContent>}
     </DropdownMenu>
   )
 }

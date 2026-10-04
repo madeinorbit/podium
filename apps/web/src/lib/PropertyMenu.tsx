@@ -30,12 +30,8 @@ export interface PropertyOption {
 /** Linear-style property picker: dropdown with type-ahead + optional free text. */
 export function PropertyMenu({
   trigger,
-  options,
-  selectedValue,
-  onSelect,
-  allowFreeText = false,
-  placeholder = 'Filter…',
-  footnote,
+  onOpenChange,
+  ...props
 }: {
   trigger: ReactNode
   options: PropertyOption[]
@@ -52,20 +48,32 @@ export function PropertyMenu({
    * its case here instead of shrinking without comment.
    */
   footnote?: string
+  onOpenChange?: (open: boolean) => void
 }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={(next) => {
+      setOpen(next)
+      onOpenChange?.(next)
+    }}>
+      <DropdownMenuTrigger render={trigger as JSX.Element} />
+      {open && <PropertyMenuChoices {...props} />}
+    </DropdownMenu>
+  )
+}
+
+function PropertyMenuChoices({
+  options,
+  selectedValue,
+  onSelect,
+  allowFreeText = false,
+  placeholder = 'Filter…',
+  footnote,
+}: Omit<Parameters<typeof PropertyMenu>[0], 'trigger' | 'onOpenChange'>): JSX.Element {
   const [query, setQuery] = useState('')
   const filtered = filterPropertyOptions(options, query)
   const exact = options.some((o) => o.label.toLowerCase() === query.trim().toLowerCase())
   return (
-    <DropdownMenu
-      // Non-modal so the menu doesn't lock body scroll — on mobile the scroll
-      // lock otherwise fought the type-ahead input's focus (Task 7 review).
-      modal={false}
-      onOpenChange={(open) => {
-        if (!open) setQuery('')
-      }}
-    >
-      <DropdownMenuTrigger render={trigger as JSX.Element} />
       <DropdownMenuContent align="start" className="w-56">
         {/* Carved into the panel rather than raised on it (DESIGN.md §4): the
             panel is --chip, so the field takes the window's own ground. */}
@@ -107,6 +115,5 @@ export function PropertyMenu({
           <p className="px-2 pt-1.5 pb-1 text-[10.5px] leading-snug text-text-faint">{footnote}</p>
         ) : null}
       </DropdownMenuContent>
-    </DropdownMenu>
   )
 }

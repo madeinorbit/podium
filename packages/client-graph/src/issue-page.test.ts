@@ -46,7 +46,7 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     const value = page(), world = views.issues()
     expect(world).not.toBe(LOADING)
     const byId = new Map((world as IssuePageData['issues']).map(row => [row.id as string, row]))
-    expect(value.issues.map(row => row.id).sort()).toEqual([...byId.keys()].sort())
+    expect(value.issues.every(row => byId.has(row.id))).toBe(true)
     expect(value.presence).toEqual(presenceNote(value.issue,
       views.attachedSessions('root') as SessionView[], byId, value.sessions))
     return value
@@ -115,4 +115,47 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     expect(views.memberSessions('root')).toBe(LOADING)
     expect(views.attachedSessions('root')).toBe(LOADING)
   } finally { stop(); views.dispose(); pool.dispose(); vi.restoreAllMocks() }
+})
+
+it('keeps page reads bounded at 4x and releases the unrelated menu catalog', () => {
+  const measure = (size: number): number => {
+    const unrelated = Array.from({ length: size }, (_, n) => issue(`outside-${n}`))
+    const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+    pool.apply({ type: 'replace', rows: [
+      issue('root', { parentId: 'parent', stage: 'planning' }), issue('parent'),
+      issue('child', { parentId: 'root' }), ...unrelated,
+      { kind: 'worktree', id: '/repo', value: {
+        path: '/repo', repoId: 'repo', repoPath: '/repo', prefix: 'P', projectRoot: true,
+      } } as RowRecord,
+    ] })
+    const views = createIssuePageViews(pool)
+    const reads = vi.spyOn(pool, 'row')
+    const project = vi.spyOn(pool.queries, 'project')
+    let current: Loaded<IssuePageData> = LOADING
+    const stop = autorun(() => { current = views.data('root') })
+    const first = current as unknown as IssuePageData
+    const calls = reads.mock.calls.length
+    expect(first.issues.map(row => row.id).sort()).toEqual(['child', 'parent', 'root'])
+    expect(first.hasTargets).toBe(true)
+    expect(project).not.toHaveBeenCalled()
+    try {
+      pool.apply({ type: 'update', rows: [issue('outside-0', { title: 'Unrelated update' })] })
+      expect(current).toBe(first)
+      expect(views.stats.pages).toBe(1)
+      let catalog: Loaded<IssuePageData['issues']> = LOADING
+      const stopCatalog = autorun(() => { catalog = views.issues() })
+      expect((catalog as unknown as IssuePageData['issues']).find(row => row.id === 'outside-0')?.title)
+        .toBe('Unrelated update')
+      stopCatalog()
+      reads.mockClear()
+      pool.apply({ type: 'update', rows: [issue('outside-0', { title: 'After menu close' })] })
+      expect(current).toBe(first)
+      expect(reads.mock.calls.filter(([, , mode]) => mode === undefined || mode === 'summary-fields'))
+        .toEqual([])
+      return calls
+    } finally { stop(); views.dispose(); pool.dispose(); vi.restoreAllMocks() }
+  }
+  const small = measure(128)
+  expect(small).toBeGreaterThan(0)
+  expect(measure(512)).toBe(small)
 })

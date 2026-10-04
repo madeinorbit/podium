@@ -47,6 +47,7 @@ export function IssueRelations({
   hasMates,
   addRelType,
   onAddRelTypeChange,
+  onOptionsOpenChange,
   onNavigate,
 }: {
   issue: IssueViewModel
@@ -56,6 +57,7 @@ export function IssueRelations({
   hasMates: boolean
   addRelType: string
   onAddRelTypeChange: (type: string) => void
+  onOptionsOpenChange?: (open: boolean) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
@@ -155,6 +157,7 @@ export function IssueRelations({
           />
           <PropertyMenu
             options={mateOptions}
+            onOpenChange={onOptionsOpenChange}
             placeholder="Add relation…"
             onSelect={(v) => commands.addRelation(addRelType, v)}
             trigger={

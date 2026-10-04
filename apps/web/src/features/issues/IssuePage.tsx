@@ -21,7 +21,7 @@ import { IssueProperties } from './issue-page/IssueProperties'
 import { IssueSubIssues } from './issue-page/IssueSubIssues'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
 import { issuePageCommands } from './issue-page-commands'
-import { repoMatesOf, useIssuePageModel } from './issue-page-model'
+import { useIssuePageModel } from './issue-page-model'
 
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
@@ -165,7 +165,6 @@ export function IssuePageBody({
     setChildTitle('')
   }
 
-  const targets = repoMatesOf(issues, issue)
   const issueHex = issueColorHex(issue.color)
 
   return (
@@ -185,7 +184,6 @@ export function IssuePageBody({
         repoName={repoName}
         busy={busy}
         commands={commands}
-        targets={targets}
         sessions={memberSessions}
         prev={prev}
         next={next}

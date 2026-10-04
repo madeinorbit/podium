@@ -48,7 +48,7 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
-import { useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
+import { useIssuePageCatalog, useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
 import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
@@ -518,6 +518,7 @@ export function IssueCompactControls({
   const issues = useIssuePageIssues()
   const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const menuIssues = useIssuePageCatalog(Boolean(menu))
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const needsCloseGuard = useIssueCloseGuard()
   const [closing, setClosing] = useState(false)
@@ -813,7 +814,7 @@ export function IssueCompactControls({
       {menu && (
         <PoolIssueContextMenu
           issues={[issue]}
-          allIssues={issues}
+          allIssues={menuIssues}
           anchor={menu}
           onClose={() => setMenu(null)}
           onRequestClose={requestClose}
