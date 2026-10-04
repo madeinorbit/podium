@@ -1068,7 +1068,7 @@ const DECLARED = defineSchema({
         type: 'object',
         optional: true,
         source: meta(),
-        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting (dedupeSessionsByResume, session-identity.ts:45; the runtime applies it to every session read, optimism.ts:876). A whole-kind rule, so the per-row feed cannot apply it; the pool must. Declared once as `session.collapse` below (POD-4566).",
+        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting. The pool's declared session.collapse keeps the survivor consistent across per-row readers (POD-4566).",
         parts: {
           kind: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
           value: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },

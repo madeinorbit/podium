@@ -769,14 +769,8 @@ export function Workspace({
       })
     : worktree
 
-  // The workspace layout is the source of truth for what has a tab (POD-710),
-  // read at the key the ENGINE resolves — `s.workspaceKey()`. This used to be
-  // recomputed here from `useReplicaIssues()` while the engine used `st.issues`.
-  // The walk is identical, so the two agreed whenever the collections did — but
-  // `optimism.ts` documents that during the additive cutover a legacy issue row
-  // can arrive before its normalized projection, and for that interval one side
-  // said `mission:<root>` and the other `issue:<id>`: an empty tab strip over a
-  // panel rendering normally. One resolver, no second spelling.
+  // Layouts use the runtime's workspaceKey resolver so tabs and panels follow
+  // the same mission attachment and pending navigation decisions (POD-710).
   const layout = workspaces[workspaceKey] ?? emptyWorkspace(workspaceKey)
   const previewTabId = layout.previewTabId
 
