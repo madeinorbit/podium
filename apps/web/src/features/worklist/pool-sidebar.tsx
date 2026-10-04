@@ -646,14 +646,17 @@ const PoolMotionRow = observer(function PoolMotionRow({
   // A visited group keeps its DOM across folds, while this projection releases
   // tracking when hidden. Reuse equal paint on reveal so the leaf does not
   // rebuild unchanged rows after MobX suspends its computed values.
-  const lastDraw = useRef<ReturnType<typeof draw.get> | undefined>(undefined)
+  const lastDraw = useMemo(
+    () => ({ value: undefined as ReturnType<typeof draw.get> | undefined }),
+    [draw],
+  )
   const readDraw = useCallback(() => {
     const next = draw.get()
-    const previous = lastDraw.current
+    const previous = lastDraw.value
     if (previous && compareStructural(previous.paint, next.paint)) return previous
-    lastDraw.current = next
+    lastDraw.value = next
     return next
-  }, [draw])
+  }, [draw, lastDraw])
   const paint = useWorklistPoolProjection(readDraw, undefined, visible) ?? {
     value: LOADING,
     now: 0,
