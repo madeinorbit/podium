@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "mode": "probe",
+  "arm": "old",
+  "round": 2,
+  "surface": "web",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:15:47.266Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    2.63,
+    3.2,
+    3.93
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3284112
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T12:17:05.539Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_0dba6c97-e51b-4183-8b32-7dd4eac44128",
+        "repoPath": "/tmp/podium-e2e-19551-d6157b9d/zz-podium-e2e-repo-19551",
+        "repoId": "repo_e7ed3323b57dfdeb",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "revision": 2,
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-d6157b9d/zz-podium-e2e-repo-19551/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "99618578-d257-4a2b-80f4-440321b86817",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:15:51.271Z",
+        "updatedAt": "2026-10-04T12:15:51.309Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "6043aa76-39f9-41a4-92a2-3604b85fa416",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "df10f069-b3d4-4957-bf60-b9e430349c20",
+        "agentId": "df10f069-b3d4-4957-bf60-b9e430349c20",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "99618578-d257-4a2b-80f4-440321b86817",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "4d93eaef-9385-4d06-a338-c84e6c34895f",
+        "agentId": "4d93eaef-9385-4d06-a338-c84e6c34895f",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "99618578-d257-4a2b-80f4-440321b86817",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_17bb19c3-28f8-4a10-8e43-320a2bd225de",
+        "repoPath": "/tmp/podium-e2e-19551-d6157b9d/zz-podium-e2e-repo-19551",
+        "repoId": "repo_e7ed3323b57dfdeb",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "revision": 2,
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-d6157b9d/zz-podium-e2e-repo-19551/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "99618578-d257-4a2b-80f4-440321b86817",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "9",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:15:51.415Z",
+        "updatedAt": "2026-10-04T12:15:51.471Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "c642e4db-ecc0-4ba7-a77b-3850a264fea7",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "173a4453-7bc1-4cae-a6de-0c434dda277c",
+        "agentId": "173a4453-7bc1-4cae-a6de-0c434dda277c",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "99618578-d257-4a2b-80f4-440321b86817",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:17:02.030502+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:16:52.409Z",
+          "expiresAt": "2026-10-04T12:37:01.916Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 20m0s)"
+    }
+  },
+  "endedAt": "2026-10-04T12:17:11.538Z",
+  "loadEnd": [
+    6.19,
+    4.09,
+    4.17
+  ]
+}

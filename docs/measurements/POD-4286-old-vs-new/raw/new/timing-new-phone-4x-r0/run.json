@@ -1,0 +1,3702 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "new",
+  "round": 0,
+  "surface": "phone",
+  "scale": 4,
+  "sha": "22b676a741918c8c11a84aa485a37bb31595a7cc",
+  "productTreeSha256": "d610c84b7de9a84b46f66fe08a90124f589e2210965629cfd6fca60a6883b063",
+  "purpose": "superseded",
+  "harnessSha256": "38f348590b57cc864f3dcb20449e00612c0588628623eb1ca44e77dd6da1b34c",
+  "durationTimeDomain": "threadTicks",
+  "semanticSha256": "b6ad3a359fa48bd74c113577bd43484507e2acc0ce08cb81843a8296a94cf82a",
+  "controlOnly": false,
+  "corpus": {
+    "syntheticIssues": 19468,
+    "syntheticSessions": 17216,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T13:26:55.894Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    4.1,
+    5.07,
+    5.51
+  ],
+  "actions": [
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:27:03.382Z",
+      "load": [
+        4.09,
+        5.05,
+        5.5
+      ],
+      "inputToPaintMs": 10432.342,
+      "selectedDomMs": 10393.4,
+      "profiled": false,
+      "mainThreadCpuMs": 9188.804,
+      "layoutCpuMs": 63.445,
+      "mainThreadBusyMs": 9636.107,
+      "layoutMs": 76.895,
+      "taskWindowMs": 19862.911,
+      "scriptWindowMs": 6465.156,
+      "layoutWindowMs": 1777.561,
+      "trace": "app-cold-start-0.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:27:26.518Z",
+      "load": [
+        5.21,
+        5.21,
+        5.54
+      ],
+      "inputToPaintMs": 7738.173,
+      "selectedDomMs": 7714.801,
+      "profiled": false,
+      "mainThreadCpuMs": 6537.69,
+      "layoutCpuMs": 62.523,
+      "mainThreadBusyMs": 7049.542,
+      "layoutMs": 79.611,
+      "taskWindowMs": 9215.959,
+      "scriptWindowMs": 1694.265999999999,
+      "layoutWindowMs": 412.7149999999999,
+      "trace": "app-warm-start-1.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:27:37.722Z",
+      "load": [
+        5.54,
+        5.29,
+        5.57
+      ],
+      "inputToPaintMs": 10444.098,
+      "selectedDomMs": 10351.065,
+      "profiled": false,
+      "mainThreadCpuMs": 8986.195,
+      "layoutCpuMs": 46.805,
+      "mainThreadBusyMs": 9622.891,
+      "layoutMs": 59.511,
+      "taskWindowMs": 19525.712,
+      "scriptWindowMs": 6444.148,
+      "layoutWindowMs": 1738.5420000000001,
+      "trace": "app-cold-start-2.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:28:01.537Z",
+      "load": [
+        6.34,
+        5.49,
+        5.63
+      ],
+      "inputToPaintMs": 7883.86,
+      "selectedDomMs": 7857.321,
+      "profiled": false,
+      "mainThreadCpuMs": 6635.939,
+      "layoutCpuMs": 66.262,
+      "mainThreadBusyMs": 7102.95,
+      "layoutMs": 84.345,
+      "taskWindowMs": 9374.145999999999,
+      "scriptWindowMs": 1942.7649999999996,
+      "layoutWindowMs": 390.19899999999996,
+      "trace": "app-warm-start-3.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:28:12.841Z",
+      "load": [
+        5.98,
+        5.44,
+        5.61
+      ],
+      "inputToPaintMs": 10127.641,
+      "selectedDomMs": 10053.9,
+      "profiled": false,
+      "mainThreadCpuMs": 8873.464,
+      "layoutCpuMs": 53.01,
+      "mainThreadBusyMs": 9361.497,
+      "layoutMs": 59.815,
+      "taskWindowMs": 19258.507999999998,
+      "scriptWindowMs": 6139.333,
+      "layoutWindowMs": 1765.618,
+      "trace": "app-cold-start-4.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:28:35.723Z",
+      "load": [
+        6.27,
+        5.55,
+        5.64
+      ],
+      "inputToPaintMs": 7233.322,
+      "selectedDomMs": 7204.73,
+      "profiled": false,
+      "mainThreadCpuMs": 6135.841,
+      "layoutCpuMs": 61.171,
+      "mainThreadBusyMs": 6537.332,
+      "layoutMs": 77.625,
+      "taskWindowMs": 8661.873,
+      "scriptWindowMs": 1645.8320000000003,
+      "layoutWindowMs": 381.5399999999998,
+      "trace": "app-warm-start-5.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:28:46.150Z",
+      "load": [
+        6.32,
+        5.58,
+        5.65
+      ],
+      "inputToPaintMs": 9255.589,
+      "selectedDomMs": 9214.901,
+      "profiled": false,
+      "mainThreadCpuMs": 8177.457,
+      "layoutCpuMs": 44.067,
+      "mainThreadBusyMs": 8575.549,
+      "layoutMs": 50.041,
+      "taskWindowMs": 19958.913000000004,
+      "scriptWindowMs": 6199.8550000000005,
+      "layoutWindowMs": 1900.858,
+      "trace": "app-cold-start-6.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:29:09.637Z",
+      "load": [
+        6.7,
+        5.71,
+        5.69
+      ],
+      "inputToPaintMs": 8237.001,
+      "selectedDomMs": 8213.366,
+      "profiled": false,
+      "mainThreadCpuMs": 7055.24,
+      "layoutCpuMs": 64.212,
+      "mainThreadBusyMs": 7508.905,
+      "layoutMs": 76.103,
+      "taskWindowMs": 9726.294,
+      "scriptWindowMs": 1956.9750000000008,
+      "layoutWindowMs": 412.5239999999999,
+      "trace": "app-warm-start-7.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:29:21.183Z",
+      "load": [
+        6.66,
+        5.74,
+        5.7
+      ],
+      "inputToPaintMs": 10605.321,
+      "selectedDomMs": 10587.953,
+      "profiled": true,
+      "mainThreadCpuMs": 9309.957,
+      "layoutCpuMs": 55.849,
+      "mainThreadBusyMs": 9912.797,
+      "layoutMs": 64.68,
+      "taskWindowMs": 20057.782,
+      "scriptWindowMs": 6534.445,
+      "layoutWindowMs": 1839.7140000000002,
+      "trace": "app-cold-start-8.trace.json.gz",
+      "cpu": "app-cold-start-8.cpuprofile"
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:29:44.923Z",
+      "load": [
+        6.92,
+        5.88,
+        5.75
+      ],
+      "inputToPaintMs": 7542.38,
+      "selectedDomMs": 7519.881,
+      "profiled": true,
+      "mainThreadCpuMs": 6439.623,
+      "layoutCpuMs": 61.06,
+      "mainThreadBusyMs": 6801.999,
+      "layoutMs": 69.82,
+      "taskWindowMs": 9735.644999999999,
+      "scriptWindowMs": 1746.4999999999993,
+      "layoutWindowMs": 451.98800000000006,
+      "trace": "app-warm-start-9.trace.json.gz",
+      "cpu": "app-warm-start-9.cpuprofile"
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 10,
+      "startedAt": "2026-10-04T13:29:58.059Z",
+      "load": [
+        6.76,
+        5.88,
+        5.75
+      ],
+      "inputToPaintMs": 1425.337,
+      "selectedDomMs": 1404.2,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 1290.174,
+      "layoutCpuMs": 12.186,
+      "mainThreadBusyMs": 1425.289,
+      "layoutMs": 16.307,
+      "scriptWindowMs": 1321.128,
+      "taskWindowMs": 2019.6849999999954,
+      "layoutWindowMs": 128.1429999999997,
+      "trace": "0010-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 11,
+      "startedAt": "2026-10-04T13:30:00.451Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 63.437,
+      "selectedDomMs": 62.692,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 437.5440000000026,
+      "scriptWindowMs": 22.57799999999932,
+      "layoutWindowMs": 76.2290000000001,
+      "trace": "0011-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 12,
+      "startedAt": "2026-10-04T13:30:00.994Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 74.119,
+      "selectedDomMs": 60.69,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 36.192,
+      "layoutCpuMs": 9.693,
+      "mainThreadBusyMs": 70.893,
+      "layoutMs": 17.264,
+      "scriptWindowMs": 31.15800000000135,
+      "taskWindowMs": 629.3170000000003,
+      "layoutWindowMs": 117.92300000000023,
+      "trace": "0012-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 13,
+      "startedAt": "2026-10-04T13:30:02.024Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 232.417,
+      "selectedDomMs": 91.503,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 822.3449999999985,
+      "scriptWindowMs": 83.05800000000119,
+      "layoutWindowMs": 168.68400000000028,
+      "trace": "0013-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 14,
+      "startedAt": "2026-10-04T13:30:03.290Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 40.71,
+      "selectedDomMs": 31.543,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 33.53,
+      "layoutCpuMs": 6.67,
+      "mainThreadBusyMs": 40.477,
+      "layoutMs": 6.666,
+      "scriptWindowMs": 24.48600000000134,
+      "taskWindowMs": 427.6610000000005,
+      "layoutWindowMs": 77.47899999999986,
+      "trace": "0014-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 15,
+      "startedAt": "2026-10-04T13:30:03.881Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 63.522,
+      "selectedDomMs": 63.11,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 595.0649999999982,
+      "scriptWindowMs": 29.25100000000036,
+      "layoutWindowMs": 111.23200000000023,
+      "trace": "0015-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 16,
+      "startedAt": "2026-10-04T13:30:04.594Z",
+      "load": [
+        6.46,
+        5.83,
+        5.73
+      ],
+      "inputToPaintMs": 44.574,
+      "selectedDomMs": 35.625,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 26.658,
+      "layoutCpuMs": 6.352,
+      "mainThreadBusyMs": 44.534,
+      "layoutMs": 11.182,
+      "scriptWindowMs": 19.575000000001452,
+      "taskWindowMs": 481.4830000000043,
+      "layoutWindowMs": 92.18299999999991,
+      "trace": "0016-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 17,
+      "startedAt": "2026-10-04T13:30:05.211Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 235.283,
+      "selectedDomMs": 214.362,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 739.892999999995,
+      "scriptWindowMs": 71.77899999999937,
+      "layoutWindowMs": 126.66200000000005,
+      "trace": "0017-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 18,
+      "startedAt": "2026-10-04T13:30:06.231Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 44.053,
+      "selectedDomMs": 35.67,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 25.567,
+      "layoutCpuMs": 6.104,
+      "mainThreadBusyMs": 44.019,
+      "layoutMs": 11.58,
+      "scriptWindowMs": 17.823999999999174,
+      "taskWindowMs": 418.99399999999787,
+      "layoutWindowMs": 75.24700000000007,
+      "trace": "0018-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 19,
+      "startedAt": "2026-10-04T13:30:06.759Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 52.485,
+      "selectedDomMs": 51.562,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 420.74699999999865,
+      "scriptWindowMs": 20.1159999999998,
+      "layoutWindowMs": 74.15100000000052,
+      "trace": "0019-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 20,
+      "startedAt": "2026-10-04T13:30:07.276Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 70.267,
+      "selectedDomMs": 56.476,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 47.159,
+      "layoutCpuMs": 9.888,
+      "mainThreadBusyMs": 70.208,
+      "layoutMs": 16.052,
+      "scriptWindowMs": 25.123999999999924,
+      "taskWindowMs": 502.7290000000022,
+      "layoutWindowMs": 91.96399999999994,
+      "trace": "0020-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 21,
+      "startedAt": "2026-10-04T13:30:07.943Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 71.874,
+      "selectedDomMs": 69.722,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 468.9120000000031,
+      "scriptWindowMs": 24.516999999999456,
+      "layoutWindowMs": 86.04400000000024,
+      "trace": "0021-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 22,
+      "startedAt": "2026-10-04T13:30:08.511Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 51.133,
+      "selectedDomMs": 42.155,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 25.871,
+      "layoutCpuMs": 6.326,
+      "mainThreadBusyMs": 51.091,
+      "layoutMs": 13.182,
+      "scriptWindowMs": 20.68399999999926,
+      "taskWindowMs": 420.4000000000008,
+      "layoutWindowMs": 75.37600000000033,
+      "trace": "0022-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 23,
+      "startedAt": "2026-10-04T13:30:09.053Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 59.078,
+      "selectedDomMs": 58.221,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 442.0939999999973,
+      "scriptWindowMs": 17.419999999999547,
+      "layoutWindowMs": 79.48100000000036,
+      "trace": "0023-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 24,
+      "startedAt": "2026-10-04T13:30:09.609Z",
+      "load": [
+        6.26,
+        5.8,
+        5.72
+      ],
+      "inputToPaintMs": 47.097,
+      "selectedDomMs": 38.228,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 24.97,
+      "layoutCpuMs": 6.379,
+      "mainThreadBusyMs": 47.058,
+      "layoutMs": 13.013,
+      "scriptWindowMs": 19.646999999999082,
+      "taskWindowMs": 389.21699999999504,
+      "layoutWindowMs": 68.74299999999955,
+      "trace": "0024-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 25,
+      "startedAt": "2026-10-04T13:30:10.112Z",
+      "load": [
+        6.32,
+        5.82,
+        5.73
+      ],
+      "inputToPaintMs": 57.006,
+      "selectedDomMs": 55.584,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": false,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 427.41800000000296,
+      "scriptWindowMs": 17.901000000000167,
+      "layoutWindowMs": 79.92500000000024,
+      "trace": "0025-phone-work-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 26,
+      "startedAt": "2026-10-04T13:30:11.578Z",
+      "load": [
+        6.32,
+        5.82,
+        5.73
+      ],
+      "inputToPaintMs": 51.216,
+      "selectedDomMs": 39.524,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 28.614,
+      "layoutCpuMs": 7.966,
+      "mainThreadBusyMs": 51.18,
+      "layoutMs": 14.487,
+      "scriptWindowMs": 26.510000000000034,
+      "taskWindowMs": 1619.9339999999936,
+      "layoutWindowMs": 111.40499999999953,
+      "trace": "0026-phone-issue-screen.trace.json.gz",
+      "cpu": "0026-phone-issue-screen.cpuprofile"
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 27,
+      "startedAt": "2026-10-04T13:30:13.376Z",
+      "load": [
+        6.32,
+        5.82,
+        5.73
+      ],
+      "inputToPaintMs": 64.333,
+      "selectedDomMs": 61.96,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": true,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 1573.7299999999977,
+      "scriptWindowMs": 25.53100000000086,
+      "layoutWindowMs": 117.62599999999956,
+      "trace": "0027-phone-work-screen.trace.json.gz",
+      "cpu": "0027-phone-work-screen.cpuprofile"
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 28,
+      "startedAt": "2026-10-04T13:30:15.098Z",
+      "load": [
+        6.14,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 43.613,
+      "selectedDomMs": 34.904,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 23.183,
+      "layoutCpuMs": 6.384,
+      "mainThreadBusyMs": 43.572,
+      "layoutMs": 12.579,
+      "scriptWindowMs": 22.767999999999233,
+      "taskWindowMs": 1556.4060000000027,
+      "layoutWindowMs": 120.70500000000007,
+      "trace": "0028-phone-issue-screen.trace.json.gz",
+      "cpu": "0028-phone-issue-screen.cpuprofile"
+    },
+    {
+      "action": "phone-work-screen",
+      "index": 29,
+      "startedAt": "2026-10-04T13:30:16.887Z",
+      "load": [
+        6.14,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 74.966,
+      "selectedDomMs": 74.894,
+      "boundary": "DrawFrame (compositor, no new raster Paint)",
+      "profiled": true,
+      "mainThreadCpuMs": null,
+      "layoutCpuMs": null,
+      "mainThreadBusyMs": null,
+      "layoutMs": null,
+      "taskWindowMs": 1709.9159999999997,
+      "scriptWindowMs": 31.147000000000702,
+      "layoutWindowMs": 144.63200000000055,
+      "trace": "0029-phone-work-screen.trace.json.gz",
+      "cpu": "0029-phone-work-screen.cpuprofile"
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 30,
+      "startedAt": "2026-10-04T13:30:18.041Z",
+      "load": [
+        6.14,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 168.442,
+      "selectedDomMs": 130.387,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 146.114,
+      "layoutCpuMs": 24.382,
+      "mainThreadBusyMs": 168.393,
+      "layoutMs": 30.338,
+      "scriptWindowMs": 476.76300000000003,
+      "taskWindowMs": 1365.2100000000046,
+      "layoutWindowMs": 117.21800000000027,
+      "trace": "0030-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 31,
+      "startedAt": "2026-10-04T13:30:22.279Z",
+      "load": [
+        5.89,
+        5.75,
+        5.71
+      ],
+      "inputToPaintMs": 98.848,
+      "selectedDomMs": 75.608,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 71.064,
+      "layoutCpuMs": 14.677,
+      "mainThreadBusyMs": 98.796,
+      "layoutMs": 20.98,
+      "scriptWindowMs": 417.24400000000014,
+      "taskWindowMs": 1404.8219999999958,
+      "layoutWindowMs": 128.79500000000021,
+      "trace": "0031-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 32,
+      "startedAt": "2026-10-04T13:30:24.864Z",
+      "load": [
+        5.9,
+        5.75,
+        5.71
+      ],
+      "inputToPaintMs": 100.814,
+      "selectedDomMs": 77.57,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 74.567,
+      "layoutCpuMs": 19.372,
+      "mainThreadBusyMs": 100.68,
+      "layoutMs": 21.322,
+      "scriptWindowMs": 494.8230000000002,
+      "taskWindowMs": 1463.8169999999989,
+      "layoutWindowMs": 107.15800000000009,
+      "trace": "0032-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 33,
+      "startedAt": "2026-10-04T13:30:28.481Z",
+      "load": [
+        5.9,
+        5.75,
+        5.71
+      ],
+      "inputToPaintMs": 92.96,
+      "selectedDomMs": 69.989,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 73.001,
+      "layoutCpuMs": 14.798,
+      "mainThreadBusyMs": 92.883,
+      "layoutMs": 21.854,
+      "scriptWindowMs": 544.1259999999986,
+      "taskWindowMs": 1317.559000000003,
+      "layoutWindowMs": 85.12300000000027,
+      "trace": "0033-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 34,
+      "startedAt": "2026-10-04T13:30:31.191Z",
+      "load": [
+        6.07,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 87.171,
+      "selectedDomMs": 63.264,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 63.82,
+      "layoutCpuMs": 13.417,
+      "mainThreadBusyMs": 87.097,
+      "layoutMs": 19.401,
+      "scriptWindowMs": 512.5959999999985,
+      "taskWindowMs": 1410.0430000000017,
+      "layoutWindowMs": 97.74499999999975,
+      "trace": "0034-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 35,
+      "startedAt": "2026-10-04T13:30:34.163Z",
+      "load": [
+        6.07,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 95.041,
+      "selectedDomMs": 72.961,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 67.173,
+      "layoutCpuMs": 13.955,
+      "mainThreadBusyMs": 95.002,
+      "layoutMs": 20.683,
+      "scriptWindowMs": 605.8639999999968,
+      "taskWindowMs": 1648.2370000000087,
+      "layoutWindowMs": 127.76600000000028,
+      "trace": "0035-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 36,
+      "startedAt": "2026-10-04T13:30:37.409Z",
+      "load": [
+        5.98,
+        5.77,
+        5.72
+      ],
+      "inputToPaintMs": 100.167,
+      "selectedDomMs": 76.789,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 71.851,
+      "layoutCpuMs": 15.457,
+      "mainThreadBusyMs": 100.126,
+      "layoutMs": 22.943,
+      "scriptWindowMs": 560.1839999999995,
+      "taskWindowMs": 1578.2970000000064,
+      "layoutWindowMs": 121.06199999999933,
+      "trace": "0036-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 37,
+      "startedAt": "2026-10-04T13:30:40.291Z",
+      "load": [
+        5.82,
+        5.74,
+        5.71
+      ],
+      "inputToPaintMs": 97.4,
+      "selectedDomMs": 70.403,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 73.226,
+      "layoutCpuMs": 16.308,
+      "mainThreadBusyMs": 97.358,
+      "layoutMs": 22.377,
+      "scriptWindowMs": 546.2019999999974,
+      "taskWindowMs": 1440.647999999996,
+      "layoutWindowMs": 90.28300000000033,
+      "trace": "0037-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 38,
+      "startedAt": "2026-10-04T13:30:44.332Z",
+      "load": [
+        5.82,
+        5.74,
+        5.71
+      ],
+      "inputToPaintMs": 118.44,
+      "selectedDomMs": 90.989,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 80.414,
+      "layoutCpuMs": 17.836,
+      "mainThreadBusyMs": 118.4,
+      "layoutMs": 26.632,
+      "scriptWindowMs": 622.1339999999991,
+      "taskWindowMs": 3031.1790000000087,
+      "layoutWindowMs": 139.78900000000039,
+      "trace": "0038-phone-mission-open.trace.json.gz",
+      "cpu": "0038-phone-mission-open.cpuprofile"
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 39,
+      "startedAt": "2026-10-04T13:30:49.040Z",
+      "load": [
+        5.92,
+        5.77,
+        5.71
+      ],
+      "inputToPaintMs": 92.717,
+      "selectedDomMs": 69.667,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 67.698,
+      "layoutCpuMs": 15.122,
+      "mainThreadBusyMs": 92.684,
+      "layoutMs": 21.637,
+      "scriptWindowMs": 1248.825,
+      "taskWindowMs": 3587.8289999999993,
+      "layoutWindowMs": 134.6230000000004,
+      "trace": "0039-phone-mission-open.trace.json.gz",
+      "cpu": "0039-phone-mission-open.cpuprofile"
+    },
+    {
+      "action": "phone-long-press",
+      "index": 40,
+      "startedAt": "2026-10-04T13:30:53.706Z",
+      "load": [
+        6,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 635,
+      "selectedDomMs": 608.266,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 560.35,
+      "layoutCpuMs": 140.638,
+      "mainThreadBusyMs": 624.255,
+      "layoutMs": 160.343,
+      "scriptWindowMs": 112.44599999999849,
+      "taskWindowMs": 883.0209999999994,
+      "layoutWindowMs": 112.51299999999986,
+      "trace": "0040-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 41,
+      "startedAt": "2026-10-04T13:30:58.280Z",
+      "load": [
+        5.84,
+        5.76,
+        5.71
+      ],
+      "inputToPaintMs": 597.945,
+      "selectedDomMs": 577.39,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 521.567,
+      "layoutCpuMs": 132.756,
+      "mainThreadBusyMs": 588.262,
+      "layoutMs": 155.317,
+      "scriptWindowMs": 92.17999999999904,
+      "taskWindowMs": 846.2729999999965,
+      "layoutWindowMs": 113.06999999999867,
+      "trace": "0041-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 42,
+      "startedAt": "2026-10-04T13:31:02.720Z",
+      "load": [
+        6.26,
+        5.84,
+        5.74
+      ],
+      "inputToPaintMs": 584.644,
+      "selectedDomMs": 565.92,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 506.875,
+      "layoutCpuMs": 126.615,
+      "mainThreadBusyMs": 580.54,
+      "layoutMs": 146.681,
+      "scriptWindowMs": 104.34300000000007,
+      "taskWindowMs": 1047.461999999996,
+      "layoutWindowMs": 125.45099999999998,
+      "trace": "0042-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 43,
+      "startedAt": "2026-10-04T13:31:07.202Z",
+      "load": [
+        6,
+        5.8,
+        5.73
+      ],
+      "inputToPaintMs": 507.501,
+      "selectedDomMs": 492.345,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 484.976,
+      "layoutCpuMs": 112.688,
+      "mainThreadBusyMs": 495.761,
+      "layoutMs": 113.596,
+      "scriptWindowMs": 100.21899999999917,
+      "taskWindowMs": 759.0710000000058,
+      "layoutWindowMs": 101.94199999999931,
+      "trace": "0043-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 44,
+      "startedAt": "2026-10-04T13:31:11.553Z",
+      "load": [
+        6.16,
+        5.83,
+        5.74
+      ],
+      "inputToPaintMs": 570.372,
+      "selectedDomMs": 556.265,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 460.069,
+      "layoutCpuMs": 108.865,
+      "mainThreadBusyMs": 535.896,
+      "layoutMs": 128.705,
+      "scriptWindowMs": 104.24300000000031,
+      "taskWindowMs": 833.2750000000004,
+      "layoutWindowMs": 109.60899999999896,
+      "trace": "0044-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 45,
+      "startedAt": "2026-10-04T13:31:15.771Z",
+      "load": [
+        5.91,
+        5.79,
+        5.72
+      ],
+      "inputToPaintMs": 573.091,
+      "selectedDomMs": 560.768,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 508.346,
+      "layoutCpuMs": 115.728,
+      "mainThreadBusyMs": 557.663,
+      "layoutMs": 127.358,
+      "scriptWindowMs": 97.90200000000127,
+      "taskWindowMs": 816.6939999999983,
+      "layoutWindowMs": 109.43100000000072,
+      "trace": "0045-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 46,
+      "startedAt": "2026-10-04T13:31:20.114Z",
+      "load": [
+        5.83,
+        5.77,
+        5.72
+      ],
+      "inputToPaintMs": 556.364,
+      "selectedDomMs": 548.406,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 495.651,
+      "layoutCpuMs": 117.826,
+      "mainThreadBusyMs": 549.1,
+      "layoutMs": 132.135,
+      "scriptWindowMs": 91.14700000000298,
+      "taskWindowMs": 754.7009999999972,
+      "layoutWindowMs": 95.81700000000026,
+      "trace": "0046-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 47,
+      "startedAt": "2026-10-04T13:31:24.526Z",
+      "load": [
+        5.83,
+        5.77,
+        5.72
+      ],
+      "inputToPaintMs": 547.712,
+      "selectedDomMs": 529.959,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 490.41,
+      "layoutCpuMs": 120.708,
+      "mainThreadBusyMs": 540.951,
+      "layoutMs": 132.21,
+      "scriptWindowMs": 92.55100000000027,
+      "taskWindowMs": 811.7079999999959,
+      "layoutWindowMs": 102.11199999999998,
+      "trace": "0047-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 48,
+      "startedAt": "2026-10-04T13:31:29.758Z",
+      "load": [
+        6.33,
+        5.88,
+        5.75
+      ],
+      "inputToPaintMs": 603.178,
+      "selectedDomMs": 585.711,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 499.975,
+      "layoutCpuMs": 120.425,
+      "mainThreadBusyMs": 602.3,
+      "layoutMs": 143.401,
+      "scriptWindowMs": 100.32599999999903,
+      "taskWindowMs": 2042.5889999999924,
+      "layoutWindowMs": 184.0099999999989,
+      "trace": "0048-phone-long-press.trace.json.gz",
+      "cpu": "0048-phone-long-press.cpuprofile"
+    },
+    {
+      "action": "phone-long-press",
+      "index": 49,
+      "startedAt": "2026-10-04T13:31:34.722Z",
+      "load": [
+        6.38,
+        5.9,
+        5.76
+      ],
+      "inputToPaintMs": 599.881,
+      "selectedDomMs": 587.953,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 510.587,
+      "layoutCpuMs": 117.117,
+      "mainThreadBusyMs": 594.933,
+      "layoutMs": 137.149,
+      "scriptWindowMs": 106.15199999999803,
+      "taskWindowMs": 1880.9830000000006,
+      "layoutWindowMs": 153.38000000000028,
+      "trace": "0049-phone-long-press.trace.json.gz",
+      "cpu": "0049-phone-long-press.cpuprofile"
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 50,
+      "startedAt": "2026-10-04T13:31:40.111Z",
+      "load": [
+        5.86,
+        5.8,
+        5.73
+      ],
+      "inputToPaintMs": 130.191,
+      "selectedDomMs": 97.465,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 125.914,
+      "layoutCpuMs": 62.076,
+      "mainThreadBusyMs": 129.465,
+      "layoutMs": 62.439,
+      "scriptWindowMs": 941.1810000000003,
+      "taskWindowMs": 1652.5320000000079,
+      "layoutWindowMs": 36.44399999999948,
+      "trace": "0050-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 51,
+      "startedAt": "2026-10-04T13:31:43.079Z",
+      "load": [
+        5.86,
+        5.8,
+        5.73
+      ],
+      "inputToPaintMs": 357.933,
+      "selectedDomMs": 323.713,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 267.816,
+      "layoutCpuMs": 81.603,
+      "mainThreadBusyMs": 357.9,
+      "layoutMs": 120.133,
+      "scriptWindowMs": 483.71200000000056,
+      "taskWindowMs": 847.4330000000094,
+      "layoutWindowMs": 41.96300000000086,
+      "trace": "0051-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 52,
+      "startedAt": "2026-10-04T13:31:44.630Z",
+      "load": [
+        5.86,
+        5.8,
+        5.73
+      ],
+      "inputToPaintMs": 101.014,
+      "selectedDomMs": 70.34,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 97.768,
+      "layoutCpuMs": 47.329,
+      "mainThreadBusyMs": 100.772,
+      "layoutMs": 47.487,
+      "scriptWindowMs": 279.85599999999874,
+      "taskWindowMs": 473.85099999999625,
+      "layoutWindowMs": 32.82900000000133,
+      "trace": "0052-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 53,
+      "startedAt": "2026-10-04T13:31:45.697Z",
+      "load": [
+        5.63,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 102.844,
+      "selectedDomMs": 74.022,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 101.005,
+      "layoutCpuMs": 49.797,
+      "mainThreadBusyMs": 102.731,
+      "layoutMs": 49.976,
+      "scriptWindowMs": 381.20499999999777,
+      "taskWindowMs": 558.6260000000038,
+      "layoutWindowMs": 30.240000000000933,
+      "trace": "0053-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 54,
+      "startedAt": "2026-10-04T13:31:46.925Z",
+      "load": [
+        5.63,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 126.829,
+      "selectedDomMs": 88.629,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 123.065,
+      "layoutCpuMs": 61.868,
+      "mainThreadBusyMs": 126.715,
+      "layoutMs": 62.06,
+      "scriptWindowMs": 281.8599999999982,
+      "taskWindowMs": 475.43600000000197,
+      "layoutWindowMs": 33.86200000000095,
+      "trace": "0054-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 55,
+      "startedAt": "2026-10-04T13:31:47.959Z",
+      "load": [
+        5.63,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 109.205,
+      "selectedDomMs": 75.646,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 105.447,
+      "layoutCpuMs": 52.532,
+      "mainThreadBusyMs": 109.088,
+      "layoutMs": 52.677,
+      "scriptWindowMs": 367.17900000000014,
+      "taskWindowMs": 556.0249999999769,
+      "layoutWindowMs": 31.152999999999764,
+      "trace": "0055-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 56,
+      "startedAt": "2026-10-04T13:31:49.042Z",
+      "load": [
+        5.63,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 135.287,
+      "selectedDomMs": 93.987,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 129.034,
+      "layoutCpuMs": 65.819,
+      "mainThreadBusyMs": 135.055,
+      "layoutMs": 66.144,
+      "scriptWindowMs": 309.7229999999982,
+      "taskWindowMs": 570.8110000000204,
+      "layoutWindowMs": 40.67000000000043,
+      "trace": "0056-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 57,
+      "startedAt": "2026-10-04T13:31:50.246Z",
+      "load": [
+        6.22,
+        5.87,
+        5.76
+      ],
+      "inputToPaintMs": 102.59,
+      "selectedDomMs": 71.838,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 100.938,
+      "layoutCpuMs": 51.261,
+      "mainThreadBusyMs": 102.437,
+      "layoutMs": 50.066,
+      "scriptWindowMs": 306.8220000000039,
+      "taskWindowMs": 493.898999999999,
+      "layoutWindowMs": 27.979000000000198,
+      "trace": "0057-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 58,
+      "startedAt": "2026-10-04T13:31:52.014Z",
+      "load": [
+        6.22,
+        5.87,
+        5.76
+      ],
+      "inputToPaintMs": 105.106,
+      "selectedDomMs": 74.583,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 101.938,
+      "layoutCpuMs": 52.477,
+      "mainThreadBusyMs": 105.046,
+      "layoutMs": 52.684,
+      "scriptWindowMs": 303.93899999999974,
+      "taskWindowMs": 1226.4069999999947,
+      "layoutWindowMs": 34.76500000000016,
+      "trace": "0058-phone-mission-details.trace.json.gz",
+      "cpu": "0058-phone-mission-details.cpuprofile"
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 59,
+      "startedAt": "2026-10-04T13:31:54.075Z",
+      "load": [
+        6.22,
+        5.87,
+        5.76
+      ],
+      "inputToPaintMs": 121.897,
+      "selectedDomMs": 84.632,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 118.767,
+      "layoutCpuMs": 60.638,
+      "mainThreadBusyMs": 121.835,
+      "layoutMs": 60.956,
+      "scriptWindowMs": 281.5870000000018,
+      "taskWindowMs": 1181.7569999999762,
+      "layoutWindowMs": 38.944000000000756,
+      "trace": "0059-phone-mission-details.trace.json.gz",
+      "cpu": "0059-phone-mission-details.cpuprofile"
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 60,
+      "startedAt": "2026-10-04T13:31:58.581Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 13.802,
+      "selectedDomMs": 6.926,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 13.479,
+      "layoutCpuMs": 1.559,
+      "mainThreadBusyMs": 13.778,
+      "layoutMs": 1.577,
+      "scriptWindowMs": 83.98199999999889,
+      "taskWindowMs": 319.6000000000083,
+      "layoutWindowMs": 0.8070000000000022,
+      "trace": "0060-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 61,
+      "startedAt": "2026-10-04T13:31:58.996Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 12.421,
+      "selectedDomMs": 5.347,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 12.218,
+      "layoutCpuMs": 1.133,
+      "mainThreadBusyMs": 12.379,
+      "layoutMs": 1.14,
+      "scriptWindowMs": 11.106999999995537,
+      "taskWindowMs": 23.449999999996862,
+      "layoutWindowMs": 0.6710000000005323,
+      "trace": "0061-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 62,
+      "startedAt": "2026-10-04T13:31:59.096Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 15.463,
+      "selectedDomMs": 8.018,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 14.817,
+      "layoutCpuMs": 1.273,
+      "mainThreadBusyMs": 15.43,
+      "layoutMs": 1.278,
+      "scriptWindowMs": 13.705000000001633,
+      "taskWindowMs": 34.973000000007914,
+      "layoutWindowMs": 0.762999999999181,
+      "trace": "0062-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 63,
+      "startedAt": "2026-10-04T13:31:59.219Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 16.302,
+      "selectedDomMs": 6.941,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 15.963,
+      "layoutCpuMs": 1.479,
+      "mainThreadBusyMs": 16.248,
+      "layoutMs": 1.489,
+      "scriptWindowMs": 14.494000000006224,
+      "taskWindowMs": 34.228000000013026,
+      "layoutWindowMs": 0.8090000000002817,
+      "trace": "0063-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 64,
+      "startedAt": "2026-10-04T13:31:59.327Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 14.808,
+      "selectedDomMs": 6.295,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 13.625,
+      "layoutCpuMs": 1.275,
+      "mainThreadBusyMs": 14.774,
+      "layoutMs": 1.269,
+      "scriptWindowMs": 14.65999999999923,
+      "taskWindowMs": 31.618000000008806,
+      "layoutWindowMs": 0.7380000000001274,
+      "trace": "0064-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 65,
+      "startedAt": "2026-10-04T13:31:59.462Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 11.856,
+      "selectedDomMs": 5.961,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 11.536,
+      "layoutCpuMs": 1.136,
+      "mainThreadBusyMs": 11.829,
+      "layoutMs": 1.142,
+      "scriptWindowMs": 10.993999999996618,
+      "taskWindowMs": 23.12899999998308,
+      "layoutWindowMs": 0.6870000000009924,
+      "trace": "0065-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 66,
+      "startedAt": "2026-10-04T13:31:59.561Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 12.366,
+      "selectedDomMs": 5.69,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 12.14,
+      "layoutCpuMs": 1.171,
+      "mainThreadBusyMs": 12.332,
+      "layoutMs": 1.179,
+      "scriptWindowMs": 11.093999999999937,
+      "taskWindowMs": 24.967000000003736,
+      "layoutWindowMs": 0.7019999999986481,
+      "trace": "0066-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 67,
+      "startedAt": "2026-10-04T13:31:59.662Z",
+      "load": [
+        6.05,
+        5.84,
+        5.75
+      ],
+      "inputToPaintMs": 13.147,
+      "selectedDomMs": 5.713,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 12.887,
+      "layoutCpuMs": 1.046,
+      "mainThreadBusyMs": 13.107,
+      "layoutMs": 1.051,
+      "scriptWindowMs": 12.593999999999994,
+      "taskWindowMs": 28.136000000017702,
+      "layoutWindowMs": 0.7220000000014437,
+      "trace": "0067-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 68,
+      "startedAt": "2026-10-04T13:32:00.510Z",
+      "load": [
+        5.96,
+        5.83,
+        5.74
+      ],
+      "inputToPaintMs": 15.722,
+      "selectedDomMs": 6.538,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 15.226,
+      "layoutCpuMs": 1.312,
+      "mainThreadBusyMs": 15.65,
+      "layoutMs": 1.319,
+      "scriptWindowMs": 395.0220000000044,
+      "taskWindowMs": 1203.1430000000114,
+      "layoutWindowMs": 0.7739999999998304,
+      "trace": "0068-phone-composer-typing.trace.json.gz",
+      "cpu": "0068-phone-composer-typing.cpuprofile"
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 69,
+      "startedAt": "2026-10-04T13:32:01.890Z",
+      "load": [
+        5.96,
+        5.83,
+        5.74
+      ],
+      "inputToPaintMs": 18.32,
+      "selectedDomMs": 6.594,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 16.439,
+      "layoutCpuMs": 1.455,
+      "mainThreadBusyMs": 18.283,
+      "layoutMs": 1.461,
+      "scriptWindowMs": 12.419999999998765,
+      "taskWindowMs": 888.5329999999954,
+      "layoutWindowMs": 0.828000000000273,
+      "trace": "0069-phone-composer-typing.trace.json.gz",
+      "cpu": "0069-phone-composer-typing.cpuprofile"
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 70,
+      "startedAt": "2026-10-04T13:32:05.086Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 114.406,
+      "selectedDomMs": 91.364,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 83.608,
+      "layoutCpuMs": 18.813,
+      "mainThreadBusyMs": 114.358,
+      "layoutMs": 28.974,
+      "scriptWindowMs": 94.09799999999535,
+      "taskWindowMs": 526.0209999999859,
+      "layoutWindowMs": 56.518999999999764,
+      "trace": "0070-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 71,
+      "startedAt": "2026-10-04T13:32:05.949Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 78.33,
+      "selectedDomMs": 57.864,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 50.752,
+      "layoutCpuMs": 12.15,
+      "mainThreadBusyMs": 78.294,
+      "layoutMs": 19.11,
+      "scriptWindowMs": 71.06100000000026,
+      "taskWindowMs": 499.67900000001464,
+      "layoutWindowMs": 58.42700000000001,
+      "trace": "0071-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 72,
+      "startedAt": "2026-10-04T13:32:06.885Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 78.246,
+      "selectedDomMs": 56.87,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 51.561,
+      "layoutCpuMs": 12.932,
+      "mainThreadBusyMs": 78.197,
+      "layoutMs": 19.449,
+      "scriptWindowMs": 68.39500000000243,
+      "taskWindowMs": 497.745000000009,
+      "layoutWindowMs": 56.62699999999887,
+      "trace": "0072-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 73,
+      "startedAt": "2026-10-04T13:32:07.824Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 83.444,
+      "selectedDomMs": 58.927,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 56.637,
+      "layoutCpuMs": 13.583,
+      "mainThreadBusyMs": 83.401,
+      "layoutMs": 20.565,
+      "scriptWindowMs": 66.67300000000154,
+      "taskWindowMs": 459.84599999999887,
+      "layoutWindowMs": 54.21999999999905,
+      "trace": "0073-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 74,
+      "startedAt": "2026-10-04T13:32:08.721Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 75.995,
+      "selectedDomMs": 53.137,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 49.586,
+      "layoutCpuMs": 13.458,
+      "mainThreadBusyMs": 75.945,
+      "layoutMs": 20.641,
+      "scriptWindowMs": 70.25999999999755,
+      "taskWindowMs": 489.35299999999415,
+      "layoutWindowMs": 54.07099999999865,
+      "trace": "0074-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 75,
+      "startedAt": "2026-10-04T13:32:09.613Z",
+      "load": [
+        5.65,
+        5.76,
+        5.72
+      ],
+      "inputToPaintMs": 69.393,
+      "selectedDomMs": 45.818,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 51.66,
+      "layoutCpuMs": 13.01,
+      "mainThreadBusyMs": 69.358,
+      "layoutMs": 15.6,
+      "scriptWindowMs": 64.42499999999995,
+      "taskWindowMs": 484.28599999999733,
+      "layoutWindowMs": 57.07800000000063,
+      "trace": "0075-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 76,
+      "startedAt": "2026-10-04T13:32:10.519Z",
+      "load": [
+        5.51,
+        5.74,
+        5.71
+      ],
+      "inputToPaintMs": 77.178,
+      "selectedDomMs": 50.755,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 53.877,
+      "layoutCpuMs": 14.029,
+      "mainThreadBusyMs": 77.135,
+      "layoutMs": 19.374,
+      "scriptWindowMs": 65.85000000000463,
+      "taskWindowMs": 476.7439999999965,
+      "layoutWindowMs": 55.619000000000085,
+      "trace": "0076-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 77,
+      "startedAt": "2026-10-04T13:32:11.381Z",
+      "load": [
+        5.51,
+        5.74,
+        5.71
+      ],
+      "inputToPaintMs": 92.655,
+      "selectedDomMs": 63.928,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 60.626,
+      "layoutCpuMs": 17.467,
+      "mainThreadBusyMs": 92.614,
+      "layoutMs": 25.212,
+      "scriptWindowMs": 72.34100000000154,
+      "taskWindowMs": 545.4420000000084,
+      "layoutWindowMs": 66.40700000000166,
+      "trace": "0077-phone-issue-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 78,
+      "startedAt": "2026-10-04T13:32:13.144Z",
+      "load": [
+        5.51,
+        5.74,
+        5.71
+      ],
+      "inputToPaintMs": 87.555,
+      "selectedDomMs": 57.881,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 60.064,
+      "layoutCpuMs": 17.447,
+      "mainThreadBusyMs": 87.465,
+      "layoutMs": 26.39,
+      "scriptWindowMs": 67.24599999999725,
+      "taskWindowMs": 1361.5429999999833,
+      "layoutWindowMs": 65.214000000001,
+      "trace": "0078-phone-issue-open.trace.json.gz",
+      "cpu": "0078-phone-issue-open.cpuprofile"
+    },
+    {
+      "action": "phone-issue-open",
+      "index": 79,
+      "startedAt": "2026-10-04T13:32:15.449Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 83.834,
+      "selectedDomMs": 57.576,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 55.989,
+      "layoutCpuMs": 16.829,
+      "mainThreadBusyMs": 83.776,
+      "layoutMs": 25.027,
+      "scriptWindowMs": 69.41999999999382,
+      "taskWindowMs": 1545.3060000000107,
+      "layoutWindowMs": 62.65900000000002,
+      "trace": "0079-phone-issue-open.trace.json.gz",
+      "cpu": "0079-phone-issue-open.cpuprofile"
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 80,
+      "startedAt": "2026-10-04T13:32:17.851Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 23.535,
+      "selectedDomMs": 17.613,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 23.335,
+      "layoutCpuMs": 1.36,
+      "mainThreadBusyMs": 23.5,
+      "layoutMs": 1.367,
+      "scriptWindowMs": 24.897000000002834,
+      "taskWindowMs": 70.08099999998763,
+      "layoutWindowMs": 0.8219999999994343,
+      "trace": "0080-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 81,
+      "startedAt": "2026-10-04T13:32:18.029Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 26.927,
+      "selectedDomMs": 20.848,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 26.613,
+      "layoutCpuMs": 1.338,
+      "mainThreadBusyMs": 26.89,
+      "layoutMs": 1.344,
+      "scriptWindowMs": 26.300000000006207,
+      "taskWindowMs": 68.60499999999092,
+      "layoutWindowMs": 0.728000000000506,
+      "trace": "0081-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 82,
+      "startedAt": "2026-10-04T13:32:18.202Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 21.919,
+      "selectedDomMs": 17.807,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 21.619,
+      "layoutCpuMs": 1.191,
+      "mainThreadBusyMs": 21.874,
+      "layoutMs": 1.306,
+      "scriptWindowMs": 19.04299999999637,
+      "taskWindowMs": 55.33700000000863,
+      "layoutWindowMs": 0.676000000000343,
+      "trace": "0082-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 83,
+      "startedAt": "2026-10-04T13:32:18.361Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 27.177,
+      "selectedDomMs": 22.843,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 27.013,
+      "layoutCpuMs": 1.218,
+      "mainThreadBusyMs": 27.134,
+      "layoutMs": 1.241,
+      "scriptWindowMs": 22.42700000000042,
+      "taskWindowMs": 43.08599999998819,
+      "layoutWindowMs": 0.8239999999997139,
+      "trace": "0083-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 84,
+      "startedAt": "2026-10-04T13:32:18.475Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.287,
+      "selectedDomMs": 15.435,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 19.129,
+      "layoutCpuMs": 1.064,
+      "mainThreadBusyMs": 19.255,
+      "layoutMs": 1.07,
+      "scriptWindowMs": 15.3710000000018,
+      "taskWindowMs": 32.63899999998898,
+      "layoutWindowMs": 0.7269999999994781,
+      "trace": "0084-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 85,
+      "startedAt": "2026-10-04T13:32:18.594Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 20.176,
+      "selectedDomMs": 16.623,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 20.017,
+      "layoutCpuMs": 1.023,
+      "mainThreadBusyMs": 20.149,
+      "layoutMs": 1.03,
+      "scriptWindowMs": 16.16700000000293,
+      "taskWindowMs": 33.30700000000775,
+      "layoutWindowMs": 0.6909999999997751,
+      "trace": "0085-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 86,
+      "startedAt": "2026-10-04T13:32:18.710Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 24.331,
+      "selectedDomMs": 20.027,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 24.14,
+      "layoutCpuMs": 1.159,
+      "mainThreadBusyMs": 24.286,
+      "layoutMs": 1.204,
+      "scriptWindowMs": 19.72200000000157,
+      "taskWindowMs": 41.50100000001089,
+      "layoutWindowMs": 0.8010000000009398,
+      "trace": "0086-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 87,
+      "startedAt": "2026-10-04T13:32:18.825Z",
+      "load": [
+        5.47,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.664,
+      "selectedDomMs": 16.48,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 19.412,
+      "layoutCpuMs": 1.039,
+      "mainThreadBusyMs": 19.624,
+      "layoutMs": 1.071,
+      "scriptWindowMs": 16.37599999999395,
+      "taskWindowMs": 35.535000000010086,
+      "layoutWindowMs": 0.7169999999998566,
+      "trace": "0087-phone-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 88,
+      "startedAt": "2026-10-04T13:32:19.780Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 21.302,
+      "selectedDomMs": 17.192,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 21.028,
+      "layoutCpuMs": 1.055,
+      "mainThreadBusyMs": 21.267,
+      "layoutMs": 1.063,
+      "scriptWindowMs": 18.082999999997185,
+      "taskWindowMs": 907.4139999999886,
+      "layoutWindowMs": 0.7169999999998566,
+      "trace": "0088-phone-issue-picker-search.trace.json.gz",
+      "cpu": "0088-phone-issue-picker-search.cpuprofile"
+    },
+    {
+      "action": "phone-issue-picker-search",
+      "index": 89,
+      "startedAt": "2026-10-04T13:32:20.782Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 22.762,
+      "selectedDomMs": 18.839,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 22.555,
+      "layoutCpuMs": 1.175,
+      "mainThreadBusyMs": 22.73,
+      "layoutMs": 1.18,
+      "scriptWindowMs": 19.036999999997306,
+      "taskWindowMs": 864.2150000000015,
+      "layoutWindowMs": 0.8090000000002817,
+      "trace": "0089-phone-issue-picker-search.trace.json.gz",
+      "cpu": "0089-phone-issue-picker-search.cpuprofile"
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 90,
+      "startedAt": "2026-10-04T13:32:21.994Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 118.282,
+      "selectedDomMs": 111.264,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 114.904,
+      "layoutCpuMs": 1.475,
+      "mainThreadBusyMs": 118.219,
+      "layoutMs": 1.634,
+      "scriptWindowMs": 225.13999999999612,
+      "taskWindowMs": 269.25800000000777,
+      "layoutWindowMs": 0.6649999999996936,
+      "trace": "0090-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 91,
+      "startedAt": "2026-10-04T13:32:22.460Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 89.136,
+      "selectedDomMs": 83.981,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 86.691,
+      "layoutCpuMs": 1.262,
+      "mainThreadBusyMs": 89.045,
+      "layoutMs": 1.419,
+      "scriptWindowMs": 193.16700000000253,
+      "taskWindowMs": 240.62800000001516,
+      "layoutWindowMs": 0.6490000000010099,
+      "trace": "0091-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 92,
+      "startedAt": "2026-10-04T13:32:22.879Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 89.685,
+      "selectedDomMs": 83.917,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 86.725,
+      "layoutCpuMs": 1.344,
+      "mainThreadBusyMs": 89.544,
+      "layoutMs": 1.497,
+      "scriptWindowMs": 197.3170000000053,
+      "taskWindowMs": 242.41499999999405,
+      "layoutWindowMs": 0.7220000000014437,
+      "trace": "0092-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 93,
+      "startedAt": "2026-10-04T13:32:23.313Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 90.132,
+      "selectedDomMs": 84.24,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 87.977,
+      "layoutCpuMs": 1.375,
+      "mainThreadBusyMs": 90.092,
+      "layoutMs": 1.534,
+      "scriptWindowMs": 189.9129999999971,
+      "taskWindowMs": 233.3500000000015,
+      "layoutWindowMs": 0.7120000000000459,
+      "trace": "0093-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 94,
+      "startedAt": "2026-10-04T13:32:23.728Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 102.909,
+      "selectedDomMs": 96.776,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 99.769,
+      "layoutCpuMs": 1.516,
+      "mainThreadBusyMs": 102.762,
+      "layoutMs": 1.682,
+      "scriptWindowMs": 202.62699999999967,
+      "taskWindowMs": 255.2530000000104,
+      "layoutWindowMs": 0.8479999999995158,
+      "trace": "0094-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 95,
+      "startedAt": "2026-10-04T13:32:24.177Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 88.35,
+      "selectedDomMs": 82.413,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 85.356,
+      "layoutCpuMs": 1.228,
+      "mainThreadBusyMs": 88.217,
+      "layoutMs": 1.398,
+      "scriptWindowMs": 182.1210000000022,
+      "taskWindowMs": 232.38299999999867,
+      "layoutWindowMs": 0.6629999999994141,
+      "trace": "0095-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 96,
+      "startedAt": "2026-10-04T13:32:24.602Z",
+      "load": [
+        5.44,
+        5.71,
+        5.7
+      ],
+      "inputToPaintMs": 101.669,
+      "selectedDomMs": 95.076,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 96.436,
+      "layoutCpuMs": 1.377,
+      "mainThreadBusyMs": 101.454,
+      "layoutMs": 1.813,
+      "scriptWindowMs": 205.76300000000458,
+      "taskWindowMs": 259.4010000000253,
+      "layoutWindowMs": 0.7099999999997664,
+      "trace": "0096-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 97,
+      "startedAt": "2026-10-04T13:32:25.101Z",
+      "load": [
+        5.64,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 106.905,
+      "selectedDomMs": 101.34,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 104.349,
+      "layoutCpuMs": 1.31,
+      "mainThreadBusyMs": 106.84,
+      "layoutMs": 1.485,
+      "scriptWindowMs": 212.46500000000168,
+      "taskWindowMs": 261.05900000001725,
+      "layoutWindowMs": 0.7090000000005148,
+      "trace": "0097-phone-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 98,
+      "startedAt": "2026-10-04T13:32:26.339Z",
+      "load": [
+        5.64,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 106.166,
+      "selectedDomMs": 100.676,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 102.341,
+      "layoutCpuMs": 1.48,
+      "mainThreadBusyMs": 105.937,
+      "layoutMs": 1.67,
+      "scriptWindowMs": 200.90499999999878,
+      "taskWindowMs": 1103.50600000001,
+      "layoutWindowMs": 0.7950000000001012,
+      "trace": "0098-phone-issue-rename.trace.json.gz",
+      "cpu": "0098-phone-issue-rename.cpuprofile"
+    },
+    {
+      "action": "phone-issue-rename",
+      "index": 99,
+      "startedAt": "2026-10-04T13:32:27.665Z",
+      "load": [
+        5.64,
+        5.75,
+        5.72
+      ],
+      "inputToPaintMs": 119.367,
+      "selectedDomMs": 112.182,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 115.649,
+      "layoutCpuMs": 1.841,
+      "mainThreadBusyMs": 119.226,
+      "layoutMs": 2.043,
+      "scriptWindowMs": 224.2079999999973,
+      "taskWindowMs": 1150.0630000000172,
+      "layoutWindowMs": 1.0229999999999961,
+      "trace": "0099-phone-issue-rename.trace.json.gz",
+      "cpu": "0099-phone-issue-rename.cpuprofile"
+    },
+    {
+      "action": "phone-work-search",
+      "index": 100,
+      "startedAt": "2026-10-04T13:32:30.890Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.473,
+      "selectedDomMs": 15.203,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 19.397,
+      "layoutCpuMs": 1.514,
+      "mainThreadBusyMs": 19.431,
+      "layoutMs": 1.521,
+      "scriptWindowMs": 16.928000000000054,
+      "taskWindowMs": 41.056999999995014,
+      "layoutWindowMs": 1.0689999999993205,
+      "trace": "0100-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 101,
+      "startedAt": "2026-10-04T13:32:31.010Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 16.482,
+      "selectedDomMs": 11.952,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 16.211,
+      "layoutCpuMs": 1.488,
+      "mainThreadBusyMs": 16.434,
+      "layoutMs": 1.498,
+      "scriptWindowMs": 12.588999999998407,
+      "taskWindowMs": 28.42899999998849,
+      "layoutWindowMs": 1.0430000000010153,
+      "trace": "0101-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 102,
+      "startedAt": "2026-10-04T13:32:31.126Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.923,
+      "selectedDomMs": 14.367,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 19.452,
+      "layoutCpuMs": 1.79,
+      "mainThreadBusyMs": 19.863,
+      "layoutMs": 1.796,
+      "scriptWindowMs": 14.566999999999553,
+      "taskWindowMs": 36.02100000000519,
+      "layoutWindowMs": 1.2999999999987466,
+      "trace": "0102-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 103,
+      "startedAt": "2026-10-04T13:32:31.242Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.176,
+      "selectedDomMs": 14.298,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 18.08,
+      "layoutCpuMs": 1.624,
+      "mainThreadBusyMs": 19.14,
+      "layoutMs": 1.632,
+      "scriptWindowMs": 14.193999999996265,
+      "taskWindowMs": 36.161000000021204,
+      "layoutWindowMs": 1.174999999999926,
+      "trace": "0103-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 104,
+      "startedAt": "2026-10-04T13:32:31.376Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 20.747,
+      "selectedDomMs": 12.978,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 18.524,
+      "layoutCpuMs": 1.718,
+      "mainThreadBusyMs": 20.704,
+      "layoutMs": 1.722,
+      "scriptWindowMs": 14.040000000001385,
+      "taskWindowMs": 33.05899999998019,
+      "layoutWindowMs": 1.1700000000001154,
+      "trace": "0104-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 105,
+      "startedAt": "2026-10-04T13:32:31.493Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 15.185,
+      "selectedDomMs": 11.459,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 14.928,
+      "layoutCpuMs": 1.389,
+      "mainThreadBusyMs": 15.147,
+      "layoutMs": 1.395,
+      "scriptWindowMs": 11.965000000003556,
+      "taskWindowMs": 28.711000000015474,
+      "layoutWindowMs": 0.9709999999998331,
+      "trace": "0105-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 106,
+      "startedAt": "2026-10-04T13:32:31.610Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 19.652,
+      "selectedDomMs": 14.304,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 19.34,
+      "layoutCpuMs": 1.797,
+      "mainThreadBusyMs": 19.61,
+      "layoutMs": 1.806,
+      "scriptWindowMs": 14.638999999995406,
+      "taskWindowMs": 31.50600000000736,
+      "layoutWindowMs": 1.3100000000001444,
+      "trace": "0106-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 107,
+      "startedAt": "2026-10-04T13:32:31.728Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 16.336,
+      "selectedDomMs": 11.884,
+      "boundary": "Paint",
+      "profiled": false,
+      "mainThreadCpuMs": 16.103,
+      "layoutCpuMs": 1.515,
+      "mainThreadBusyMs": 16.303,
+      "layoutMs": 1.521,
+      "scriptWindowMs": 12.412999999995122,
+      "taskWindowMs": 27.318999999977223,
+      "layoutWindowMs": 1.0760000000011871,
+      "trace": "0107-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 108,
+      "startedAt": "2026-10-04T13:32:32.663Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 16.03,
+      "selectedDomMs": 11.51,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 15.795,
+      "layoutCpuMs": 1.454,
+      "mainThreadBusyMs": 16,
+      "layoutMs": 1.462,
+      "scriptWindowMs": 13.59599999999972,
+      "taskWindowMs": 880.9710000000166,
+      "layoutWindowMs": 1.0249999999984993,
+      "trace": "0108-phone-work-search.trace.json.gz",
+      "cpu": "0108-phone-work-search.cpuprofile"
+    },
+    {
+      "action": "phone-work-search",
+      "index": 109,
+      "startedAt": "2026-10-04T13:32:33.725Z",
+      "load": [
+        5.51,
+        5.72,
+        5.71
+      ],
+      "inputToPaintMs": 16.58,
+      "selectedDomMs": 12.624,
+      "boundary": "Paint",
+      "profiled": true,
+      "mainThreadCpuMs": 16.213,
+      "layoutCpuMs": 1.514,
+      "mainThreadBusyMs": 16.543,
+      "layoutMs": 1.523,
+      "scriptWindowMs": 12.92399999999816,
+      "taskWindowMs": 919.021999999984,
+      "layoutWindowMs": 1.045000000001295,
+      "trace": "0109-phone-work-search.trace.json.gz",
+      "cpu": "0109-phone-work-search.cpuprofile"
+    }
+  ],
+  "unavailable": [
+    {
+      "action": "phone-inbox",
+      "reason": "Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement",
+      "load": [
+        6,
+        5.79,
+        5.72
+      ]
+    }
+  ],
+  "background": [
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 5.965000000003329,
+      "scriptMs": 0.05300000000119098,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 231.56999982893467,
+      "trace": "background-0-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 3.5430000000076234,
+      "scriptMs": 0.03300000000194814,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 215.7760001718998,
+      "trace": "background-1-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 2.004999999996926,
+      "scriptMs": 0.03600000000147929,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 225.23899981752038,
+      "trace": "background-2-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 2.4999999999977263,
+      "scriptMs": 0.022999999998774,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 222.75299998000264,
+      "trace": "background-3-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 2.332999999993035,
+      "scriptMs": 0.04899999999707916,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 223.86100003495812,
+      "trace": "background-4-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 5.267000000003463,
+      "scriptMs": 0.694000000002859,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 227.1739998832345,
+      "trace": "background-5-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 1.7630000000110613,
+      "scriptMs": 0.03499999999689862,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 211.7490000091493,
+      "trace": "background-6-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 2.4779999999964275,
+      "scriptMs": 0.05000000000165983,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 227.17699967324734,
+      "trace": "background-7-quiet.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 177.44400000000837,
+      "scriptMs": 165.25800000000146,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 231.28299973905087,
+      "trace": "background-8-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        5.43,
+        5.7,
+        5.7
+      ],
+      "taskMs": 191.94199999998318,
+      "scriptMs": 187.90899999999766,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 231.31900001317263,
+      "trace": "background-9-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 173.56100000000652,
+      "scriptMs": 161.96500000000214,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 225.83699971437454,
+      "trace": "background-10-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 154.43399999998064,
+      "scriptMs": 146.73899999999662,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 218.9360000193119,
+      "trace": "background-11-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 165.26600000000258,
+      "scriptMs": 155.98200000000162,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 232.06300009042025,
+      "trace": "background-12-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 165.6369999999754,
+      "scriptMs": 161.1469999999997,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 238.79399988800287,
+      "trace": "background-13-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 164.53199999997992,
+      "scriptMs": 153.54400000000368,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 233.69899997487664,
+      "trace": "background-14-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 173.48200000000702,
+      "scriptMs": 168.75299999999527,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 243.60499996691942,
+      "trace": "background-15-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 155.18199999999638,
+      "scriptMs": 148.01600000000548,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 226.03700030595064,
+      "trace": "background-16-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 174.05500000000984,
+      "scriptMs": 169.47599999999596,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 217.92600024491549,
+      "trace": "background-17-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 187.84500000001003,
+      "scriptMs": 177.5909999999996,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 224.38300028443336,
+      "trace": "background-18-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 176.87900000001378,
+      "scriptMs": 171.481,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 240.24400021880865,
+      "trace": "background-19-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 194.18400000000702,
+      "scriptMs": 184.23900000000515,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 225.447999779135,
+      "trace": "background-20-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 232.30900000001498,
+      "scriptMs": 226.34199999999538,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 255.5740000680089,
+      "trace": "background-21-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 238.01700000001347,
+      "scriptMs": 228.33200000000176,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 254.55099996179342,
+      "trace": "background-22-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 180.98100000000272,
+      "scriptMs": 176.7630000000011,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 210.9269998036325,
+      "trace": "background-23-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 178.93899999998553,
+      "scriptMs": 169.45899999999625,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 221.51200007647276,
+      "trace": "background-24-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 192.68900000000144,
+      "scriptMs": 186.49500000000074,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 240.67799979820848,
+      "trace": "background-25-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 185.48999999998728,
+      "scriptMs": 174.05800000000227,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 215.402000118047,
+      "trace": "background-26-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 183.8470000000143,
+      "scriptMs": 179.63799999999708,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 219.52599985525012,
+      "trace": "background-27-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.19,
+        5.85,
+        5.75
+      ],
+      "taskMs": 12.748999999985244,
+      "scriptMs": 4.510000000003345,
+      "layoutMs": 0.5319999999997549,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 211.43099991604686,
+      "trace": "background-28-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 12.21400000000017,
+      "scriptMs": 4.336999999999591,
+      "layoutMs": 0.7989999999988839,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 229.2229998856783,
+      "trace": "background-29-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 15.422000000000935,
+      "scriptMs": 6.489000000001965,
+      "layoutMs": 0.8879999999997779,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 225.6459998898208,
+      "trace": "background-30-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 11.328999999989264,
+      "scriptMs": 4.599999999996385,
+      "layoutMs": 0.5670000000002062,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 220.4069998115301,
+      "trace": "background-31-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 12.063000000011925,
+      "scriptMs": 4.6590000000037435,
+      "layoutMs": 0.6700000000012807,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 223.28299982473254,
+      "trace": "background-32-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 16.272999999983995,
+      "scriptMs": 6.485999999995329,
+      "layoutMs": 1.3519999999989096,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 219.200000166893,
+      "trace": "background-33-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 11.16500000000542,
+      "scriptMs": 4.366000000004533,
+      "layoutMs": 0.6430000000001712,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 231.49600019678473,
+      "trace": "background-34-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 13.185999999990372,
+      "scriptMs": 5.852999999994779,
+      "layoutMs": 0.8820000000007155,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 228.5599997267127,
+      "trace": "background-35-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 10.080999999985352,
+      "scriptMs": 3.900000000001569,
+      "layoutMs": 0.6159999999990617,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 216.50699991732836,
+      "trace": "background-36-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        6.1,
+        5.84,
+        5.75
+      ],
+      "taskMs": 12.765000000001692,
+      "scriptMs": 4.569000000003598,
+      "layoutMs": 0.7870000000007593,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 212.25199988111854,
+      "trace": "background-37-session-output.trace.json.gz"
+    }
+  ],
+  "errors": [
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3440840
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 87599,
+      "rows": 87584,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:27:04.122Z"
+    },
+    {
+      "totalRows": 87599,
+      "rows": 87584,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:27:38.528Z"
+    },
+    {
+      "totalRows": 87599,
+      "rows": 87584,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:28:13.631Z"
+    },
+    {
+      "totalRows": 87599,
+      "rows": 87584,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:28:46.770Z"
+    },
+    {
+      "totalRows": 87599,
+      "rows": 87584,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:29:21.750Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_6eb7f064-5894-4562-aa5c-d5040269bf4b",
+        "repoId": "repo_21407df3c0936d4b",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-585e9c60/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "812d2429-c1f6-4308-a583-27affef88661",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T13:26:59.921Z",
+        "updatedAt": "2026-10-04T13:26:59.960Z",
+        "agentId": "f1b09030-d4f3-4346-81aa-6577173f21a8",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-585e9c60/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "c23979ef-ed68-4b63-8c5a-a43aabf0618c",
+        "agentId": "c23979ef-ed68-4b63-8c5a-a43aabf0618c",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "812d2429-c1f6-4308-a583-27affef88661",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "45d9bbc4-f33b-4be0-9498-129bc103caf8",
+        "agentId": "45d9bbc4-f33b-4be0-9498-129bc103caf8",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "812d2429-c1f6-4308-a583-27affef88661",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_bc2d1120-198e-4dee-8c7f-8b84460024b3",
+        "repoId": "repo_21407df3c0936d4b",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-585e9c60/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "812d2429-c1f6-4308-a583-27affef88661",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T13:27:00.120Z",
+        "updatedAt": "2026-10-04T13:27:00.211Z",
+        "agentId": "21877e44-4f62-42bf-b315-3ec337b408fd",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-585e9c60/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "18207a31-6af7-4968-ac50-660871cb1e39",
+        "agentId": "18207a31-6af7-4968-ac50-660871cb1e39",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "812d2429-c1f6-4308-a583-27affef88661",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 796,
+      "sessions": 5,
+      "statuses": [
+        "starting",
+        "live",
+        "live",
+        "starting",
+        "starting"
+      ]
+    },
+    {
+      "seq": 799,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "f1b09030-d4f3-4346-81aa-6577173f21a8",
+      "sessionId": "f1b09030-d4f3-4346-81aa-6577173f21a8",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "c23979ef-ed68-4b63-8c5a-a43aabf0618c",
+      "sessionId": "c23979ef-ed68-4b63-8c5a-a43aabf0618c",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "21877e44-4f62-42bf-b315-3ec337b408fd",
+      "sessionId": "21877e44-4f62-42bf-b315-3ec337b408fd",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "18207a31-6af7-4968-ac50-660871cb1e39",
+      "sessionId": "18207a31-6af7-4968-ac50-660871cb1e39",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "45d9bbc4-f33b-4be0-9498-129bc103caf8",
+      "sessionId": "45d9bbc4-f33b-4be0-9498-129bc103caf8",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 87599,
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T13:27:02.689461+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T13:27:02.570Z",
+          "expiresAt": "2026-10-04T13:47:02.570Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T13:27:03.225Z",
+  "captureLoadStart": [
+    4.09,
+    5.05,
+    5.5
+  ],
+  "hostCpuStart": [
+    410522696,
+    7344376,
+    188817465,
+    1848119842,
+    12255200,
+    0,
+    18857593,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 22,
+    "machinesChanged": 75,
+    "approvalsChanged": 11,
+    "hostMetricsChanged": 82,
+    "pong": 141,
+    "feedResume": 11,
+    "feedDelta": 28,
+    "sessionDraftChanged": 4,
+    "attached": 1,
+    "presenceRoomState": 1,
+    "presenceRoomDelta": 1,
+    "geometry": 1
+  },
+  "startupMarks": [
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212746474799,
+          "pid": 3441492
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212756868199,
+          "pid": 3441492
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212769609986,
+          "pid": 3441492
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212777324787,
+          "pid": 3441492
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212780814529,
+          "pid": 3442716
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212791165594,
+          "pid": 3442716
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212804631201,
+          "pid": 3442716
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212812488522,
+          "pid": 3442716
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212815931990,
+          "pid": 3443887
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212825985890,
+          "pid": 3443887
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212838816340,
+          "pid": 3443887
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212846021070,
+          "pid": 3443887
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212849242142,
+          "pid": 3444753
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212858457043,
+          "pid": 3444753
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212872729967,
+          "pid": 3444753
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212880943333,
+          "pid": 3444753
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212884280381,
+          "pid": 3445860
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212894868334,
+          "pid": 3445860
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3212908480257,
+          "pid": 3445860
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3212916000138,
+          "pid": 3445860
+        }
+      ]
+    }
+  ],
+  "population": {
+    "issueDep": 14181,
+    "issueEvent": 4,
+    "issueGitState": 20,
+    "issueProjection": 19470,
+    "issueUserState": 19470,
+    "machine": 8,
+    "repo": 9,
+    "session": 17221,
+    "sessionUserState": 17216
+  },
+  "outputDeliveryWitness": true,
+  "idle": {
+    "seconds": 60.002,
+    "loadStart": [
+      6.1,
+      5.84,
+      5.75
+    ],
+    "loadEnd": [
+      4.14,
+      5.33,
+      5.58
+    ],
+    "delivered": {
+      "heartbeat": 30,
+      "issueChange": 10,
+      "sessionOutput": 120
+    },
+    "upstreamStart": {
+      "feedDeltas": 28,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 0,
+      "syntheticIssue": 0,
+      "syntheticOutput": 11
+    },
+    "upstreamEnd": {
+      "feedDeltas": 28,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 30,
+      "syntheticIssue": 10,
+      "syntheticOutput": 131
+    },
+    "taskMs": 8214.614000000012,
+    "scriptMs": 7154.866999999996,
+    "layoutMs": 231.00499999999968
+  },
+  "endedAt": "2026-10-04T13:33:52.209Z",
+  "loadEnd": [
+    4.14,
+    5.33,
+    5.58
+  ],
+  "hostCpuEnd": [
+    410645058,
+    7344376,
+    188846695,
+    1848275409,
+    12264320,
+    0,
+    18862121,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 28,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 30,
+    "syntheticIssue": 10,
+    "syntheticOutput": 131
+  },
+  "originalPurpose": "measurement",
+  "excludedReason": "NEW repinned to operator build 1aa0ec71f6; pre-repin captures and their OLD controls excluded from final comparisons"
+}

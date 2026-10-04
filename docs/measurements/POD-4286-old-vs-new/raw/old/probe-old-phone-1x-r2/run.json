@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "mode": "probe",
+  "arm": "old",
+  "round": 2,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:32:42.429Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    3.84,
+    3.67,
+    3.85
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3318081
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T12:32:49.830Z"
+    },
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T12:32:50.777Z"
+    },
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T12:32:51.550Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_7b3b1b7d-a9d0-4647-9252-c5efd9428a15",
+        "repoPath": "/tmp/podium-e2e-19552-dccef5f3/zz-podium-e2e-repo-19552",
+        "repoId": "repo_bf34a21c1a2d877a",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "revision": 2,
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-dccef5f3/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "5f81adf9-89f4-4931-b1e1-5da1598d1a6b",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:32:47.358Z",
+        "updatedAt": "2026-10-04T12:32:47.395Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "6494ec03-1013-4fc1-acba-4c816cee6d2c",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "7c3435a8-aa5e-4db6-be11-395517f1ea21",
+        "agentId": "7c3435a8-aa5e-4db6-be11-395517f1ea21",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5f81adf9-89f4-4931-b1e1-5da1598d1a6b",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "490a386d-9850-4a2a-b6e6-acfdc20fad85",
+        "agentId": "490a386d-9850-4a2a-b6e6-acfdc20fad85",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5f81adf9-89f4-4931-b1e1-5da1598d1a6b",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_2d00b3ab-43da-42ff-acd2-e76270149122",
+        "repoPath": "/tmp/podium-e2e-19552-dccef5f3/zz-podium-e2e-repo-19552",
+        "repoId": "repo_bf34a21c1a2d877a",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "revision": 2,
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-dccef5f3/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "5f81adf9-89f4-4931-b1e1-5da1598d1a6b",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:32:47.534Z",
+        "updatedAt": "2026-10-04T12:32:47.587Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "d5b11d89-3108-43d5-9051-99894eb6e092",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "a7de2f95-3eba-4da2-96a0-7e66720a7bc4",
+        "agentId": "a7de2f95-3eba-4da2-96a0-7e66720a7bc4",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5f81adf9-89f4-4931-b1e1-5da1598d1a6b",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:32:48.317502+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:32:48.300Z",
+          "expiresAt": "2026-10-04T12:52:48.300Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T12:32:48.721Z",
+  "captureLoadStart": [
+    3.93,
+    3.7,
+    3.86
+  ],
+  "hostCpuStart": [
+    409632425,
+    7344376,
+    188561857,
+    1846825922,
+    12177079,
+    0,
+    18826182,
+    0,
+    0,
+    0
+  ],
+  "failure": "TimeoutError: waitFor: Timeout 120000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Search work', exact: true }) to be visible\n",
+  "endedAt": "2026-10-04T12:34:52.306Z",
+  "loadEnd": [
+    3.21,
+    3.46,
+    3.74
+  ],
+  "hostCpuEnd": [
+    409642991,
+    7344376,
+    188570055,
+    1846899503,
+    12180035,
+    0,
+    18827350,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}

@@ -1,0 +1,352 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "old",
+  "round": 3,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "purpose": "superseded",
+  "harnessSha256": "3f120b2c54966325ab53767d5857ef2bc713d376ab6aa1145bf102ff115b468a",
+  "durationTimeDomain": "threadTicks",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "controlOnly": false,
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T13:47:58.448Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    3.56,
+    4.96,
+    5.29
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3480058
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T13:48:06.783Z"
+    },
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T13:48:07.132Z"
+    },
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T13:48:07.434Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_25283174-406c-4751-8107-85acb2ca68cb",
+        "repoPath": "/tmp/podium-e2e-19552-3f0206a1/zz-podium-e2e-repo-19552",
+        "repoId": "repo_ce742b0c3c6dfabd",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "revision": 2,
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-3f0206a1/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "fcec7a98-2d5a-411c-a30a-8bf8e2faf8b7",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T13:48:03.747Z",
+        "updatedAt": "2026-10-04T13:48:03.832Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "28d84ed9-bc12-4344-9607-4a0aa7deee41",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "d5c37547-91b7-4168-a8fc-9a4196d0b646",
+        "agentId": "d5c37547-91b7-4168-a8fc-9a4196d0b646",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fcec7a98-2d5a-411c-a30a-8bf8e2faf8b7",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "bd93d41d-01e7-42ab-bf48-213d5decb899",
+        "agentId": "bd93d41d-01e7-42ab-bf48-213d5decb899",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fcec7a98-2d5a-411c-a30a-8bf8e2faf8b7",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_b233830d-ddf3-4e2c-9fa1-ed38eece8e76",
+        "repoPath": "/tmp/podium-e2e-19552-3f0206a1/zz-podium-e2e-repo-19552",
+        "repoId": "repo_ce742b0c3c6dfabd",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "revision": 2,
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-3f0206a1/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "fcec7a98-2d5a-411c-a30a-8bf8e2faf8b7",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T13:48:03.967Z",
+        "updatedAt": "2026-10-04T13:48:04.003Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "d8a3c199-2b69-4c2e-af90-6880f2685881",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "a05a211b-3cf0-4e47-81b0-63d300ef0133",
+        "agentId": "a05a211b-3cf0-4e47-81b0-63d300ef0133",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fcec7a98-2d5a-411c-a30a-8bf8e2faf8b7",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 797,
+      "sessions": 5,
+      "statuses": [
+        "starting",
+        "starting",
+        "starting",
+        "live",
+        "starting"
+      ]
+    },
+    {
+      "seq": 802,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "28d84ed9-bc12-4344-9607-4a0aa7deee41",
+      "sessionId": "28d84ed9-bc12-4344-9607-4a0aa7deee41",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "d5c37547-91b7-4168-a8fc-9a4196d0b646",
+      "sessionId": "d5c37547-91b7-4168-a8fc-9a4196d0b646",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "d8a3c199-2b69-4c2e-af90-6880f2685881",
+      "sessionId": "d8a3c199-2b69-4c2e-af90-6880f2685881",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "a05a211b-3cf0-4e47-81b0-63d300ef0133",
+      "sessionId": "a05a211b-3cf0-4e47-81b0-63d300ef0133",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "bd93d41d-01e7-42ab-bf48-213d5decb899",
+      "sessionId": "bd93d41d-01e7-42ab-bf48-213d5decb899",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 17654,
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T13:48:05.545456+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T13:48:05.527Z",
+          "expiresAt": "2026-10-04T14:08:05.527Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T13:48:05.984Z",
+  "captureLoadStart": [
+    4.36,
+    5.09,
+    5.33
+  ],
+  "hostCpuStart": [
+    410830908,
+    7344376,
+    188906557,
+    1848671161,
+    12282871,
+    0,
+    18869869,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19552/client?v=3&vmin=1&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 2,
+    "machinesChanged": 1,
+    "approvalsChanged": 1,
+    "hostMetricsChanged": 1,
+    "pong": 1,
+    "feedResume": 1
+  },
+  "failure": "Error: Phone startup refused: CANNOT START\nPodium could not finish starting.\nThe server connection or on-device storage stopped before the app could load. Your on-device data has not been changed.\nMinified React error #185; visit https://react.dev/errors/185 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.\nRetry\n                                                                                                \n        n$$$$$$$$k      q$$$$$$*    z$$$$$$$8q     $$$k  k$$$    $$$q  k$$$$k     $$$$$z        \n        *$$$$$$$$$$    $$$$$$$$$$   O$$$$$$$$$$    $$$*  q$$$    $$$8  J$$$$$     8$$$$8        \n        $$$8   $$$$z  $$$$n  *$$$q  k$$$O  k$$$8   $$$8  O$$$z  ",
+  "endedAt": "2026-10-04T13:48:07.836Z",
+  "loadEnd": [
+    4.36,
+    5.09,
+    5.33
+  ],
+  "hostCpuEnd": [
+    410831404,
+    7344376,
+    188906744,
+    1848671861,
+    12282919,
+    0,
+    18869891,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  },
+  "originalPurpose": "measurement",
+  "excludedReason": "NEW repinned to operator build 1aa0ec71f6; pre-repin captures and their OLD controls excluded from final comparisons"
+}

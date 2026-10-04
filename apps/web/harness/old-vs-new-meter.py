@@ -9,7 +9,7 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--checkout-arm', choices=['old', 'new'], required=True)
-parser.add_argument('--task', choices=['mobile-maps', 'snapshot', 'cpu'], required=True)
+parser.add_argument('--task', choices=['mobile-maps', 'snapshot', 'cpu', 'cpu-boundaries'], required=True)
 parser.add_argument('--surface', choices=['web', 'phone'], default='web')
 parser.add_argument('--source-sha')
 parser.add_argument('--build-dir')
@@ -19,6 +19,9 @@ if args.task == 'mobile-maps':
     command = ['.toolchain/bun', 'apps/web/harness/old-vs-new-mobile-maps.mjs']
 elif args.task == 'snapshot':
     command = ['python3', 'apps/web/harness/old-vs-new-build.py']
+elif args.task == 'cpu-boundaries':
+    command = ['.toolchain/bun', 'apps/web/harness/old-vs-new-cpu.ts', '--all',
+               f'--surface={args.surface}', '--boundaries-only']
 else:
     if not args.build_dir:
         parser.error('CPU attribution requires --build-dir with matching measured assets')

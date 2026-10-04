@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "mode": "probe",
+  "arm": "new",
+  "round": 1,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "22b676a741918c8c11a84aa485a37bb31595a7cc",
+  "productTreeSha256": "d610c84b7de9a84b46f66fe08a90124f589e2210965629cfd6fca60a6883b063",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:26:16.392Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    2.95,
+    3.7,
+    3.98
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3306432
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 21969,
+      "rows": 21956,
+      "originalRows": 13,
+      "fromSeq": 797,
+      "at": "2026-10-04T12:29:32.467Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_552d70e5-b590-4005-a78a-e5b37fbe477c",
+        "repoId": "repo_5b605706c97166b3",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-44709f1f/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "5e5386dd-7e57-483b-9a9f-a6fff94efdbb",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T12:26:20.015Z",
+        "updatedAt": "2026-10-04T12:26:20.061Z",
+        "agentId": "f9b2a702-ff26-47b9-9b9f-103c8faa13cf",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-44709f1f/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "99765116-637f-46f5-a45f-fb06e7bee617",
+        "agentId": "99765116-637f-46f5-a45f-fb06e7bee617",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5e5386dd-7e57-483b-9a9f-a6fff94efdbb",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "b0a4417f-f980-4cb9-a221-aabb909e9736",
+        "agentId": "b0a4417f-f980-4cb9-a221-aabb909e9736",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5e5386dd-7e57-483b-9a9f-a6fff94efdbb",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_510f6218-b49a-4fc6-b799-44d6e3fd02d1",
+        "repoId": "repo_5b605706c97166b3",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "9",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-44709f1f/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "5e5386dd-7e57-483b-9a9f-a6fff94efdbb",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T12:26:20.180Z",
+        "updatedAt": "2026-10-04T12:26:20.214Z",
+        "agentId": "c99545ec-c6e4-48a2-86e0-0cff4f34a745",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-44709f1f/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "e4f1c25d-cecc-4082-8a58-9c60e1d6c9d8",
+        "agentId": "e4f1c25d-cecc-4082-8a58-9c60e1d6c9d8",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "5e5386dd-7e57-483b-9a9f-a6fff94efdbb",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:29:30.873741+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:29:16.398Z",
+          "expiresAt": "2026-10-04T12:49:30.843Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T12:29:31.281Z",
+  "captureLoadStart": [
+    2.92,
+    3.49,
+    3.85
+  ],
+  "hostCpuStart": [
+    409603732,
+    7344376,
+    188549285,
+    1846719718,
+    12172386,
+    0,
+    18824031,
+    0,
+    0,
+    0
+  ],
+  "failure": "TimeoutError: waitFor: Timeout 120000ms exceeded.\nCall log:\n  - waiting for getByText('Comparison target A', { exact: true }).first() to be visible\n",
+  "endedAt": "2026-10-04T12:31:35.587Z",
+  "loadEnd": [
+    3.91,
+    3.65,
+    3.86
+  ],
+  "hostCpuEnd": [
+    409627340,
+    7344376,
+    188557158,
+    1846780956,
+    12175294,
+    0,
+    18825558,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}

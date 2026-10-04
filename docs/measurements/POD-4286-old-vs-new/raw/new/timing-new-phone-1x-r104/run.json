@@ -1,0 +1,1538 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "new",
+  "round": 104,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "22b676a741918c8c11a84aa485a37bb31595a7cc",
+  "productTreeSha256": "d610c84b7de9a84b46f66fe08a90124f589e2210965629cfd6fca60a6883b063",
+  "purpose": "selector-calibration",
+  "harnessSha256": "d1ee6deec4489531fedeedc54392ea30e6399aa7a855970bec7f6d2cb8d6e6ce",
+  "durationTimeDomain": "threadTicks",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "controlOnly": false,
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T13:06:46.490Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    1.77,
+    4.19,
+    5.92
+  ],
+  "actions": [
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:06:51.929Z",
+      "load": [
+        2.03,
+        4.2,
+        5.91
+      ],
+      "inputToPaintMs": 3805.549,
+      "selectedDomMs": 3735.058,
+      "profiled": false,
+      "mainThreadCpuMs": 2710.695,
+      "layoutCpuMs": 43.524,
+      "mainThreadBusyMs": 3404.747,
+      "layoutMs": 82.826,
+      "taskWindowMs": 6225.951,
+      "scriptWindowMs": 2146.394,
+      "layoutWindowMs": 453.58799999999997,
+      "trace": "app-cold-start-0.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:07:00.651Z",
+      "load": [
+        3.94,
+        4.54,
+        6
+      ],
+      "inputToPaintMs": 2618.644,
+      "selectedDomMs": 2595.363,
+      "profiled": false,
+      "mainThreadCpuMs": 1918.62,
+      "layoutCpuMs": 54.235,
+      "mainThreadBusyMs": 2295.329,
+      "layoutMs": 66.46,
+      "taskWindowMs": 3303.1020000000008,
+      "scriptWindowMs": 820.932,
+      "layoutWindowMs": 190.54700000000003,
+      "trace": "app-warm-start-1.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:07:05.143Z",
+      "load": [
+        4.43,
+        4.63,
+        6.03
+      ],
+      "inputToPaintMs": 3909.881,
+      "selectedDomMs": 3861.809,
+      "profiled": false,
+      "mainThreadCpuMs": 2977.27,
+      "layoutCpuMs": 37.319,
+      "mainThreadBusyMs": 3558.169,
+      "layoutMs": 47.895,
+      "taskWindowMs": 6684.722,
+      "scriptWindowMs": 2221.9570000000003,
+      "layoutWindowMs": 483.721,
+      "trace": "app-cold-start-2.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:07:13.512Z",
+      "load": [
+        4.71,
+        4.69,
+        6.04
+      ],
+      "inputToPaintMs": 2304.18,
+      "selectedDomMs": 2283.933,
+      "profiled": false,
+      "mainThreadCpuMs": 1804.411,
+      "layoutCpuMs": 51.667,
+      "mainThreadBusyMs": 1979.757,
+      "layoutMs": 62.972,
+      "taskWindowMs": 3197.8689999999997,
+      "scriptWindowMs": 844.9559999999998,
+      "layoutWindowMs": 189.442,
+      "trace": "app-warm-start-3.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:07:17.565Z",
+      "load": [
+        4.58,
+        4.66,
+        6.02
+      ],
+      "inputToPaintMs": 3365.458,
+      "selectedDomMs": 3297.617,
+      "profiled": false,
+      "mainThreadCpuMs": 2783.748,
+      "layoutCpuMs": 33.753,
+      "mainThreadBusyMs": 3039.549,
+      "layoutMs": 45.487,
+      "taskWindowMs": 6481.205,
+      "scriptWindowMs": 2011.3590000000002,
+      "layoutWindowMs": 483.95300000000003,
+      "trace": "app-cold-start-4.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:07:25.414Z",
+      "load": [
+        4.81,
+        4.7,
+        6.02
+      ],
+      "inputToPaintMs": 2369.731,
+      "selectedDomMs": 2332.996,
+      "profiled": false,
+      "mainThreadCpuMs": 1758.216,
+      "layoutCpuMs": 51.735,
+      "mainThreadBusyMs": 1982.882,
+      "layoutMs": 65.514,
+      "taskWindowMs": 3071.4450000000006,
+      "scriptWindowMs": 780.1590000000002,
+      "layoutWindowMs": 171.88900000000007,
+      "trace": "app-warm-start-5.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:07:29.458Z",
+      "load": [
+        4.81,
+        4.7,
+        6.02
+      ],
+      "inputToPaintMs": 3428.501,
+      "selectedDomMs": 3427.636,
+      "profiled": false,
+      "mainThreadCpuMs": 2654.934,
+      "layoutCpuMs": 35.707,
+      "mainThreadBusyMs": 3099.707,
+      "layoutMs": 48.161,
+      "taskWindowMs": 6041.462,
+      "scriptWindowMs": 1992.8310000000001,
+      "layoutWindowMs": 420.59200000000004,
+      "trace": "app-cold-start-6.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:07:37.162Z",
+      "load": [
+        5.85,
+        4.93,
+        6.08
+      ],
+      "inputToPaintMs": 2487.737,
+      "selectedDomMs": 2465.766,
+      "profiled": false,
+      "mainThreadCpuMs": 1719.251,
+      "layoutCpuMs": 50.293,
+      "mainThreadBusyMs": 2157.827,
+      "layoutMs": 57.348,
+      "taskWindowMs": 3090.4480000000003,
+      "scriptWindowMs": 757.8190000000001,
+      "layoutWindowMs": 186.04500000000002,
+      "trace": "app-warm-start-7.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T13:07:41.517Z",
+      "load": [
+        6.18,
+        5.01,
+        6.1
+      ],
+      "inputToPaintMs": 3577.138,
+      "selectedDomMs": 3538.949,
+      "profiled": true,
+      "mainThreadCpuMs": 3045.017,
+      "layoutCpuMs": 38.854,
+      "mainThreadBusyMs": 3285.833,
+      "layoutMs": 46.401,
+      "taskWindowMs": 7028.683,
+      "scriptWindowMs": 2380.346,
+      "layoutWindowMs": 523.26,
+      "trace": "app-cold-start-8.trace.json.gz",
+      "cpu": "app-cold-start-8.cpuprofile"
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T13:07:49.977Z",
+      "load": [
+        7.07,
+        5.24,
+        6.16
+      ],
+      "inputToPaintMs": 2251.17,
+      "selectedDomMs": 2229.553,
+      "profiled": true,
+      "mainThreadCpuMs": 1842.274,
+      "layoutCpuMs": 48.437,
+      "mainThreadBusyMs": 1902.544,
+      "layoutMs": 54.981,
+      "taskWindowMs": 3706.8059999999996,
+      "scriptWindowMs": 847.2050000000002,
+      "layoutWindowMs": 211.01900000000006,
+      "trace": "app-warm-start-9.trace.json.gz",
+      "cpu": "app-warm-start-9.cpuprofile"
+    },
+    {
+      "action": "phone-issue-screen",
+      "index": 10,
+      "startedAt": "2026-10-04T13:08:38.290Z",
+      "load": [
+        6,
+        5.21,
+        6.11
+      ],
+      "inputToPaintMs": 534.786,
+      "selectedDomMs": 502.211,
+      "profiled": false,
+      "mainThreadCpuMs": 414.139,
+      "layoutCpuMs": 15.978,
+      "mainThreadBusyMs": 534.735,
+      "layoutMs": 25.279,
+      "scriptWindowMs": 495.501,
+      "taskWindowMs": 1029.9929999999974,
+      "layoutWindowMs": 93.73699999999997,
+      "trace": "0010-phone-issue-screen.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 11,
+      "startedAt": "2026-10-04T13:08:40.531Z",
+      "load": [
+        6.64,
+        5.36,
+        6.15
+      ],
+      "inputToPaintMs": 138.98,
+      "selectedDomMs": 106.997,
+      "profiled": false,
+      "mainThreadCpuMs": 106.76,
+      "layoutCpuMs": 15.414,
+      "mainThreadBusyMs": 138.943,
+      "layoutMs": 20.63,
+      "scriptWindowMs": 234.92200000000008,
+      "taskWindowMs": 661.0809999999958,
+      "layoutWindowMs": 55.930000000000035,
+      "trace": "0011-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 12,
+      "startedAt": "2026-10-04T13:08:42.719Z",
+      "load": [
+        6.64,
+        5.36,
+        6.15
+      ],
+      "inputToPaintMs": 77.256,
+      "selectedDomMs": 57.354,
+      "profiled": false,
+      "mainThreadCpuMs": 66.835,
+      "layoutCpuMs": 15.595,
+      "mainThreadBusyMs": 77.092,
+      "layoutMs": 19.337,
+      "scriptWindowMs": 153.66100000000048,
+      "taskWindowMs": 472.06800000000015,
+      "layoutWindowMs": 43.80700000000015,
+      "trace": "0012-phone-mission-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 13,
+      "startedAt": "2026-10-04T13:08:44.847Z",
+      "load": [
+        6.51,
+        5.35,
+        6.14
+      ],
+      "inputToPaintMs": 112.024,
+      "selectedDomMs": 92.001,
+      "profiled": true,
+      "mainThreadCpuMs": 71.854,
+      "layoutCpuMs": 13.348,
+      "mainThreadBusyMs": 111.993,
+      "layoutMs": 21.007,
+      "scriptWindowMs": 567.0149999999996,
+      "taskWindowMs": 1550.229999999999,
+      "layoutWindowMs": 87.98900000000032,
+      "trace": "0013-phone-mission-open.trace.json.gz",
+      "cpu": "0013-phone-mission-open.cpuprofile"
+    },
+    {
+      "action": "phone-mission-open",
+      "index": 14,
+      "startedAt": "2026-10-04T13:08:47.462Z",
+      "load": [
+        6.51,
+        5.35,
+        6.14
+      ],
+      "inputToPaintMs": 137.392,
+      "selectedDomMs": 91.563,
+      "profiled": true,
+      "mainThreadCpuMs": 70.746,
+      "layoutCpuMs": 15.334,
+      "mainThreadBusyMs": 137.349,
+      "layoutMs": 29.792,
+      "scriptWindowMs": 302.34899999999953,
+      "taskWindowMs": 1114.6320000000003,
+      "layoutWindowMs": 63.328999999999525,
+      "trace": "0014-phone-mission-open.trace.json.gz",
+      "cpu": "0014-phone-mission-open.cpuprofile"
+    },
+    {
+      "action": "phone-long-press",
+      "index": 15,
+      "startedAt": "2026-10-04T13:08:50.448Z",
+      "load": [
+        6.95,
+        5.46,
+        6.18
+      ],
+      "inputToPaintMs": 517.665,
+      "selectedDomMs": 501.217,
+      "profiled": false,
+      "mainThreadCpuMs": 426.374,
+      "layoutCpuMs": 85.08,
+      "mainThreadBusyMs": 444.742,
+      "layoutMs": 86.331,
+      "scriptWindowMs": 81.59000000000027,
+      "taskWindowMs": 581.1970000000031,
+      "layoutWindowMs": 70.37700000000058,
+      "trace": "0015-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 16,
+      "startedAt": "2026-10-04T13:08:54.593Z",
+      "load": [
+        7.43,
+        5.59,
+        6.21
+      ],
+      "inputToPaintMs": 545.403,
+      "selectedDomMs": 533.538,
+      "profiled": false,
+      "mainThreadCpuMs": 390.093,
+      "layoutCpuMs": 71.448,
+      "mainThreadBusyMs": 448.656,
+      "layoutMs": 86.193,
+      "scriptWindowMs": 66.26499999999957,
+      "taskWindowMs": 575.950000000006,
+      "layoutWindowMs": 68.11000000000078,
+      "trace": "0016-phone-long-press.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-long-press",
+      "index": 17,
+      "startedAt": "2026-10-04T13:08:59.126Z",
+      "load": [
+        7.43,
+        5.59,
+        6.21
+      ],
+      "inputToPaintMs": 536.58,
+      "selectedDomMs": 525.327,
+      "profiled": true,
+      "mainThreadCpuMs": 408.946,
+      "layoutCpuMs": 84.45,
+      "mainThreadBusyMs": 448.786,
+      "layoutMs": 98.3,
+      "scriptWindowMs": 70.71100000000108,
+      "taskWindowMs": 1079.1480000000035,
+      "layoutWindowMs": 88.66599999999991,
+      "trace": "0017-phone-long-press.trace.json.gz",
+      "cpu": "0017-phone-long-press.cpuprofile"
+    },
+    {
+      "action": "phone-long-press",
+      "index": 18,
+      "startedAt": "2026-10-04T13:09:03.471Z",
+      "load": [
+        7.32,
+        5.59,
+        6.21
+      ],
+      "inputToPaintMs": 559.839,
+      "selectedDomMs": 546.414,
+      "profiled": true,
+      "mainThreadCpuMs": 420.794,
+      "layoutCpuMs": 92.015,
+      "mainThreadBusyMs": 491.044,
+      "layoutMs": 114.062,
+      "scriptWindowMs": 67.52999999999965,
+      "taskWindowMs": 1154.2649999999953,
+      "layoutWindowMs": 101.25900000000065,
+      "trace": "0018-phone-long-press.trace.json.gz",
+      "cpu": "0018-phone-long-press.cpuprofile"
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 19,
+      "startedAt": "2026-10-04T13:09:07.050Z",
+      "load": [
+        7.37,
+        5.63,
+        6.22
+      ],
+      "inputToPaintMs": 112.613,
+      "selectedDomMs": 83.556,
+      "profiled": false,
+      "mainThreadCpuMs": 108.672,
+      "layoutCpuMs": 55.029,
+      "mainThreadBusyMs": 112.516,
+      "layoutMs": 55.906,
+      "scriptWindowMs": 525.1479999999997,
+      "taskWindowMs": 867.7999999999884,
+      "layoutWindowMs": 40.08199999999995,
+      "trace": "0019-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 20,
+      "startedAt": "2026-10-04T13:09:09.426Z",
+      "load": [
+        7.37,
+        5.63,
+        6.22
+      ],
+      "inputToPaintMs": 99.007,
+      "selectedDomMs": 66.132,
+      "profiled": false,
+      "mainThreadCpuMs": 95.388,
+      "layoutCpuMs": 45.783,
+      "mainThreadBusyMs": 98.976,
+      "layoutMs": 46.579,
+      "scriptWindowMs": 196.22000000000028,
+      "taskWindowMs": 376.64999999999793,
+      "layoutWindowMs": 31.290000000000262,
+      "trace": "0020-phone-mission-details.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 21,
+      "startedAt": "2026-10-04T13:09:10.657Z",
+      "load": [
+        7.34,
+        5.66,
+        6.23
+      ],
+      "inputToPaintMs": 115.236,
+      "selectedDomMs": 85.594,
+      "profiled": true,
+      "mainThreadCpuMs": 99.716,
+      "layoutCpuMs": 49.057,
+      "mainThreadBusyMs": 114.923,
+      "layoutMs": 54.146,
+      "scriptWindowMs": 291.47799999999967,
+      "taskWindowMs": 876.9999999999953,
+      "layoutWindowMs": 30.13799999999911,
+      "trace": "0021-phone-mission-details.trace.json.gz",
+      "cpu": "0021-phone-mission-details.cpuprofile"
+    },
+    {
+      "action": "phone-mission-details",
+      "index": 22,
+      "startedAt": "2026-10-04T13:09:12.174Z",
+      "load": [
+        7.34,
+        5.66,
+        6.23
+      ],
+      "inputToPaintMs": 113.626,
+      "selectedDomMs": 87.727,
+      "profiled": true,
+      "mainThreadCpuMs": 107.975,
+      "layoutCpuMs": 60.418,
+      "mainThreadBusyMs": 113.479,
+      "layoutMs": 60.704,
+      "scriptWindowMs": 210.50099999999895,
+      "taskWindowMs": 804.4940000000054,
+      "layoutWindowMs": 37.6069999999995,
+      "trace": "0022-phone-mission-details.trace.json.gz",
+      "cpu": "0022-phone-mission-details.cpuprofile"
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 23,
+      "startedAt": "2026-10-04T13:09:14.650Z",
+      "load": [
+        7.16,
+        5.65,
+        6.22
+      ],
+      "inputToPaintMs": 15.471,
+      "selectedDomMs": 8.739,
+      "profiled": false,
+      "mainThreadCpuMs": 15.255,
+      "layoutCpuMs": 1.688,
+      "mainThreadBusyMs": 15.449,
+      "layoutMs": 1.695,
+      "scriptWindowMs": 80.17300000000027,
+      "taskWindowMs": 146.15200000000073,
+      "layoutWindowMs": 0.90299999999921,
+      "trace": "0023-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 24,
+      "startedAt": "2026-10-04T13:09:14.846Z",
+      "load": [
+        7.16,
+        5.65,
+        6.22
+      ],
+      "inputToPaintMs": 11.231,
+      "selectedDomMs": 5.077,
+      "profiled": false,
+      "mainThreadCpuMs": 10.923,
+      "layoutCpuMs": 1.098,
+      "mainThreadBusyMs": 11.206,
+      "layoutMs": 1.1,
+      "scriptWindowMs": 10.023000000000337,
+      "taskWindowMs": 18.396999999993113,
+      "layoutWindowMs": 0.6350000000008293,
+      "trace": "0024-phone-composer-typing.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 25,
+      "startedAt": "2026-10-04T13:09:15.282Z",
+      "load": [
+        7.16,
+        5.65,
+        6.22
+      ],
+      "inputToPaintMs": 12.246,
+      "selectedDomMs": 6.282,
+      "profiled": true,
+      "mainThreadCpuMs": 11.266,
+      "layoutCpuMs": 1.179,
+      "mainThreadBusyMs": 12.217,
+      "layoutMs": 1.182,
+      "scriptWindowMs": 13.94600000000068,
+      "taskWindowMs": 407.37699999999677,
+      "layoutWindowMs": 0.698999999999117,
+      "trace": "0025-phone-composer-typing.trace.json.gz",
+      "cpu": "0025-phone-composer-typing.cpuprofile"
+    },
+    {
+      "action": "phone-composer-typing",
+      "index": 26,
+      "startedAt": "2026-10-04T13:09:15.809Z",
+      "load": [
+        7.16,
+        5.65,
+        6.22
+      ],
+      "inputToPaintMs": 13.41,
+      "selectedDomMs": 5.961,
+      "profiled": true,
+      "mainThreadCpuMs": 12.544,
+      "layoutCpuMs": 1.192,
+      "mainThreadBusyMs": 13.362,
+      "layoutMs": 1.192,
+      "scriptWindowMs": 110.24800000000035,
+      "taskWindowMs": 533.8579999999951,
+      "layoutWindowMs": 0.664000000000442,
+      "trace": "0026-phone-composer-typing.trace.json.gz",
+      "cpu": "0026-phone-composer-typing.cpuprofile"
+    },
+    {
+      "action": "phone-work-search",
+      "index": 27,
+      "startedAt": "2026-10-04T13:09:49.808Z",
+      "load": [
+        8.39,
+        6.14,
+        6.36
+      ],
+      "inputToPaintMs": 12.885,
+      "selectedDomMs": 9.391,
+      "profiled": false,
+      "mainThreadCpuMs": 12.59,
+      "layoutCpuMs": 1.791,
+      "mainThreadBusyMs": 12.861,
+      "layoutMs": 1.78,
+      "scriptWindowMs": 9.394999999999598,
+      "taskWindowMs": 24.226999999996224,
+      "layoutWindowMs": 1.3369999999994775,
+      "trace": "0027-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 28,
+      "startedAt": "2026-10-04T13:09:49.914Z",
+      "load": [
+        8.39,
+        6.14,
+        6.36
+      ],
+      "inputToPaintMs": 15.206,
+      "selectedDomMs": 10.896,
+      "profiled": false,
+      "mainThreadCpuMs": 12.574,
+      "layoutCpuMs": 1.646,
+      "mainThreadBusyMs": 15.175,
+      "layoutMs": 1.667,
+      "scriptWindowMs": 8.556999999999704,
+      "taskWindowMs": 22.956000000007748,
+      "layoutWindowMs": 1.234999999999431,
+      "trace": "0028-phone-work-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "phone-work-search",
+      "index": 29,
+      "startedAt": "2026-10-04T13:09:50.375Z",
+      "load": [
+        8.39,
+        6.14,
+        6.36
+      ],
+      "inputToPaintMs": 15.934,
+      "selectedDomMs": 10.649,
+      "profiled": true,
+      "mainThreadCpuMs": 11.655,
+      "layoutCpuMs": 1.679,
+      "mainThreadBusyMs": 15.915,
+      "layoutMs": 1.875,
+      "scriptWindowMs": 8.926999999999907,
+      "taskWindowMs": 392.85300000000234,
+      "layoutWindowMs": 1.2550000000004502,
+      "trace": "0029-phone-work-search.trace.json.gz",
+      "cpu": "0029-phone-work-search.cpuprofile"
+    },
+    {
+      "action": "phone-work-search",
+      "index": 30,
+      "startedAt": "2026-10-04T13:09:50.873Z",
+      "load": [
+        8.39,
+        6.14,
+        6.36
+      ],
+      "inputToPaintMs": 15.887,
+      "selectedDomMs": 10.761,
+      "profiled": true,
+      "mainThreadCpuMs": 13.3,
+      "layoutCpuMs": 1.832,
+      "mainThreadBusyMs": 15.408,
+      "layoutMs": 1.885,
+      "scriptWindowMs": 13.113999999999848,
+      "taskWindowMs": 402.4919999999952,
+      "layoutWindowMs": 1.3590000000007763,
+      "trace": "0030-phone-work-search.trace.json.gz",
+      "cpu": "0030-phone-work-search.cpuprofile"
+    }
+  ],
+  "unavailable": [
+    {
+      "action": "phone-navigation",
+      "reason": "Error: evaluate: Error: Expected effect is present before input; no-op forbidden\n    at eval (eval at evaluate (:302:30), <anonymous>:4:13)\n    at UtilityScript.evaluate (<anonymous>:304:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)",
+      "load": [
+        6.64,
+        5.36,
+        6.15
+      ]
+    },
+    {
+      "action": "phone-inbox",
+      "reason": "Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement",
+      "load": [
+        6.95,
+        5.46,
+        6.18
+      ]
+    },
+    {
+      "action": "phone-issue-open",
+      "reason": "TimeoutError: fill: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByRole('textbox', { name: 'Search tasks', exact: true })\n",
+      "load": [
+        7.49,
+        5.77,
+        6.25
+      ]
+    },
+    {
+      "action": "phone-issue-picker",
+      "reason": "TimeoutError: click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Set parent', exact: true })\n",
+      "load": [
+        8.59,
+        6.06,
+        6.34
+      ]
+    },
+    {
+      "action": "phone-issue-rename",
+      "reason": "TimeoutError: click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByRole('button', { name: 'Task title — edit', exact: true })\n",
+      "load": [
+        8.33,
+        6.09,
+        6.35
+      ]
+    }
+  ],
+  "background": [
+    {
+      "kind": "quiet",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 3.7270000000120262,
+      "scriptMs": 0.37200000000048306,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 221.23000025749207,
+      "trace": "background-0-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 2.7679999999890015,
+      "scriptMs": 0.05200000000016303,
+      "layoutMs": 0,
+      "count": 0,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 219.96899973601103,
+      "trace": "background-1-quiet.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 60.41700000000105,
+      "scriptMs": 50.637999999999295,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 234.2759999446571,
+      "trace": "background-2-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 47.925000000006435,
+      "scriptMs": 42.36099999999965,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 224.85500015318394,
+      "trace": "background-3-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 53.36900000000355,
+      "scriptMs": 47.36699999999949,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 220.30499996617436,
+      "trace": "background-4-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 52.11399999998889,
+      "scriptMs": 46.4140000000004,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 225.54100025445223,
+      "trace": "background-5-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 51.02899999999977,
+      "scriptMs": 44.07899999999998,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 220.23600013926625,
+      "trace": "background-6-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 39.26300000000538,
+      "scriptMs": 35.42700000000032,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 228.5529999062419,
+      "trace": "background-7-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 38.68300000000602,
+      "scriptMs": 34.254999999999924,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 238.92700020223856,
+      "trace": "background-8-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 47.049999999998704,
+      "scriptMs": 42.03599999999952,
+      "layoutMs": 0,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 238.3910003118217,
+      "trace": "background-9-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 10.409000000009883,
+      "scriptMs": 4.001000000000587,
+      "layoutMs": 0.5160000000010712,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 226.98300005868077,
+      "trace": "background-10-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 9.37999999999306,
+      "scriptMs": 3.6520000000006547,
+      "layoutMs": 0.6409999999998917,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 214.155999943614,
+      "trace": "background-11-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 14.70900000001052,
+      "scriptMs": 5.607999999998725,
+      "layoutMs": 0.5899999999989802,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 245.06899993866682,
+      "trace": "background-12-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        8.2,
+        6.14,
+        6.36
+      ],
+      "taskMs": 10.827000000006137,
+      "scriptMs": 4.611000000000587,
+      "layoutMs": 0.5749999999995481,
+      "count": 1,
+      "nominalWindowMs": 200,
+      "actualWindowMs": 223.53399964049459,
+      "trace": "background-13-session-output.trace.json.gz"
+    }
+  ],
+  "errors": [
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md",
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3396595
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:06:52.740Z"
+    },
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:07:05.858Z"
+    },
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:07:18.274Z"
+    },
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:07:30.101Z"
+    },
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T13:07:42.187Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_63eb2084-1733-4886-8141-f83b214ccf4b",
+        "repoId": "repo_068fdf86a6902700",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-4df78041/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "1b3ed7e8-9422-465a-b682-1e96d72d6cc1",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T13:06:49.951Z",
+        "updatedAt": "2026-10-04T13:06:49.984Z",
+        "agentId": "edc3f687-f965-4dee-b8bb-64635bea21bc",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-4df78041/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "9ce19edb-1f22-4379-b27c-ca1fb57dac5d",
+        "agentId": "9ce19edb-1f22-4379-b27c-ca1fb57dac5d",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "1b3ed7e8-9422-465a-b682-1e96d72d6cc1",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "05cb15ad-7dc4-4364-bebf-b6014fcfb4ff",
+        "agentId": "05cb15ad-7dc4-4364-bebf-b6014fcfb4ff",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "1b3ed7e8-9422-465a-b682-1e96d72d6cc1",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_613a5eea-b972-4b67-bf39-6f21b647db06",
+        "repoId": "repo_068fdf86a6902700",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-4df78041/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "1b3ed7e8-9422-465a-b682-1e96d72d6cc1",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T13:06:50.109Z",
+        "updatedAt": "2026-10-04T13:06:50.145Z",
+        "agentId": "d312f4b6-a25d-410b-98d9-cc0eb7f7a1cd",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-4df78041/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "e162a172-88c3-4fe0-9924-0763534111d8",
+        "agentId": "e162a172-88c3-4fe0-9924-0763534111d8",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "1b3ed7e8-9422-465a-b682-1e96d72d6cc1",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 793,
+      "sessions": 5,
+      "statuses": [
+        "starting",
+        "starting",
+        "starting",
+        "starting",
+        "live"
+      ]
+    },
+    {
+      "seq": 799,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "edc3f687-f965-4dee-b8bb-64635bea21bc",
+      "sessionId": "edc3f687-f965-4dee-b8bb-64635bea21bc",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "9ce19edb-1f22-4379-b27c-ca1fb57dac5d",
+      "sessionId": "9ce19edb-1f22-4379-b27c-ca1fb57dac5d",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "d312f4b6-a25d-410b-98d9-cc0eb7f7a1cd",
+      "sessionId": "d312f4b6-a25d-410b-98d9-cc0eb7f7a1cd",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "05cb15ad-7dc4-4364-bebf-b6014fcfb4ff",
+      "sessionId": "05cb15ad-7dc4-4364-bebf-b6014fcfb4ff",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "e162a172-88c3-4fe0-9924-0763534111d8",
+      "sessionId": "e162a172-88c3-4fe0-9924-0763534111d8",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 21971,
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T13:06:51.413784+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T13:06:51.391Z",
+          "expiresAt": "2026-10-04T13:26:51.391Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T13:06:51.752Z",
+  "captureLoadStart": [
+    2.03,
+    4.2,
+    5.91
+  ],
+  "hostCpuStart": [
+    410195809,
+    7344376,
+    188726151,
+    1847630247,
+    12225606,
+    0,
+    18845953,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19552/client?v=4&vmin=4&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 22,
+    "machinesChanged": 83,
+    "approvalsChanged": 11,
+    "hostMetricsChanged": 57,
+    "pong": 95,
+    "feedResume": 11,
+    "feedDelta": 10,
+    "sessionDraftChanged": 2,
+    "attached": 1,
+    "presenceRoomState": 1,
+    "presenceRoomDelta": 1,
+    "geometry": 1
+  },
+  "startupMarks": [
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211535024144,
+          "pid": 3397398
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211538759202,
+          "pid": 3397398
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211543743400,
+          "pid": 3397398
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211546338763,
+          "pid": 3397398
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211548235212,
+          "pid": 3399018
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211552097021,
+          "pid": 3399018
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211556603832,
+          "pid": 3399018
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211558887765,
+          "pid": 3399018
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211560657678,
+          "pid": 3399484
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211563955295,
+          "pid": 3399484
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211568506252,
+          "pid": 3399484
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211570839248,
+          "pid": 3399484
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211572550526,
+          "pid": 3399867
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211575978162,
+          "pid": 3399867
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211580254991,
+          "pid": 3399867
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211582720757,
+          "pid": 3399867
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211584621962,
+          "pid": 3400465
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211588160911,
+          "pid": 3400465
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3211593324335,
+          "pid": 3400465
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3211595553888,
+          "pid": 3400465
+        }
+      ]
+    }
+  ],
+  "population": {
+    "issueDep": 3594,
+    "issueEvent": 4,
+    "issueGitState": 5,
+    "issueProjection": 4869,
+    "issueUserState": 4869,
+    "machine": 8,
+    "repo": 9,
+    "session": 4309,
+    "sessionUserState": 4304
+  },
+  "outputDeliveryWitness": true,
+  "idle": {
+    "seconds": 60.002,
+    "loadStart": [
+      8.2,
+      6.14,
+      6.36
+    ],
+    "loadEnd": [
+      8.86,
+      6.74,
+      6.56
+    ],
+    "delivered": {
+      "heartbeat": 30,
+      "issueChange": 10,
+      "sessionOutput": 120
+    },
+    "upstreamStart": {
+      "feedDeltas": 10,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 0,
+      "syntheticIssue": 0,
+      "syntheticOutput": 5
+    },
+    "upstreamEnd": {
+      "feedDeltas": 10,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 30,
+      "syntheticIssue": 10,
+      "syntheticOutput": 125
+    },
+    "taskMs": 3490.858000000003,
+    "scriptMs": 2420.5500000000006,
+    "layoutMs": 246.55500000000075
+  },
+  "endedAt": "2026-10-04T13:10:58.998Z",
+  "loadEnd": [
+    8.86,
+    6.74,
+    6.56
+  ],
+  "hostCpuEnd": [
+    410305089,
+    7344376,
+    188746590,
+    1847688676,
+    12230274,
+    0,
+    18848039,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 10,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 30,
+    "syntheticIssue": 10,
+    "syntheticOutput": 125
+  }
+}

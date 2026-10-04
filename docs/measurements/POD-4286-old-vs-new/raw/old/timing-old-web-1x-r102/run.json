@@ -1,0 +1,2571 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "old",
+  "round": 102,
+  "surface": "web",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "purpose": "selector-calibration",
+  "harnessSha256": "854e3a9d11291ef71fff016915f6f49c2dcd750a86893bf4b04c34625e323d20",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "controlOnly": false,
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:47:51.683Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    6.58,
+    7.62,
+    5.89
+  ],
+  "actions": [
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T12:47:58.457Z",
+      "load": [
+        6.29,
+        7.54,
+        5.88
+      ],
+      "inputToPaintMs": 2378.197,
+      "selectedDomMs": 2360.362,
+      "profiled": false,
+      "mainThreadBusyMs": 2136.763,
+      "layoutMs": 205.368,
+      "taskWindowMs": 2932.555,
+      "scriptWindowMs": 1148.2060000000001,
+      "layoutWindowMs": 169.926,
+      "trace": "app-cold-start-0.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T12:48:05.403Z",
+      "load": [
+        7.71,
+        7.81,
+        5.98
+      ],
+      "inputToPaintMs": 1004.183,
+      "selectedDomMs": 993.303,
+      "profiled": false,
+      "mainThreadBusyMs": 850.523,
+      "layoutMs": 78.928,
+      "taskWindowMs": 1145.4719999999998,
+      "scriptWindowMs": 568.5819999999999,
+      "layoutWindowMs": 40.411,
+      "trace": "app-warm-start-1.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T12:48:08.779Z",
+      "load": [
+        7.71,
+        7.81,
+        5.98
+      ],
+      "inputToPaintMs": 2220.974,
+      "selectedDomMs": 2207.505,
+      "profiled": false,
+      "mainThreadBusyMs": 1961.892,
+      "layoutMs": 148.919,
+      "taskWindowMs": 2697.456,
+      "scriptWindowMs": 1056.823,
+      "layoutWindowMs": 111.233,
+      "trace": "app-cold-start-2.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T12:48:15.780Z",
+      "load": [
+        7.83,
+        7.83,
+        6.01
+      ],
+      "inputToPaintMs": 1396.496,
+      "selectedDomMs": 1385.588,
+      "profiled": false,
+      "mainThreadBusyMs": 1061.565,
+      "layoutMs": 82.946,
+      "taskWindowMs": 1591.3769999999995,
+      "scriptWindowMs": 937.3919999999998,
+      "layoutWindowMs": 50.797999999999995,
+      "trace": "app-warm-start-3.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T12:48:19.782Z",
+      "load": [
+        8.09,
+        7.88,
+        6.03
+      ],
+      "inputToPaintMs": 2661.85,
+      "selectedDomMs": 2645.008,
+      "profiled": false,
+      "mainThreadBusyMs": 2374.044,
+      "layoutMs": 168.059,
+      "taskWindowMs": 3249.463,
+      "scriptWindowMs": 1290.252,
+      "layoutWindowMs": 130.052,
+      "trace": "app-cold-start-4.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T12:48:27.078Z",
+      "load": [
+        8.24,
+        7.92,
+        6.05
+      ],
+      "inputToPaintMs": 1061.646,
+      "selectedDomMs": 1053.417,
+      "profiled": false,
+      "mainThreadBusyMs": 850.763,
+      "layoutMs": 67.29,
+      "taskWindowMs": 1154.3210000000004,
+      "scriptWindowMs": 595.947,
+      "layoutWindowMs": 36.71899999999997,
+      "trace": "app-warm-start-5.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T12:48:30.649Z",
+      "load": [
+        8.06,
+        7.89,
+        6.05
+      ],
+      "inputToPaintMs": 2488.376,
+      "selectedDomMs": 2472.372,
+      "profiled": false,
+      "mainThreadBusyMs": 2163.881,
+      "layoutMs": 157.679,
+      "taskWindowMs": 2991.0280000000002,
+      "scriptWindowMs": 1084.441,
+      "layoutWindowMs": 93.739,
+      "trace": "app-cold-start-6.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T12:48:37.707Z",
+      "load": [
+        7.9,
+        7.86,
+        6.05
+      ],
+      "inputToPaintMs": 1161.352,
+      "selectedDomMs": 1152.325,
+      "profiled": false,
+      "mainThreadBusyMs": 971.884,
+      "layoutMs": 73.629,
+      "taskWindowMs": 1372.5820000000003,
+      "scriptWindowMs": 730.1659999999998,
+      "layoutWindowMs": 43.43899999999999,
+      "trace": "app-warm-start-7.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "app-cold-start",
+      "startedAt": "2026-10-04T12:48:41.302Z",
+      "load": [
+        8.14,
+        7.91,
+        6.08
+      ],
+      "inputToPaintMs": 2488.031,
+      "selectedDomMs": 2472.064,
+      "profiled": true,
+      "mainThreadBusyMs": 2242.628,
+      "layoutMs": 122.098,
+      "taskWindowMs": 3088.7709999999997,
+      "scriptWindowMs": 1242.5759999999998,
+      "layoutWindowMs": 96.32400000000001,
+      "trace": "app-cold-start-8.trace.json.gz",
+      "cpu": "app-cold-start-8.cpuprofile"
+    },
+    {
+      "action": "app-warm-start",
+      "startedAt": "2026-10-04T12:48:48.592Z",
+      "load": [
+        8.61,
+        8.01,
+        6.12
+      ],
+      "inputToPaintMs": 1172.154,
+      "selectedDomMs": 1163.259,
+      "profiled": true,
+      "mainThreadBusyMs": 994.935,
+      "layoutMs": 83.667,
+      "taskWindowMs": 1513.6800000000003,
+      "scriptWindowMs": 703.3430000000001,
+      "layoutWindowMs": 50.677,
+      "trace": "app-warm-start-9.trace.json.gz",
+      "cpu": "app-warm-start-9.cpuprofile"
+    },
+    {
+      "action": "sidebar-select",
+      "index": 10,
+      "startedAt": "2026-10-04T12:48:53.773Z",
+      "load": [
+        8.49,
+        7.99,
+        6.13
+      ],
+      "inputToPaintMs": 428.151,
+      "selectedDomMs": 367.538,
+      "profiled": false,
+      "mainThreadBusyMs": 428.105,
+      "layoutMs": 60.455,
+      "scriptWindowMs": 1581.8619999999996,
+      "taskWindowMs": 2691.2519999999995,
+      "layoutWindowMs": 32.527,
+      "trace": "0010-sidebar-select.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-select",
+      "index": 11,
+      "startedAt": "2026-10-04T12:48:56.973Z",
+      "load": [
+        8.69,
+        8.04,
+        6.15
+      ],
+      "inputToPaintMs": 378.872,
+      "selectedDomMs": 359.709,
+      "profiled": false,
+      "mainThreadBusyMs": 378.817,
+      "layoutMs": 40.737,
+      "scriptWindowMs": 958.4000000000001,
+      "taskWindowMs": 1410.5299999999995,
+      "layoutWindowMs": 10.520000000000001,
+      "trace": "0011-sidebar-select.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-select",
+      "index": 12,
+      "startedAt": "2026-10-04T12:48:59.779Z",
+      "load": [
+        9.19,
+        8.16,
+        6.2
+      ],
+      "inputToPaintMs": 433.253,
+      "selectedDomMs": 407.612,
+      "profiled": true,
+      "mainThreadBusyMs": 430.932,
+      "layoutMs": 61.038,
+      "scriptWindowMs": 988.5350000000007,
+      "taskWindowMs": 2135.4900000000007,
+      "layoutWindowMs": 7.475000000000009,
+      "trace": "0012-sidebar-select.trace.json.gz",
+      "cpu": "0012-sidebar-select.cpuprofile"
+    },
+    {
+      "action": "sidebar-select",
+      "index": 13,
+      "startedAt": "2026-10-04T12:49:01.746Z",
+      "load": [
+        9.19,
+        8.16,
+        6.2
+      ],
+      "inputToPaintMs": 421.78,
+      "selectedDomMs": 397.859,
+      "profiled": true,
+      "mainThreadBusyMs": 421.73,
+      "layoutMs": 44.449,
+      "scriptWindowMs": 770.2420000000005,
+      "taskWindowMs": 1497.0700000000008,
+      "layoutWindowMs": 9.792999999999996,
+      "trace": "0013-sidebar-select.trace.json.gz",
+      "cpu": "0013-sidebar-select.cpuprofile"
+    },
+    {
+      "action": "sidebar-collapse",
+      "index": 14,
+      "startedAt": "2026-10-04T12:49:02.804Z",
+      "load": [
+        9.19,
+        8.16,
+        6.2
+      ],
+      "inputToPaintMs": 120.627,
+      "selectedDomMs": 84.758,
+      "profiled": false,
+      "mainThreadBusyMs": 119.627,
+      "layoutMs": 26.694,
+      "scriptWindowMs": 613.4179999999993,
+      "taskWindowMs": 1073.1040000000007,
+      "layoutWindowMs": 14.801999999999982,
+      "trace": "0014-sidebar-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-expand",
+      "index": 15,
+      "startedAt": "2026-10-04T12:49:04.070Z",
+      "load": [
+        9.19,
+        8.16,
+        6.2
+      ],
+      "inputToPaintMs": 143.212,
+      "selectedDomMs": 80.027,
+      "profiled": false,
+      "mainThreadBusyMs": 143.066,
+      "layoutMs": 43.541,
+      "scriptWindowMs": 98.46999999999895,
+      "taskWindowMs": 235.17299999999963,
+      "layoutWindowMs": 17.64300000000002,
+      "trace": "0015-sidebar-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-collapse",
+      "index": 16,
+      "startedAt": "2026-10-04T12:49:04.421Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 98.087,
+      "selectedDomMs": 70.762,
+      "profiled": false,
+      "mainThreadBusyMs": 98.056,
+      "layoutMs": 17.591,
+      "scriptWindowMs": 213.40999999999966,
+      "taskWindowMs": 444.75699999999915,
+      "layoutWindowMs": 5.035999999999985,
+      "trace": "0016-sidebar-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-expand",
+      "index": 17,
+      "startedAt": "2026-10-04T12:49:05.082Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 187.43,
+      "selectedDomMs": 109.145,
+      "profiled": false,
+      "mainThreadBusyMs": 186.928,
+      "layoutMs": 48.634,
+      "scriptWindowMs": 152.43499999999875,
+      "taskWindowMs": 365.47200000000043,
+      "layoutWindowMs": 20.48300000000003,
+      "trace": "0017-sidebar-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-collapse",
+      "index": 18,
+      "startedAt": "2026-10-04T12:49:06.000Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 92.554,
+      "selectedDomMs": 63.774,
+      "profiled": true,
+      "mainThreadBusyMs": 92.146,
+      "layoutMs": 20.363,
+      "scriptWindowMs": 174.06900000000115,
+      "taskWindowMs": 821.589999999997,
+      "layoutWindowMs": 6.03300000000001,
+      "trace": "0018-sidebar-collapse.trace.json.gz",
+      "cpu": "0018-sidebar-collapse.cpuprofile"
+    },
+    {
+      "action": "sidebar-expand",
+      "index": 19,
+      "startedAt": "2026-10-04T12:49:06.895Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 222.738,
+      "selectedDomMs": 142.49,
+      "profiled": true,
+      "mainThreadBusyMs": 222.552,
+      "layoutMs": 53.622,
+      "scriptWindowMs": 181.55900000000003,
+      "taskWindowMs": 803.2429999999983,
+      "layoutWindowMs": 23.130999999999958,
+      "trace": "0019-sidebar-expand.trace.json.gz",
+      "cpu": "0019-sidebar-expand.cpuprofile"
+    },
+    {
+      "action": "sidebar-collapse",
+      "index": 20,
+      "startedAt": "2026-10-04T12:49:07.870Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 94.285,
+      "selectedDomMs": 64.636,
+      "profiled": true,
+      "mainThreadBusyMs": 93.981,
+      "layoutMs": 18.864,
+      "scriptWindowMs": 176.98700000000045,
+      "taskWindowMs": 769.1580000000009,
+      "layoutWindowMs": 6.079000000000001,
+      "trace": "0020-sidebar-collapse.trace.json.gz",
+      "cpu": "0020-sidebar-collapse.cpuprofile"
+    },
+    {
+      "action": "sidebar-expand",
+      "index": 21,
+      "startedAt": "2026-10-04T12:49:08.748Z",
+      "load": [
+        9.18,
+        8.17,
+        6.22
+      ],
+      "inputToPaintMs": 179.983,
+      "selectedDomMs": 100.492,
+      "profiled": true,
+      "mainThreadBusyMs": 179.766,
+      "layoutMs": 48.321,
+      "scriptWindowMs": 293.55499999999955,
+      "taskWindowMs": 884.485999999999,
+      "layoutWindowMs": 20.61500000000005,
+      "trace": "0021-sidebar-expand.trace.json.gz",
+      "cpu": "0021-sidebar-expand.cpuprofile"
+    },
+    {
+      "action": "sidebar-group-collapse",
+      "index": 22,
+      "startedAt": "2026-10-04T12:49:09.403Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 52.687,
+      "selectedDomMs": 39.891,
+      "profiled": false,
+      "mainThreadBusyMs": 52.643,
+      "layoutMs": 2.048,
+      "scriptWindowMs": 48.92000000000074,
+      "taskWindowMs": 187.50299999999953,
+      "layoutWindowMs": 0.4589999999999872,
+      "trace": "0022-sidebar-group-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-group-expand",
+      "index": 23,
+      "startedAt": "2026-10-04T12:49:09.746Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 60.447,
+      "selectedDomMs": 47.078,
+      "profiled": false,
+      "mainThreadBusyMs": 60.39,
+      "layoutMs": 2.135,
+      "scriptWindowMs": 41.75799999999974,
+      "taskWindowMs": 283.7519999999998,
+      "layoutWindowMs": 3.944000000000003,
+      "trace": "0023-sidebar-group-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-group-collapse",
+      "index": 24,
+      "startedAt": "2026-10-04T12:49:10.151Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 53.472,
+      "selectedDomMs": 41.019,
+      "profiled": false,
+      "mainThreadBusyMs": 53.282,
+      "layoutMs": 1.136,
+      "scriptWindowMs": 43.18800000000067,
+      "taskWindowMs": 121.60400000000138,
+      "layoutWindowMs": 0.5650000000000377,
+      "trace": "0024-sidebar-group-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-group-expand",
+      "index": 25,
+      "startedAt": "2026-10-04T12:49:10.398Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 38.285,
+      "selectedDomMs": 25.427,
+      "profiled": false,
+      "mainThreadBusyMs": 38.256,
+      "layoutMs": 2.292,
+      "scriptWindowMs": 25.636000000000436,
+      "taskWindowMs": 80.2689999999977,
+      "layoutWindowMs": 1.7399999999999638,
+      "trace": "0025-sidebar-group-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-group-collapse",
+      "index": 26,
+      "startedAt": "2026-10-04T12:49:10.788Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 36.189,
+      "selectedDomMs": 25.063,
+      "profiled": true,
+      "mainThreadBusyMs": 34.996,
+      "layoutMs": 1.006,
+      "scriptWindowMs": 30.113000000000056,
+      "taskWindowMs": 334.7060000000006,
+      "layoutWindowMs": 4.234000000000016,
+      "trace": "0026-sidebar-group-collapse.trace.json.gz",
+      "cpu": "0026-sidebar-group-collapse.cpuprofile"
+    },
+    {
+      "action": "sidebar-group-expand",
+      "index": 27,
+      "startedAt": "2026-10-04T12:49:11.222Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 41.159,
+      "selectedDomMs": 27.612,
+      "profiled": true,
+      "mainThreadBusyMs": 40.876,
+      "layoutMs": 2.201,
+      "scriptWindowMs": 27.630000000000265,
+      "taskWindowMs": 292.3390000000019,
+      "layoutWindowMs": 1.2710000000000221,
+      "trace": "0027-sidebar-group-expand.trace.json.gz",
+      "cpu": "0027-sidebar-group-expand.cpuprofile"
+    },
+    {
+      "action": "sidebar-group-collapse",
+      "index": 28,
+      "startedAt": "2026-10-04T12:49:11.695Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 43.147,
+      "selectedDomMs": 29.469,
+      "profiled": true,
+      "mainThreadBusyMs": 42.739,
+      "layoutMs": 1.219,
+      "scriptWindowMs": 27.634000000000825,
+      "taskWindowMs": 354.493999999999,
+      "layoutWindowMs": 0.6589999999999652,
+      "trace": "0028-sidebar-group-collapse.trace.json.gz",
+      "cpu": "0028-sidebar-group-collapse.cpuprofile"
+    },
+    {
+      "action": "sidebar-group-expand",
+      "index": 29,
+      "startedAt": "2026-10-04T12:49:12.176Z",
+      "load": [
+        9.57,
+        8.27,
+        6.26
+      ],
+      "inputToPaintMs": 58.289,
+      "selectedDomMs": 43.056,
+      "profiled": true,
+      "mainThreadBusyMs": 58.138,
+      "layoutMs": 2.381,
+      "scriptWindowMs": 50.4099999999994,
+      "taskWindowMs": 384.05500000000006,
+      "layoutWindowMs": 1.4829999999999566,
+      "trace": "0029-sidebar-group-expand.trace.json.gz",
+      "cpu": "0029-sidebar-group-expand.cpuprofile"
+    },
+    {
+      "action": "session-switch",
+      "index": 30,
+      "startedAt": "2026-10-04T12:49:14.722Z",
+      "load": [
+        10.08,
+        8.4,
+        6.31
+      ],
+      "inputToPaintMs": 1030.851,
+      "selectedDomMs": 960.805,
+      "profiled": false,
+      "mainThreadBusyMs": 909.51,
+      "layoutMs": 66.826,
+      "scriptWindowMs": 922.2129999999993,
+      "taskWindowMs": 1383.7730000000015,
+      "layoutWindowMs": 16.13199999999998,
+      "trace": "0030-session-switch.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "session-switch",
+      "index": 31,
+      "startedAt": "2026-10-04T12:49:16.579Z",
+      "load": [
+        10.08,
+        8.4,
+        6.31
+      ],
+      "inputToPaintMs": 735.206,
+      "selectedDomMs": 720.151,
+      "profiled": false,
+      "mainThreadBusyMs": 727.32,
+      "layoutMs": 34.47,
+      "scriptWindowMs": 1115.0470000000005,
+      "taskWindowMs": 1831.2399999999975,
+      "layoutWindowMs": 10.782000000000014,
+      "trace": "0031-session-switch.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "session-switch",
+      "index": 32,
+      "startedAt": "2026-10-04T12:49:18.997Z",
+      "load": [
+        10.08,
+        8.4,
+        6.31
+      ],
+      "inputToPaintMs": 784.201,
+      "selectedDomMs": 770.522,
+      "profiled": true,
+      "mainThreadBusyMs": 782.348,
+      "layoutMs": 33.815,
+      "scriptWindowMs": 1456.748000000001,
+      "taskWindowMs": 2355.277000000001,
+      "layoutWindowMs": 10.315999999999992,
+      "trace": "0032-session-switch.trace.json.gz",
+      "cpu": "0032-session-switch.cpuprofile"
+    },
+    {
+      "action": "session-switch",
+      "index": 33,
+      "startedAt": "2026-10-04T12:49:21.839Z",
+      "load": [
+        10.16,
+        8.44,
+        6.34
+      ],
+      "inputToPaintMs": 1110.146,
+      "selectedDomMs": 1093.362,
+      "profiled": true,
+      "mainThreadBusyMs": 1104.2,
+      "layoutMs": 66.945,
+      "scriptWindowMs": 1925.4880000000014,
+      "taskWindowMs": 3358.2490000000043,
+      "layoutWindowMs": 19.99200000000001,
+      "trace": "0033-session-switch.trace.json.gz",
+      "cpu": "0033-session-switch.cpuprofile"
+    },
+    {
+      "action": "flight-deck-collapse",
+      "index": 34,
+      "startedAt": "2026-10-04T12:49:35.894Z",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ],
+      "inputToPaintMs": 53.1,
+      "selectedDomMs": 41.735,
+      "profiled": false,
+      "mainThreadBusyMs": 52.761,
+      "layoutMs": 4.403,
+      "scriptWindowMs": 139.45899999999867,
+      "taskWindowMs": 349.1950000000017,
+      "layoutWindowMs": 4.688999999999998,
+      "trace": "0034-flight-deck-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "flight-deck-expand",
+      "index": 35,
+      "startedAt": "2026-10-04T12:49:36.822Z",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ],
+      "inputToPaintMs": 82.784,
+      "selectedDomMs": 74.425,
+      "profiled": false,
+      "mainThreadBusyMs": 82.598,
+      "layoutMs": 7.777,
+      "scriptWindowMs": 188.55100000000036,
+      "taskWindowMs": 467.86400000000583,
+      "layoutWindowMs": 6.8349999999999795,
+      "trace": "0035-flight-deck-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "flight-deck-collapse",
+      "index": 36,
+      "startedAt": "2026-10-04T12:49:37.480Z",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ],
+      "inputToPaintMs": 41.337,
+      "selectedDomMs": 32.578,
+      "profiled": false,
+      "mainThreadBusyMs": 41.172,
+      "layoutMs": 2.739,
+      "scriptWindowMs": 39.020999999998196,
+      "taskWindowMs": 148.59099999999614,
+      "layoutWindowMs": 1.452999999999982,
+      "trace": "0036-flight-deck-collapse.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "flight-deck-expand",
+      "index": 37,
+      "startedAt": "2026-10-04T12:49:37.822Z",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ],
+      "inputToPaintMs": 70.315,
+      "selectedDomMs": 58.014,
+      "profiled": false,
+      "mainThreadBusyMs": 70.102,
+      "layoutMs": 8.892,
+      "scriptWindowMs": 153.40199999999982,
+      "taskWindowMs": 340.76899999999455,
+      "layoutWindowMs": 8.463999999999972,
+      "trace": "0037-flight-deck-expand.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "flight-deck-collapse",
+      "index": 38,
+      "startedAt": "2026-10-04T12:49:38.824Z",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ],
+      "inputToPaintMs": 43.105,
+      "selectedDomMs": 35.831,
+      "profiled": true,
+      "mainThreadBusyMs": 41.935,
+      "layoutMs": 2.869,
+      "scriptWindowMs": 159.73799999999727,
+      "taskWindowMs": 660.656000000003,
+      "layoutWindowMs": 4.150999999999961,
+      "trace": "0038-flight-deck-collapse.trace.json.gz",
+      "cpu": "0038-flight-deck-collapse.cpuprofile"
+    },
+    {
+      "action": "flight-deck-expand",
+      "index": 39,
+      "startedAt": "2026-10-04T12:49:39.651Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 80.209,
+      "selectedDomMs": 72.295,
+      "profiled": true,
+      "mainThreadBusyMs": 79.846,
+      "layoutMs": 7.605,
+      "scriptWindowMs": 181.49500000000174,
+      "taskWindowMs": 639.370999999997,
+      "layoutWindowMs": 6.970000000000032,
+      "trace": "0039-flight-deck-expand.trace.json.gz",
+      "cpu": "0039-flight-deck-expand.cpuprofile"
+    },
+    {
+      "action": "flight-deck-collapse",
+      "index": 40,
+      "startedAt": "2026-10-04T12:49:40.428Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 44.016,
+      "selectedDomMs": 36.279,
+      "profiled": true,
+      "mainThreadBusyMs": 43.986,
+      "layoutMs": 3.225,
+      "scriptWindowMs": 45.691999999998956,
+      "taskWindowMs": 467.40700000000146,
+      "layoutWindowMs": 1.585000000000003,
+      "trace": "0040-flight-deck-collapse.trace.json.gz",
+      "cpu": "0040-flight-deck-collapse.cpuprofile"
+    },
+    {
+      "action": "flight-deck-expand",
+      "index": 41,
+      "startedAt": "2026-10-04T12:49:41.075Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 60.579,
+      "selectedDomMs": 55.015,
+      "profiled": true,
+      "mainThreadBusyMs": 59.937,
+      "layoutMs": 4.97,
+      "scriptWindowMs": 65.73100000000309,
+      "taskWindowMs": 526.5600000000035,
+      "layoutWindowMs": 5.4200000000000355,
+      "trace": "0041-flight-deck-expand.trace.json.gz",
+      "cpu": "0041-flight-deck-expand.cpuprofile"
+    },
+    {
+      "action": "sidebar-drag-start",
+      "index": 42,
+      "startedAt": "2026-10-04T12:49:41.679Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 26.05,
+      "selectedDomMs": 8.195,
+      "profiled": false,
+      "mainThreadBusyMs": 25.514,
+      "layoutMs": 1.644,
+      "scriptWindowMs": 18.23399999999964,
+      "taskWindowMs": 44.18499999999881,
+      "layoutWindowMs": 0.4730000000000567,
+      "trace": "0042-sidebar-drag-start.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-drag-start",
+      "index": 43,
+      "startedAt": "2026-10-04T12:49:41.949Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 34.111,
+      "selectedDomMs": 4.877,
+      "profiled": false,
+      "mainThreadBusyMs": 33.643,
+      "layoutMs": 1.565,
+      "scriptWindowMs": 32.15499999999949,
+      "taskWindowMs": 72.08199999999465,
+      "layoutWindowMs": 0.6609999999999117,
+      "trace": "0043-sidebar-drag-start.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "sidebar-drag-start",
+      "index": 44,
+      "startedAt": "2026-10-04T12:49:42.496Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 28.18,
+      "selectedDomMs": 7.048,
+      "profiled": true,
+      "mainThreadBusyMs": 26.919,
+      "layoutMs": 1.405,
+      "scriptWindowMs": 18.66399999999757,
+      "taskWindowMs": 322.969999999998,
+      "layoutWindowMs": 0.5659999999999554,
+      "trace": "0044-sidebar-drag-start.trace.json.gz",
+      "cpu": "0044-sidebar-drag-start.cpuprofile"
+    },
+    {
+      "action": "sidebar-drag-start",
+      "index": 45,
+      "startedAt": "2026-10-04T12:49:43.034Z",
+      "load": [
+        10.56,
+        8.64,
+        6.45
+      ],
+      "inputToPaintMs": 31.194,
+      "selectedDomMs": 9.969,
+      "profiled": true,
+      "mainThreadBusyMs": 31.156,
+      "layoutMs": 1.829,
+      "scriptWindowMs": 28.382000000000573,
+      "taskWindowMs": 371.5839999999986,
+      "layoutWindowMs": 3.6249999999999893,
+      "trace": "0045-sidebar-drag-start.trace.json.gz",
+      "cpu": "0045-sidebar-drag-start.cpuprofile"
+    },
+    {
+      "action": "mark-read",
+      "index": 46,
+      "startedAt": "2026-10-04T12:49:45.085Z",
+      "load": [
+        10.11,
+        8.58,
+        6.44
+      ],
+      "inputToPaintMs": 1063.087,
+      "selectedDomMs": 1056.479,
+      "profiled": false,
+      "mainThreadBusyMs": 1040.712,
+      "layoutMs": 12.18,
+      "scriptWindowMs": 683.9379999999977,
+      "taskWindowMs": 1093.0959999999957,
+      "layoutWindowMs": 7.3150000000000714,
+      "trace": "0046-mark-read.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "mark-read",
+      "index": 47,
+      "startedAt": "2026-10-04T12:49:46.871Z",
+      "load": [
+        10.11,
+        8.58,
+        6.44
+      ],
+      "inputToPaintMs": 710.919,
+      "selectedDomMs": 702.892,
+      "profiled": false,
+      "mainThreadBusyMs": 683.064,
+      "layoutMs": 5.109,
+      "scriptWindowMs": 553.8360000000005,
+      "taskWindowMs": 732.5490000000059,
+      "layoutWindowMs": 4.736999999999991,
+      "trace": "0047-mark-read.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "mark-read",
+      "index": 48,
+      "startedAt": "2026-10-04T12:49:48.648Z",
+      "load": [
+        10.11,
+        8.58,
+        6.44
+      ],
+      "inputToPaintMs": 1048.397,
+      "selectedDomMs": 1040.928,
+      "profiled": true,
+      "mainThreadBusyMs": 1026.02,
+      "layoutMs": 7.776,
+      "scriptWindowMs": 742.004999999999,
+      "taskWindowMs": 1505.941,
+      "layoutWindowMs": 7.425999999999933,
+      "trace": "0048-mark-read.trace.json.gz",
+      "cpu": "0048-mark-read.cpuprofile"
+    },
+    {
+      "action": "mark-read",
+      "index": 49,
+      "startedAt": "2026-10-04T12:49:50.867Z",
+      "load": [
+        9.79,
+        8.54,
+        6.44
+      ],
+      "inputToPaintMs": 1109.837,
+      "selectedDomMs": 1092.597,
+      "profiled": true,
+      "mainThreadBusyMs": 1074.638,
+      "layoutMs": 7.545,
+      "scriptWindowMs": 771.4180000000006,
+      "taskWindowMs": 1630.6100000000042,
+      "layoutWindowMs": 8.104,
+      "trace": "0049-mark-read.trace.json.gz",
+      "cpu": "0049-mark-read.cpuprofile"
+    },
+    {
+      "action": "mission-switch",
+      "index": 50,
+      "startedAt": "2026-10-04T12:49:53.263Z",
+      "load": [
+        9.79,
+        8.54,
+        6.44
+      ],
+      "inputToPaintMs": 518.099,
+      "selectedDomMs": 440.397,
+      "profiled": false,
+      "mainThreadBusyMs": 518.036,
+      "layoutMs": 56.851,
+      "scriptWindowMs": 707.3780000000021,
+      "taskWindowMs": 1746.8840000000014,
+      "layoutWindowMs": 10.407999999999973,
+      "trace": "0050-mission-switch.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "mission-switch",
+      "index": 51,
+      "startedAt": "2026-10-04T12:49:56.148Z",
+      "load": [
+        11.81,
+        8.98,
+        6.59
+      ],
+      "inputToPaintMs": 445.708,
+      "selectedDomMs": 385.743,
+      "profiled": false,
+      "mainThreadBusyMs": 445.117,
+      "layoutMs": 55.256,
+      "scriptWindowMs": 566.4590000000019,
+      "taskWindowMs": 1108.1080000000015,
+      "layoutWindowMs": 10.302999999999951,
+      "trace": "0051-mission-switch.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "mission-switch",
+      "index": 52,
+      "startedAt": "2026-10-04T12:49:58.721Z",
+      "load": [
+        11.81,
+        8.98,
+        6.59
+      ],
+      "inputToPaintMs": 577.301,
+      "selectedDomMs": 507.814,
+      "profiled": true,
+      "mainThreadBusyMs": 577.139,
+      "layoutMs": 73.702,
+      "scriptWindowMs": 740.5409999999968,
+      "taskWindowMs": 1681.5929999999994,
+      "layoutWindowMs": 18.517000000000007,
+      "trace": "0052-mission-switch.trace.json.gz",
+      "cpu": "0052-mission-switch.cpuprofile"
+    },
+    {
+      "action": "mission-switch",
+      "index": 53,
+      "startedAt": "2026-10-04T12:50:01.311Z",
+      "load": [
+        12.3,
+        9.13,
+        6.65
+      ],
+      "inputToPaintMs": 712.755,
+      "selectedDomMs": 565.919,
+      "profiled": true,
+      "mainThreadBusyMs": 712.413,
+      "layoutMs": 90.877,
+      "scriptWindowMs": 912.8180000000015,
+      "taskWindowMs": 1984.017999999999,
+      "layoutWindowMs": 14.678000000000079,
+      "trace": "0053-mission-switch.trace.json.gz",
+      "cpu": "0053-mission-switch.cpuprofile"
+    },
+    {
+      "action": "command-palette",
+      "index": 54,
+      "startedAt": "2026-10-04T12:50:04.131Z",
+      "load": [
+        12.3,
+        9.13,
+        6.65
+      ],
+      "inputToPaintMs": 411.547,
+      "selectedDomMs": 398.627,
+      "profiled": false,
+      "mainThreadBusyMs": 231.213,
+      "layoutMs": 55.14,
+      "scriptWindowMs": 121.97799999999859,
+      "taskWindowMs": 312.7110000000002,
+      "layoutWindowMs": 8.948999999999984,
+      "trace": "0054-command-palette.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "command-palette",
+      "index": 55,
+      "startedAt": "2026-10-04T12:50:04.848Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 99.209,
+      "selectedDomMs": 90.115,
+      "profiled": false,
+      "mainThreadBusyMs": 96.238,
+      "layoutMs": 40.206,
+      "scriptWindowMs": 49.35299999999998,
+      "taskWindowMs": 117.3429999999982,
+      "layoutWindowMs": 3.858000000000028,
+      "trace": "0055-command-palette.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "command-palette",
+      "index": 56,
+      "startedAt": "2026-10-04T12:50:05.590Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 109.655,
+      "selectedDomMs": 100.934,
+      "profiled": true,
+      "mainThreadBusyMs": 107.733,
+      "layoutMs": 43.64,
+      "scriptWindowMs": 63.603999999997995,
+      "taskWindowMs": 578.8670000000025,
+      "layoutWindowMs": 2.8439999999999577,
+      "trace": "0056-command-palette.trace.json.gz",
+      "cpu": "0056-command-palette.cpuprofile"
+    },
+    {
+      "action": "command-palette",
+      "index": 57,
+      "startedAt": "2026-10-04T12:50:06.474Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 124.932,
+      "selectedDomMs": 113.069,
+      "profiled": true,
+      "mainThreadBusyMs": 123.773,
+      "layoutMs": 47.41,
+      "scriptWindowMs": 70.49599999999856,
+      "taskWindowMs": 640.3780000000054,
+      "layoutWindowMs": 3.7880000000000136,
+      "trace": "0057-command-palette.trace.json.gz",
+      "cpu": "0057-command-palette.cpuprofile"
+    },
+    {
+      "action": "issue-picker-search",
+      "index": 58,
+      "startedAt": "2026-10-04T12:50:07.544Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 29.041,
+      "selectedDomMs": 23.914,
+      "profiled": false,
+      "mainThreadBusyMs": 29.009,
+      "layoutMs": 2.659,
+      "scriptWindowMs": 23.607999999999407,
+      "taskWindowMs": 62.15899999999408,
+      "layoutWindowMs": 2.0939999999999293,
+      "trace": "0058-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-picker-search",
+      "index": 59,
+      "startedAt": "2026-10-04T12:50:07.700Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 16.765,
+      "selectedDomMs": 10.473,
+      "profiled": false,
+      "mainThreadBusyMs": 16.732,
+      "layoutMs": 3.792,
+      "scriptWindowMs": 9.916999999997955,
+      "taskWindowMs": 47.92799999999886,
+      "layoutWindowMs": 2.5700000000000722,
+      "trace": "0059-issue-picker-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-picker-search",
+      "index": 60,
+      "startedAt": "2026-10-04T12:50:08.104Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 37.262,
+      "selectedDomMs": 15.688,
+      "profiled": true,
+      "mainThreadBusyMs": 30.887,
+      "layoutMs": 3.952,
+      "scriptWindowMs": 23.039000000000698,
+      "taskWindowMs": 353.6229999999989,
+      "layoutWindowMs": 7.059999999999955,
+      "trace": "0060-issue-picker-search.trace.json.gz",
+      "cpu": "0060-issue-picker-search.cpuprofile"
+    },
+    {
+      "action": "issue-picker-search",
+      "index": 61,
+      "startedAt": "2026-10-04T12:50:08.704Z",
+      "load": [
+        11.48,
+        9.01,
+        6.63
+      ],
+      "inputToPaintMs": 45.757,
+      "selectedDomMs": 14.54,
+      "profiled": true,
+      "mainThreadBusyMs": 36.183,
+      "layoutMs": 3.659,
+      "scriptWindowMs": 24.81700000000231,
+      "taskWindowMs": 326.72499999999616,
+      "layoutWindowMs": 5.590999999999902,
+      "trace": "0061-issue-picker-search.trace.json.gz",
+      "cpu": "0061-issue-picker-search.cpuprofile"
+    },
+    {
+      "action": "dock-open",
+      "index": 62,
+      "startedAt": "2026-10-04T12:50:33.078Z",
+      "load": [
+        11.44,
+        9.21,
+        6.76
+      ],
+      "inputToPaintMs": 133.644,
+      "selectedDomMs": 124.911,
+      "profiled": false,
+      "mainThreadBusyMs": 133.465,
+      "layoutMs": 7.363,
+      "scriptWindowMs": 871.5979999999988,
+      "taskWindowMs": 1378.4909999999968,
+      "layoutWindowMs": 16.079999999999984,
+      "trace": "0062-dock-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "dock-close",
+      "index": 63,
+      "startedAt": "2026-10-04T12:50:34.522Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 91.583,
+      "selectedDomMs": 81.315,
+      "profiled": false,
+      "mainThreadBusyMs": 91.425,
+      "layoutMs": 5.55,
+      "scriptWindowMs": 100.01599999999655,
+      "taskWindowMs": 300.2120000000019,
+      "layoutWindowMs": 2.990999999999966,
+      "trace": "0063-dock-close.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "dock-open",
+      "index": 64,
+      "startedAt": "2026-10-04T12:50:35.039Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 94.794,
+      "selectedDomMs": 88.392,
+      "profiled": false,
+      "mainThreadBusyMs": 94.723,
+      "layoutMs": 4.936,
+      "scriptWindowMs": 85.10199999999912,
+      "taskWindowMs": 213.34699999999884,
+      "layoutWindowMs": 3.350000000000075,
+      "trace": "0064-dock-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "dock-close",
+      "index": 65,
+      "startedAt": "2026-10-04T12:50:35.478Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 77.584,
+      "selectedDomMs": 71.074,
+      "profiled": false,
+      "mainThreadBusyMs": 77.08,
+      "layoutMs": 4.676,
+      "scriptWindowMs": 65.31799999999777,
+      "taskWindowMs": 142.19900000000507,
+      "layoutWindowMs": 2.637999999999918,
+      "trace": "0065-dock-close.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "dock-open",
+      "index": 66,
+      "startedAt": "2026-10-04T12:50:36.074Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 98.083,
+      "selectedDomMs": 89.65,
+      "profiled": true,
+      "mainThreadBusyMs": 97.94,
+      "layoutMs": 4.989,
+      "scriptWindowMs": 292.0909999999992,
+      "taskWindowMs": 756.4849999999979,
+      "layoutWindowMs": 7.034000000000096,
+      "trace": "0066-dock-open.trace.json.gz",
+      "cpu": "0066-dock-open.cpuprofile"
+    },
+    {
+      "action": "dock-close",
+      "index": 67,
+      "startedAt": "2026-10-04T12:50:36.874Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 121.956,
+      "selectedDomMs": 106.955,
+      "profiled": true,
+      "mainThreadBusyMs": 118.056,
+      "layoutMs": 10.03,
+      "scriptWindowMs": 194.63899999999512,
+      "taskWindowMs": 709.8710000000068,
+      "layoutWindowMs": 8.241999999999972,
+      "trace": "0067-dock-close.trace.json.gz",
+      "cpu": "0067-dock-close.cpuprofile"
+    },
+    {
+      "action": "dock-open",
+      "index": 68,
+      "startedAt": "2026-10-04T12:50:37.779Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 85.47,
+      "selectedDomMs": 77.954,
+      "profiled": true,
+      "mainThreadBusyMs": 85.206,
+      "layoutMs": 4.744,
+      "scriptWindowMs": 158.73200000000054,
+      "taskWindowMs": 579.2339999999996,
+      "layoutWindowMs": 5.114999999999981,
+      "trace": "0068-dock-open.trace.json.gz",
+      "cpu": "0068-dock-open.cpuprofile"
+    },
+    {
+      "action": "dock-close",
+      "index": 69,
+      "startedAt": "2026-10-04T12:50:38.463Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 102.34,
+      "selectedDomMs": 93.479,
+      "profiled": true,
+      "mainThreadBusyMs": 102.096,
+      "layoutMs": 5.465,
+      "scriptWindowMs": 178.3890000000028,
+      "taskWindowMs": 633.8340000000073,
+      "layoutWindowMs": 3.646999999999956,
+      "trace": "0069-dock-close.trace.json.gz",
+      "cpu": "0069-dock-close.cpuprofile"
+    },
+    {
+      "action": "issue-rename",
+      "index": 70,
+      "startedAt": "2026-10-04T12:50:39.248Z",
+      "load": [
+        12.13,
+        9.39,
+        6.83
+      ],
+      "inputToPaintMs": 258.635,
+      "selectedDomMs": 246.367,
+      "profiled": false,
+      "mainThreadBusyMs": 257.763,
+      "layoutMs": 3.188,
+      "scriptWindowMs": 550.8740000000003,
+      "taskWindowMs": 619.6979999999996,
+      "layoutWindowMs": 2.765999999999935,
+      "trace": "0070-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-rename",
+      "index": 71,
+      "startedAt": "2026-10-04T12:50:41.444Z",
+      "load": [
+        12.6,
+        9.54,
+        6.89
+      ],
+      "inputToPaintMs": 527.247,
+      "selectedDomMs": 517.161,
+      "profiled": false,
+      "mainThreadBusyMs": 527.171,
+      "layoutMs": 3.418,
+      "scriptWindowMs": 650.7389999999943,
+      "taskWindowMs": 825.9979999999985,
+      "layoutWindowMs": 5.077999999999916,
+      "trace": "0071-issue-rename.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-rename",
+      "index": 72,
+      "startedAt": "2026-10-04T12:50:43.191Z",
+      "load": [
+        12.6,
+        9.54,
+        6.89
+      ],
+      "inputToPaintMs": 319.057,
+      "selectedDomMs": 304.178,
+      "profiled": true,
+      "mainThreadBusyMs": 319.031,
+      "layoutMs": 4.7,
+      "scriptWindowMs": 779.8400000000001,
+      "taskWindowMs": 1378.7999999999984,
+      "layoutWindowMs": 9.866000000000042,
+      "trace": "0072-issue-rename.trace.json.gz",
+      "cpu": "0072-issue-rename.cpuprofile"
+    },
+    {
+      "action": "issue-rename",
+      "index": 73,
+      "startedAt": "2026-10-04T12:50:45.483Z",
+      "load": [
+        12.23,
+        9.51,
+        6.9
+      ],
+      "inputToPaintMs": 248.555,
+      "selectedDomMs": 239.609,
+      "profiled": true,
+      "mainThreadBusyMs": 248.519,
+      "layoutMs": 2.201,
+      "scriptWindowMs": 476.1389999999963,
+      "taskWindowMs": 1052.806000000004,
+      "layoutWindowMs": 3.9170000000000593,
+      "trace": "0073-issue-rename.trace.json.gz",
+      "cpu": "0073-issue-rename.cpuprofile"
+    },
+    {
+      "action": "header-menu",
+      "index": 74,
+      "startedAt": "2026-10-04T12:50:47.669Z",
+      "load": [
+        12.23,
+        9.51,
+        6.9
+      ],
+      "inputToPaintMs": 69.633,
+      "selectedDomMs": 57.713,
+      "profiled": false,
+      "mainThreadBusyMs": 69.167,
+      "layoutMs": 8.481,
+      "scriptWindowMs": 347.1919999999997,
+      "taskWindowMs": 559.4109999999972,
+      "layoutWindowMs": 4.9320000000000475,
+      "trace": "0074-header-menu.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "header-menu",
+      "index": 75,
+      "startedAt": "2026-10-04T12:50:48.492Z",
+      "load": [
+        12.23,
+        9.51,
+        6.9
+      ],
+      "inputToPaintMs": 21.74,
+      "selectedDomMs": 16.564,
+      "profiled": false,
+      "mainThreadBusyMs": 21.417,
+      "layoutMs": 3.39,
+      "scriptWindowMs": 11.721000000001425,
+      "taskWindowMs": 45.71200000000886,
+      "layoutWindowMs": 0.8190000000000142,
+      "trace": "0075-header-menu.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "header-menu",
+      "index": 76,
+      "startedAt": "2026-10-04T12:50:49.083Z",
+      "load": [
+        12.23,
+        9.51,
+        6.9
+      ],
+      "inputToPaintMs": 27.805,
+      "selectedDomMs": 20.942,
+      "profiled": true,
+      "mainThreadBusyMs": 27.79,
+      "layoutMs": 4.487,
+      "scriptWindowMs": 19.588000000005934,
+      "taskWindowMs": 370.7409999999953,
+      "layoutWindowMs": 4.39299999999998,
+      "trace": "0076-header-menu.trace.json.gz",
+      "cpu": "0076-header-menu.cpuprofile"
+    },
+    {
+      "action": "header-menu",
+      "index": 77,
+      "startedAt": "2026-10-04T12:50:49.787Z",
+      "load": [
+        11.81,
+        9.47,
+        6.9
+      ],
+      "inputToPaintMs": 30.124,
+      "selectedDomMs": 23.487,
+      "profiled": true,
+      "mainThreadBusyMs": 29.917,
+      "layoutMs": 4.496,
+      "scriptWindowMs": 24.807000000002688,
+      "taskWindowMs": 397.8479999999962,
+      "layoutWindowMs": 4.350000000000076,
+      "trace": "0077-header-menu.trace.json.gz",
+      "cpu": "0077-header-menu.cpuprofile"
+    },
+    {
+      "action": "issue-page-open",
+      "index": 78,
+      "startedAt": "2026-10-04T12:50:51.178Z",
+      "load": [
+        11.81,
+        9.47,
+        6.9
+      ],
+      "inputToPaintMs": 179.235,
+      "selectedDomMs": 171.827,
+      "profiled": false,
+      "mainThreadBusyMs": 170.561,
+      "layoutMs": 40.203,
+      "scriptWindowMs": 132.13700000000017,
+      "taskWindowMs": 242.94499999999175,
+      "layoutWindowMs": 7.2150000000000825,
+      "trace": "0078-issue-page-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-page-open",
+      "index": 79,
+      "startedAt": "2026-10-04T12:50:51.700Z",
+      "load": [
+        11.81,
+        9.47,
+        6.9
+      ],
+      "inputToPaintMs": 140.889,
+      "selectedDomMs": 97.492,
+      "profiled": false,
+      "mainThreadBusyMs": 140.574,
+      "layoutMs": 40.345,
+      "scriptWindowMs": 93.99999999999409,
+      "taskWindowMs": 211.62200000000553,
+      "layoutWindowMs": 5.371000000000015,
+      "trace": "0079-issue-page-open.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "issue-page-open",
+      "index": 80,
+      "startedAt": "2026-10-04T12:50:52.453Z",
+      "load": [
+        11.81,
+        9.47,
+        6.9
+      ],
+      "inputToPaintMs": 104.6,
+      "selectedDomMs": 75.02,
+      "profiled": true,
+      "mainThreadBusyMs": 104.568,
+      "layoutMs": 26.195,
+      "scriptWindowMs": 81.97499999999991,
+      "taskWindowMs": 451.5430000000009,
+      "layoutWindowMs": 2.7319999999999567,
+      "trace": "0080-issue-page-open.trace.json.gz",
+      "cpu": "0080-issue-page-open.cpuprofile"
+    },
+    {
+      "action": "issue-page-open",
+      "index": 81,
+      "startedAt": "2026-10-04T12:50:53.445Z",
+      "load": [
+        11.81,
+        9.47,
+        6.9
+      ],
+      "inputToPaintMs": 171.352,
+      "selectedDomMs": 104.72,
+      "profiled": true,
+      "mainThreadBusyMs": 162.429,
+      "layoutMs": 58.019,
+      "scriptWindowMs": 106.80499999999427,
+      "taskWindowMs": 752.1150000000034,
+      "layoutWindowMs": 4.719000000000029,
+      "trace": "0081-issue-page-open.trace.json.gz",
+      "cpu": "0081-issue-page-open.cpuprofile"
+    },
+    {
+      "action": "board-search",
+      "index": 82,
+      "startedAt": "2026-10-04T12:50:54.515Z",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "inputToPaintMs": 50.73,
+      "selectedDomMs": 44.861,
+      "profiled": false,
+      "mainThreadBusyMs": 50.506,
+      "layoutMs": 3.28,
+      "scriptWindowMs": 35.3720000000024,
+      "taskWindowMs": 82.36700000000496,
+      "layoutWindowMs": 2.051000000000025,
+      "trace": "0082-board-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "board-search",
+      "index": 83,
+      "startedAt": "2026-10-04T12:50:54.684Z",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "inputToPaintMs": 79.297,
+      "selectedDomMs": 66.63,
+      "profiled": false,
+      "mainThreadBusyMs": 79.15,
+      "layoutMs": 12.919,
+      "scriptWindowMs": 41.12900000000508,
+      "taskWindowMs": 107.69100000000265,
+      "layoutWindowMs": 5.149999999999988,
+      "trace": "0083-board-search.trace.json.gz",
+      "cpu": null
+    },
+    {
+      "action": "board-search",
+      "index": 84,
+      "startedAt": "2026-10-04T12:50:55.176Z",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "inputToPaintMs": 66.431,
+      "selectedDomMs": 59.359,
+      "profiled": true,
+      "mainThreadBusyMs": 66.272,
+      "layoutMs": 3.528,
+      "scriptWindowMs": 52.0129999999952,
+      "taskWindowMs": 442.00099999999054,
+      "layoutWindowMs": 5.534000000000039,
+      "trace": "0084-board-search.trace.json.gz",
+      "cpu": "0084-board-search.cpuprofile"
+    },
+    {
+      "action": "board-search",
+      "index": 85,
+      "startedAt": "2026-10-04T12:50:55.801Z",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "inputToPaintMs": 88.91,
+      "selectedDomMs": 70.38,
+      "profiled": true,
+      "mainThreadBusyMs": 88.766,
+      "layoutMs": 17.819,
+      "scriptWindowMs": 56.67600000000306,
+      "taskWindowMs": 544.5690000000099,
+      "layoutWindowMs": 9.345000000000049,
+      "trace": "0085-board-search.trace.json.gz",
+      "cpu": "0085-board-search.cpuprofile"
+    }
+  ],
+  "unavailable": [
+    {
+      "action": "composer-typing",
+      "reason": "TimeoutError: click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator('[data-panel-resident][data-pane] [data-testid=\"mode-chat\"]').last()\n",
+      "load": [
+        10,
+        8.5,
+        6.39
+      ]
+    },
+    {
+      "action": "issue-board",
+      "reason": "TimeoutError: waitForFunction: Timeout 20000ms exceeded.",
+      "load": [
+        11.44,
+        9.21,
+        6.76
+      ]
+    }
+  ],
+  "background": [
+    {
+      "kind": "quiet",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "taskMs": 503.8160000000005,
+      "scriptMs": 300.7609999999943,
+      "layoutMs": 2.778999999999865,
+      "count": 0,
+      "windowMs": 200,
+      "trace": "background-0-quiet.trace.json.gz"
+    },
+    {
+      "kind": "quiet",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "taskMs": 410.1220000000012,
+      "scriptMs": 289.39499999999896,
+      "layoutMs": 2.1459999999999813,
+      "count": 0,
+      "windowMs": 200,
+      "trace": "background-1-quiet.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        11.99,
+        9.54,
+        6.94
+      ],
+      "taskMs": 192.6859999999948,
+      "scriptMs": 183.24299999999738,
+      "layoutMs": 0.6460000000001465,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-2-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 218.59800000000007,
+      "scriptMs": 206.13200000000376,
+      "layoutMs": 0.6720000000000059,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-3-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 260.19499999999596,
+      "scriptMs": 222.55400000000236,
+      "layoutMs": 4.084999999999894,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-4-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "heartbeat",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 310.2570000000071,
+      "scriptMs": 293.73700000000014,
+      "layoutMs": 0.7150000000000212,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-5-heartbeat.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 288.6610000000047,
+      "scriptMs": 271.17299999999744,
+      "layoutMs": 0.6710000000000882,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-6-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 342.93700000000626,
+      "scriptMs": 307.5600000000023,
+      "layoutMs": 4.0879999999998695,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-7-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 290.64400000000035,
+      "scriptMs": 274.60800000000063,
+      "layoutMs": 0.5250000000001087,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-8-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "issue-change",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 301.13000000000056,
+      "scriptMs": 275.8089999999953,
+      "layoutMs": 2.5850000000000595,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-9-issue-change.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 37.08900000000881,
+      "scriptMs": 2.9419999999973356,
+      "layoutMs": 0.48399999999992893,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-10-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 28.34500000000162,
+      "scriptMs": 1.2350000000012074,
+      "layoutMs": 0.6470000000000642,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-11-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 42.01799999999878,
+      "scriptMs": 1.100000000000989,
+      "layoutMs": 0.6969999999999477,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-12-session-output.trace.json.gz"
+    },
+    {
+      "kind": "session-output",
+      "load": [
+        11.43,
+        9.47,
+        6.93
+      ],
+      "taskMs": 53.741999999999734,
+      "scriptMs": 2.5769999999951665,
+      "layoutMs": 3.1840000000000757,
+      "count": 1,
+      "windowMs": 200,
+      "trace": "background-13-session-output.trace.json.gz"
+    }
+  ],
+  "errors": [
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:47:58.933 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:47:58.933 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:47:58.950 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:47:59.004 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.070 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.075 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.413 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.419 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.458 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.468 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.529 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.588 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.618 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:06.632 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:09.275 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:09.275 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:09.328 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:11.055 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:11.300 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:11.403 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:11.418 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:16.757 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:16.758 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:17.296 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:17.356 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:20.429 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:20.432 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:20.460 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:27.836 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:27.836 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:27.837 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:27.850 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.144 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.156 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.173 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.189 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.194 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.204 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.257 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.311 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.345 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:28.354 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:31.240 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:31.299 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:38.515 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:38.519 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:38.941 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:38.962 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:39.015 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:39.126 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:39.145 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:41.809 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:41.809 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:41.818 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:41.858 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:49.505 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:49.535 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:49.962 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:50.090 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:50.100 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:50.113 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:50.127 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:48:50.135 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: [.WebGL-0xc0c03227c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0xc0c03227c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0xc0c03227c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0xc0c03227c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3355330
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 17654,
+      "rows": 17641,
+      "originalRows": 13,
+      "fromSeq": 802,
+      "at": "2026-10-04T12:47:58.995Z"
+    },
+    {
+      "totalRows": 17655,
+      "rows": 17641,
+      "originalRows": 14,
+      "fromSeq": 803,
+      "at": "2026-10-04T12:48:09.320Z"
+    },
+    {
+      "totalRows": 17655,
+      "rows": 17641,
+      "originalRows": 14,
+      "fromSeq": 803,
+      "at": "2026-10-04T12:48:20.511Z"
+    },
+    {
+      "totalRows": 17655,
+      "rows": 17641,
+      "originalRows": 14,
+      "fromSeq": 803,
+      "at": "2026-10-04T12:48:31.314Z"
+    },
+    {
+      "totalRows": 17655,
+      "rows": 17641,
+      "originalRows": 14,
+      "fromSeq": 803,
+      "at": "2026-10-04T12:48:41.865Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_6ffc3cd6-dc2e-4715-b5e9-1d7fea6497c1",
+        "repoPath": "/tmp/podium-e2e-19551-575ba43a/zz-podium-e2e-repo-19551",
+        "repoId": "repo_ca2d914bf90d11c3",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "revision": 2,
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-575ba43a/zz-podium-e2e-repo-19551/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "3730e3d3-7887-4219-afe1-9659df90b6fd",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:47:56.275Z",
+        "updatedAt": "2026-10-04T12:47:56.342Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "6bfebfb4-d076-495d-88d0-0f95571d4f0e",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "ada62fc7-2929-4052-91c9-8ce37ebd0b5c",
+        "agentId": "ada62fc7-2929-4052-91c9-8ce37ebd0b5c",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3730e3d3-7887-4219-afe1-9659df90b6fd",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "8bda0f77-bf39-485e-a4fd-27c0f3b94e54",
+        "agentId": "8bda0f77-bf39-485e-a4fd-27c0f3b94e54",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3730e3d3-7887-4219-afe1-9659df90b6fd",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_78faa5d6-1ddb-4981-9c31-1693a801ff8f",
+        "repoPath": "/tmp/podium-e2e-19551-575ba43a/zz-podium-e2e-repo-19551",
+        "repoId": "repo_ca2d914bf90d11c3",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "revision": 2,
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-575ba43a/zz-podium-e2e-repo-19551/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "3730e3d3-7887-4219-afe1-9659df90b6fd",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "9",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:47:56.500Z",
+        "updatedAt": "2026-10-04T12:47:56.544Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "c927f9ab-baaf-4fdf-b617-035a30ab0dbe",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "bc9b2130-cd29-475f-9caf-70c5a8d45378",
+        "agentId": "bc9b2130-cd29-475f-9caf-70c5a8d45378",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3730e3d3-7887-4219-afe1-9659df90b6fd",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightRows": 17654,
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:47:57.814127+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:47:57.788Z",
+          "expiresAt": "2026-10-04T13:07:57.788Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T12:47:58.265Z",
+  "captureLoadStart": [
+    6.29,
+    7.54,
+    5.88
+  ],
+  "hostCpuStart": [
+    409875834,
+    7344376,
+    188636195,
+    1847189319,
+    12199614,
+    0,
+    18835286,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1",
+    "ws://127.0.0.1:19551/client?v=3&vmin=1&cap=sync.http.v1"
+  ],
+  "startupMarks": [
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210401550435,
+          "pid": 3355864
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210403910797,
+          "pid": 3355864
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210408495418,
+          "pid": 3355864
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210409488721,
+          "pid": 3355864
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210411875222,
+          "pid": 3356312
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210414082727,
+          "pid": 3356312
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210418872290,
+          "pid": 3356312
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210420257878,
+          "pid": 3356312
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210422873703,
+          "pid": 3357512
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210425518711,
+          "pid": 3357512
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210430169127,
+          "pid": 3357512
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210431222544,
+          "pid": 3357512
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210433741296,
+          "pid": 3357875
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210436213668,
+          "pid": 3357875
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210440799270,
+          "pid": 3357875
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210441951595,
+          "pid": 3357875
+        }
+      ]
+    },
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210444407639,
+          "pid": 3358223
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210446879703,
+          "pid": 3358223
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3210451791769,
+          "pid": 3358223
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3210452955028,
+          "pid": 3358223
+        }
+      ]
+    }
+  ],
+  "population": {
+    "issue": 4869,
+    "issueDep": 3594,
+    "issueEvent": 4,
+    "issueProjection": 4869,
+    "repo": 9,
+    "session": 4309,
+    "userLayout": 1
+  },
+  "idle": {
+    "seconds": 60.002,
+    "loadStart": [
+      11.43,
+      9.47,
+      6.93
+    ],
+    "loadEnd": [
+      7.49,
+      8.72,
+      6.83
+    ],
+    "delivered": {
+      "heartbeat": 30,
+      "issueChange": 10,
+      "sessionOutput": 120
+    },
+    "upstreamStart": {
+      "feedDeltas": 126,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 0,
+      "syntheticIssue": 0,
+      "syntheticOutput": 4
+    },
+    "upstreamEnd": {
+      "feedDeltas": 126,
+      "outputFrames": 0,
+      "syntheticHeartbeat": 30,
+      "syntheticIssue": 10,
+      "syntheticOutput": 124
+    },
+    "taskMs": 19389.549000000003,
+    "scriptMs": 9694.320000000005,
+    "layoutMs": 173.1229999999999
+  },
+  "endedAt": "2026-10-04T12:52:03.178Z",
+  "loadEnd": [
+    7.49,
+    8.72,
+    6.83
+  ],
+  "hostCpuEnd": [
+    409993519,
+    7344376,
+    188657641,
+    1847236702,
+    12204481,
+    0,
+    18837346,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 126,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 30,
+    "syntheticIssue": 10,
+    "syntheticOutput": 124
+  }
+}

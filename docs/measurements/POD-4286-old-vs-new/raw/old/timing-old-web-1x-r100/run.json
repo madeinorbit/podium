@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "old",
+  "round": 100,
+  "surface": "web",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "purpose": "selector-calibration",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "controlOnly": false,
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:39:49.709Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    4.78,
+    3.91,
+    3.85
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:39:56.287 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:39:56.288 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:39:56.327 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 12:39:56.479 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3332953
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 17655,
+      "rows": 17641,
+      "originalRows": 14,
+      "fromSeq": 803,
+      "at": "2026-10-04T12:39:56.974Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_d7e74db8-a966-4761-a2f8-b5cc8aeb75a4",
+        "repoPath": "/tmp/podium-e2e-19551-c9f1649e/zz-podium-e2e-repo-19551",
+        "repoId": "repo_ad28747c47c08adc",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "revision": 2,
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-c9f1649e/zz-podium-e2e-repo-19551/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "dac5f91a-0d5e-4bad-afae-9436264eb355",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:39:54.153Z",
+        "updatedAt": "2026-10-04T12:39:54.206Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "31f7bfe8-171f-4a9d-aa78-591acefe1cc6",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "68cff00f-33ff-46c3-98f0-52a693884905",
+        "agentId": "68cff00f-33ff-46c3-98f0-52a693884905",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "dac5f91a-0d5e-4bad-afae-9436264eb355",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "13d7cdbe-7291-4679-b562-03d96b147eb0",
+        "agentId": "13d7cdbe-7291-4679-b562-03d96b147eb0",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "dac5f91a-0d5e-4bad-afae-9436264eb355",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_26685fea-969a-4236-899c-3dd34551406d",
+        "repoPath": "/tmp/podium-e2e-19551-c9f1649e/zz-podium-e2e-repo-19551",
+        "repoId": "repo_ad28747c47c08adc",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "revision": 2,
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19551-c9f1649e/zz-podium-e2e-repo-19551/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "dac5f91a-0d5e-4bad-afae-9436264eb355",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "9",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T12:39:54.344Z",
+        "updatedAt": "2026-10-04T12:39:54.393Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "1a55f280-916d-4812-b2d8-7399b7dc3bb7",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "efb297e3-3f56-415f-8888-e44aa48ae0f4",
+        "agentId": "efb297e3-3f56-415f-8888-e44aa48ae0f4",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "dac5f91a-0d5e-4bad-afae-9436264eb355",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:39:55.050870+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:39:55.029Z",
+          "expiresAt": "2026-10-04T12:59:55.029Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T12:39:55.418Z",
+  "captureLoadStart": [
+    4.88,
+    3.95,
+    3.86
+  ],
+  "hostCpuStart": [
+    409707249,
+    7344376,
+    188592437,
+    1847039098,
+    12187977,
+    0,
+    18830640,
+    0,
+    0,
+    0
+  ],
+  "failure": "Error: Missing or duplicate input/DOM marks",
+  "endedAt": "2026-10-04T12:40:03.659Z",
+  "loadEnd": [
+    5.61,
+    4.12,
+    3.92
+  ],
+  "hostCpuEnd": [
+    409711441,
+    7344376,
+    188593620,
+    1847039901,
+    12188122,
+    0,
+    18830676,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}

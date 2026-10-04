@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "mode": "probe",
+  "arm": "old",
+  "round": 1,
+  "surface": "web",
+  "scale": 1,
+  "sha": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+  "productTreeSha256": "d9af096ac9132f309066acb4d973347139ced15ef2d47e5553dffc308c70659b",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 2
+  },
+  "startedAt": "2026-10-04T12:13:00.737Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    3.4,
+    3.4,
+    4.11
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3279033
+    }
+  ],
+  "bootstraps": [],
+  "status": "failed",
+  "failure": "Error: issues.create 412: {\"error\":{\"message\":\"machine 'transport-test-host' is still probing whether claude-code is installed; wait for the probe or run `podium machine reprobe transport-test-host`\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"TRPCError: machine 'transport-test-host' is still probing whether claude-code is installed; wait for the probe or run `podium machine reprobe transport-test-host`\\n    at requireAgent (/home/mgw/podium-test-5501-old/apps/server/src/modules/machines/service.ts:1193:19)\\n    at async resolveMachineForAgent (/home/mgw/podium-test-5501-old/apps/server/src/modules/machines/service.ts:1125:18)\\n    at async create (/home/mgw/podium-test-5501-old/apps/server/src/modules/sessions/session-start.ts:252:40)\\n    at async createSession (/home/mgw/podium-test-5501-old/apps/server/src/modules/sessions/lifecycle.ts:592:36)\\n    at async <anonymous> (/home/mgw/podium-test-5501-old/apps/server/src/relay.ts:1970:27)\\n    at async start (/home/mgw/podium-test-5501-old/apps/server/src/modules/issues/service/workflow.ts:523:40)\\n    at async createAndMaybeStart (/home/mgw/podium-test-5501-old/apps/server/src/modules/issues/service/workflow.ts:562:20)\\n    at async <anonymous> (/home/mgw/podium-test-5501-old/apps/server/src/modules/issues/registry.ts:554:47)\\n    at async apply (/home/mgw/podium-test-5501-old/packages/sync/src/mutation-ledger.ts:120:64)\\n    at async once (/home/mgw/podium-test-5501-old/packages/sync/src/mutation-ledger.ts:154:24)\\n    at async withMutation (/home/mgw/podium-test-5501-old/apps/server/src/modules/issues/command-ctx.ts:260:38)\\n    at processTicksAndRejections (native:7:39)\",\"path\":\"issues.create\"}}}",
+  "endedAt": "2026-10-04T12:13:03.409Z",
+  "loadEnd": [
+    3.4,
+    3.4,
+    4.11
+  ]
+}

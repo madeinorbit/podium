@@ -1,0 +1,325 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "new",
+  "comparisonArm": "new",
+  "round": 10,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "1aa0ec71f68c5c6569560798db00a82a1db9f82d",
+  "productTreeSha256": "c0b6e8eaa9039a2f09b3467eb7c142ec8ba26adff15dbc0ab9cec852a188263b",
+  "purpose": "preparation-failure",
+  "harnessSha256": "cecd3671cc9bed657da3c3042b21fd2f0087129d6cad7bade170439dda9143e0",
+  "durationTimeDomain": "threadTicks",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "controlOnly": false,
+  "backgroundOnly": false,
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 10
+  },
+  "largeMissionTargets": [
+    {
+      "id": "i1766",
+      "repoId": "r0",
+      "assignedDescendantSessions": 289
+    },
+    {
+      "id": "i938",
+      "repoId": "r1",
+      "assignedDescendantSessions": 185
+    }
+  ],
+  "startedAt": "2026-10-04T17:04:35.499Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    9.19,
+    9.32,
+    10.35
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3990132
+    }
+  ],
+  "bootstraps": [],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_65244474-db41-4e84-93c0-bd045f906001",
+        "repoPath": "/tmp/podium-e2e-19552-4c62a5b8/zz-podium-e2e-repo-19552",
+        "repoId": "repo_1374d450be755549",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-3",
+        "revision": 2,
+        "seq": 3,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-4c62a5b8/zz-podium-e2e-repo-19552/.worktrees/issue-3-comparison-target-a",
+        "branch": "issue/3-comparison-target-a",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "f12087d0-73c8-47eb-a334-c1099bba8e21",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T17:04:35.668Z",
+        "updatedAt": "2026-10-04T17:04:35.732Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "8d4293fb-10a3-4bae-808b-4150d57b42fb",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "dc196004-d1c8-4062-b89b-eec725e740bd",
+        "agentId": "dc196004-d1c8-4062-b89b-eec725e740bd",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "f12087d0-73c8-47eb-a334-c1099bba8e21",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "bc61f8be-ab2c-46d5-b1dd-18f0afe8972e",
+        "agentId": "bc61f8be-ab2c-46d5-b1dd-18f0afe8972e",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "f12087d0-73c8-47eb-a334-c1099bba8e21",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_fb93d332-affa-4acb-9ed3-bbf40ae41e3d",
+        "repoPath": "/tmp/podium-e2e-19552-4c62a5b8/zz-podium-e2e-repo-19552",
+        "repoId": "repo_1374d450be755549",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-4",
+        "revision": 2,
+        "seq": 4,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "worktreePath": "/tmp/podium-e2e-19552-4c62a5b8/zz-podium-e2e-repo-19552/.worktrees/issue-4-comparison-target-b",
+        "branch": "issue/4-comparison-target-b",
+        "parentBranch": "main",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "machineId": "f12087d0-73c8-47eb-a334-c1099bba8e21",
+        "blockedByNotes": [],
+        "priority": 2,
+        "type": "task",
+        "pinned": false,
+        "sortKey": "i",
+        "needsHuman": false,
+        "assignee": "agent:claude-code",
+        "tuckedAt": null,
+        "labels": [],
+        "deps": [],
+        "dependents": [],
+        "commentCount": 0,
+        "ready": true,
+        "blocked": false,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0,
+        "createdAt": "2026-10-04T17:04:35.958Z",
+        "updatedAt": "2026-10-04T17:04:36.005Z",
+        "archived": false,
+        "readAt": null,
+        "origin": "human",
+        "audience": "human",
+        "draft": false,
+        "agentId": "c8b82275-e61b-468c-8d00-79eb9a7ca482",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host"
+      },
+      "session": {
+        "sessionId": "ef535714-c621-4576-97df-1fac14556aa5",
+        "agentId": "ef535714-c621-4576-97df-1fac14556aa5",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "f12087d0-73c8-47eb-a334-c1099bba8e21",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 852,
+      "sessions": 10,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "starting",
+        "starting",
+        "live",
+        "starting",
+        "starting"
+      ]
+    },
+    {
+      "seq": 856,
+      "sessions": 10,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "336686cf-59d2-465e-9bf6-bc69e7c7604b",
+      "sessionId": "336686cf-59d2-465e-9bf6-bc69e7c7604b",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "f3c2b6d7-b5e5-4483-bbab-7cf67079be58",
+      "sessionId": "f3c2b6d7-b5e5-4483-bbab-7cf67079be58",
+      "title": "Comparison session A",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "c1a624a1-8e7f-4e66-a2c6-d864a3664ef2",
+      "sessionId": "c1a624a1-8e7f-4e66-a2c6-d864a3664ef2",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "671e3e9b-e2d3-45c9-a7ff-0ab4c887f3ad",
+      "sessionId": "671e3e9b-e2d3-45c9-a7ff-0ab4c887f3ad",
+      "title": "Comparison session A2",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "a38a473c-b4a4-45a6-b2f2-ca7f00909fb6",
+      "sessionId": "a38a473c-b4a4-45a6-b2f2-ca7f00909fb6",
+      "title": "Comparison session B",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "8d4293fb-10a3-4bae-808b-4150d57b42fb",
+      "sessionId": "8d4293fb-10a3-4bae-808b-4150d57b42fb",
+      "title": "issue-3-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "dc196004-d1c8-4062-b89b-eec725e740bd",
+      "sessionId": "dc196004-d1c8-4062-b89b-eec725e740bd",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "c8b82275-e61b-468c-8d00-79eb9a7ca482",
+      "sessionId": "c8b82275-e61b-468c-8d00-79eb9a7ca482",
+      "title": "issue-4-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "ef535714-c621-4576-97df-1fac14556aa5",
+      "sessionId": "ef535714-c621-4576-97df-1fac14556aa5",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "bc61f8be-ab2c-46d5-b1dd-18f0afe8972e",
+      "sessionId": "bc61f8be-ab2c-46d5-b1dd-18f0afe8972e",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "failure": "SyncFormatError: unsupported-version",
+  "endedAt": "2026-10-04T17:07:10.795227+00:00",
+  "loadEnd": [
+    9.19,
+    9.32,
+    10.35
+  ],
+  "hostCpuEnd": [
+    414249526,
+    7344376,
+    189926447,
+    1853026757,
+    12562642,
+    0,
+    19008300,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  },
+  "originalPurpose": "measurement",
+  "excludedReason": "Lease controller connection failure before capture; following NEW preflight contacted the remaining OLD server."
+}

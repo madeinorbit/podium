@@ -22,6 +22,7 @@ const arg = (name: string, fallback: string) => process.argv.find((a) => a.start
 const root = resolve('.artifacts/old-vs-new')
 const directory = resolve(root, 'profiles', arg('profile', 'all'))
 const buildDirectory = resolve(arg('build-dir', resolve(root, 'build')))
+const boundariesOnly = process.argv.includes('--boundaries-only')
 const read = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8'))
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
 const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -220,6 +221,10 @@ for(const action of run.actions) {
   boundaries[action.trace]={mainThreadCpuMs:(endCpu-input.tts)/1000,layoutCpuMs:union(layout),cpuBoundary:'last completed main-thread event before compositor frame (lower bound)'}
 }
 await writeFile(resolve(runFile,'..','cpu-boundaries.json'),JSON.stringify({method:'For composited transitions without a raster Paint, thread clock from input handler to last completed main-thread event before qualifying DrawFrame. A conservative lower bound if a task overlaps the frame; no wall time is relabelled CPU.',actions:boundaries},null,2)+'\n')
+if (boundariesOnly) {
+  console.log(`Recovered ${Object.keys(boundaries).length} compositor CPU lower bounds`)
+  return
+}
 for (const action of run.actions) {
   if (!action.profiled || !action.cpu) continue
   const profile = await read<Cpu>(resolve(runFile, '..', action.cpu))
@@ -298,5 +303,5 @@ if(process.argv.includes('--all')) {
     await analyze(path);analyzed++
   }
   if(!analyzed)throw Error('No completed measurement captures for requested source and surface')
-  console.log(`Analyzed ${analyzed} runs with reused matching source maps`)
+  console.log(`Analyzed ${analyzed} runs ${boundariesOnly ? 'for hardware-clock compositor boundaries only' : 'with reused matching source maps'}`)
 } else await analyze(resolve(arg('run','run.json')))

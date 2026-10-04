@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "mode": "probe",
+  "arm": "new",
+  "round": 2,
+  "surface": "phone",
+  "scale": 1,
+  "sha": "22b676a741918c8c11a84aa485a37bb31595a7cc",
+  "productTreeSha256": "d610c84b7de9a84b46f66fe08a90124f589e2210965629cfd6fca60a6883b063",
+  "semanticSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+  "corpus": {
+    "syntheticIssues": 4867,
+    "syntheticSessions": 4304,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "startedAt": "2026-10-04T12:35:04.427Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    3.2,
+    3.44,
+    3.73
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md"
+  ],
+  "pids": [
+    {
+      "role": "harness",
+      "pid": 3322620
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 21971,
+      "rows": 21956,
+      "originalRows": 15,
+      "fromSeq": 799,
+      "at": "2026-10-04T12:38:22.182Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_57d94baa-f74a-4829-a3cf-97ae96aae6ec",
+        "repoId": "repo_e3a3aae943f0fac9",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-c2fe1304/zz-podium-e2e-repo-19552/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "4185f4de-36ba-41d7-b0dc-27b532b1cc98",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T12:35:09.800Z",
+        "updatedAt": "2026-10-04T12:35:09.849Z",
+        "agentId": "d36f7d42-cd49-431a-90f1-9861b75fcddb",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-c2fe1304/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "af457b2b-c00a-480a-8bd8-ca8a626d7a8c",
+        "agentId": "af457b2b-c00a-480a-8bd8-ca8a626d7a8c",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "4185f4de-36ba-41d7-b0dc-27b532b1cc98",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "ba76c865-1bfb-4673-bd96-951139a58c18",
+        "agentId": "ba76c865-1bfb-4673-bd96-951139a58c18",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "4185f4de-36ba-41d7-b0dc-27b532b1cc98",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_535b29fe-7cff-44b8-857f-b3ae24ab34d5",
+        "repoId": "repo_e3a3aae943f0fac9",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19552-c2fe1304/zz-podium-e2e-repo-19552/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "4185f4de-36ba-41d7-b0dc-27b532b1cc98",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T12:35:10.043Z",
+        "updatedAt": "2026-10-04T12:35:10.088Z",
+        "agentId": "d14a47ac-d419-4a82-87ac-2236625d9649",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19552-c2fe1304/zz-podium-e2e-repo-19552",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "e86a67ba-ee74-4eda-8689-c39846e88737",
+        "agentId": "e86a67ba-ee74-4eda-8689-c39846e88737",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "4185f4de-36ba-41d7-b0dc-27b532b1cc98",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "browser": "153.0.8010.12",
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T12:38:20.638592+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T12:38:12.846Z",
+          "expiresAt": "2026-10-04T12:58:20.609Z",
+          "secondsLeft": 1200,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 20m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T12:38:21.026Z",
+  "captureLoadStart": [
+    3.32,
+    3.65,
+    3.78
+  ],
+  "hostCpuStart": [
+    409683726,
+    7344376,
+    188585214,
+    1846999792,
+    12185135,
+    0,
+    18829549,
+    0,
+    0,
+    0
+  ],
+  "population": {
+    "issueDep": 3594,
+    "issueEvent": 4,
+    "issueGitState": 5,
+    "issueProjection": 4869,
+    "issueUserState": 4869,
+    "machine": 8,
+    "repo": 9,
+    "session": 4309,
+    "sessionUserState": 4304
+  },
+  "failure": "Error: Full shared corpus did not reach durable client storage: {\"issueDep\":3594,\"issueEvent\":4,\"issueGitState\":5,\"issueProjection\":4869,\"issueUserState\":4869,\"machine\":8,\"repo\":9,\"session\":4309,\"sessionUserState\":4304}",
+  "endedAt": "2026-10-04T12:39:02.380Z",
+  "loadEnd": [
+    3.46,
+    3.66,
+    3.77
+  ],
+  "hostCpuEnd": [
+    409691954,
+    7344376,
+    188588182,
+    1847018879,
+    12186635,
+    0,
+    18830096,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 0,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}
