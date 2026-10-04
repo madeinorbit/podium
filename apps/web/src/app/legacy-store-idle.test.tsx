@@ -111,11 +111,13 @@ it.each([
   expect(view.container.querySelector(`[data-panel="${sid}"]`)).not.toBeNull()
 
   // Finish the startup attachment's queued navigation before measuring use.
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   let foldCaller = ''
   const traced = runtime as unknown as { readSessionViews(input: unknown): unknown }
   const originalRead = traced.readSessionViews
-  vi.spyOn(traced, 'readSessionViews').mockImplementation(input => {
+  vi.spyOn(traced, 'readSessionViews').mockImplementation((input) => {
     foldCaller = new Error('Legacy session rebuild').stack ?? ''
     return originalRead.call(traced, input)
   })
