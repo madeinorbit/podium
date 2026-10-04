@@ -30,10 +30,16 @@ describe('pool chip DOM boundary', () => {
             prefix: 'POD',
             title: `Task ${index + 1}`,
             stage: 'review',
+            repoPath: '/synthetic',
+            createdAt: '2026-01-01',
+            updatedAt: '2026-01-01',
             deps: [],
           } as never,
         })),
       })
+      // Attachment seeds the resident identity index once. This census measures
+      // a chip render after that startup work, matching the migration baseline.
+      void pool.references
       fixture.pool = pool
       chipPerf.enable()
       chipPerf.reset()
