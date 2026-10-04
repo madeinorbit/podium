@@ -1,7 +1,6 @@
 /** Spawn creation belongs to the pool's transaction log. The transport can fail
  * after truth landed, so a failed create retains its grace window and partial
  * task outcome. No replica rows or whole-list snapshot are held here. */
-import { createLogger } from '@podium/logger'
 import { asIssueId, asMutationId, asSessionId, IssueProjection,
   type AgentKind, type IssueId, type MutationId, type SessionId,
   type SessionMeta, type UserId } from '@podium/model'
@@ -13,7 +12,6 @@ import type { StoreNotices, SpawnPlaceholderEvent } from '@podium/client-core/en
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { optimisticDraftIssue, optimisticSessionUserState, optimisticStartedIssue,
   optimisticStartingSession, type StartingSessionRow } from '@podium/client-core/values'
-const log = createLogger('client-graph:spawns')
 const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
 function placeholderProjection(issue: IssueViewModel): IssueProjection {
   const source = issue as unknown as Record<string, unknown>
@@ -123,13 +121,6 @@ export class PoolSpawns {
           this.ports.truth('issueProjections', issueId) !== undefined
         const settleFailure = (): void => {
           if (arrived()) {
-            log.debug(
-              'spawn transport failed after the session was created — treating as success',
-              {
-                sessionId,
-                err: error,
-              },
-            )
             settle('started')
             return
           }
