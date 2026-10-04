@@ -552,10 +552,11 @@ async function runActions(f) {
       if(await details.count() && !await page.getByRole('button',{name:'Set parent',exact:true}).count())await details.click()
       await page.getByRole('button',{name:'Set parent',exact:true}).click()
       const input=page.getByRole('textbox',{name:'Search parent',exact:true})
-      await input.fill(otherTitle);await pause(350)
+      const alternative=corpus.issues.find(row=>!row.parentId && !row.closedAt && !row.archived).title
+      await input.fill(alternative);await pause(350)
       for(let i=0;i<samples+2;i++){
-        const wanted=i%2?otherTitle:'Comparison', text=i%2?otherTitle:'Comparison target'
-        await capture(f,'phone-issue-picker-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search parent"]')?.value===${JSON.stringify(wanted)} && document.body.textContent.includes(${JSON.stringify(text)})`)
+        const wanted=i%2?alternative:otherTitle, unwanted=i%2?otherTitle:alternative
+        await capture(f,'phone-issue-picker-search',()=>input.fill(wanted),`()=>{const input=document.querySelector('[aria-label="Search parent"]');const scope=input?.closest('[aria-modal="true"],[role="dialog"]');const labels=[...(scope?.querySelectorAll('[role="button"]')??[])].map(x=>x.getAttribute('aria-label'));return input?.value===${JSON.stringify(wanted)} && labels.some(x=>x?.endsWith(${JSON.stringify(wanted)})) && !labels.some(x=>x?.endsWith(${JSON.stringify(unwanted)}))}`)
       }
       await page.getByRole('button',{name:'Cancel',exact:true}).click()
     })
@@ -574,7 +575,7 @@ async function runActions(f) {
       await input.fill(otherTitle);await pause(300)
       for(let i=0;i<samples+2;i++){
         const wanted=i%2?otherTitle:title
-        await capture(f,'phone-work-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search work"][role="textbox"],input[aria-label="Search work"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[role="button"]')].some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(wanted)}))`)
+        await capture(f,'phone-work-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search work"][role="textbox"],input[aria-label="Search work"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[role="button"]')].filter(x=>!x.closest('[aria-hidden="true"]')).some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(wanted)})) && ![...document.querySelectorAll('[role="button"]')].filter(x=>!x.closest('[aria-hidden="true"]')).some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(i%2?title:otherTitle)}))`)
       }
       await page.getByRole('button',{name:'Close search',exact:true}).click()
     })
