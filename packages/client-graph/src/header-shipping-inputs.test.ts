@@ -6,8 +6,8 @@ import {
 } from '@podium/client-core/viewmodels'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
-import { measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
+import { measureWork } from '../../worklist-proto/harness/src/work-meter'
 import type { HeaderRecord, HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 
