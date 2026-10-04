@@ -64,7 +64,8 @@ import {
 } from './schema'
 import type { RowRecord, RowSourceEvent } from './source'
 import { createReaderIndex, type ReaderQuestion } from './reader-questions'
-import { createSessionActivityIndex, type SessionActivityQuestion } from './session-activity'
+import type { SessionActivityQuestion } from './session-activity'
+import { createSessionQuestions, type MachineSession, type TriageSession, type SessionQuestions, type SessionQuestionFacts } from './session-questions'
 import { createRelationIndex, type RelationDelta, type RelationQueries } from './relation-index'
 
 type Row = Readonly<Record<string, unknown>>
@@ -94,6 +95,7 @@ export interface ColdQueries {
   readonly readerVersion: number
   readerRevision(question: ReaderQuestion): number
   readonly issueRepoRevision: number
+  issueRepoPathRevision(path: string): number
   readonly sessionRevision: number
   /** Session presence, issue/path membership and resume-collapse changes; not display metadata or heartbeats. */
   readonly sessionTopologyVersion: number
@@ -106,6 +108,14 @@ export interface ColdQueries {
   readerActivity(question: SessionActivityQuestion): number
   readerActivityRevision(question: SessionActivityQuestion): number
   readonly readerActivityVisits: number
+  triageSession(id: string, now: number): TriageSession | undefined
+  forkSessionQuestions(collapsed: (id: string) => boolean, order: (id: string) => string): SessionQuestions
+  sessionQuestionFact(id: string): SessionQuestionFacts | undefined
+  nextTriageSession(after: TriageSession | undefined, now: number, excluded?: Pick<ReadonlySet<string>, 'has'>): TriageSession | undefined
+  machineSession(id: string): MachineSession | undefined
+  latestMachineSession(machineIds: readonly string[], excluded?: Pick<ReadonlySet<string>, 'has'>): MachineSession | undefined
+  machineSessionRevision(machineIds: readonly string[]): number
+  readonly sessionQuestionVisits: number
   /** POD-5407 — every declared relation over every row the feed carries. */
   readonly relations: RelationQueries
   /**
@@ -199,6 +209,7 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
 export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = {}): ColdIndex {
   const readers = createReaderIndex()
   const relations = createRelationIndex(schema)
+  const sessionQuestions = createSessionQuestions(id => relations.collapsed('session', id), id => relations.orderKey('session', id))
   let collapseVersion = 0
   let sessionTopologyVersion = 0
   let topologyMoved = false
@@ -247,7 +258,6 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   const byOwner = new Map<KeptBySpec, Map<string, Map<string, MemberKeep>>>()
   const memberOf = new Map<string, { readonly source: KeptBySpec; readonly owner: string }>()
 
-  const activity = createSessionActivityIndex((id) => relations.collapsed('session', id))
 
   // `via` entities: target id → the ids naming it by the raw foreign key.
   const byTarget = new Map<EntityName, Map<string, Set<string>>>()
@@ -566,11 +576,19 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   }
 
   return {
-    readerActivity: (question) => activity.answer(question),
-    readerActivityRevision: (question) => activity.revision(question),
+    readerActivity: (question) => sessionQuestions.activity(question),
+    readerActivityRevision: (question) => sessionQuestions.activityRevision(question),
     get readerActivityVisits() {
-      return activity.visits
+      return sessionQuestions.activityVisits
     },
+    triageSession: (id, now) => sessionQuestions.triageFact(id, now),
+    forkSessionQuestions: (collapsed, order) => sessionQuestions.fork(collapsed, order),
+    sessionQuestionFact: id => sessionQuestions.fact(id),
+    nextTriageSession: (after, now, excluded) => sessionQuestions.next(after, now, excluded),
+    machineSession: id => sessionQuestions.machineFact(id),
+    latestMachineSession: (ids, excluded) => sessionQuestions.latest(ids, excluded),
+    machineSessionRevision: ids => sessionQuestions.machineRevision(ids),
+    get sessionQuestionVisits() { return sessionQuestions.visits },
     get readerVersion() {
       return readers.version + collapseVersion
     },
@@ -578,6 +596,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     get issueRepoRevision() {
       return readers.repoRevision
     },
+    issueRepoPathRevision: path => readers.repoPathRevision(path),
     get sessionRevision() {
       return collapseVersion
     },
@@ -652,7 +671,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       topologyMoved = event.type === 'replace'
       if (event.type === 'replace') {
         clear()
-        activity.clear()
+        sessionQuestions.clear()
         positions.clear()
         positionSeq = 0
         positionVersion += 1
@@ -684,9 +703,13 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       if (delta.flips.length > 0 || delta.orders.length > 0) collapseVersion++
       readers.apply(event)
       for (const record of event.rows) {
-        if (record.kind === 'session') activity.set(record.id, record.value as Row | undefined)
+        if (record.kind === 'session') {
+          sessionQuestions.set(record.id, record.value as Row | undefined)
+        }
       }
-      for (const [entity, id] of delta.flips) if (entity === 'session') activity.visibilityChanged(id)
+      for (const [entity, id] of [...delta.flips, ...delta.orders]) if (entity === 'session') {
+        sessionQuestions.visibilityChanged(id)
+      }
     },
   }
 }

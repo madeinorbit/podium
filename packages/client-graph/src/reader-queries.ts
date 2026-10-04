@@ -1,11 +1,12 @@
-import { createAtom, type IAtom, observable, observe, runInAction, untracked } from 'mobx'
+import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
 import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
-import { createSessionActivityIndex, type SessionActivityQuestion } from './shared/session-activity'
+import type { SessionActivityQuestion } from './shared/session-activity'
+import type { SessionQuestions } from './shared/session-questions'
 import type { RowSourceEvent } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -20,12 +21,9 @@ interface IdentityResult {
  * the row source's cold index; a directly-fed pool (fixtures, standalone
  * consumers) answers from its own (`MobxPool.coldIndex`). */
 export class ReaderQueries {
-  private readonly sessionsChanged = observable.box(0)
-  private sessionVersion = -1
-  private readonly residentActivityIds = new Set<string>()
-  private readonly residentActivity = createSessionActivityIndex((id) =>
-    this.index().sessionCollapsed(id),
-  )
+  private readonly sessionAtoms = new Map<string, IAtom>()
+  private effectiveSessions: SessionQuestions | undefined
+  private effectiveSource: ColdQueries | undefined
   private readonly observed = new Map<
     string,
     { atom: IAtom; version: number; revision(index: ColdQueries): number }
@@ -36,7 +34,7 @@ export class ReaderQueries {
   private readonly identities = new Map<string, IdentityResult>()
   /** Resident edits shadow the source by address. Predicate membership is
    * maintained at ingestion, never discovered by walking resident history. */
-  private readonly residents = createReaderIndex()
+  private readonly residents = createReaderIndex({ targetSearch: false, recent: false })
   private readonly residentIssueIds = new Set<string>()
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
@@ -47,7 +45,7 @@ export class ReaderQueries {
     session: new Set<string>(),
   }
   private readonly stopTables: (() => void)[] = []
-  readonly counts = { questions: 0, returnedIds: 0 }
+  readonly counts = { questions: 0, returnedIds: 0, scalarVisits: 0 }
   constructor(
     private readonly pool: MobxPool,
     _schema: ModelSchema,
@@ -59,7 +57,6 @@ export class ReaderQueries {
           this.updateResident(entity, change.name)
           this.correctCount(entity, change.name)
           this.updateIdentity(entity, change.name)
-          if (entity === 'session') this.updateActivity(change.name)
         }),
       )
   }
@@ -72,9 +69,13 @@ export class ReaderQueries {
     const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
     this.residents.apply({ type: 'update', rows: [{ kind: entity, id,
       value: row && row !== LOADING ? row : undefined } as RowSourceEvent['rows'][number]] })
+    if (entity === 'session') {
+      if (present) this.sessionQuestions().set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+      else this.sessionQuestions().setFacts(id, this.index().sessionQuestionFact(id))
+    }
     // Ranked windows do not have an identity answer to publish a delta through.
     for (const [key, state] of this.observed) {
-      if (this.identities.has(key) || key.startsWith('activity:') || key.startsWith('count:')) continue
+      if (this.identities.has(key) || key.startsWith('count:')) continue
       const version = state.revision(this.index())
       if (state.version !== version) {
         state.version = version
@@ -82,28 +83,15 @@ export class ReaderQueries {
       }
     }
   }
-  /** Maintain numerical maxima as resident slots change. A repository query
-   * must not walk every resident session or create dependencies on other roots. */
-  private updateActivity(id: string): void {
-    const resident = this.pool.tables.session.has(id)
-    if (resident) this.residentActivityIds.add(id)
-    else this.residentActivityIds.delete(id)
-    const row = resident
-      ? untracked(() => this.pool.row('session', id, 'summary-fields'))
-      : undefined
-    this.residentActivity.set(
-      id,
-      row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
-    )
-    // Hydration can change a resident slot without a source publication.
+  private sessionQuestions(): SessionQuestions {
     const index = this.index()
-    for (const [key, state] of this.observed) {
-      if (!key.startsWith('activity:')) continue
-      const version = state.revision(index)
-      if (state.version === version) continue
-      state.version = version
-      state.atom.reportChanged()
+    if (!this.effectiveSessions || this.effectiveSource !== index) {
+      this.effectiveSource = index
+      this.effectiveSessions = index.forkSessionQuestions(
+        id => this.index().sessionCollapsed(id), id => this.index().sessionOrderKey(id),
+      )
     }
+    return this.effectiveSessions
   }
   private correctCount(entity: 'issue' | 'session', id: string): void {
     const before = this.extras[entity].has(id)
@@ -175,21 +163,26 @@ export class ReaderQueries {
     const fresh = this.sourceSeen !== undefined && this.sourceSeen !== index
     this.sourceSeen = index
     if (event.type === 'replace' || fresh) {
-      this.residentActivity.clear()
-      this.residentActivityIds.clear()
-      for (const id of residentIds(this.pool, 'session')) this.updateActivity(id)
+      this.effectiveSource = index
+      this.effectiveSessions = index.forkSessionQuestions(
+        id => this.index().sessionCollapsed(id), id => this.index().sessionOrderKey(id),
+      )
+      for (const id of residentIds(this.pool, 'session')) this.updateResident('session', id)
       for (const entity of ['issue', 'session'] as const) {
         this.extras[entity].clear()
         for (const id of residentIds(this.pool, entity)) this.correctCount(entity, id)
       }
     } else {
-      for (const [entity, id] of index.changes(event).flips)
-        if (entity === 'session') this.residentActivity.visibilityChanged(id)
+      const delta = index.changes(event)
+      for (const [entity, id] of [...delta.flips, ...delta.orders])
+        if (entity === 'session') this.sessionQuestions().visibilityChanged(id)
     }
     for (const row of event.rows)
       if (row.kind === 'issue' || row.kind === 'session') {
         this.correctCount(row.kind, row.id)
         this.updateIdentity(row.kind, row.id)
+        if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
+          this.sessionQuestions().setFacts(row.id, index.sessionQuestionFact(row.id))
       }
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
@@ -198,16 +191,21 @@ export class ReaderQueries {
         this.identities.set(key, this.identityResult(result.question, index))
         state.version = version
         state.atom.reportChanged()
-      } else if (state.version !== version || fresh) {
+      } else if (state.version !== version || fresh || event.type === 'replace') {
         state.version = version
         // Identity questions are notified only by a membership delta below.
         // Counts and ordered windows still follow their declared revisions.
         if (!result) state.atom.reportChanged()
       }
     }
-    if (this.sessionVersion !== index.sessionRevision) {
-      this.sessionVersion = index.sessionRevision
-      runInAction(() => this.sessionsChanged.set(this.sessionsChanged.get() + 1))
+    if (event.type === 'replace' || fresh) {
+      for (const atom of this.sessionAtoms.values()) atom.reportChanged()
+    } else {
+      const delta = index.changes(event)
+      for (const [entity, id] of delta.flips)
+        if (entity === 'session') this.sessionAtoms.get(`collapsed:${id}`)?.reportChanged()
+      for (const [entity, id] of delta.orders)
+        if (entity === 'session') this.sessionAtoms.get(`order:${id}`)?.reportChanged()
     }
     if (event.type === 'replace' || fresh) {
       const listeners = [...this.memberListeners.values()].flatMap((value) => [...value])
@@ -250,8 +248,9 @@ export class ReaderQueries {
   }
   ids(question: ReaderQuestion): string[] {
     const key = JSON.stringify(question)
-    const index = this.watch(key, (value) => value.readerRevision(question) +
-      (this.sourceOnly(question) ? 0 : this.residents.revision(question)))
+    const index = this.watch(key, (value) => question.kind === 'headerRecentSession'
+      ? this.sessionQuestions().recentRevision()
+      : value.readerRevision(question) + (this.sourceOnly(question) ? 0 : this.residents.revision(question)))
     // Ranked windows stay bounded in the source's existing index.
     if (question.kind === 'mobileIssueTargets' || question.kind === 'headerRecentSession') {
       const ids = this.initialIds(question, index)
@@ -279,16 +278,11 @@ export class ReaderQueries {
     if (this.sourceOnly(question)) return index.readerIds(question)
     if (question.kind === 'residentIssues') return [...this.residentIssueIds]
     if (question.kind === 'headerRecentSession') {
-      // Keep both indexed winners: the caller compares current timestamps.
-      // A stale source copy must not hide its cold runner-up.
-      const explicitlyExcluded = question.excluded && 'has' in question.excluded
-        ? question.excluded : new Set(question.excluded)
-      return [...new Set([
-        ...index.readerIds({ ...question, excluded: {
-          has: id => this.residentActivityIds.has(id) || explicitlyExcluded.has(id),
-        } }),
-        ...this.residents.ids(question),
-      ])].sort()
+      const excluded = question.excluded && 'has' in question.excluded ? question.excluded : new Set(question.excluded)
+      const questions = this.sessionQuestions(), before = questions.visits
+      const answer = questions.recent(excluded)
+      this.counts.scalarVisits += questions.visits - before
+      return answer ? [answer.id] : []
     }
     const ids = [...new Set([
       ...index.readerIds(question).filter(id =>
@@ -353,43 +347,55 @@ export class ReaderQueries {
   }
   repoIds(repoPath?: string): string[] {
     const key = repoPath === undefined ? 'repos' : `repos.path:${JSON.stringify(repoPath)}`
-    return this.watch(key, (value) =>
+    const index = this.watch(key, (value) =>
       repoPath === undefined
-        ? value.issueRepoRevision
-        : value.readerRevision({
-            kind: 'mobileIssueTargets',
-            repoPath,
-            excludeId: '',
-            query: '',
-            limit: 0,
-            prefixes: {},
-          }),
-    ).issueRepoIds(repoPath)
+        ? value.issueRepoRevision + this.residents.repoRevision
+        : value.issueRepoPathRevision(repoPath) + this.residents.repoPathRevision(repoPath),
+    )
+    return [...new Set([...index.issueRepoIds(repoPath), ...this.residents.repoIds(repoPath)])].sort()
   }
   activity(question: SessionActivityQuestion): number {
-    const key = JSON.stringify({
-      ...question,
+    const key = JSON.stringify({ ...question,
       ...(question.excluded ? { excluded: [...question.excluded] } : {}),
     })
-    const index = this.watch(
-      `activity:${key}`,
-      (value) => value.readerActivityRevision(question) + this.residentActivity.revision(question),
-    )
-    const excluded = question.excluded
-      ? new Set([...this.residentActivityIds, ...question.excluded])
-      : this.residentActivityIds
-    return Math.max(
-      index.readerActivity({ ...question, excluded }),
-      this.residentActivity.answer(question),
-    )
+    this.watch(`activity:${key}`, () => this.sessionQuestions().activityRevision(question))
+    const questions = this.sessionQuestions(), before = questions.activityVisits
+    const answer = questions.activity(question)
+    this.counts.scalarVisits += questions.activityVisits - before
+    return answer
   }
   collapsed(id: string): boolean {
-    this.sessionsChanged.get()
+    this.observeSession('collapsed', id)
     return this.index().sessionCollapsed(id)
   }
+  /** One successor in attention order; absence starts at the first agent.
+   * The source includes pending overlays; resident edits shadow changed keys. */
+  nextTriageSession(id: string): string | undefined {
+    const questions = this.sessionQuestions(), now = this.pool.clock.current, before = questions.visits
+    const after = questions.triageFact(id, now)
+    const answer = questions.next(after, now) ?? questions.next(undefined, now)
+    this.counts.scalarVisits += questions.visits - before
+    return answer?.id === id ? undefined : answer?.id
+  }
+  latestMachineSession(machineIds: readonly string[]): { machineId: string; createdAt: string } | undefined {
+    this.watch(`latestMachine:${JSON.stringify(machineIds)}`, () => this.sessionQuestions().machineRevision(machineIds))
+    const questions = this.sessionQuestions(), before = questions.visits
+    const answer = questions.latest(machineIds)
+    this.counts.scalarVisits += questions.visits - before
+    return answer && { machineId: answer.machineId, createdAt: answer.createdAt }
+  }
   orderKey(id: string): string {
-    this.sessionsChanged.get()
+    this.observeSession('order', id)
     return this.index().sessionOrderKey(id)
+  }
+  private observeSession(kind: 'collapsed' | 'order', id: string): void {
+    const key = `${kind}:${id}`
+    let atom = this.sessionAtoms.get(key)
+    if (!atom) {
+      const created = createAtom(`history.${key}`, undefined, () => this.sessionAtoms.delete(key))
+      if (!created.reportObserved()) return
+      this.sessionAtoms.set(key, created)
+    } else atom.reportObserved()
   }
   dispose(): void {
     for (const stop of this.stopTables) stop()
@@ -399,9 +405,11 @@ export class ReaderQueries {
     this.listeners.clear()
     this.memberListeners.clear()
     this.observed.clear()
-    this.residentActivity.clear()
-    this.residentActivityIds.clear()
+    this.sessionAtoms.clear()
     this.residentIssueIds.clear()
     this.residents.apply({ type: 'replace', rows: [] })
+    this.effectiveSessions?.clear()
+    this.effectiveSessions = undefined
+    this.effectiveSource = undefined
   }
 }

@@ -69,7 +69,7 @@ const referenceText = (text: string) => text.toLocaleLowerCase().replace(/[^a-z0
 /** Incremental source identity/facet indexes. No row or summary is retained.
  * The phone target question answers its declared order/text predicate here;
  * other questions narrow the reader's scalar and ancestor checks. */
-export function createReaderIndex() {
+export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
   const filed = new Map<string, Set<string>>()
@@ -208,7 +208,10 @@ export function createReaderIndex() {
           const repos = targetRepos.get(oldPath),
             count = (repos?.get(oldRepo) ?? 1) - 1
           if (count) repos!.set(oldRepo, count)
-          else repos?.delete(oldRepo)
+          else {
+            repos?.delete(oldRepo)
+            touch(`issueRepoPath:${oldPath}`)
+          }
           if (!repos?.size) targetRepos.delete(oldPath)
         }
         if (nextPath !== undefined && nextRepo !== undefined) {
@@ -217,38 +220,42 @@ export function createReaderIndex() {
             repos = new Map()
             targetRepos.set(nextPath, repos)
           }
-          repos.set(nextRepo, (repos.get(nextRepo) ?? 0) + 1)
+          const count = repos.get(nextRepo) ?? 0
+          repos.set(nextRepo, count + 1)
+          if (!count) touch(`issueRepoPath:${nextPath}`)
         }
       }
-      const previous = targetDetails.get(id)
-      const seq = row ? Number(row.seq ?? 0) : undefined
-      const next = row && afterEligible
-        ? {
-            seq: seq!,
-            title: String(row.title ?? '').toLocaleLowerCase(),
-            repoId: nextRepo!,
-            ref: referenceText(String(seq)),
-          }
-        : undefined
-      const moved = previous?.seq !== next?.seq
-      for (const key of before)
-        if (beforeEligible && orderedTargetKey(key) && (!afterEligible || moved || !after.has(key)))
-          removeTarget(key, id)
-      if (next) targetDetails.set(id, next)
-      else targetDetails.delete(id)
-      for (const key of after)
+      if (options.targetSearch !== false) {
+        const previous = targetDetails.get(id)
+        const seq = row ? Number(row.seq ?? 0) : undefined
+        const next = row && afterEligible
+          ? {
+              seq: seq!,
+              title: String(row.title ?? '').toLocaleLowerCase(),
+              repoId: nextRepo!,
+              ref: referenceText(String(seq)),
+            }
+          : undefined
+        const moved = previous?.seq !== next?.seq
+        for (const key of before)
+          if (beforeEligible && orderedTargetKey(key) && (!afterEligible || moved || !after.has(key)))
+            removeTarget(key, id)
+        if (next) targetDetails.set(id, next)
+        else targetDetails.delete(id)
+        for (const key of after)
+          if (
+            afterEligible &&
+            orderedTargetKey(key) &&
+            (!beforeEligible || moved || !before.has(key))
+          )
+            addTarget(key, id)
         if (
-          afterEligible &&
-          orderedTargetKey(key) &&
-          (!beforeEligible || moved || !before.has(key))
+          moved || previous?.title !== next?.title ||
+          before.size !== after.size || [...before].some((key) => !after.has(key))
         )
-          addTarget(key, id)
-      if (
-        moved || previous?.title !== next?.title ||
-        before.size !== after.size || [...before].some((key) => !after.has(key))
-      )
-        for (const key of new Set([...before, ...after]))
-          if (key.startsWith('issue:path:')) touch(`mobileTargets:${key}`)
+          for (const key of new Set([...before, ...after]))
+            if (key.startsWith('issue:path:')) touch(`mobileTargets:${key}`)
+      }
     }
     for (const key of before)
       if (!after.has(key)) {
@@ -277,7 +284,7 @@ export function createReaderIndex() {
       }
     if (after.size) filed.set(address, after)
     else filed.delete(address)
-    if (kind === 'session') {
+    if (kind === 'session' && options.recent !== false) {
       const at = row && !row.archived ? String(row.lastActiveAt ?? '') : undefined
       const position = positions.get(id),
         previous = position === undefined ? undefined : recent[position]!.at
@@ -312,6 +319,9 @@ export function createReaderIndex() {
     },
     get repoRevision() {
       return repoRevision
+    },
+    repoPathRevision(path: string): number {
+      return Math.max(replacement, revisions.get(`issueRepoPath:${path}`) ?? 0)
     },
     revision(question: ReaderQuestion): number {
       const keys = [`${questionEntity(question)}:all`]

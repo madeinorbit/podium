@@ -505,6 +505,11 @@ describe('readers behind declared cold questions', () => {
           pool.residency!.ids(entity)
           return originalCount(entity)
         })
+        const originalRepos = pool.queries.repoIds.bind(pool.queries)
+        vi.spyOn(pool.queries, 'repoIds').mockImplementation((path) => {
+          pool.residency!.ids('issue')
+          return originalRepos(path)
+        })
         runInAction(() => reader.read(pool))
         expect(scans).toBeGreaterThan(0)
         census.mockRestore()
@@ -801,7 +806,7 @@ describe('readers behind declared cold questions', () => {
     })
     const census = vi.spyOn(pool.residency!, 'ids')
     try {
-      expect(pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['history', 'resident'])
+      expect(pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['history'])
       expect(census).not.toHaveBeenCalled()
     } finally {
       census.mockRestore()

@@ -32,14 +32,8 @@ export class MobileInboxSource {
       (): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
         this.counts.prefixReads++
         const used = new Set(pool.queries.repoIds())
-        // The feed answers distinct repo identities without visiting history.
-        // Resident pending edits can contribute a repo before publication.
+        // The query combines source and resident repo contributions at ingest.
         let loading = false
-        for (const id of pool.queries.ids({ kind: 'residentIssues' })) {
-          const row = pool.row('issue', id, 'summary') as Loaded<{ repoId?: string }>
-          if (row === LOADING) loading = true
-          else if (row?.repoId) used.add(row.repoId)
-        }
         const prefixes = new Set<string>()
         for (const id of used) {
           const row = pool.row('repo', id) as Loaded<{ prefix?: string }>

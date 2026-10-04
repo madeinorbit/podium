@@ -5,6 +5,7 @@ interface Item<T> {
   id: string
   order: string
   value: T
+  point?: number
 }
 interface Node<T> {
   item: Item<T>
@@ -12,6 +13,8 @@ interface Node<T> {
   right?: Node<T>
   height: number
   size: number
+  minPoint: number
+  maxPoint: number
 }
 const height = <T>(node?: Node<T>) => node?.height ?? 0
 const size = <T>(node?: Node<T>) => node?.size ?? 0
@@ -24,6 +27,8 @@ function node<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
     right,
     height: Math.max(height(left), height(right)) + 1,
     size: size(left) + size(right) + 1,
+    minPoint: Math.min(item.point ?? Infinity, left?.minPoint ?? Infinity, right?.minPoint ?? Infinity),
+    maxPoint: Math.max(item.point ?? -Infinity, left?.maxPoint ?? -Infinity, right?.maxPoint ?? -Infinity),
   }
 }
 function balance<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
@@ -53,25 +58,25 @@ function balance<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
   }
   return node(item, left, right)
 }
-function put<T>(root: Node<T> | undefined, item: Item<T>): Node<T> {
+function put<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> {
   if (!root) return node(item)
-  const order = compare(item, root.item)
+  const order = compareItems(item, root.item)
   return order < 0
-    ? balance(root.item, put(root.left, item), root.right)
+    ? balance(root.item, put(root.left, item, compareItems), root.right)
     : order > 0
-      ? balance(root.item, root.left, put(root.right, item))
+      ? balance(root.item, root.left, put(root.right, item, compareItems))
       : node(item, root.left, root.right)
 }
-function remove<T>(root: Node<T> | undefined, item: Item<T>): Node<T> | undefined {
+function remove<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
   if (!root) return undefined
-  const order = compare(item, root.item)
-  if (order < 0) return balance(root.item, remove(root.left, item), root.right)
-  if (order > 0) return balance(root.item, root.left, remove(root.right, item))
+  const order = compareItems(item, root.item)
+  if (order < 0) return balance(root.item, remove(root.left, item, compareItems), root.right)
+  if (order > 0) return balance(root.item, root.left, remove(root.right, item, compareItems))
   if (!root.left) return root.right
   if (!root.right) return root.left
   let next = root.right
   while (next.left) next = next.left
-  return balance(next.item, root.left, remove(root.right, next.item))
+  return balance(next.item, root.left, remove(root.right, next.item, compareItems))
 }
 function itemAt<T>(root: Node<T> | undefined, index: number): Item<T> | undefined {
   while (root) {
@@ -106,19 +111,18 @@ function* valuesFrom<T>(root: Node<T> | undefined, index: number): Generator<T> 
  * shares the other branches, rather than copying every output slot. Iteration
  * is linear in the requested output; publication never materializes that output.
  * A caller's array mutation detaches its snapshot from the shared tree. */
-const snapshotRoots = new WeakMap<object, Node<unknown> | undefined>()
+const SNAPSHOT_ROOT = Symbol('orderedQuerySnapshot')
 function snapshot<T>(root?: Node<T>): T[] {
-  const result: T[] = arraySnapshot(size(root), index => valuesFrom(root, index), () => snapshotRoots.delete(result))
-  snapshotRoots.set(result, root)
-  return result
+  return arraySnapshot(size(root), index => valuesFrom(root, index), { root })
 }
 
 /** Join disjoint, ordered query snapshots without materializing their rows.
  * Each input's persistent root keeps the joined snapshot stable after updates. */
 export function joinQueryResults<T>(results: readonly T[][]): T[] {
   const roots = results.map(result => {
-    if (!snapshotRoots.has(result)) throw new Error('Expected an ordered query snapshot')
-    return snapshotRoots.get(result) as Node<T> | undefined
+    const metadata = (result as T[] & { [SNAPSHOT_ROOT]?: { root?: Node<T> } })[SNAPSHOT_ROOT]
+    if (!metadata) throw new Error('Expected an ordered query snapshot')
+    return metadata.root
   })
   const length = roots.reduce((count, root) => count + size(root), 0)
   function* joined(start: number): Generator<T> {
@@ -140,7 +144,7 @@ export function joinQueryResults<T>(results: readonly T[][]): T[] {
   return arraySnapshot(length, joined)
 }
 
-function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<T>, onDetach?: () => void): T[] {
+function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<T>, metadata?: { root?: Node<T> }): T[] {
   let detached: T[] | undefined
   let cursor = iterate(0),
     lastIndex = -1,
@@ -158,12 +162,12 @@ function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<
   const detach = () => {
     if (!detached) {
       detached = [...iterate(0)]
-      onDetach?.()
     }
     return detached
   }
   return new Proxy<T[]>([], {
     get(target, key, receiver) {
+      if (key === SNAPSHOT_ROOT) return detached ? undefined : metadata
       if (detached) return Reflect.get(detached, key, receiver)
       if (key === 'length') return length
       const index = indexOf(key)
@@ -204,26 +208,81 @@ function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<
 
 /** A declared identity answer, changed one key at a time. Every caller owns
  * its array facade; reading the answer does not copy the complete membership. */
-export function createKeyedAnswer<T>() {
-  let root: Node<T> | undefined
-  const items = new Map<string, Item<T>>()
+export interface KeyedAnswer<T> {
+  has(id: string): boolean
+  get(id: string): T | undefined
+  first(): T | undefined
+  after(value: T, id: string): T | undefined
+  /** First ordered answer after a pivot with a one-sided scalar bound.
+   * Subtree extrema skip nonmatching history without visiting its entries. */
+  firstBounded(bound: number, side: 'atMost' | 'above', after?: T, id?: string): T | undefined
+  set(id: string, order: string, value: T): void
+  delete(id: string): void
+  snapshot(): T[]
+  fork(): KeyedAnswer<T>
+}
+export function createKeyedAnswer<T>(
+  compareValues?: (a: T, b: T) => number,
+  point?: (value: T) => number,
+  seed?: { root?: Node<T>; keys?: Node<Item<T>> },
+): KeyedAnswer<T> {
+  let root = seed?.root, keys = seed?.keys
+  const item = (id: string): Item<T> | undefined => {
+    let cursor = keys
+    while (cursor) {
+      if (id === cursor.item.id) return cursor.item.value
+      cursor = id < cursor.item.id ? cursor.left : cursor.right
+    }
+    return undefined
+  }
+  const compareItems = compareValues
+    ? (a: Item<T>, b: Item<T>) => compareValues(a.value, b.value) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    : compare<T>
   return {
-    has: (id: string) => items.has(id),
+    has: (id: string) => item(id) !== undefined,
+    get: (id: string) => item(id)?.value,
+    first: () => at(root, 0),
+    after(value: T, id: string): T | undefined {
+      const wanted = { id, order: item(id)?.order ?? '', value }
+      let cursor = root, candidate: Item<T> | undefined
+      while (cursor) {
+        if (compareItems(wanted, cursor.item) < 0) {
+          candidate = cursor.item
+          cursor = cursor.left
+        } else cursor = cursor.right
+      }
+      return candidate?.value
+    },
+    firstBounded(bound, side, after, id = '') {
+      const pivot = after === undefined ? undefined : { id, order: item(id)?.order ?? '', value: after }
+      const eligible = (value: number) => side === 'atMost' ? value <= bound : value > bound
+      function search(cursor: Node<T> | undefined, lower?: Item<T>): T | undefined {
+        if (!cursor || !eligible(side === 'atMost' ? cursor.minPoint : cursor.maxPoint)) return undefined
+        if (lower && compareItems(cursor.item, lower) <= 0) return search(cursor.right, lower)
+        const left = search(cursor.left, lower)
+        if (left !== undefined) return left
+        if (eligible(cursor.item.point ?? NaN)) return cursor.item.value
+        return search(cursor.right)
+      }
+      return search(root, pivot)
+    },
     set(id: string, order: string, value: T): void {
-      const before = items.get(id)
+      const before = item(id)
       if (before?.order === order && before.value === value) return
-      if (before) root = remove(root, before)
-      const after = { id, order, value }
-      items.set(id, after)
-      root = put(root, after)
+      if (before) root = remove(root, before, compareItems)
+      const after = { id, order, value, ...(point ? { point: point(value) } : {}) }
+      keys = put(keys, { id, order: id, value: after })
+      root = put(root, after, compareItems)
     },
     delete(id: string): void {
-      const before = items.get(id)
+      const before = item(id)
       if (!before) return
-      items.delete(id)
-      root = remove(root, before)
+      keys = remove(keys, { id, order: id, value: before })
+      root = remove(root, before, compareItems)
     },
     snapshot: () => snapshot(root),
+    fork: () => createKeyedAnswer(compareValues, point, { root, keys }),
   }
 }
 
