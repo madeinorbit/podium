@@ -1,7 +1,7 @@
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId } from '@podium/model'
-import { createHeaderFixture } from '../../test/header-fixture'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -96,7 +96,7 @@ async function render(): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
+        createReplicaFn={() => createSidebarFixture(0, Date.now(), true).newReplica()}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
       >
@@ -151,7 +151,7 @@ describe('selector-scoped store', () => {
       root.render(
         <StoreProvider
           principal={TEST_PRINCIPAL}
-          createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
+          createReplicaFn={() => createSidebarFixture(0, Date.now(), true).newReplica()}
           config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
           onFatalError={() => {}}
         >

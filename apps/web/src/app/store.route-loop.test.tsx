@@ -1,6 +1,6 @@
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createHeaderFixture } from '../../test/header-fixture'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -134,7 +134,7 @@ async function mountAt(url: string): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
+        createReplicaFn={() => createSidebarFixture(0, Date.now(), true).newReplica()}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={(m) => {
           throw new Error(`fatal: ${m}`)

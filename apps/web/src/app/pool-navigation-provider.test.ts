@@ -662,6 +662,8 @@ describe('web pool navigation', () => {
   it('restores the current visit when the loading provider becomes ready', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
+    const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
+    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     const target = asIssueId(ctx.targets.visibleRootId)
     const initial = referenceState(runtime)
     runtime.setNavigationProvider(fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates }))
@@ -669,8 +671,6 @@ describe('web pool navigation', () => {
     referenceState(runtime).setSelectedIssueId(target)
     expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
     const detach = preparePoolScreens([panePoolScreen], runtime)
-    const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     try {
       expect(referenceState(runtime).issueVisitBaseline).toBeNull()
       runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
