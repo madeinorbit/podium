@@ -73,10 +73,71 @@ export function RefMiniviewHost(): JSX.Element | null {
 function PoolRefMiniviewHost(): JSX.Element {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   const pool = useWorklistPool()
+  const { setOpenIssueId, setView, navigateToSession } = useRuntimeSelector(
+    (s) => ({
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+      navigateToSession: s.navigateToSession,
+    }),
+    shallowEqual,
+  )
+  // The activator stays registered while the card is closed. Session browsing
+  // is needed only for a card or an explicit direct session activation.
+  useEffect(() => {
+    setRefActivator((ref, mods, anchor) => {
+      if (!mods.direct) {
+        openMiniview(ref, anchor)
+        return
+      }
+      const parsed = parseAnyRef(ref)
+      if (parsed?.kind === 'issue') {
+        const target = resolvePoolIssue(pool, ref)
+        if (target?.kind === 'issue') {
+          setOpenIssueId(target.issue.id)
+          setView('issues')
+          return
+        }
+      } else if (parsed?.kind === 'session' && pool) {
+        const reader = pool.row('chatContextReader', 'reader')
+        const sessions = reader && typeof reader !== 'symbol' ? reader.sessions().sessions : []
+        if (resolveRef(ref, [], sessions)) {
+          navigateToSession(ref)
+          return
+        }
+      }
+      openMiniview(ref, anchor)
+    })
+    return () => setRefActivator(null)
+  }, [pool, setOpenIssueId, setView, navigateToSession])
+  return (
+    <>
+      <IssueChipLiveness root={document.body} />
+      {state && <OpenPoolRefMiniview state={state} pool={pool} />}
+    </>
+  )
+}
+
+function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | null {
+  const parsed = parseAnyRef(token)
+  if (!pool || parsed?.kind !== 'issue') return null
+  const id = pool.references.id(token)
+  if (!id || typeof id === 'symbol') return null
+  const row = pool.row('issue', id)
+  return row && typeof row !== 'symbol'
+    ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike }
+    : null
+}
+
+function OpenPoolRefMiniview({
+  state,
+  pool,
+}: {
+  state: NonNullable<ReturnType<typeof getMiniviewState>>
+  pool: MobxPool | null
+}): JSX.Element {
   const sessions = useChatReferenceSessions()
   const read = useCallback(
     (pool: MobxPool) => {
-      if (!state) return { issues: [] as RefIssueLike[], loading: false }
       const parsed = parseAnyRef(state.ref)
       const id =
         parsed?.kind === 'issue'
@@ -130,61 +191,43 @@ function PoolRefMiniviewHost(): JSX.Element {
     [sessions, state],
   )
   const data = useWorklistPoolProjection(read, { issues: [] as RefIssueLike[], loading: !!state })
-  const resolveIssue = (token: string): ResolvedRef | null => {
-    const parsed = parseAnyRef(token)
-    if (!pool || parsed?.kind !== 'issue') return null
-    const id = pool.references.id(token)
-    if (!id || typeof id === 'symbol') return null
-    const row = pool.row('issue', id)
-    return row && typeof row !== 'symbol'
-      ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike }
-      : null
-  }
   return (
-    <>
-      <IssueChipLiveness root={document.body} />
       <RefMiniviewContents
         issues={data.issues}
+        sessions={sessions}
         resolveIssue={(token) => {
           const parsed = parseAnyRef(token)
           const issue = data.issues[0]
           return token === state?.ref && issue && parsed?.kind === 'issue'
             ? { kind: 'issue', ref: parsed, issue }
-            : resolveIssue(token)
+            : resolvePoolIssue(pool, token)
         }}
         loading={data.loading}
       />
-    </>
   )
 }
 
 function RefMiniviewContents({
   issues,
+  sessions,
   resolveIssue,
   loading = false,
 }: {
   issues: readonly RefIssueLike[]
+  sessions: ReturnType<typeof useChatReferenceSessions>
   resolveIssue: (ref: string) => ResolvedRef | null
   loading?: boolean
 }): JSX.Element | null {
-  const sessions = useChatReferenceSessions()
   const machines = useChatReferenceMachines()
-  const { trpc, setOpenIssueId, setView, navigateToSession } = useRuntimeSelector(
+  const { trpc, navigateToSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
   const { retarget } = useIssueExplorer()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
-
-  const openIssueFull = (issueId: IssueId): void => {
-    setOpenIssueId(issueId)
-    setView('issues')
-  }
 
   /**
    * The card's escalation (POD-786): point the ISSUE EXPLORER at this task and
@@ -204,26 +247,6 @@ function RefMiniviewContents({
     retarget(issueId)
     window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'issue' }))
   }
-  // Register the activator: plain click opens the miniview; Cmd/Ctrl-click jumps
-  // straight to the full view. Kept fresh so it always sees the latest store data.
-  useEffect(() => {
-    setRefActivator((ref, mods, anchor) => {
-      if (!mods.direct) {
-        openMiniview(ref, anchor)
-        return
-      }
-      const target =
-        parseAnyRef(ref)?.kind === 'issue' ? resolveIssue(ref) : resolveRef(ref, [], sessions)
-      if (!target) {
-        openMiniview(ref, anchor) // nothing to navigate to — fall back to the card (shows "not found")
-        return
-      }
-      if (target.kind === 'issue') openIssueFull(target.issue.id)
-      else navigateToSession(ref)
-    })
-    return () => setRefActivator(null)
-  })
-
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   if (!state) return null
 

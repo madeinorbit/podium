@@ -99,6 +99,7 @@ const limit = Number(process.argv.find((a) => a.startsWith('--limit='))?.slice(8
 const closeMeter = process.argv.includes('--close-meter')
 const timingOnly = process.argv.includes('--timing-only')
 const verifyMenu = process.argv.includes('--verify-menu')
+const issuePageAction = process.argv.includes('--issue-page-action')
 const sourceSha =
   process.argv.find((a) => a.startsWith('--source-sha='))?.slice(13) ??
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -163,6 +164,8 @@ try {
       twoRaf: false,
       twoRafAt: 0,
       target: '',
+      trigger: '',
+      pageAction: false,
       processingStart: 0,
       events: [] as unknown[],
       mutations: [] as number[],
@@ -178,7 +181,7 @@ try {
         if (
           !state.target ||
           !(e.target instanceof Element) ||
-          !e.target.closest(`[data-issue-row="${state.target}"]`)
+          !e.target.closest(state.trigger)
         )
           return
         state.input = e.timeStamp
@@ -191,7 +194,7 @@ try {
     new MutationObserver(() => {
       if (state.input === null || state.dom !== null) return
       const row = document.querySelector(`[data-issue-row="${state.target}"]`)
-      if (!row || row.getAttribute('data-selected') !== 'true') return
+      if (state.pageAction ? !document.querySelector('[data-testid="issue-page"]') : !row || row.getAttribute('data-selected') !== 'true') return
       state.dom = performance.now()
       performance.mark('speed:dom')
       requestAnimationFrame(() =>
@@ -206,7 +209,7 @@ try {
       if (
         records.some((r) =>
           (r.target instanceof Element ? r.target : r.target.parentElement)?.closest(
-            '[data-panel-resident][data-pane], [data-testid="flight-deck-scroller"], [data-testid="right-rail"]',
+            '[data-panel-resident][data-pane], [data-testid="flight-deck-scroller"], [data-testid="right-rail"], [data-testid="issue-page"]',
           ),
         )
       ) {
@@ -220,6 +223,13 @@ try {
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(10_000)
   if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
+  if (process.argv.includes('--expand-closed')) {
+    const closed = page.getByTestId('closed-fold-toggle')
+    if (await closed.count() && await closed.first().getAttribute('aria-expanded') === 'false') {
+      await closed.first().click()
+      await page.waitForTimeout(1000)
+    }
+  }
   const cdp = await context.newCDPSession(page)
   captureCdp = cdp
   const rows = await page.locator('[data-issue-row]').evaluateAll((nodes) =>
@@ -238,6 +248,7 @@ try {
     JSON.stringify({
       label,
       rows: rows.length,
+      numberedRows: rows.filter(r => r.numbered).length,
       renderer: await page.evaluate(() => window.__speedReact.renderer),
       loadavg: loadavg(),
       classes: [...new Set(rows.map((r) => r.className))],
@@ -277,17 +288,34 @@ try {
     const unique = [...new Set(rows.filter((r) => r.numbered).map((r) => r.id))]
     const targets: string[] = saved?.targets ?? unique.slice(1, limit + 1)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
-    const anchor: string = saved?.anchor ?? rows[0]!.id
+    const anchor: string = saved?.anchor ?? unique[0]!
     await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets }))
     // The client has a bounded pane cache: revisits and resident warm visits are separate labels.
-    const order = targets.flatMap((id, index) => [
+    const order = issuePageAction ? [...targets.map((id, index) => ({ id, index, visit: 'first' })),
+      ...targets.map((id, index) => ({ id, index, visit: 'revisit' }))] : targets.flatMap((id, index) => [
       { id, index, visit: 'first' },
       { id: anchor, index: -1, visit: 'anchor' },
       { id, index, visit: 'revisit' },
     ])
+    const titles = new Map<string, string>()
+    if (issuePageAction) {
+      for (const id of targets) {
+        const title = await page.locator(`[data-issue-row="${id}"] .shell-work-row-title`).first().textContent()
+        if (!title) throw new Error('Issue-page target has no title')
+        titles.set(id, title.trim())
+      }
+      await page.getByTestId('topbar-nav-issues').click()
+    }
     const summaries = []
     for (const [iteration, item] of order.entries()) {
-      const row = page.locator(`[data-issue-row="${item.id}"]`).first()
+      if (issuePageAction) {
+        const title = titles.get(item.id)
+        if (!title) throw new Error('Issue-page target has no title')
+        await page.getByRole('textbox', { name: 'Search tasks' }).fill(title.trim())
+        await page.waitForTimeout(300)
+      }
+      const trigger = issuePageAction ? `[data-issue-id="${item.id}"]` : `[data-issue-row="${item.id}"]`
+      const row = page.locator(trigger).first()
       await row.scrollIntoViewIfNeeded()
       let box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target has no bounds')
@@ -295,10 +323,12 @@ try {
       await page.waitForTimeout(1000)
       box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target moved out of view')
-      await page.evaluate((id) => {
+      await page.evaluate(({ id, trigger, pageAction }) => {
         const state = (window as any).__speedCapture
         Object.assign(state, {
           target: id,
+          trigger,
+          pageAction,
           input: null,
           dom: null,
           twoRaf: false,
@@ -319,9 +349,10 @@ try {
           ) > 0
         state.launchBefore = (window as any).__liveLaunchCensus?.() ?? {}
         state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
+        state.chatBefore = (window as any).__liveChatCensus?.() ?? {}
         window.__speedReact.commits = []
         performance.clearMarks()
-      }, item.id)
+      }, { id: item.id, trigger, pageAction: issuePageAction })
       const errorsBefore = proxyErrors
       const events: any[] = []
       const receive = ({ value }: { value: any[] }) => events.push(...value)
@@ -331,13 +362,21 @@ try {
         transferMode: 'ReportEvents',
       })
       const stopCpu = timingOnly ? async () => null : await startCpu(cdp)
-      await row.locator('button[data-pressable]').first().click({ timeout: 60_000 })
+      if (issuePageAction) await row.click({ timeout: 60_000 })
+      else await row.locator('button[data-pressable]').first().click({ timeout: 60_000 })
       await page.waitForFunction(() => (window as any).__speedCapture.twoRaf, null, {
         timeout: 60_000,
       })
       await page.waitForFunction(
         () => {
           const state = (window as any).__speedCapture
+          if (state.pageAction) {
+            state.confirmed = true
+            state.readyAt = state.twoRafAt
+            performance.mark('speed:content-dom', { startTime: state.dom })
+            performance.mark('speed:ready', { startTime: state.readyAt })
+            return true
+          }
           const trace = (window as any).__podiumSwitchTraces?.recent().at(-1)
           const sessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')]
             .map((n) => n.getAttribute('data-session'))
@@ -381,6 +420,7 @@ try {
         sidebar: (window as any).__podiumSidebarPerf?.read(),
       }))
       const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
+      const chatAfter = await page.evaluate(() => (window as any).__liveChatCensus?.() ?? {})
       const input = events.find((e) => e.name === 'speed:input')
       const dom = events.find((e) => e.name === 'speed:dom')
       const paint = events
@@ -429,13 +469,16 @@ try {
         selectedDomMs: (dom.ts - input.ts) / 1000,
         elements: state.elements,
         commits: state.react.commits.length,
-        traceMs: state.traces?.[0]?.issueId === item.id ? state.traces[0].totalMs : null,
-        cold: state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
+        traceMs: !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].totalMs : null,
+        cold: !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
         poolRows: state.sidebar?.pool?.rows ?? null,
         proxyErrors: proxyErrors - errorsBefore,
         loadavg: loadavg(),
       }
       Object.assign(numbers, {
+        action: issuePageAction ? 'issue-page-open' : 'sidebar-issue',
+        chatWork: Object.fromEntries(['mentionBuilds', 'mentionIssueReads', 'referenceBuilds', 'referenceSessionReads']
+          .map(key => [key, Number(chatAfter[key] ?? 0) - Number(state.boundary.chatBefore[key] ?? 0)])),
         launchWork: Object.fromEntries(
           [
             'catalogBuilds',
@@ -451,11 +494,17 @@ try {
         ),
       })
       const file = `click-${iteration.toString().padStart(2, '0')}`
-      await writeFile(resolve(root, file + '.trace.json'), JSON.stringify({ traceEvents: events }))
+      const traceBytes = JSON.stringify({ traceEvents: events })
+      if (traceBytes.includes(token)) throw new Error('Credential found in capture; refusing to save it')
+      await writeFile(resolve(root, file + '.trace.json'), traceBytes)
       if (profile) await writeFile(resolve(root, file + '.cpuprofile'), JSON.stringify(profile))
       await writeFile(resolve(root, file + '.json'), JSON.stringify({ ...numbers, ...state }))
       summaries.push(numbers)
       console.log(JSON.stringify(numbers))
+      if (issuePageAction) {
+        await page.locator('[data-testid="issue-page"] button[title="Back"]').click()
+        await page.getByTestId('issue-page').waitFor({ state: 'hidden' })
+      }
     }
     if (!timingOnly) await saveComponents(page, cdp, resolve(root, 'components.json'))
     if (verifyMenu) {

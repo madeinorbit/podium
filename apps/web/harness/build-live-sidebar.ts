@@ -6,6 +6,7 @@ const option = (name: string, fallback: string) =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback
 const root = resolve(option('source', '.'))
 const out = resolve(option('out', '.artifacts/live-sidebar/candidate-build'))
+const off = option('off', '')
 await build({
   root: resolve(root, 'apps/web'),
   configFile: resolve(root, 'apps/web/vite.config.ts'),
@@ -15,6 +16,29 @@ await build({
       name: 'live-sidebar-census',
       enforce: 'pre',
       transform(code, id) {
+        if (id.endsWith('/packages/client-graph/src/chat-context.ts')) {
+          if (!code.includes('  return {\n    counts,')) throw new Error('Chat census boundary changed')
+          code = code.replace('  return {\n    counts,',
+            `  const census = ((globalThis as any).__liveChatReaders ??= [])
+  census.push(counts)
+  ;(globalThis as any).__liveChatCensus = () => census.reduce((sum: Record<string, number>, reader: Record<string, number>) => {
+    for (const key of Object.keys(reader)) sum[key] = (sum[key] ?? 0) + reader[key]
+    return sum
+  }, {})
+  return {
+    counts,`)
+          if (off === 'references') {
+            const boundary = 'export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {'
+            if (!code.includes(boundary)) throw new Error('Reference control boundary changed')
+            code = code.replace(boundary, boundary + '\n  return { sessions: [], pending: 0 }')
+          }
+          return code
+        }
+        if (off === 'activity' && id.endsWith('/packages/client-graph/src/reader-queries.ts')) {
+          const boundary = '  activity(question: SessionActivityQuestion): number {'
+          if (!code.includes(boundary)) throw new Error('Activity control boundary changed')
+          return code.replace(boundary, boundary + '\n    return 0')
+        }
         if (!id.endsWith('/packages/client-graph/src/command-launch-views.ts')) return
         if (!code.includes('catalogBuilds: 0,') || !code.includes('launch: () => launch.get(),'))
           throw new Error('Launch census boundary changed')

@@ -1,12 +1,13 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import '@/test-support/model-catalog-mock'
+import '@/test-support/mock-core-store-handle'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { closeMiniview, openMiniview } from '@/lib/ref-activation'
+import { activateRef, closeMiniview, getMiniviewState, openMiniview } from '@/lib/ref-activation'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
@@ -22,21 +23,23 @@ const hostStore = vi.hoisted(() => ({
   ],
   replicaIssues: [] as RefIssueLike[],
   legacyIssues: [] as RefIssueLike[],
+  sessions: [] as RefSessionLike[],
+  referenceReads: vi.fn(),
+  setOpenIssueId: vi.fn(),
+  setView: vi.fn(),
+  navigateToSession: vi.fn(),
   updateIssue: vi.fn(async () => {}),
   setSelectedIssueId: vi.fn(),
   setFocusedIssueId: vi.fn(),
   retarget: vi.fn(),
 }))
 
-vi.mock('@podium/client-core/react', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => hostStore,
-}))
-
-vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => hostStore.replicaIssues,
+vi.mock('@/app/store', async () => {
+  const { normalizedFixtureStore } = await import('@/test-support/normalized-issues')
+  return {
   useRuntimeSelector: (select: (state: unknown) => unknown) =>
     select({
+      ...normalizedFixtureStore({ issues: hostStore.replicaIssues, sessions: hostStore.sessions }),
       trpc: {
         issues: {
           start: { mutate: vi.fn() },
@@ -46,15 +49,47 @@ vi.mock('@/app/store', () => ({
         },
       },
       issues: hostStore.legacyIssues,
-      sessions: [],
+      sessions: hostStore.sessions,
       repos: [],
       machines: hostStore.machines,
-      setOpenIssueId: vi.fn(),
-      setView: vi.fn(),
+      setOpenIssueId: hostStore.setOpenIssueId,
+      setView: hostStore.setView,
       setSelectedIssueId: hostStore.setSelectedIssueId,
-      navigateToSession: vi.fn(),
+      navigateToSession: hostStore.navigateToSession,
       updateIssue: hostStore.updateIssue,
     }),
+  }
+})
+
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { fixturePoolHooks } = await import('@/test-support/pool-fixture')
+  const registered = new WeakSet()
+  return {
+    ...fixturePoolHooks,
+    useWorklistPool() {
+      const pool = fixturePoolHooks.useWorklistPool()
+      if (!registered.has(pool)) {
+        registered.add(pool)
+        pool.sources.register(['chatContextReader'], {
+          read: () => ({ sessions: () => {
+            hostStore.referenceReads()
+            return { sessions: hostStore.sessions }
+          } }),
+          dispose() {},
+        })
+      }
+      return pool
+    },
+  }
+})
+
+vi.mock('@/features/chat/use-chat-context', () => ({
+  useChatReferenceSessions: () => {
+    hostStore.referenceReads()
+    return hostStore.sessions
+  },
+  useChatReferenceMachines: () => hostStore.machines,
+  useChatRepositoryKey: () => '',
 }))
 
 vi.mock('@/app/operator-focus', () => ({
@@ -105,6 +140,15 @@ const rich: RefIssueLike = {
 
 const issues = [rich, parent]
 
+beforeEach(() => {
+  hostStore.replicaIssues = issues
+  hostStore.sessions = []
+  hostStore.referenceReads.mockClear()
+  hostStore.setOpenIssueId.mockClear()
+  hostStore.setView.mockClear()
+  hostStore.navigateToSession.mockClear()
+})
+
 describe('RefMiniviewHost issue resolution', () => {
   let container: HTMLDivElement
   let root: Root
@@ -135,6 +179,42 @@ describe('RefMiniviewHost issue resolution', () => {
     const dialog = document.body.querySelector('[role="dialog"]')
     expect(dialog?.textContent).toContain('Enrich the miniview')
     expect(dialog?.textContent).not.toContain('Reference not found')
+  })
+
+  it('reads no session roster while closed and releases it after closing', () => {
+    hostStore.replicaIssues = [rich]
+    act(() => root.render(<RefMiniviewHost />))
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
+    hostStore.sessions = [{ sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' }]
+    act(() => root.render(<RefMiniviewHost />))
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
+    act(() => openMiniview('POD-517', { x: 100, y: 100 }))
+    expect(hostStore.referenceReads).toHaveBeenCalledTimes(1)
+    act(() => closeMiniview())
+    hostStore.referenceReads.mockClear()
+    hostStore.sessions = []
+    act(() => root.render(<RefMiniviewHost />))
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('keeps direct issue activation available without reading the session roster', () => {
+    hostStore.replicaIssues = [rich]
+    act(() => root.render(<RefMiniviewHost />))
+    act(() => activateRef('POD-517', { ctrlKey: true }))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith('iss_1')
+    expect(hostStore.setView).toHaveBeenCalledWith('issues')
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
+    expect(getMiniviewState()).toBeNull()
+  })
+
+  it('resolves direct session activation from the latest roster on demand', () => {
+    act(() => root.render(<RefMiniviewHost />))
+    hostStore.sessions = [{ sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' }]
+    act(() => activateRef('POD-517-A', { metaKey: true }))
+    expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')
+    expect(hostStore.referenceReads).toHaveBeenCalledTimes(1)
+    expect(getMiniviewState()).toBeNull()
   })
 
   // POD-1265: the escalation is a LOOK, not a move. Pointing the explorer used
