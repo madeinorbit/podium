@@ -164,7 +164,7 @@ try {
       window.__speedFunctionNames = []
       window.__speedFunctions = []
     })
-  } else await installCommitObserver(page)
+  } else await installCommitObserver(page, true)
   await page.addInitScript(() => {
     localStorage.setItem('podium.panelMode', 'chat')
     const state = {
@@ -198,7 +198,9 @@ try {
     )
     new MutationObserver(() => {
       if (state.input === null || state.dom !== null) return
-      const row = document.querySelector(`[data-issue-row="${state.target}"]`)
+      const row =
+        document.querySelector(`[data-issue-row="${state.target}"]`) ??
+        (state.trigger ? document.querySelector(state.trigger) : null)
       if (
         state.pageAction
           ? !document.querySelector('[data-testid="issue-page"]')
@@ -284,6 +286,10 @@ try {
           .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
           ?.textContent?.trim() ?? '',
       ),
+      number: n
+        .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
+        ?.textContent?.trim(),
+      title: n.querySelector('.shell-work-row-title')?.textContent?.trim(),
       attributes: [...n.attributes].map((a) => a.name),
     })),
   )
@@ -339,7 +345,11 @@ try {
       unique[0]!
     const targets: string[] = saved?.targets ?? unique.filter((id) => id !== anchor).slice(0, limit)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
-    await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets }))
+    const labels = {
+      ...saved?.labels,
+      ...Object.fromEntries(rows.map((row) => [row.id, { number: row.number, title: row.title }])),
+    }
+    await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets, labels }))
     // The client has a bounded pane cache: revisits and resident warm visits are separate labels.
     const order = issuePageAction
       ? [
@@ -371,20 +381,34 @@ try {
         await page.getByRole('textbox', { name: 'Search tasks' }).fill(title.trim())
         await page.waitForTimeout(300)
       }
-      const trigger = issuePageAction
+      let trigger = issuePageAction
         ? `[data-issue-id="${item.id}"]`
         : `[data-issue-row="${item.id}"]`
-      const row = page.locator(trigger).first()
-      if (!issuePageAction && !(await row.count())) {
-        const closed = page.getByTestId('closed-fold-toggle')
-        if (
-          (await closed.count()) &&
-          (await closed.first().getAttribute('aria-expanded')) === 'false'
-        ) {
-          await closed.first().click()
-          await page.waitForTimeout(1000)
+      if (!issuePageAction && !(await page.locator(trigger).count())) {
+        for (const closed of await page.getByTestId('closed-fold-toggle').all())
+          if ((await closed.getAttribute('aria-expanded')) === 'false') await closed.click()
+        await page.waitForTimeout(1000)
+        const label = labels[item.id]
+        if (!(await page.locator(trigger).count()) && label) {
+          const found = await page.evaluate(
+            ({ id, label }) => {
+              const matches = [
+                ...document.querySelectorAll<HTMLElement>('[data-testid="folded-work-row"]'),
+              ].filter(
+                (node) =>
+                  node.firstElementChild?.textContent?.trim() === label.number &&
+                  node.getAttribute('title')?.endsWith(` · ${label.title}`),
+              )
+              if (matches.length !== 1) return false
+              matches[0]!.setAttribute('data-speed-issue', id)
+              return true
+            },
+            { id: item.id, label },
+          )
+          if (found) trigger = `[data-speed-issue="${item.id}"]`
         }
       }
+      const row = page.locator(trigger).first()
       await row.scrollIntoViewIfNeeded()
       let box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target has no bounds')
@@ -437,7 +461,9 @@ try {
         transferMode: 'ReportEvents',
       })
       const stopCpu = timingOnly ? async () => null : await startCpu(cdp)
+      if (!timingOnly) await page.evaluate(() => window.__speedSeedCommit?.())
       if (issuePageAction) await row.click({ timeout: 60_000 })
+      else if (trigger.startsWith('[data-speed-issue')) await row.click({ timeout: 60_000 })
       else await row.locator('button[data-pressable]').first().click({ timeout: 60_000 })
       await page.waitForFunction(() => (window as any).__speedCapture.twoRaf, null, {
         timeout: 60_000,
@@ -514,6 +540,20 @@ try {
         componentNames: window.__speedFunctionNames,
         traces: (window as any).__podiumSwitchTraces?.recent().slice(-1),
         elements: document.querySelectorAll('*').length,
+        domSurfaces: {
+          deck:
+            document.querySelector('[data-testid="flight-deck-scroller"]')?.querySelectorAll('*')
+              .length ?? 0,
+          sidebar:
+            document.querySelector('[data-testid="work-scroll"]')?.querySelectorAll('*').length ??
+            0,
+          panes:
+            document.querySelector('[data-panel-resident][data-pane]')?.querySelectorAll('*')
+              .length ?? 0,
+          hiddenChat: [...document.querySelectorAll<HTMLElement>('[data-testid="chat-surface"]')]
+            .filter((node) => !node.getClientRects().length)
+            .reduce((count, node) => count + node.querySelectorAll('*').length, 0),
+        },
         sidebar: (window as any).__podiumSidebarPerf?.read(),
       }))
       const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
@@ -571,6 +611,7 @@ try {
         clickToPaintMs: (paint.ts + paint.dur - input.ts) / 1000,
         selectedDomMs: (dom.ts - input.ts) / 1000,
         elements: state.elements,
+        domSurfaces: state.domSurfaces,
         commits: state.react.commits.length,
         traceMs:
           !issuePageAction && state.traces?.[0]?.issueId === item.id
@@ -579,6 +620,7 @@ try {
         cold:
           !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
         poolRows: state.sidebar?.pool?.rows ?? null,
+        sidebarTargetType: trigger.startsWith('[data-speed-issue') ? 'folded' : 'open',
         proxyErrors: proxyErrors - errorsBefore,
         loadavg: loadavg(),
       }
@@ -621,6 +663,9 @@ try {
       await writeFile(resolve(root, file + '.json'), JSON.stringify({ ...numbers, ...state }))
       summaries.push(numbers)
       console.log(JSON.stringify(numbers))
+      await page.evaluate(() => {
+        ;(window as any).__speedCapture.input = null
+      })
       if (issuePageAction) {
         await page.locator('[data-testid="issue-page"] button[title="Back"]').click()
         await page.getByTestId('issue-page').waitFor({ state: 'hidden' })

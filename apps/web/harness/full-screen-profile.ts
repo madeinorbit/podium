@@ -10,7 +10,7 @@ export async function traceStart(cdp: CDPSession) {
   cdp.on('Tracing.dataCollected', receive)
   await cdp.send('Tracing.start', { categories: PROFILE_CATEGORIES, transferMode: 'ReportEvents' })
   return async () => {
-    const complete = new Promise<void>(done => cdp.once('Tracing.tracingComplete', () => done()))
+    const complete = new Promise<void>((done) => cdp.once('Tracing.tracingComplete', () => done()))
     await cdp.send('Tracing.end')
     await complete
     cdp.off('Tracing.dataCollected', receive)
@@ -18,8 +18,7 @@ export async function traceStart(cdp: CDPSession) {
   }
 }
 
-export const PROFILE_CATEGORIES =
-  'toplevel,devtools.timeline,blink.user_timing'
+export const PROFILE_CATEGORIES = 'toplevel,devtools.timeline,blink.user_timing'
 
 type Fiber = {
   tag: number
@@ -40,20 +39,27 @@ declare global {
     __speedReact: { renderer: Record<string, unknown> | null; commits: Commit[] }
     __speedFunctions: Function[]
     __speedFunctionNames: string[]
+    __speedSeedCommit?: () => void
     __speedPaneMode(): 'legacy' | 'pool'
-    __speedReaderModes(): { pane: 'legacy' | 'pool'; sessionPane: 'legacy' | 'pool'; chips: 'legacy' | 'pool' }
+    __speedReaderModes(): {
+      pane: 'legacy' | 'pool'
+      sessionPane: 'legacy' | 'pool'
+      chips: 'legacy' | 'pool'
+    }
   }
 }
 
 /** React 19.2's DevTools hook; PerformedWork is bit 1 for composite fibers.
  * Counts committed renders, excluding DOM nodes, providers and bailed-out fibers.
  * Abandoned/restarted render attempts are visible only in the CPU recording. */
-export async function installCommitObserver(page: Page) {
-  await page.addInitScript(() => {
+export async function installCommitObserver(page: Page, skipIdleTraversal = false) {
+  await page.addInitScript((skipIdleTraversal) => {
     const functions: Function[] = []
     const functionNames: string[] = []
     const ids = new WeakMap<Function, number>()
     let previousFibers = new WeakSet<Fiber>()
+    let latestRoot: { current: Fiber } | undefined
+    let seed = false
     const state = { renderer: null as Record<string, unknown> | null, commits: [] as Commit[] }
     window.__speedReact = state
     window.__speedFunctions = functions
@@ -71,6 +77,8 @@ export async function installCommitObserver(page: Page) {
         },
         onCommitFiberRoot(_id: number, root: { current: Fiber }) {
           const observing = window.__speedCapture?.input != null
+          latestRoot = root
+          if (skipIdleTraversal && !observing && !seed) return
           const at = performance.now()
           if (observing) performance.mark(`speed:commit:${state.commits.length}`)
           const components: Record<number, number> = {}
@@ -86,7 +94,10 @@ export async function installCommitObserver(page: Page) {
             if (fiber.child) stack.push(fiber.child)
             // A bailed-out subtree can retain PerformedWork from its earlier
             // commit. React reuses those exact objects; they did not render now.
-            if (previousFibers.has(fiber)) { reused++; continue }
+            if (previousFibers.has(fiber)) {
+              reused++
+              continue
+            }
             if (!observing) continue
             // MemoComponent (14) marks wrapper work but invokes its function
             // through a child fiber. Counting both would duplicate the render.
@@ -98,26 +109,45 @@ export async function installCommitObserver(page: Page) {
             if (id === undefined) {
               id = functions.length
               functions.push(type)
-              functionNames.push((fiber.type as { displayName?: string } | null)?.displayName ??
-                (type as { displayName?: string }).displayName ?? type.name)
+              functionNames.push(
+                (fiber.type as { displayName?: string } | null)?.displayName ??
+                  (type as { displayName?: string }).displayName ??
+                  type.name,
+              )
               ids.set(type, id)
             }
             components[id] = (components[id] ?? 0) + 1
           }
           previousFibers = nextFibers
-          if (observing) state.commits.push({ at, end: performance.now(), components, visited, reused })
+          if (observing)
+            state.commits.push({ at, end: performance.now(), components, visited, reused })
         },
         onCommitFiberUnmount() {},
       },
     })
-  })
+    window.__speedSeedCommit = () => {
+      if (!latestRoot) return
+      seed = true
+      try {
+        ;(window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(1, latestRoot)
+      } finally {
+        seed = false
+      }
+    }
+  }, skipIdleTraversal)
 }
 
 /** Structural CDP type keeps declaration output independent of Bun store paths. */
 export type CpuProfile = {
   nodes: {
     id: number
-    callFrame: { functionName: string; scriptId: string; url: string; lineNumber: number; columnNumber: number }
+    callFrame: {
+      functionName: string
+      scriptId: string
+      url: string
+      lineNumber: number
+      columnNumber: number
+    }
     hitCount?: number
     children?: number[]
     deoptReason?: string
@@ -159,34 +189,61 @@ export async function saveComponentLocations(page: Page, cdp: CDPSession, path: 
         (entry) => entry.name === '[[FunctionLocation]]',
       )?.value?.value as { scriptId: string; lineNumber: number; columnNumber: number } | undefined
       if (!location) throw new Error(`Missing component FunctionLocation ${id}`)
-      const name = functionNames[id] || (properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
-        properties.result.find((entry) => entry.name === 'name')?.value?.value)
+      const name =
+        functionNames[id] ||
+        (properties.result.find((entry) => entry.name === 'displayName')?.value?.value ??
+          properties.result.find((entry) => entry.name === 'name')?.value?.value)
       // Minification can erase an observer wrapper's name. Its closure keeps
       // the original render function; capture only function coordinates (no
       // scope values), after all timed samples, for unambiguous source mapping.
       const wrappedFunctions = []
-      const scopesId = properties.internalProperties?.find(entry => entry.name === '[[Scopes]]')?.value?.objectId
+      const scopesId = properties.internalProperties?.find((entry) => entry.name === '[[Scopes]]')
+        ?.value?.objectId
       if (scopesId) {
         const scopes = await cdp.send('Runtime.getProperties', { objectId: scopesId })
-        const closures = scopes.result.filter(entry => entry.value?.description?.startsWith('Closure')).slice(0, 2)
+        const closures = scopes.result
+          .filter((entry) => entry.value?.description?.startsWith('Closure'))
+          .slice(0, 2)
         const seen = new Set<string>()
         for (const closure of closures) {
           if (!closure.value?.objectId) continue
-          const variables = await cdp.send('Runtime.getProperties', { objectId: closure.value.objectId })
+          const variables = await cdp.send('Runtime.getProperties', {
+            objectId: closure.value.objectId,
+          })
           for (const variable of variables.result) {
             if (variable.value?.type !== 'function' || !variable.value.objectId) continue
-            const fields = await cdp.send('Runtime.getProperties', { objectId: variable.value.objectId })
-            const original = fields.internalProperties?.find(entry => entry.name === '[[FunctionLocation]]')?.value?.value as typeof location
-            if (!original || (original.scriptId === location.scriptId && original.lineNumber === location.lineNumber && original.columnNumber === location.columnNumber)) continue
+            const fields = await cdp.send('Runtime.getProperties', {
+              objectId: variable.value.objectId,
+            })
+            const original = fields.internalProperties?.find(
+              (entry) => entry.name === '[[FunctionLocation]]',
+            )?.value?.value as typeof location
+            if (
+              !original ||
+              (original.scriptId === location.scriptId &&
+                original.lineNumber === location.lineNumber &&
+                original.columnNumber === location.columnNumber)
+            )
+              continue
             const key = `${original.scriptId}:${original.lineNumber}:${original.columnNumber}`
             if (seen.has(key)) continue
             seen.add(key)
-            wrappedFunctions.push({ name: fields.result.find(entry => entry.name === 'name')?.value?.value ?? '', scopeVariable: variable.name,
-              ...original, url: scripts.get(original.scriptId)?.url ?? '' })
+            wrappedFunctions.push({
+              name: fields.result.find((entry) => entry.name === 'name')?.value?.value ?? '',
+              scopeVariable: variable.name,
+              ...original,
+              url: scripts.get(original.scriptId)?.url ?? '',
+            })
           }
         }
       }
-      components.push({ id, name, ...location, ...scripts.get(location.scriptId), wrappedFunctions })
+      components.push({
+        id,
+        name,
+        ...location,
+        ...scripts.get(location.scriptId),
+        wrappedFunctions,
+      })
     }
     await writeFile(path, JSON.stringify(components, null, 2) + '\n')
   } finally {
