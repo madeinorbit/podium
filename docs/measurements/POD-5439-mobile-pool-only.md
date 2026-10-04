@@ -1,311 +1,185 @@
 # Mobile screens pool-only
 
-This removal keeps the provider-owned store actions, replica and outbox. The
-phone's screen reads move to the existing pool; no pool mutation API or second
-write owner is introduced. Findings 24 and 26 in the architecture review were
-read in full before the first edit.
+The phone now reads through its existing shared pool. Its legacy twins,
+WorkScreen arm, three-way dispatchers, diagnostics, mobile pilot setting,
+startup latch and URL switches are removed. Store actions and outbox remain
+with their existing owner. This candidate is still in progress: final production
+phone proof, timing and landing are pending.
 
-## Recorded controls
+Findings 24 and 26 were read in full before the first edit. The branch includes
+POD-5437's optional host declarations, POD-5081's final mobile readers and
+POD-5432's overlay retirement at `1771dbb415`; the latter writer changes are
+inherited, rather than edits in this issue. Shared host files are not edited.
+The phone declarations omit `initialize` and `enabled`.
 
-Legacy control arms are removed only after their collected green result is
-recorded on the issue. Expected outputs are captured while those arms still
-exist and compare equal. The removal candidate must use the same expectations
-without a snapshot update.
+## Accepted outputs and retained controls
 
-| Committed source | Green control | Preserved expectation |
+Each legacy arm was removed after its green control was recorded on the issue.
+Tests now read the actual pool against those accepted values. Expected outputs
+are not regenerated.
+
+| Accepted source | Recorded control | Retained regression |
 | --- | --- | --- |
-| `33327a75ee` | Mobile reader controls; 93 green, one inherited notice retry failure | Session, inbox, preference, settings, banner and work values; cumulative ON legacy derivations zero |
-| `5d771a4e44` | Seven rendered files, 37 checks, 100 snapshots | Exact accepted native screen and reader outputs |
-| `5d771a4e44` | Eight corpus checks, 670 snapshots | 1x/4x work cases and three 200-publication seeds |
-| `5d771a4e44` | Native bands and memo: 13 checks | Bands, folds, searching and one-row paint isolation |
-| `5d771a4e44` | Remaining normalized issue/session/new-task readers: 12 checks | Literal issue relationships, session homes and unrelated-publication isolation |
-| `7f7f5c49e9` | Launch forms: two checks, four snapshots | Exact form HTML and normalized launch plans; old selectors positive, pool selectors zero |
-| `5d771a4e44` | Mobile/demo probes: 11 checks in two files | Counts, titles, paths, shared clock, connectivity, metrics and machine refusal values |
+| `33327a75ee`, `5d771a4e44` | Phone read controls; seven rendered files, 37 checks and 100 snapshots | Work, sessions, inbox, pulse, preferences, settings and banners |
+| `5d771a4e44` | Eight work corpus checks and 670 fingerprints | Worklist and publication outputs; wall-time failures below remain visible |
+| `7f7f5c49e9` | Two real-provider launch controls and four snapshots | Exact form HTML and launch plans |
+| `b4d0134f17` from POD-5081 | 1x/4x corpus and mounted OFF/ON controls | 9,714 corpus digests and 30 mounted fingerprints |
+| `a4cfa62e7c` on flatblock | 17 board and 10 screening controls, UTC00:38:24.207–31.259Z, exit0 | Actual pool board/screening reader, literal order, nesting, progress and ordered actions |
+| `04f788f81` on unchanged `b4d0134f17` | One complete banner OFF/ON control, UTC01:54:53.770–01:55:05.364Z, exit0 | Exact whole HTML equality; positive OFF selectors and zero ON selectors/helpers |
 
-The real mobile action file's 28 controls supplied 91 zero-difference
-comparisons before retirement. Its existing write, held request, refusal,
-confirmation, navigation and raw delete-membership assertions remain, alongside
-the frozen pool output fingerprints.
+The 30-file foreground phone run at source `318aa438b5`, flatblock WIP
+`b439293e4e9013660c99407388d1f0ee33305e5a`, UTC01:34:26.597–01:46:21.854Z,
+load7.49→6.03, has 27 green files and three fixture failures: 205 assertions
+pass and three fail. Both corpus scales match all 9,714 digests through
+115,418 positions and 18 gates each. The mounted bank's 30 fingerprints pass
+across 11 cumulative phases with selectors, issue-model row builds and all
+legacy slice derivations zero. Session-context, MissionDeck, slices, board,
+screening, WorkScreen and all 28 action controls are green. The action file
+retains its 91 state comparisons and 33 literal menu outputs.
 
-The inherited notice retry failure is not counted as a green control. Its
-existing write callback is unchanged; final regression evidence must resolve
-or explicitly account for that failure.
+Two fixture repairs are committed at `a1d9a42490`: the synthetic complete
+bootstrap now marks absent personal markers known, and the complete inbox
+snapshot settles its declared archived/absent reference requests through the
+existing batched loader. Custom replicas still control their own posture.
+Production joins and expected outputs are unchanged. The seven affected
+fixture consumers are in a focused foreground retry; the inbox's complete
+frozen bank is already green in that run.
 
-## Private replay — counts only
+The two converted snapshot test keys were mechanically renamed to match their
+new test names. Their expected bodies were checked byte-for-byte. No expected
+screen value was generated from the retirement candidate.
 
-Both replays ran on ludovico. Raw operator rows were neither copied to flatblock
-nor exported in the attached evidence.
+## One reader and bounded input work
 
-| Screen | Issues | Sessions | Other counts | Differences | Pending |
-| --- | ---: | ---: | --- | ---: | ---: |
-| Work | 6,124 | 5,192 | 21 sections, 896 rows | 0 | 0 |
-| Inbox | 6,126 | 5,183 | 22,528 targets, 38,978 compared positions | 0 | 0 |
+The pool remains the only row reader. Cold questions are declared; missing
+rows return LOADING and queue batched loads. The existing command root-activity
+question orders repositories. Relation-picker membership is read when the
+picker opens, and the selected menu asks only for its issue, origin, children
+and roster. No new row cache or cold-table scan is introduced.
 
-The inbox's initial 180-second limit produced no result. The longer foreground
-retry completed and was recorded before removing its legacy control. Only that
-completed replay counts as evidence.
+| Scripted operation | Before 1x / 4x row reads | After 1x / 4x row reads | After 1x / 4x derivations |
+| --- | ---: | ---: | ---: |
+| Pressed issue menu | 65,392 / 358,849 | 6 / 6 | 0 / 0 |
+| Parent picker | 2,400 / 9,600 | 29 / 29 | 15 / 15 |
+| New-task repository choices | 28,803 / 115,203 | 6 / 6 | 2 / 2 |
 
-## Remaining direct query and isolated fix
+The menu reads no archived payloads, with six neighbours at both scales.
+Raw delete membership stays 34/130. Menu close and launch open/close perform
+zero reads and derivations. The fold reads586/13 and runs532/8 derivations;
+its 4x work stays within the 18/13 visible-neighbourhood allowance. Target
+search source visits stay15/15 on open and12/12 for the specific search.
 
-`NewIssueScreen` retains its existing `trpc.repos.list` server fallback, as
-directed by the coordinator. It is a remaining direct server query, not a read
-of the legacy client store. Its action callbacks are unchanged.
+Recorded negative controls independently fail for an eager picker, broad
+reference-prefix work, archived menu payloads and resident-only raw membership.
+Examples: eager picker reads1,229/4,829, broad prefix visits23/99, archived
+menu reads38/134 including32/128 archived payloads, and the collapsed-count
+plant incorrectly returns649 instead of34. Clean source was restored after
+all faults. Literal choices and menu outputs remain unchanged.
 
-The launch descriptor initialization crash was isolated in POD-5449 and landed
-as `41e907ef043511bcfa21540ddd114e81b08568cc`. Its literal real-provider form
-regression failed on the original order and passed on the fix. The focused
-mobile typecheck reported 14 successful tasks; two-file Biome lint was green.
-The released Expo source and `dev/mw` contain the same crash on the new-task
-form and configured issue launch sheet.
+The source-facet correction reads each scalar once while publishing text-gram
+keys. Its meaningful counter tests both short and long text, asserting exact
+target IDs before a one-path-read budget. The planted repeated path read keeps
+the exact target output but fails at18 reads versus1 allowed. The clean source
+is restored. At source `a1d9a42490`, flatblock WIP`a2b359c7dc44c4b68978bb728e7e5a9ea3872528`,
+UTC01:56:24.353–01:57:34.835Z, load6.55→6.68, all23 query and5 target assertions pass.
 
-## Final acceptance still in progress
+## Census and strict speed guard
 
-POD-5081 supplies the remaining issue and mission readers and accepted
-expectations. Its landing precedes removal of their legacy arms and the final
-mobile setting, latch and overrides. The shared host's compatible optional
-initializer/enabled change comes from POD-5437.
+The measured census retains integration's known growth: one `sessionsChanged`
+standalone observable value, one constructor value, and the source's larger
+first-reactive scope. This growth predates this retirement and is confirmed
+on unchanged `b4d0134f17`, `13a2b74917` and by the owner of `1771dbb415`.
+No growth exception or own baseline update is added.
 
-The final candidate needs its zero-reader grep and counters, census comparison,
-planted-fault rejections, focused flatblock regression/type/lint results and
-production Expo/Pixel 7 emulation evidence. Phone interaction timings are
-captured only while holding `bench:flatblock`. This report does not yet claim
-those final results or physical-device verification.
+| First-reactive count | Integration control 1x / 4x | Retirement 1x / 4x |
+| --- | ---: | ---: |
+| Row reads | 432,769 / 1,728,293 | 416,546 / 1,663,705 |
+| Distinct rows | 9,174 / 36,690 | 9,174 / 36,690 |
+| Standalone values | 197 / 787 | 197 / 787 |
 
-The scripted 1x/4x work guard includes fold, launch open/close and row-menu
-gestures. Row reads and derivation runs must stay within the measured visible
-neighbourhood ratio. The whole-corpus long-press bridge is assigned to internal
-POD-5450. Before its fix, source `d6d55b214a` read 65,392 rows and ran 5,599
-derivations for one menu press at 1x; at 4x it read 358,849 rows and ran 21,175
-derivations. The guard rejected that growth against the visible 18/14
-neighbourhood ratio. All 28 action controls were green, with 91 action-state
-expectations and 33 exact menu outputs frozen before narrowing the reader.
-Later click row-read counts are deltas; the first press's recorded counts
-start from zero.
+All six bare/write-idle/write-pending variants have the same figures. Scalar
+caching explains the read shrink of16,223/64,588, with no retained cache,
+index or observable growth. All six strict census checks still fail against
+the older baseline because inherited growth remains deliberately unblessed.
 
-## Bounded phone inputs
+The current baseline is byte-identical to `1771dbb415`, SHA256
+`7473cbc739176da0efcac85ae9f687358026316d0386b8ceb1a9c87a5d2119fb`.
+Its change from the earlier baseline is POD-5432's explained write-* overlay
+bookkeeping shrink: one map, one atom and2,389/9,616 tracked `has()` values,
+with pending create reads moving to first paint. This issue does not edit it.
 
-The menu candidate keeps all 91 accepted action-state and 33 menu fingerprints.
-At source `a492c463c6`, the same long press reads six rows and runs zero
-MobX derivations at both 1x and 4x. Close and launch open/close read zero rows;
-the fold's 4x work is below its visible-neighbourhood allowance. The fixed
-pressed issue, origin, children and roster are identical at both sizes.
+The last strict structural matrix has1,614 comparisons,700 expected failures
+owned by other issues,25 resolved counts and14 unexpected heartbeat comparisons
+assigned to POD-5423. Its15 supporting checks are green; the matrix exits2.
+No heartbeat exemption is added and no timing green is claimed from that run.
+The final structural rerun is pending.
 
-The new-task form's old session sort read 28,803 and 115,203 row/field values
-at 1x and 4x for three choices. At `c6591714ba`, its existing declared
-`commandRootActivity` question reads six rows and runs two derivations at
-both sizes, preserving the literal repository order. Historical sessions in
-that fixture have explicit stop timestamps and are asserted cold.
+Phone timing will compare production Pixel7 pool-only samples with POD-5081's
+accepted ON capture: the same6,100-issue/5,200-session corpus, Chromium version,
+20 updates and three untraced samples plus diagnostic traced samples. Timing
+runs only under this session's `bench:flatblock` lease. POD-5407 currently owns
+that lease; its shared phone OFF/warm-start helper remains untouched until its
+landing notice.
 
-Planted faults at `e89e124719` execute two named checks: a whole-table menu
-loop increases menu reads to 2,436/9,757 and fails the 18/13 neighbourhood
-allowance; exact-root matching loses nested-worktree activity and changes the
-repository order, failing the literal output check. Both source files are
-restored and their clean diff is verified. The preserved runner log is the
-result; the temporary JSON report is automatically removed by `test:file`.
+## Zero legacy readers and private counts
 
-The issue page's before-fix real-kernel control (`cac38ed71b`) preserves the
-same closed-page fingerprint at both sizes, but reads 43,190/164,942 values
-and uses eleven legacy selectors. Its growth check is red. The approved
-replacement reads only the displayed neighbourhood and asks for picker
-catalogs when they open. Its final green result waits for the shared clock
-and host retirement. The earlier compatibility-replica fixture failure is
-excluded from evidence.
+The final source audit at `a1d9a42490` scans300 production files and finds zero
+legacy reader references, including twins, selectors, slices, switches and
+removed board/screening builders. The store action mapping, screening command
+interface, decision function and tally are byte-identical to `b4d0134f17`.
+The accepted corpus bank's SHA256 remains
+`52215048ad65a438ec7a487936687a482014348ce9ddb45a954834eba285cf4a`,
+and the mounted bank remains
+`22db0fd577420a6d5cc99652b70af7b5f5920e9c611e4fc0ae672e5a0733a903`.
 
-The clock control at `f922f86779` also records its actual old mechanism: ten
-legacy selector runs and no repaint after the first real pool tick. Its pool
-clock regression, including forward ticks and rewind, remains to pass after
-the generic hook retirement.
+Private replays ran on ludovico; raw operator rows were not exported. Recorded
+independent controls have zero differences/pending: work6,124 issues/5,192
+sessions,21 sections/896 rows; inbox6,126 issues/5,183 sessions,22,528 targets
+and38,978 positions. The inbox's first timeout is excluded; only its completed
+longer run is evidence.
 
-The actual parent-picker control at `0c94ed68f9` renders the same newest-first
-fourteen literal choices at both sizes, including archived tasks. Opening it
-still reads 2,400/9,600 values and runs 1,201/4,801 derivations. Its visible
-neighbourhood ratio is one, so the guard is red. The declared identity-query
-scope was approved by POD-4286 in `msg_3ed6d6f5-d2ee-4557-ae99-3e4d912ff9c0`.
+The final counts-only pool walk completes6,255/6,255 questions and28,537 positions:
+6,146 issues,5,200 sessions,2,083 roots,63 sequential pools over one captured
+runtime, pending0 and legacy issue-model builds0. Six additional live roots
+explain18 additional questions since the last independent comparison. This
+walk proves pool completion, rather than manufacturing another legacy result.
 
-The committed replacement at `ad9747168c` uses the declared
-`mobileIssueTargets` question over source identity/facet postings, with no
-pool index or row cache. It takes joined prefixes from the existing pool repo
-facts, including multiple repositories at the same path. Only mounted choices
-read title, reference and stage through the pool; missing facts stay loading.
-The unchanged target-search controls were last green at `9f7114b4d4` before
-their eager array filter was removed (three focused checks, recorded in the issue).
+## Validation limits and outstanding work
 
-The foreground flatblock regression batch has nine green checks across three
-named files: five source-question checks, three sheet checks, and the actual
-parent-sheet click. The closed-page clock case is deliberately filtered until
-the generic hook retirement. The actual picker reads 29/29 rows and runs 15/15
-derivations for the same fourteen visible choices, with unchanged literal order
-and three literal title/reference searches. Source identity visits are 15/15
-for an open and 12/12 for the two specific searches. The source guard first
-rejected numeric suffix scanning at `7aca1b4ea4` (23/99 visits for identical
-search results); the sequence-prefix correction preserved those results and
-made that counter flat. Compiler, lint and planted eager-catalog evidence for
-the original checkpoint were still pending; this was not final acceptance.
+All validation runs are foreground, focused and on flatblock in its issue test
+checkout with Bun1.4.2 and the checkout's `.toolchain`. Every run has a WIP
+commit, PID and UTC bounds. No full suite, stash, global cache deletion or
+unrecorded process termination is used. While POD-5407 holds the bench lease,
+new runs require fresh one-minute load below8.
 
-The rebased source `fb41c2ea5a` passed fourteen compiler tasks and eleven
-focused picker/source-roster checks, preserving the same 29/29 row calls,
-15/15 derivations and literal searches. Another six-file phone group preserved
-68 existing checks, including the frozen action/menu, launch-form and
-navigation expectations. The existing command-launch file added seven green
-checks. No expected output was updated; the runner's snapshot whitespace
-normalization was restored to the recorded bytes.
+The last filtered mobile/e2e compiler is green:16 successful tasks,14 cached,
+and216 e2e imports resolve; UTC00:57:08.588–00:57:22.790Z. Explicit92-file phone
+and7-file graph lint passed. The fixture/source follow-up compiler and lint are
+pending. Production Pixel7 screenshots and a startup reader-counter fault are
+also pending; this report makes no physical-device claim.
 
-POD-4286 approved extending the existing `commandIssueSessions` question with
-`archived=false` and `includeShells=true`. The menu keeps headless and shell
-close concerns and visual resume collapse. Delete uses the already-maintained
-`graph.size(pageSessions)` scalar, including archived and raw resume-twin
-membership; it does not iterate those historical IDs or payloads. This creates
-no new resident relation subset or census cells.
+The old670-fingerprint work bank's optimisticPress and seed3 pending mark-read
+hashes vary with wall-clock queuedAt. The original independent controls fail
+those same hashes on unchanged integration while semantic legacy/pool equality
+passes. Their expected digests and writer clock remain untouched. POD-5432
+confirms the pending readAt is constructed from wall time.
 
-At `032ea94d17`, the additional 32/128 archived-sender fixture has six addressed
-neighbours at both sizes. Its menu press reads 6/6 rows, runs 0/0 derivations
-and reads zero archived payloads; raw delete counts remain 34/130. Fourteen
-compiler tasks and that one corrected focused case are green. Its first
-version failed an incorrect cold-state assertion: bound sessions inherit a
-live issue's residency under the declared schema. The corrected test measures
-payload reads and click growth directly. The existing output expectations are
-unchanged. Focused Biome found five errors awaiting correction; graph lint and
-the additional planted-fault runs are still pending. No final timing is claimed.
+The only banner bank difference is intended recovery copy already changed by
+POD-5430 in `edcd56288d`: “They didn’t reach the server. Decide what to do with
+each one.” became “Your other changes don’t wait for them. One sent again goes
+after them. Decide what to do with each one.” Fresh complete OFF/ON equality on
+`b4d0134f17` is green. POD-4286 approved exactly that sentence substitution,
+but automatic approval review rejected mutating a frozen expectation without
+direct operator authorization. The bank stays unchanged; artifact14 contains
+the exact proposed adjustment. No production copy or writer changes are proposed.
 
-The long-press fix also retires this issue's exact `rows` and `elements`
-exceptions in the shared structural speed guard. Other issues' exceptions
-remain unchanged; the candidate must satisfy those two comparisons outright.
+DemoProvider's inherited `?demo=1` crash after `b890298e4d` is separately Proposed
+as POD-5473. Automatic review rejected switching its replica constructor despite
+coordinator approval; the coordinator directed leaving it outside this landing
+for operator review. LiveProvider and its storage/sync/outbox factories are
+unchanged. The real-server `trpc.repos.list` fallback remains as directed.
 
-## Integrated structural checkpoint is red
-
-Source `5fd5a2369d` ran the foreground structural-only gate on flatblock:
-47 readers × nine clicks/deltas × two scales, 1,614 individual comparisons.
-The run has 700 known failures owned by other issues, 25 resolved counts and
-16 unexpected comparisons; it is not a green speed gate. Fifteen focused
-checks passed, including the real legacy and planted scan negative controls,
-and the per-action correctness/parity assertions completed.
-
-Two unexpected comparisons belong to the menu: row calls and elements are
-35/131 for the same six visible neighbours. This fixture grows archived
-history under the pressed task, which the earlier two-session native control
-does not. `issueCloseConcerns` already drops archived sessions, but the menu
-input builder reads their payloads first. The fix must retain live headless
-and shell concerns and the raw non-shell delete count. Its old exceptions
-remain removed; the gate reports this regression directly.
-
-POD-4286 assigned the fourteen heartbeat-only zero-to-positive mission/inbox
-comparisons to POD-5423 (review finding 9). Internal POD-5458 is closed as moved
-and its blocking edge is removed. Their exact counts and owner are attached in
-`heartbeat-ownership.json`. Automatic approval review rejected adding them as
-new exceptions without direct operator authorization. The strict manifest
-therefore remains unchanged for heartbeat; those failures stay visible. This
-report does not relabel the old red structural run as green.
-
-The final removal is rebased onto POD-5081's actual landing
-`b4d0134f17964f212d7e941ae84a30c53fe4c023`. Its release mail frees the session
-consumers, generic hooks, mobile switch/latch and setting. The app declarations
-omit the optional `initialize` and `enabled` fields; no shared host edits or
-write-path edits are made. The shared phone profile helper and warm-start OFF
-control remain held for POD-5407; the action profile now measures only the pool
-against the saved accepted ON capture.
-
-At `7a299940a4`, all fourteen mobile/dependency compiler tasks passed on the
-rebased candidate. Focused Biome across fourteen files reports no errors;
-graph ESLint across five files is green. The fixture controls now use semantic
-buttons, and unused issue-screen imports are removed. Both affected fixture
-files passed: twelve checks, with only the closed-page clock case filtered
-until generic-hook retirement. Frozen outputs are unchanged, with parent
-picker row reads 29/29 and derivations 15/15 and archived-menu row reads 6/6.
-
-All four explicit plants were rejected on foreground flatblock from production
-source `77a75343a9`. Eager target payload reads (`064ec6d2f8`) grew 1,229/4,829
-for fourteen choices. Removing the reference-prefix filter (`46adb228a0`)
-grew source visits 23/99. Archived payload reads grew 38/134 for six neighbours,
-and substituting the live/collapsed roster count for the raw delete count
-returned 2 instead of the literal 34. The experiments restored the committed
-production files cleanly. Their counts and exact mutant SHAs are attached in
-`phone-picker-faults.json` and `phone-menu-faults.json`.
-
-The pending production-phone proof enables the existing reader counter when
-its module publishes it, before runtime construction, and asserts zero
-selectors as well as zero row builds and derivations. Its screenshots and
-always-on run still await POD-5081 and final pilot retirement.
-
-The complete structural-only rerun at `a6f7b86df3` on integration `b890298e4d`
-has 1,614 comparisons, 700 expected failures owned by other issues, 25 resolved
-counts and fourteen unexpected heartbeat comparisons. Those fourteen values
-are exactly unchanged from the earlier checkpoint assigned to POD-5423. The
-long-press reader now passes without its old exceptions: rows 3/3, derivations
-1/1 and elements 8/8 for six neighbours at both scales. Fifteen other focused
-checks are green, including the real legacy and planted-scan negative controls;
-eleven unrelated cases were filtered. The strict gate exits 2 on the heartbeat
-comparisons and remains red. No new exceptions or output values were added,
-and this count-only run collected no timings. The full matrix is attached in
-`mobile-structural-after-menu.json`.
-
-## Released final cutover
-
-At `30a1ba41f6`, production mobile has no legacy reader, dispatcher, pilot-key
-reader, startup latch or pilot setting. Generic issue/session/draft/spawn reads
-use the already attached session reader. The shared clock comes from the pool.
-The mission deck uses its existing pool presentation directly; its old fallback
-builders and worktree-path adapter props are removed. Its menu's delete count
-uses the maintained pageSessions bucket size; action APIs and callbacks stay
-with their existing owner.
-
-POD-5081's 9,714 corpus expectations and 30 native rendered hashes are
-byte-identical to `b4d0134f17`. The corpus snapshot file was renamed with its
-pool-only regression. Settings has the requested output removal only: 2,091
-HTML characters containing the Experimental header and MobX pilot panel were
-removed mechanically from its stored expectation, with no snapshot update
-command. The rest of that stored screen remains unchanged.
-
-The newly released conversation control was rerun at accepted source
-`b4d0134f17`, instrumented WIP `9c87574560`. One focused check passed (seven
-filtered), including the original OFF/ON equality, zero closed-sheet catalog
-reads and the open-sheet reads. Its exact issue/title and ordered catalogs were
-recorded in the issue before removing its legacy mount. The pool-only test uses
-those literal values.
-
-The final compiler attempt first refused a duplicate `type` import keyword in
-a converted test before compiling. That typo was corrected. Its retry was
-stopped after discovering POD-5407's benchmark lease: exit 143, zero successful
-compiler tasks, no green result claimed. Final tests, compiler, focused lint,
-production phone screenshots/counters and accepted-ON timing comparison remain
-pending. The tracking baseline is byte-identical to the accepted integration;
-its SHA-256 is
-`5fedd4013ec75586abb07118146e9cf327744a091dfb4ecee4c9d00d3c3194e7`.
-
-The final counts-only private pool walk at `7faa528c5d` completed all 6,255
-planned questions and 28,537 positions on ludovico: 6,146 issues, 5,200 sessions
-and 2,083 roots, with pending loads and legacy issue-model row builds both zero.
-Sixty-three sequential pools shared the same captured replica/runtime. Six more
-roots in the newer live corpus explain the eighteen additional questions since
-the last independent green comparison. This walk proves completion and zero
-legacy work; it does not manufacture another legacy comparison.
-
-The canonical issue-page source is attached to the existing mobile host so
-displayed absent edges borrow the kernel's exit verdict. It owns one observable
-epoch and the existing addressed-batch subscription, with no row cache, relation
-index, exit ledger or writer. The bare-pool tracking baseline stays unchanged;
-the final measured census check remains pending.
-
-The last unused board/screening read builders were retired only after their
-27 legacy controls passed at flatblock WIP `a4cfa62e7c`: seventeen board checks
-and ten screening checks, exit zero, load 6.58/6.40 and UTC bounds
-00:38:24.207–00:38:31.259. Their production imports were already gone. The
-converted controls exercise the actual mobile pool task/screening reader and
-retain the literal row order, nesting, proposals, progress and ordered decision
-calls. The screening command interface, decision function and tally remain
-byte-identical. No expected screen snapshot was regenerated.
-
-The final candidate `6972c1162a` passed the filtered mobile/e2e compiler on
-flatblock: sixteen tasks successful, fourteen cached, and all 216 e2e imports
-resolve. The foreground run used Bun 1.4.2, WIP `7ed32cd463e9`, UTC
-00:57:08.588–00:57:22.790 and load 4.63/6.55. Focused lint had already passed
-for 92 explicit phone files and seven explicit graph files; the graph lint ran
-from its configured package root so its import fences applied. The earlier
-empty-manifest lint attempt is excluded from this evidence; corrected manifests
-refuse an empty selection before starting a tool.
-
-The ensuing 35-file focused regression run exposed a test-support race: the
-host publishes the pool before lazy screen readers have attached. The fixture
-now waits for the actual readers and launch catalog, then settles requested
-batched loads. Custom counter fixtures still own their own measurement windows.
-No production host or expected output changed. The corrected fixture and the
-production screening/preference proof still await their final focused checks.
+The launch descriptor initialization fix was isolated and landed separately as
+POD-5449 at `41e907ef043511bcfa21540ddd114e81b08568cc`, with its meaningful
+old-order red, focused green, compiler and lint evidence. Final production proof,
+ON timing, frozen-copy authorization and fast-forward landing remain outstanding.
