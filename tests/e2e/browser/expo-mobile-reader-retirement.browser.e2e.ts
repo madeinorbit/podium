@@ -135,7 +135,7 @@ test('the production phone preserves its pool screens with zero legacy derivatio
     { timeout: 60_000 },
   )
   await save('tasks')
-  const inProgress = page.getByRole('button', { name: /^In progress, \d+ tasks?$/ })
+  const inProgress = page.getByRole('button', { name: /^In Progress, \d+ tasks?$/ })
   await expect(inProgress).toHaveAttribute('aria-expanded', 'true')
   await inProgress.click()
   await expect(inProgress).toHaveAttribute('aria-expanded', 'false')
