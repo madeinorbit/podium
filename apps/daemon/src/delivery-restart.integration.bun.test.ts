@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { withDeliveryQueue, type AgentSessionHandle, type RuntimeEventBody, type SendOptions, type TurnInput } from '@podium/harness/driver/host'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, mock } from 'bun:test'
 import { createRuntimeEventOutbox, prepareRuntimeEventDelivery, type RuntimeEventOutbox } from './runtime-event-outbox'
 
 const roots: string[] = []
@@ -16,7 +16,6 @@ const input = { id: 'held-mail', rowId: 'held-mail', text: 'send after the turn'
 const options = { origin: 'mail', delivery: 'when-ready' } as const
 
 afterEach(async () => {
-  vi.useRealTimers()
   for (const child of children) {
     if (child.exitCode !== null || child.signalCode !== null) continue
     const closed = once(child, 'close')
@@ -66,13 +65,13 @@ async function crash(mode: 'held' | 'typing' | 'outcome'): Promise<string> {
 function owner(outbox: RuntimeEventOutbox) {
   let phase = 'working'
   let seq = 0
-  const emit = vi.fn((event: RuntimeEventBody) => {
+  const emit = mock((event: RuntimeEventBody) => {
     prepareRuntimeEventDelivery(outbox, { type: 'runtimeEvent', sessionId,
       event: { ...event, at: new Date().toISOString(), provenance: 'live',
         cursor: { segmentId: 'after-restart', components: { seq: ++seq } }, observerGeneration: 2, turnEpoch: 1 },
     })
   })
-  const write = vi.fn(async (_input: TurnInput, options: SendOptions) => {
+  const write = mock(async (_input: TurnInput, options: SendOptions) => {
     options.onTypingStarted?.()
     return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
       provenBy: 'protocol-ack', at: new Date().toISOString(), transcriptItem: { id: 'recorded-entry' } }
@@ -87,14 +86,13 @@ describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
     const dir = await crash('held')
     const outbox = open(dir)
     expect(outbox.deliveryJournal(sessionId).read(input.rowId)).toBeUndefined()
-    vi.useFakeTimers()
     const after = owner(outbox)
     await after.handle.send(input, options)
-    await vi.advanceTimersByTimeAsync(400)
+    await Bun.sleep(400)
     expect(after.emit).not.toHaveBeenCalled()
     expect(after.write).not.toHaveBeenCalled()
     after.idle()
-    await vi.advanceTimersByTimeAsync(200)
+    await Bun.sleep(250)
     await after.handle.send(input, options)
     expect(after.write).toHaveBeenCalledTimes(1)
     expect(after.emit.mock.calls.every(([event]) => event.t === 'delivery' && event.outcome === 'delivered')).toBe(true)
@@ -106,21 +104,20 @@ describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
     expect(nextOwner.write).not.toHaveBeenCalled()
     expect(nextOwner.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: 'recorded-entry' } }))
     await nextOwner.handle.stop()
-  })
+  }, 20_000)
 
   it('keeps a write started before SIGKILL unconfirmed and never types it twice', async () => {
     const dir = await crash('typing')
     const outbox = open(dir)
     expect(outbox.deliveryJournal(sessionId).read(input.rowId)).toEqual({ typingStarted: true })
-    vi.useFakeTimers()
     const after = owner(outbox)
     after.idle()
     await after.handle.send(input, options)
-    await vi.advanceTimersByTimeAsync(200)
+    await Bun.sleep(250)
     expect(after.write).not.toHaveBeenCalled()
     expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
     await after.handle.stop()
-  })
+  }, 20_000)
 
   it('re-reports a recorded outcome after SIGKILL without typing', async () => {
     const dir = await crash('outcome')
@@ -129,23 +126,22 @@ describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
     expect(after.write).not.toHaveBeenCalled()
     expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'delivered', transcriptItem: { id: 'recorded-entry' } }))
     await after.handle.stop()
-  })
+  }, 20_000)
 
   it('keeps concurrent instance journals independent for the same session and row ids', async () => {
     const typedDir = await crash('typing')
     const heldDir = await crash('held')
-    vi.useFakeTimers()
     const typed = owner(open(typedDir))
     const held = owner(open(heldDir))
     typed.idle()
     held.idle()
     await Promise.all([typed.handle.send(input, options), held.handle.send(input, options)])
-    await vi.advanceTimersByTimeAsync(200)
+    await Bun.sleep(250)
     expect(typed.write).not.toHaveBeenCalled()
     expect(typed.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
     expect(held.write).toHaveBeenCalledTimes(1)
     expect(held.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'delivered' }))
     await typed.handle.stop()
     await held.handle.stop()
-  })
+  }, 20_000)
 })
