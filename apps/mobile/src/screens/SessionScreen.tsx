@@ -1,4 +1,3 @@
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import { sessionValues } from '@podium/client-core/session-values'
 import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/values'
@@ -11,11 +10,11 @@ import { useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
-  useSessionContextIssue as useIssue,
-  useSessionContextIssueAgentCount,
+  useSessionContextChromeIssue as useIssue,
   useSessionContextSession as useSession,
   useSessionContextExit,
-  useSessionContextSessions as useSessions,
+  useSessionContextIssueAgentCount,
+  useSessionContextNextSession,
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from '../client/use-session-context'
@@ -70,7 +69,7 @@ export function SessionScreen() {
   // re-renders the screen on store publishes.
   const store = useStoreActions()
   const exitKind = useSessionContextExit(sessionId)
-  const allSessions = useSessions()
+  const readNextSession = useSessionContextNextSession()
   const session = useSession(sessionId)
   // Served descriptors for the session's machine (POD-4475). Above the
   // absence early-return: hooks stay unconditional.
@@ -120,21 +119,11 @@ export function SessionScreen() {
     router.replace('/work')
   }, [backTarget, hasBackTarget, router])
 
-  // Round-robin triage order: needsYou, then idle, then working. Derived HERE
-  // rather than published: this screen is its only consumer, and a slice with
-  // one reader is the god object growing back under a nicer name (POD-409's
-  // rule 1, applied in the direction that says NO).
-  const focusSessionIds = useMemo(() => {
-    const groups = groupSessions(withoutShells(allSessions))
-    return [...groups.needsYou, ...groups.idle, ...groups.working].map((s) => s.sessionId)
-  }, [allSessions])
-
   const nextSession = useCallback(() => {
-    if (!sessionId || focusSessionIds.length === 0) return
-    const at = focusSessionIds.indexOf(sessionId)
-    const next = focusSessionIds[(at + 1) % focusSessionIds.length]
+    if (!sessionId) return
+    const next = readNextSession(sessionId)
     if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
-  }, [backTarget, focusSessionIds, router, sessionId])
+  }, [backTarget, readNextSession, router, sessionId])
 
   // How many agents the draft-delete confirm names. Task scope, counted live:
   // the vessel can hold more than the one session this sheet opened from, and
@@ -301,9 +290,9 @@ export function SessionScreen() {
         onClose={() => setMenuOpen(false)}
       />
       <ActionSheet
-        visible={confirmDeleteOpen}
+        visible={confirmDeleteOpen && draftAgentCount !== undefined}
         title={DELETE_TASK_TITLE}
-        subtitle={deleteTaskSubtitle(draftAgentCount)}
+        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
         actions={[
           {
             label: 'Delete',

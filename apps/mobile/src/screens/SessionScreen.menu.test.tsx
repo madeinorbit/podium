@@ -1,5 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { chatContextReadStats } from '@podium/client-graph/chat-context'
+import type { MobxPool } from '@podium/client-graph/pool'
 /**
  * THE CHAT 3-DOTS, DRAFT VS ACTIVE (2026-08-27 device review).
  *
@@ -12,11 +14,14 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(cleanup)
+// Cold graph imports can exceed the default one-second attachment wait.
+configure({ asyncUtilTimeout: 5_000 })
+afterAll(() => configure({ asyncUtilTimeout: 1_000 }))
 
 beforeEach(() => {
   routerReplace.mockClear()
@@ -94,7 +99,7 @@ vi.mock('../components/BottomSheet', async () => {
 
 const { renderWithMobileStore } = await import('../client/test-support')
 const { SessionScreen } = await import('./SessionScreen')
-const { useIssues } = await import('../client/hooks')
+const { useMobilePool, useMobilePoolProjection } = await import('../client/mobile-pool')
 
 const vesselId = asIssueId('vessel')
 
@@ -149,12 +154,13 @@ async function openMenu(issue: IssueViewModel) {
   return result
 }
 
-/** The live store's issues, watched through the real selector — the Delete
- *  confirm resolves into `deleteIssue`, whose optimistic overlay stamps
- *  `deletedAt` on the vessel. A Cancel must leave it unstamped. */
-function IssueProbe({ seen }: { seen: { issues: IssueViewModel[] } }) {
-  const issues = useIssues()
-  seen.issues = issues
+const readVesselDeletedAt = (pool: MobxPool) => {
+  const issue = pool.row('issue', vesselId) as IssueViewModel | undefined | symbol
+  return issue && typeof issue !== 'symbol' ? issue.deletedAt : undefined
+}
+/** Inspect the addressed optimistic row: mention catalogs exclude tombstones. */
+function IssueProbe({ seen }: { seen: { deletedAt: string | null | undefined } }) {
+  seen.deletedAt = useMobilePoolProjection(readVesselDeletedAt, undefined)
   return null
 }
 
@@ -165,21 +171,25 @@ const threeSessions = () => [
 ]
 
 async function openDraftMenuWithSessions() {
-  const seen: { issues: IssueViewModel[] } = { issues: [] }
+  const seen: { deletedAt: string | null | undefined } = { deletedAt: undefined }
   const result = await renderWithMobileStore(
     <>
       <SessionScreen />
       <IssueProbe seen={seen} />
     </>,
-    { sessions: threeSessions(), issues: [vessel()] },
+    {
+      sessions: threeSessions(),
+      issues: [vessel()],
+      api: { issues: { delete: { mutate: async () => {} } } },
+    },
   )
   fireEvent.click(await screen.findByLabelText('Session actions'))
   await screen.findByLabelText('Cancel')
   return { ...result, seen }
 }
 
-function vesselDeletedAt(seen: { issues: IssueViewModel[] }): string | null | undefined {
-  return seen.issues.find((issue) => issue.id === vesselId)?.deletedAt as string | null | undefined
+function vesselDeletedAt(seen: { deletedAt: string | null | undefined }) {
+  return seen.deletedAt
 }
 
 describe('the draft chat menu', () => {
@@ -255,6 +265,176 @@ describe('the active-session chat menu', () => {
     expect(screen.getByLabelText('Archive')).toBeTruthy()
     expect(screen.getByLabelText('Set work state…')).toBeTruthy()
     expect(screen.getByLabelText('Kill session')).toBeTruthy()
+  })
+})
+
+describe('addressed phone menu demand', () => {
+  it.each([
+    1, 4,
+  ])('keeps a closed menu and Next session off reference catalogs at %sx history', async (scale) => {
+    let pool: MobxPool | null = null
+    function Capture() {
+      pool = useMobilePool()
+      return null
+    }
+    const { replica } = await renderWithMobileStore(
+      <>
+        <Capture />
+        <SessionScreen />
+      </>,
+      {
+        sessions: [
+          session(),
+          session({ sessionId: asSessionId('sess_next'), title: 'Next agent' }),
+          ...Array.from({ length: scale * 32 }, (_, n) =>
+            session({
+              sessionId: asSessionId(`unrelated-${n}`),
+              issueId: asIssueId('elsewhere'),
+              agentKind: 'shell',
+            }),
+          ),
+        ],
+        issues: [vessel({ isDraftVessel: false, worktreePath: '/tmp/wt/vessel' })],
+      },
+    )
+    const attached = pool as MobxPool | null
+    if (!attached) throw new Error('Pool did not attach')
+    const counts = chatContextReadStats(attached)
+    expect(counts.referenceSessionReads).toBe(0)
+    expect(counts.referenceBuilds).toBe(0)
+    const next = vi.spyOn(attached.queries, 'nextTriageSession')
+    const rows = vi.spyOn(attached, 'row')
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [
+          session({
+            sessionId: asSessionId('unrelated-0'),
+            issueId: asIssueId('elsewhere'),
+            agentKind: 'shell',
+            title: 'Unrelated edit',
+          }),
+        ],
+        [],
+      )
+    })
+    expect(next).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('Session actions'))
+    await screen.findByLabelText('Next session')
+    expect(next).not.toHaveBeenCalled()
+    rows.mockClear()
+    fireEvent.click(screen.getByLabelText('Next session'))
+    await waitFor(() =>
+      expect(routerReplace).toHaveBeenCalledWith({
+        pathname: '/session/[sessionId]',
+        params: { sessionId: 'sess_next', backTo: '/work' },
+      }),
+    )
+    expect(next).toHaveBeenCalledExactlyOnceWith(asSessionId('sess_menu'))
+    expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toHaveLength(0)
+    expect(counts.referenceSessionReads).toBe(0)
+    expect(counts.referenceBuilds).toBe(0)
+    rows.mockRestore()
+    next.mockRestore()
+  })
+
+  it.each([
+    1, 4,
+  ])('demands only the draft roster for confirmation at %sx history and releases it on cancel', async (scale) => {
+    let pool: MobxPool | null = null
+    function Capture() {
+      pool = useMobilePool()
+      return null
+    }
+    const { replica } = await renderWithMobileStore(
+      <>
+        <Capture />
+        <SessionScreen />
+      </>,
+      {
+        sessions: [
+          ...threeSessions(),
+          session({ sessionId: asSessionId('archived-seat'), archived: true }),
+          ...Array.from({ length: scale * 32 }, (_, n) =>
+            session({
+              sessionId: asSessionId(`unrelated-${n}`),
+              issueId: asIssueId('elsewhere'),
+            }),
+          ),
+        ],
+        issues: [vessel()],
+      },
+    )
+    const attached = pool as MobxPool | null
+    if (!attached) throw new Error('Pool did not attach')
+    const reader = attached.row('mobileSessionReader', 'reader')
+    if (!reader || typeof reader === 'symbol') throw new Error('Reader did not attach')
+    const count = vi.spyOn(reader, 'issueAgentCount')
+    const rows = vi.spyOn(attached, 'row')
+    const roster = vi.spyOn(attached.graph, 'many')
+    expect(count).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('Session actions'))
+    await screen.findByLabelText('Delete')
+    expect(count).not.toHaveBeenCalled()
+    rows.mockClear()
+    fireEvent.click(screen.getByLabelText('Delete'))
+    await screen.findByText(
+      'This affects 1 task and 3 agents. Tasks and sessions can be restored; running agents will be stopped.',
+    )
+    expect(
+      new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id)),
+    ).toEqual(new Set(['sess_menu', 'sess_menu_2', 'sess_menu_3', 'archived-seat']))
+    expect(roster).toHaveBeenCalledWith('issue', vesselId, 'missionSessions')
+    rows.mockClear()
+    roster.mockClear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [session({ sessionId: asSessionId('sess_menu_2'), archived: true })],
+        [],
+      )
+    })
+    await screen.findByText(
+      'This affects 1 task and 2 agents. Tasks and sessions can be restored; running agents will be stopped.',
+    )
+    expect(
+      new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id)),
+    ).toEqual(new Set(['sess_menu_2']))
+    expect(roster).not.toHaveBeenCalled()
+    rows.mockClear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [
+          session({
+            sessionId: asSessionId('unrelated-0'),
+            issueId: asIssueId('elsewhere'),
+            title: 'Elsewhere',
+          }),
+        ],
+        [],
+      )
+    })
+    expect(
+      rows.mock.calls.filter(
+        ([kind, id]) => kind === 'session' && !String(id).startsWith('unrelated'),
+      ),
+    ).toHaveLength(0)
+    fireEvent.click(screen.getByLabelText('Cancel'))
+    await waitFor(() => expect(screen.queryByText('Delete this task?')).toBeNull())
+    count.mockClear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [session({ sessionId: asSessionId('sess_menu_3'), archived: true })],
+        [],
+      )
+    })
+    expect(count).not.toHaveBeenCalled()
+    expect(chatContextReadStats(attached).referenceSessionReads).toBe(0)
+    roster.mockRestore()
+    rows.mockRestore()
+    count.mockRestore()
   })
 })
 

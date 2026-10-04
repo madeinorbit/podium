@@ -1,5 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { asIssueId } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import {
   chatInteractions,
@@ -35,11 +36,27 @@ export function createMobileSessionReader(pool: MobxPool) {
   return {
     session: (id: string | undefined) => paneSession(pool, id),
     issue: (id: string | undefined) => mobileSessionIssue(pool, id),
+    /** The phone header/menu needs identity and lifecycle fields, not mission seats. */
+    chromeIssue(id: string | undefined): Loaded<IssueViewModel> {
+      if (id === undefined) return undefined
+      const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+      if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
+      const repoId = pool.graph.one('issue', id, 'repo')
+      const repo = repoId ? (pool.row('repo', repoId) as Loaded<{ prefix?: string }>) : undefined
+      const prefix = repo && repo !== LOADING ? repo.prefix : undefined
+      return {
+        ...row,
+        id: asIssueId(id),
+        prefix,
+        displayRef: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
+      }
+    },
     issueAgentCount(id: string | undefined): Loaded<number> {
       if (id === undefined) return 0
       const seats = issuePages(pool).attachedSessions(id)
       return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
     },
+    nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     sessions: () => chatReferenceSessions(pool),
     issues: () => chatMentionIssues(pool),
     machines: () => pool.sessionPanes.machines(),
@@ -68,21 +85,10 @@ export function createMobileSessionReader(pool: MobxPool) {
     question: (id: string) => chatInteractions(pool, id),
     booting(): boolean {
       const window = pool.row('mobileSessionWindow', 'window')
-      const sessions = pool.row('chatSessionOrder', 'order'),
-        issues = pool.row('chatIssueOrder', 'order')
-      if (
-        !window ||
-        window === LOADING ||
-        !sessions ||
-        sessions === LOADING ||
-        !issues ||
-        issues === LOADING
-      )
-        return true
+      if (!window || window === LOADING) return true
       return (
         window.cursor === null &&
-        sessions.ids.length === 0 &&
-        issues.ids.length === 0 &&
+        pool.queries.count('session') === 0 &&
         !paneHasSessions(pool) &&
         pool.queries.count('issue') === 0
       )
@@ -138,9 +144,7 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
   // The cursor keeps its addressed field; spawn prompts belong to the pool log.
   if (!owner.replica.subscribeCursor)
     throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [
-    owner.replica.subscribeCursor(() => schedule('cursor')),
-  ]
+  const stops = [owner.replica.subscribeCursor(() => schedule('cursor'))]
   return {
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING

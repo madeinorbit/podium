@@ -1,5 +1,4 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { asSessionId } from '@podium/model'
 import { autorun, observable } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createMobileSessionReader, createMobileSessionSource } from './mobile-session-context'
@@ -9,11 +8,15 @@ import { LOADING } from './worklist/rollup'
 it('demands only the declared borrowed window, coalesces loading, and tears down the existing owner subscriptions', async () => {
   const addressed = new Set<() => void>()
   let cursor: number | null = null
-  const readLocal = vi.fn(() => { throw new Error('The cursor source must not read runtime locals') })
+  const readLocal = vi.fn(() => {
+    throw new Error('The cursor source must not read runtime locals')
+  })
   const getCursor = vi.fn(() => cursor)
   const owner = {
     readLocal,
-    onLocals: () => { throw new Error('Spawn prompts belong to the pool log') },
+    onLocals: () => {
+      throw new Error('Spawn prompts belong to the pool log')
+    },
     replica: {
       getCursor,
       subscribeCursor: (fn: () => void) => {
@@ -63,7 +66,10 @@ it('keeps spawn confirmation loading until the shared pane source is attached an
   expect(reader.exit(undefined)).toBeUndefined()
   expect(reader.spawnPending('not-attached')).toBe(LOADING)
   expect(reader.booting()).toBe(true)
-  pool.attachTransactions({ mutate: vi.fn(), spawnPrompts: observable.map([['provisional', null]]) } as never)
+  pool.attachTransactions({
+    mutate: vi.fn(),
+    spawnPrompts: observable.map([['provisional', null]]),
+  } as never)
   pool.sources.register(['sessionPaneWindow'], {
     read: () => ({
       panelMode: {},
@@ -123,4 +129,172 @@ it('answers spawn prompts from the pool log while it owns sessions (POD-5432)', 
     expect(reader.spawnPrompt('absent')).toBeUndefined()
     pool.dispose()
   }
+})
+
+it.each([
+  1, 4,
+])('counts only the declared issue roster, maintaining one changed key at %sx history', (scale) => {
+  const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null })
+  const seat = (id: string, issueId = 'draft', archived = false) => ({
+    kind: 'session' as const,
+    id,
+    value: {
+      sessionId: id,
+      issueId,
+      refIssueId: issueId,
+      agentKind: 'codex',
+      cwd: '/repo',
+      status: 'live',
+      archived,
+      lastActiveAt: '2026-10-01T00:00:00Z',
+    } as never,
+  })
+  pool.apply({
+    type: 'replace',
+    rows: [
+      seat('a'),
+      seat('b'),
+      seat('old', 'draft', true),
+      ...Array.from({ length: scale * 32 }, (_, n) => seat(`unrelated-${n}`, 'outside')),
+    ],
+  })
+  const reader = createMobileSessionReader(pool)
+  const rows = vi.spyOn(pool, 'row'),
+    members = vi.spyOn(pool.graph, 'many')
+  let count: unknown
+  const stop = autorun(() => {
+    count = reader.issueAgentCount('draft')
+  })
+  try {
+    expect(count).toBe(2)
+    expect(
+      new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id)),
+    ).toEqual(new Set(['a', 'b', 'old']))
+    expect(members).toHaveBeenCalledExactlyOnceWith('issue', 'draft', 'missionSessions')
+    rows.mockClear()
+    members.mockClear()
+    pool.apply({ type: 'update', rows: [seat('b', 'draft', true)] })
+    expect(count).toBe(1)
+    expect(
+      new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id)),
+    ).toEqual(new Set(['b']))
+    expect(members).not.toHaveBeenCalled()
+    rows.mockClear()
+    pool.apply({ type: 'update', rows: [seat('unrelated-0', 'outside', true)] })
+    expect(count).toBe(1)
+    expect(
+      rows.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'unrelated-0'),
+    ).toHaveLength(0)
+  } finally {
+    stop()
+    rows.mockRestore()
+    members.mockRestore()
+    pool.dispose()
+  }
+})
+
+it.each([
+  1, 4,
+])('reads phone issue chrome without seat or dependency demand at %sx history', (scale) => {
+  const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null })
+  const seat = (id: string, archived = false) => ({
+    kind: 'session' as const,
+    id,
+    value: {
+      sessionId: id,
+      issueId: 'draft',
+      agentKind: 'codex',
+      cwd: '/repo',
+      status: 'live',
+      archived,
+      lastActiveAt: '2026-10-01T00:00:00Z',
+    } as never,
+  })
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'draft',
+        value: {
+          id: 'draft',
+          repoId: 'repo',
+          repoPath: '/repo',
+          seq: 7,
+          title: 'New work',
+          stage: 'planning',
+          description: '',
+          deps: [],
+          labels: [],
+          archived: false,
+          createdAt: '2026-10-01T00:00:00Z',
+          updatedAt: '2026-10-01T00:00:00Z',
+          isDraftVessel: true,
+          pinned: true,
+        } as never,
+      },
+      {
+        kind: 'worktree',
+        id: '/repo',
+        value: {
+          path: '/repo',
+          repoId: 'repo',
+          repoPath: '/repo',
+          repoName: 'Repo',
+          prefix: 'POD',
+        } as never,
+      },
+      ...Array.from({ length: scale * 32 }, (_, n) => seat(`seat-${n}`)),
+    ],
+  })
+  const rows = vi.spyOn(pool, 'row'),
+    members = vi.spyOn(pool.graph, 'many')
+  const reader = createMobileSessionReader(pool)
+  const chromeReads = vi.spyOn(reader, 'chromeIssue')
+  let chrome: unknown
+  const stop = autorun(() => {
+    chrome = reader.chromeIssue('draft')
+  })
+  try {
+    expect(chrome).toMatchObject({
+      id: 'draft',
+      title: 'New work',
+      displayRef: 'POD-7',
+      isDraftVessel: true,
+      pinned: true,
+    })
+    expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toHaveLength(0)
+    expect(members).not.toHaveBeenCalled()
+    rows.mockClear()
+    chromeReads.mockClear()
+    pool.apply({ type: 'update', rows: [seat('seat-0', true)] })
+    expect(chromeReads).not.toHaveBeenCalled()
+    // The pool maintains the changed contribution; the closed chrome stays asleep.
+    expect(
+      rows.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'seat-0'),
+    ).toHaveLength(0)
+  } finally {
+    stop()
+    rows.mockRestore()
+    members.mockRestore()
+    chromeReads.mockRestore()
+    pool.dispose()
+  }
+})
+
+it('checks booting without demanding chat catalog orders', () => {
+  const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null })
+  pool.sources.register(['mobileSessionWindow'], {
+    read: () => ({ cursor: null }),
+    dispose() {},
+  })
+  const rows = vi.spyOn(pool, 'row')
+  expect(createMobileSessionReader(pool).booting()).toBe(true)
+  expect(
+    rows.mock.calls.some(
+      ([kind]) => String(kind) === 'chatSessionOrder' || String(kind) === 'chatIssueOrder',
+    ),
+  ).toBe(false)
+  rows.mockRestore()
+  pool.dispose()
 })

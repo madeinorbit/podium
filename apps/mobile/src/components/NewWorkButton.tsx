@@ -10,23 +10,21 @@ import {
   AGENT_NOT_READY_COPY,
   activationAgentIsReady,
   agentReadinessOnMachines,
-  lastUsedMaps,
   launchAgentKind,
   machineViewsFromWire,
   type RepoNavView,
+  reposToViews,
   resolveSpawnTargetMachine,
-  type SidebarSections,
   spawnTargetForRepo,
   usableMachines,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { AgentKind, MachineId, MachineWire } from '@podium/model'
-import { lastUsedMachine } from '@podium/model'
+import type { AgentKind, GitRepositoryWire, MachineId, MachineWire } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { type Dispatch, type SetStateAction, useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
-import { useMobileLaunchData, useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
@@ -58,41 +56,63 @@ import { HeaderButton } from './Screen'
 
 type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 
-const EMPTY_MACHINES: MachineWire[] = []
-const readMachines = (pool: MobxPool) => pool.headerViews.machines()
-function usePoolLaunchMachines() {
-  return useMobilePoolProjection(readMachines, EMPTY_MACHINES)
+const EMPTY_INPUTS = {
+  machines: [] as MachineWire[],
+  repos: [] as RepoNavView[],
+  lastUsedByRepo: new Map<string, number>(),
+  recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
-
+/** Only displayed machine/project rows. History defaults are scalar questions. */
+function readLaunchInputs(pool: MobxPool) {
+  const machines = pool.headerViews.machines()
+  const scans = pool.headerViews.ids('repository').flatMap((id) => {
+    const row = pool.row('repository', id) as GitRepositoryWire | undefined
+    return row && typeof row !== 'symbol' ? [row] : []
+  })
+  const window = pool.row('commandWindow', 'window')
+  const pins: { repos: readonly string[]; worktrees: readonly string[] } =
+    window && typeof window !== 'symbol' ? window.pins : { repos: [], worktrees: [] }
+  const allProjects: RepoNavView[] = reposToViews(scans).map((repo) => ({
+    ...repo,
+    worktrees: repo.worktrees.map((tree) => ({
+      ...tree,
+      repoName: repo.name,
+      sessions: [],
+      issues: [],
+    })),
+  }))
+  const projects = allProjects.map((repo) => ({
+    ...repo,
+    worktrees: repo.worktrees.filter((tree) => !pins.worktrees.includes(tree.path)),
+  }))
+  const lastUsedByRepo = new Map(
+    allProjects.map((repo) => [
+      repo.path,
+      pool.queries.activity({
+        kind: 'commandRootActivity',
+        roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
+        match: 'exact',
+      }),
+    ]),
+  )
+  const repos = [
+    ...pins.repos.flatMap((path) => projects.filter((repo) => repo.path === path)),
+    ...projects.filter((repo) => !pins.repos.includes(repo.path) && repo.worktrees.length > 0),
+  ].sort(
+    (a, b) =>
+      (lastUsedByRepo.get(b.path) ?? 0) - (lastUsedByRepo.get(a.path) ?? 0) ||
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+  )
+  const eligible = usableMachines(machineViewsFromWire(machines))
+  return {
+    machines,
+    repos,
+    lastUsedByRepo,
+    recentMachine: pool.queries.latestMachineSession(eligible.map((machine) => machine.id)),
+  }
+}
 function usePoolLaunchInputs() {
-  const data = useMobileLaunchData()
-  return useMemo(() => {
-    const sessions = data?.sessions ?? []
-    const pins = data?.pins ?? { repos: [] as string[], worktrees: [] as string[] }
-    const allProjects: RepoNavView[] = (data?.repoViews ?? []).map((repo) => ({
-      ...repo,
-      worktrees: repo.worktrees.map((tree) => ({
-        ...tree,
-        repoName: repo.name,
-        sessions: [],
-        issues: [],
-      })),
-    }))
-    const projects = allProjects.map((repo) => ({
-      ...repo,
-      worktrees: repo.worktrees.filter((tree) => !pins.worktrees.includes(tree.path)),
-    }))
-    const sections: SidebarSections = {
-      pinnedRepos: pins.repos.flatMap((path) => projects.filter((repo) => repo.path === path)),
-      repos: projects.filter(
-        (repo) => !pins.repos.includes(repo.path) && repo.worktrees.length > 0,
-      ),
-      pinnedWorktrees: allProjects.flatMap((repo) =>
-        repo.worktrees.filter((tree) => pins.worktrees.includes(tree.path)),
-      ),
-    }
-    return { sessions, sections }
-  }, [data])
+  return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
 }
 
 /** The model pick that means "no agent at all" — a plain shell in the worktree.
@@ -163,8 +183,7 @@ function NewWorkLauncher({
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
-  const machines = usePoolLaunchMachines()
-  const { sessions, sections } = usePoolLaunchInputs()
+  const { machines, repos, lastUsedByRepo, recentMachine } = usePoolLaunchInputs()
   const [query, setQuery] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
@@ -202,7 +221,7 @@ function NewWorkLauncher({
     (machinePick && machineViews.some((view) => view.machine.id === machinePick)
       ? (machinePick as MachineId)
       : null) ??
-    (lastUsedMachine(sessions, usable) as MachineId | undefined) ??
+    (recentMachine?.machineId as MachineId | undefined) ??
     (usable[0]?.id as MachineId | undefined) ??
     null
   const selectedMachine = machineViews.find((view) => view.machine.id === machineId)
@@ -212,19 +231,6 @@ function NewWorkLauncher({
   // Served harness descriptors for the spawn target (POD-4475): names,
   // models and effort support render from the report, bundled copy offline.
   const { served } = useHarnessDescriptors<MobileTrpc>(machineId ?? undefined)
-
-  const { repos, lastUsedByRepo } = useMemo(() => {
-    const choices = [...sections.pinnedRepos, ...sections.repos]
-    const { byRepo } = lastUsedMaps(sections, sessions)
-    return {
-      repos: choices.sort(
-        (a, b) =>
-          (byRepo.get(b.path) ?? 0) - (byRepo.get(a.path) ?? 0) ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      ),
-      lastUsedByRepo: byRepo,
-    }
-  }, [sections, sessions])
 
   const visibleRepos = useMemo(
     () => reposOnMachine(repos, machineId, machineViews.length),
@@ -260,7 +266,10 @@ function NewWorkLauncher({
   ): MachineId | undefined | null => {
     if (explicit !== undefined)
       return usable.some((machine) => machine.id === explicit) ? explicit : null
-    const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, sessions, machineViews)
+    // Multiple machines always pass the selected id above. With at most one
+    // machine there is no history tie to settle; the shared authority rule
+    // still supplies the precise refusal and repository-placement behavior.
+    const { machineId: resolved, refusal } = resolveSpawnTargetMachine(repo, [], machineViews)
     // `incapable` STOPS the spawn for the same reason `unauthorized` does
     // (POD-2700): falling through to the repo's main checkout would silently
     // retarget the work onto a machine the operator did not choose, and here the
@@ -418,274 +427,268 @@ function NewWorkLauncher({
 
   const canChooseRepo = !onlyOneRepo && visibleRepos.length > 0
   return (
-    <>
-      <BottomSheet
-        visible
-        onClose={close}
-        mode="fit"
-        scrollable
-        contentStyle={styles.content}
-        head={
-          <View style={styles.head}>
-            {step !== 'launch' ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Back"
-                onPress={() => {
-                  setStep('launch')
-                  setQuery('')
-                }}
-                style={({ pressed }) => [styles.headBack, pressed && styles.pressed]}
-              >
-                <Icon as={ChevronLeft} size={16} color={color.textDim} />
-              </PressableScale>
-            ) : null}
-            <View style={styles.headText}>
-              <Text style={styles.headTitle} numberOfLines={1}>
-                {title}
-              </Text>
-            </View>
-          </View>
-        }
-      >
-        {step === 'launch' ? (
-          <>
-            {!isShell ? (
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>First prompt · optional</Text>
-                <TextInput
-                  accessibilityLabel="First prompt, optional"
-                  value={prompt}
-                  onChangeText={setPrompt}
-                  placeholder="Fix the login race"
-                  placeholderTextColor={color.textMicro}
-                  multiline
-                  textAlignVertical="top"
-                  style={styles.promptInput}
-                />
-              </View>
-            ) : null}
-
-            <FieldSelect
-              label="Model"
-              value={modelValue}
-              onPress={() => setStep('model')}
-              picker={{
-                options: modelOptions,
-                selected: effectiveModel,
-                onSelect: applyModel,
-              }}
-            />
-
-            {effortChoices.length > 0 ? (
-              <FieldSelect
-                label="Effort"
-                value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
-                onPress={() => setStep('effort')}
-                picker={{ options: effortChoices, selected: effort, onSelect: applyEffort }}
-              />
-            ) : null}
-
-            {showMachine ? (
-              <FieldSelect
-                label="Machine"
-                value={selectedMachine?.machine.name ?? 'Choose a machine'}
-                onPress={() => setStep('machine')}
-                picker={{
-                  options: machineViews.map((view) => ({
-                    value: view.machine.id,
-                    label:
-                      view.availability === 'available'
-                        ? view.machine.name
-                        : `${view.machine.name} · ${view.availability === 'unauthorized' ? 'No access' : 'Offline'}`,
-                    disabled: view.availability !== 'available',
-                  })),
-                  selected: machineId ?? '',
-                  onSelect: (value) => pickMachine(value as MachineId),
-                }}
-              />
-            ) : null}
-
-            {/* ONE PROJECT IS NOT A CHOICE. It is still shown — the operator has
-                to be able to see where this lands — but as a statement rather
-                than a control that opens a list of one. */}
-            <FieldSelect
-              label="Project"
-              value={selectedRepo?.name ?? 'No repositories available'}
-              onPress={canChooseRepo ? () => setStep('repo') : undefined}
-              picker={
-                canChooseRepo
-                  ? {
-                      options: visibleRepos.map((repo) => ({
-                        value: repo.path,
-                        label: repo.name,
-                      })),
-                      selected: selectedRepo?.path ?? '',
-                      onSelect: (value) => {
-                        setRepoPick(value)
-                        setStep('launch')
-                      },
-                    }
-                  : undefined
-              }
-            />
-
+    <BottomSheet
+      visible
+      onClose={close}
+      mode="fit"
+      scrollable
+      contentStyle={styles.content}
+      head={
+        <View style={styles.head}>
+          {step !== 'launch' ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel={selectedRepo ? `Start in ${selectedRepo.name}` : 'Start'}
-              accessibilityState={{ disabled: !canStart }}
-              disabled={!canStart}
-              onPress={() => selectedRepo && start(selectedRepo)}
-              scaleTo={0.985}
-              style={({ pressed }) => [
-                styles.continue,
-                !canStart && styles.continueDisabled,
-                pressed && canStart && styles.continuePressed,
-              ]}
+              accessibilityLabel="Back"
+              onPress={() => {
+                setStep('launch')
+                setQuery('')
+              }}
+              style={({ pressed }) => [styles.headBack, pressed && styles.pressed]}
             >
-              <Text style={styles.continueText}>Start</Text>
-              <Icon as={ChevronRight} size={16} color={color.accentText} />
+              <Icon as={ChevronLeft} size={16} color={color.textDim} />
             </PressableScale>
+          ) : null}
+          <View style={styles.headText}>
+            <Text style={styles.headTitle} numberOfLines={1}>
+              {title}
+            </Text>
+          </View>
+        </View>
+      }
+    >
+      {step === 'launch' ? (
+        <>
+          {!isShell ? (
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>First prompt · optional</Text>
+              <TextInput
+                accessibilityLabel="First prompt, optional"
+                value={prompt}
+                onChangeText={setPrompt}
+                placeholder="Fix the login race"
+                placeholderTextColor={color.textMicro}
+                multiline
+                textAlignVertical="top"
+                style={styles.promptInput}
+              />
+            </View>
+          ) : null}
 
-            {visibleRepos.length === 0 ? (
-              <Text style={styles.none}>No repositories are available on this account.</Text>
-            ) : machineOk && !harnessReady ? (
-              <Text style={styles.none}>{AGENT_NOT_READY_COPY}</Text>
-            ) : null}
-          </>
-        ) : null}
-
-        {step === 'model' ? (
-          <ModelStep
-            options={modelOptions}
-            selected={effectiveModel}
-            query={query}
-            onQuery={setQuery}
-            onPick={applyModel}
+          <FieldSelect
+            label="Model"
+            value={modelValue}
+            onPress={() => setStep('model')}
+            picker={{
+              options: modelOptions,
+              selected: effectiveModel,
+              onSelect: applyModel,
+            }}
           />
-        ) : null}
 
-        {step === 'effort' ? (
-          <OptionList
-            groups={[{ options: effortChoices }]}
-            selected={effort}
-            onPick={applyEffort}
+          {effortChoices.length > 0 ? (
+            <FieldSelect
+              label="Effort"
+              value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
+              onPress={() => setStep('effort')}
+              picker={{ options: effortChoices, selected: effort, onSelect: applyEffort }}
+            />
+          ) : null}
+
+          {showMachine ? (
+            <FieldSelect
+              label="Machine"
+              value={selectedMachine?.machine.name ?? 'Choose a machine'}
+              onPress={() => setStep('machine')}
+              picker={{
+                options: machineViews.map((view) => ({
+                  value: view.machine.id,
+                  label:
+                    view.availability === 'available'
+                      ? view.machine.name
+                      : `${view.machine.name} · ${view.availability === 'unauthorized' ? 'No access' : 'Offline'}`,
+                  disabled: view.availability !== 'available',
+                })),
+                selected: machineId ?? '',
+                onSelect: (value) => pickMachine(value as MachineId),
+              }}
+            />
+          ) : null}
+
+          {/* ONE PROJECT IS NOT A CHOICE. It is still shown — the operator has
+                to be able to see where this lands — but as a statement rather
+                than a control that opens a list of one. */}
+          <FieldSelect
+            label="Project"
+            value={selectedRepo?.name ?? 'No repositories available'}
+            onPress={canChooseRepo ? () => setStep('repo') : undefined}
+            picker={
+              canChooseRepo
+                ? {
+                    options: visibleRepos.map((repo) => ({
+                      value: repo.path,
+                      label: repo.name,
+                    })),
+                    selected: selectedRepo?.path ?? '',
+                    onSelect: (value) => {
+                      setRepoPick(value)
+                      setStep('launch')
+                    },
+                  }
+                : undefined
+            }
           />
-        ) : null}
 
-        {step === 'machine' ? (
-          <View style={styles.list}>
-            {/* UNAUTHORIZED AND UNREACHABLE ARE DIFFERENT WORDS (§3.1.4 M5).
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel={selectedRepo ? `Start in ${selectedRepo.name}` : 'Start'}
+            accessibilityState={{ disabled: !canStart }}
+            disabled={!canStart}
+            onPress={() => selectedRepo && start(selectedRepo)}
+            scaleTo={0.985}
+            style={({ pressed }) => [
+              styles.continue,
+              !canStart && styles.continueDisabled,
+              pressed && canStart && styles.continuePressed,
+            ]}
+          >
+            <Text style={styles.continueText}>Start</Text>
+            <Icon as={ChevronRight} size={16} color={color.accentText} />
+          </PressableScale>
+
+          {visibleRepos.length === 0 ? (
+            <Text style={styles.none}>No repositories are available on this account.</Text>
+          ) : machineOk && !harnessReady ? (
+            <Text style={styles.none}>{AGENT_NOT_READY_COPY}</Text>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 'model' ? (
+        <ModelStep
+          options={modelOptions}
+          selected={effectiveModel}
+          query={query}
+          onQuery={setQuery}
+          onPick={applyModel}
+        />
+      ) : null}
+
+      {step === 'effort' ? (
+        <OptionList groups={[{ options: effortChoices }]} selected={effort} onPick={applyEffort} />
+      ) : null}
+
+      {step === 'machine' ? (
+        <View style={styles.list}>
+          {/* UNAUTHORIZED AND UNREACHABLE ARE DIFFERENT WORDS (§3.1.4 M5).
                 Both produce a machine you cannot spawn on, and collapsing them
                 makes a person wait for a wake-up that will never help. Neither
                 is pressable — the picker must not OFFER a machine the principal
                 lacks `use` on — but the denied one says so rather than
                 vanishing. */}
-            {machineViews.map((view, i) => {
-              const ok = view.availability === 'available'
-              const selected = view.machine.id === machineId
+          {machineViews.map((view, i) => {
+            const ok = view.availability === 'available'
+            const selected = view.machine.id === machineId
+            return (
+              <PressableScale
+                key={view.machine.id}
+                accessibilityRole="button"
+                accessibilityLabel={view.machine.name}
+                // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                // so the web build announced no state at all; and `aria-selected` is only
+                // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                // React Native still reads `accessibilityState` on device. [POD-1664]
+                accessibilityState={{ disabled: !ok, selected }}
+                aria-pressed={selected}
+                disabled={!ok}
+                scaleTo={0.99}
+                onPress={() => pickMachine(view.machine.id)}
+                style={({ pressed }) => [
+                  styles.row,
+                  i > 0 && styles.rowDivider,
+                  !ok && styles.rowDisabled,
+                  pressed && styles.rowPressed,
+                ]}
+              >
+                <View
+                  style={[styles.dot, { backgroundColor: ok ? color.success : color.textMicro }]}
+                />
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>
+                    {view.machine.name}
+                  </Text>
+                  {ok ? null : (
+                    <Text style={styles.rowSub}>
+                      {view.availability === 'unauthorized'
+                        ? 'No access'
+                        : view.availability === 'incapable'
+                          ? // POD-2700. A THIRD word, because a machine that
+                            // runs no daemon is not asleep — "Offline" here
+                            // asked the operator to wait for something that
+                            // will never arrive.
+                            'Runs no Podium daemon'
+                          : 'Offline'}
+                    </Text>
+                  )}
+                </View>
+                {selected ? <Text style={styles.check}>✓</Text> : null}
+              </PressableScale>
+            )
+          })}
+        </View>
+      ) : null}
+
+      {step === 'repo' ? (
+        visibleRepos.length === 0 ? (
+          <Text style={styles.none}>No repositories are available on this account.</Text>
+        ) : (
+          <View style={styles.list}>
+            {visibleRepos.map((repo, i) => {
+              const used = lastUsedByRepo.get(repo.path)
               return (
                 <PressableScale
-                  key={view.machine.id}
+                  key={repo.path}
                   accessibilityRole="button"
-                  accessibilityLabel={view.machine.name}
-                  // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
-                  // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
-                  // so the web build announced no state at all; and `aria-selected` is only
-                  // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
-                  // browser-visible way to say a button is the chosen one is `aria-pressed`.
-                  // React Native still reads `accessibilityState` on device. [POD-1664]
-                  accessibilityState={{ disabled: !ok, selected }}
-                  aria-pressed={selected}
-                  disabled={!ok}
+                  accessibilityLabel={repo.name}
+                  accessibilityState={{ selected: repo.path === selectedRepo?.path }}
+                  aria-pressed={repo.path === selectedRepo?.path}
+                  onPress={() => {
+                    setRepoPick(repo.path)
+                    setStep('launch')
+                  }}
                   scaleTo={0.99}
-                  onPress={() => pickMachine(view.machine.id)}
                   style={({ pressed }) => [
                     styles.row,
                     i > 0 && styles.rowDivider,
-                    !ok && styles.rowDisabled,
                     pressed && styles.rowPressed,
                   ]}
                 >
-                  <View
-                    style={[styles.dot, { backgroundColor: ok ? color.success : color.textMicro }]}
-                  />
+                  <View style={styles.repoTile}>
+                    <Text style={styles.repoInitial}>{(repo.name[0] ?? '?').toUpperCase()}</Text>
+                  </View>
                   <View style={styles.rowText}>
                     <Text style={styles.rowTitle} numberOfLines={1}>
-                      {view.machine.name}
+                      {repo.name}
                     </Text>
-                    {ok ? null : (
-                      <Text style={styles.rowSub}>
-                        {view.availability === 'unauthorized'
-                          ? 'No access'
-                          : view.availability === 'incapable'
-                            ? // POD-2700. A THIRD word, because a machine that
-                              // runs no daemon is not asleep — "Offline" here
-                              // asked the operator to wait for something that
-                              // will never arrive.
-                              'Runs no Podium daemon'
-                            : 'Offline'}
-                      </Text>
-                    )}
+                    <Text style={styles.rowSub} numberOfLines={1}>
+                      {used
+                        ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}`
+                        : 'not used yet'}
+                    </Text>
                   </View>
-                  {selected ? <Text style={styles.check}>✓</Text> : null}
+                  {repo.path === selectedRepo?.path ? (
+                    <Text style={styles.check}>✓</Text>
+                  ) : (
+                    <Icon as={ChevronRight} size={15} color={color.textMicro} />
+                  )}
                 </PressableScale>
               )
             })}
           </View>
-        ) : null}
-
-        {step === 'repo' ? (
-          visibleRepos.length === 0 ? (
-            <Text style={styles.none}>No repositories are available on this account.</Text>
-          ) : (
-            <View style={styles.list}>
-              {visibleRepos.map((repo, i) => {
-                const used = lastUsedByRepo.get(repo.path)
-                return (
-                  <PressableScale
-                    key={repo.path}
-                    accessibilityRole="button"
-                    accessibilityLabel={repo.name}
-                    accessibilityState={{ selected: repo.path === selectedRepo?.path }}
-                    aria-pressed={repo.path === selectedRepo?.path}
-                    onPress={() => {
-                      setRepoPick(repo.path)
-                      setStep('launch')
-                    }}
-                    scaleTo={0.99}
-                    style={({ pressed }) => [
-                      styles.row,
-                      i > 0 && styles.rowDivider,
-                      pressed && styles.rowPressed,
-                    ]}
-                  >
-                    <View style={styles.repoTile}>
-                      <Text style={styles.repoInitial}>{(repo.name[0] ?? '?').toUpperCase()}</Text>
-                    </View>
-                    <View style={styles.rowText}>
-                      <Text style={styles.rowTitle} numberOfLines={1}>
-                        {repo.name}
-                      </Text>
-                      <Text style={styles.rowSub} numberOfLines={1}>
-                        {used
-                          ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}`
-                          : 'not used yet'}
-                      </Text>
-                    </View>
-                    {repo.path === selectedRepo?.path ? (
-                      <Text style={styles.check}>✓</Text>
-                    ) : (
-                      <Icon as={ChevronRight} size={15} color={color.textMicro} />
-                    )}
-                  </PressableScale>
-                )
-              })}
-            </View>
-          )
-        ) : null}
-      </BottomSheet>
-    </>
+        )
+      ) : null}
+    </BottomSheet>
   )
 }
 

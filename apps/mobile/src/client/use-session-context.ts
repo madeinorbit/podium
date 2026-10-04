@@ -5,6 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
 import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePoolProjection } from './mobile-pool'
@@ -46,17 +47,40 @@ export function useSessionContextIssue(id: string | undefined) {
   )
   return useRead(read, undefined)
 }
+/** Session chrome does not need the full issue page's seat/dependency projection. */
+export function useSessionContextChromeIssue(id: string | undefined) {
+  const read = useCallback(
+    (reader: Reader) => {
+      const row = reader.chromeIssue(id)
+      return pending(row) ? undefined : row
+    },
+    [id],
+  )
+  return useRead(read, undefined)
+}
 /** Only a visible delete confirmation needs the addressed task's seat count. */
 export function useSessionContextIssueAgentCount(id: string | undefined, active: boolean) {
   const read = useCallback(
     (reader: Reader) => {
       if (!active) return 0
       const count = reader.issueAgentCount(id)
-      return pending(count) ? 0 : (count ?? 0)
+      return pending(count) ? undefined : (count ?? 0)
     },
     [id, active],
   )
-  return useRead(read, 0)
+  return useRead<number | undefined>(read, undefined)
+}
+/** Next is an action-time scalar question; a closed menu retains no triage demand. */
+const nextSessionRead = (reader: Reader) => reader.nextSession
+export function useSessionContextNextSession() {
+  const nextSession = useRead<Reader['nextSession'] | undefined>(nextSessionRead, undefined)
+  return useCallback(
+    (id: SessionId): SessionId | undefined => {
+      const next = nextSession?.(id)
+      return next === undefined ? undefined : asSessionId(next)
+    },
+    [nextSession],
+  )
 }
 /** A clicked transcript reference uses the existing identity reader/load
  * window. Undefined stays loading; null is a resolved missing reference. */

@@ -1,4 +1,3 @@
-import type { Store } from '@podium/client-core/engine'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { SESSION_PANE_SCHEMA } from './session-pane-schema'
@@ -69,6 +68,21 @@ export const MOBILE_SESSION_SCHEMA = {
     fields: ['readAt', 'unread', 'cursor'],
   },
   spawnPending: { source: 'PoolTransactions', field: 'spawnPrompts' },
+  issueAgentCount: {
+    source: 'issue-page:attachedSessions',
+    key: 'issueId',
+    demand: 'visible draft-delete confirmation',
+  },
+  chromeIssue: {
+    source: 'pool:issue summary fields and addressed repository prefix',
+    key: 'issueId',
+    demand: 'displayed session header and menu identity',
+  },
+  nextSession: {
+    source: 'ReaderQueries:nextTriageSession',
+    key: 'sessionId',
+    demand: 'Next session action',
+  },
   conversation: {
     source: 'chat context and notices',
     fields: ['messageRecord', 'chatHeld', 'pendingInteraction'],
@@ -88,6 +102,12 @@ export const MOBILE_SESSION_RELATIONS = [
     reader: 'pool.row addressed foreign key, including headless sessions',
   },
   { from: 'issue', name: 'repo', to: 'repo', reader: 'pool.relations.one' },
+  {
+    from: 'issue',
+    name: 'missionSessions',
+    to: 'session',
+    reader: 'existing issue-page attached roster for draft-delete confirmation',
+  },
   {
     from: 'issue',
     name: 'pageDependents',

@@ -7,13 +7,19 @@
  * field is still a control.
  */
 
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useMobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
@@ -22,15 +28,20 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('./BottomSheet', () => ({
   BottomSheet: ({
     visible,
+    onClose,
     head,
     children,
   }: {
     visible: boolean
+    onClose: () => void
     head?: ReactNode
     children: ReactNode
   }) =>
     visible ? (
       <div>
+        <button type="button" aria-label="Dismiss launcher" onClick={onClose}>
+          Close
+        </button>
         {head}
         {children}
       </div>
@@ -88,6 +99,170 @@ const READY = [machine({ 'claude-code': 'in', opencode: 'in' })]
 const NOT_READY =
   'The selected agent is not ready on this machine yet. Open Settings → Agents to finish setup.'
 
+function historySession(id: string, patch: object = {}): SessionMeta {
+  return {
+    sessionId: id,
+    agentKind: 'codex',
+    status: 'live',
+    archived: false,
+    cwd: '/home/dev/podium',
+    machineId: 'mine',
+    createdAt: '2026-10-01T00:00:00Z',
+    lastActiveAt: '2026-10-01T00:00:00Z',
+    ...patch,
+  } as SessionMeta
+}
+
+function pickFirstClaudeModel() {
+  const choice = screen.getAllByLabelText(/^Claude Code /)[0]
+  if (!choice) throw new Error('No Claude model choice')
+  fireEvent.click(choice)
+}
+
+describe('phone launch demand bounds', () => {
+  it.each([
+    1, 4,
+  ])('keeps catalogs and machine reads closed at %sx history, and opens without session rows', async (scale) => {
+    let pool: MobxPool | null = null
+    let machinesRead: ReturnType<typeof vi.spyOn> | undefined
+    function Capture() {
+      pool = useMobilePool()
+      if (pool && !machinesRead) machinesRead = vi.spyOn(pool.headerViews, 'machines')
+      return null
+    }
+    const { replica } = await renderWithMobileStore(
+      <>
+        <Capture />
+        <NewWorkButton />
+      </>,
+      {
+        repos: [repo('/home/dev/podium')],
+        machines: READY,
+        sessions: Array.from({ length: scale * 32 }, (_, n) => historySession(`history-${n}`)),
+      },
+    )
+    const attached = pool as MobxPool | null
+    if (!attached || !machinesRead) throw new Error('Pool did not attach')
+    const counts = commandLaunchViews(attached).counts
+    expect(counts.catalogBuilds).toBe(0)
+    expect(counts.coldSessionVisits).toBe(0)
+    expect(machinesRead).not.toHaveBeenCalled()
+    const rows = vi.spyOn(attached, 'row')
+    const history = vi.spyOn(attached.queries, 'latestMachineSession')
+    const activity = vi.spyOn(attached.queries, 'activity')
+    fireEvent.click(screen.getByLabelText('New work'))
+    await screen.findByLabelText('Start in podium')
+    expect(machinesRead).toHaveBeenCalled()
+    expect(history).toHaveBeenCalledWith(['mine'])
+    expect(activity).toHaveBeenCalledWith({
+      kind: 'commandRootActivity',
+      roots: ['/home/dev/podium', '/home/dev/podium', '/home/dev/podium-wt'],
+      match: 'exact',
+    })
+    expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toHaveLength(0)
+    expect(counts.catalogBuilds).toBe(0)
+    expect(counts.coldSessionVisits).toBe(0)
+    rows.mockClear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [historySession('history-0', { lastActiveAt: '2026-10-02T00:00:00Z' })],
+        [],
+      )
+    })
+    expect(
+      rows.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'history-0'),
+    ).toHaveLength(0)
+    expect(counts.addressedSessionReads).toBe(0)
+    fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+    machinesRead.mockClear()
+    history.mockClear()
+    activity.mockClear()
+    await act(async () => {
+      replica.applyChanges(
+        'sessions',
+        [historySession('history-0', { lastActiveAt: '2026-10-03T00:00:00Z' })],
+        [],
+      )
+    })
+    expect(machinesRead).not.toHaveBeenCalled()
+    expect(history).not.toHaveBeenCalled()
+    expect(activity).not.toHaveBeenCalled()
+    expect(counts.addressedSessionReads).toBe(0)
+  })
+
+  it('restores the prompt and persisted model, machine, and project after dismissal', async () => {
+    const projects = [repo('/home/dev/podium'), repo('/home/dev/shared')]
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [
+        ...projects,
+        ...projects.map((project) => ({ ...project, machineId: 'remote' }) as GitRepositoryWire),
+      ],
+      machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.change(screen.getByLabelText('First prompt, optional'), {
+      target: { value: 'Keep my prompt' },
+    })
+    fireEvent.click(screen.getByLabelText('Machine, Studio'))
+    fireEvent.click(screen.getByLabelText('Remote'))
+    fireEvent.click(screen.getByLabelText('Project, podium'))
+    fireEvent.click(screen.getByLabelText('shared'))
+    fireEvent.click(screen.getByLabelText('Model, Auto'))
+    fireEvent.click(screen.getByLabelText('No agent Shell'))
+    fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await screen.findByLabelText('Model, Shell')
+    expect(screen.getByLabelText('Project, shared')).toBeTruthy()
+    expect(screen.getByLabelText('Machine, Remote')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Model, Shell'))
+    fireEvent.click(screen.getByLabelText('Auto'))
+    expect(
+      ((await screen.findByLabelText('First prompt, optional')) as HTMLInputElement).value,
+    ).toBe('Keep my prompt')
+  })
+
+  it('uses machine creation and exact repository activity scalars for remembered defaults', async () => {
+    const otherRepo = { ...repo('/home/dev/shared'), machineId: 'remote' } as GitRepositoryWire
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium'), otherRepo],
+      machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
+      sessions: [
+        historySession('old'),
+        historySession('recent', {
+          machineId: 'remote',
+          cwd: '/home/dev/shared-wt',
+          createdAt: '2026-10-02T00:00:00Z',
+          lastActiveAt: '2026-10-02T00:00:00Z',
+        }),
+      ],
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    expect(await screen.findByLabelText('Machine, Remote')).toBeTruthy()
+    expect(screen.getByLabelText('Project, shared')).toBeTruthy()
+  })
+
+  it('restores an explicit model and effort after the launcher remounts', async () => {
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')],
+      machines: READY,
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.click(screen.getByLabelText('Model, Auto'))
+    pickFirstClaudeModel()
+    await screen.findByLabelText('Effort, Auto')
+    const modelLabel = screen.getByLabelText(/^Model, /).getAttribute('aria-label')
+    if (!modelLabel) throw new Error('Missing selected model label')
+    fireEvent.click(screen.getByLabelText('Effort, Auto'))
+    fireEvent.click(screen.getByLabelText('High'))
+    await screen.findByLabelText('Effort, High')
+    fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+    fireEvent.click(screen.getByLabelText('New work'))
+    expect(await screen.findByLabelText(modelLabel)).toBeTruthy()
+    expect(await screen.findByLabelText('Effort, High')).toBeTruthy()
+  })
+})
+
 describe('the phone launch sheet', () => {
   it('states the only project and starts from it, instead of asking for it', async () => {
     await renderWithMobileStore(<NewWorkButton />, {
@@ -130,7 +305,7 @@ describe('the phone launch sheet', () => {
 
     fireEvent.click(screen.getByLabelText('Model, Auto'))
     fireEvent.click(screen.getByLabelText('No agent Shell'))
-    expect(screen.getByLabelText('Model, Shell')).toBeTruthy()
+    expect(await screen.findByLabelText('Model, Shell')).toBeTruthy()
   })
 
   it('starts an agent with the written first prompt', async () => {
@@ -232,7 +407,7 @@ describe('the phone launch sheet', () => {
       })
       fireEvent.click(screen.getByLabelText('New work'))
 
-      expect(screen.getByText(NOT_READY)).toBeTruthy()
+      expect(await screen.findByText(NOT_READY)).toBeTruthy()
       const start = screen.getByLabelText('Start in podium')
       expect(start.getAttribute('aria-disabled')).toBe('true')
       fireEvent.click(start)
@@ -269,9 +444,9 @@ describe('the phone launch sheet', () => {
       })
       fireEvent.click(screen.getByLabelText('New work'))
       fireEvent.click(screen.getByLabelText(/^Model, Auto/))
-      fireEvent.click(screen.getAllByLabelText(/^Claude Code /)[0]!)
+      pickFirstClaudeModel()
 
-      expect(screen.getByText(NOT_READY)).toBeTruthy()
+      expect(await screen.findByText(NOT_READY)).toBeTruthy()
       const start = screen.getByLabelText('Start in podium')
       expect(start.getAttribute('aria-disabled')).toBe('true')
       fireEvent.click(start)
