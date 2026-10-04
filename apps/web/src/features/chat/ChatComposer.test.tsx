@@ -1,13 +1,13 @@
-import type { useVoiceInput } from '@podium/terminal-client-react'
 import { createDraftLedger } from '@podium/client-core'
 import { createKeyedInputs, type EngineState, type KeyedInputs } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model/browser'
-import { act, createRef, type ComponentProps } from 'react'
+import type { useVoiceInput } from '@podium/terminal-client-react'
+import { act, type ComponentProps, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
-import { PanelVisible } from '@/app/panel-visible'
 import { useRuntimeDraft } from '@/app/keyed-runtime'
+import { PanelVisible } from '@/app/panel-visible'
 import { ChatComposer } from './ChatComposer'
 import type { UseAttachmentsResult } from './use-attachments'
 
@@ -165,8 +165,8 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
     try {
       const { ta } = await mount(options)
       expect(ta.value).toBe('old message')
-      const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!
-        .set!
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      if (!nativeSet) throw new Error('Missing native textarea setter')
       const writes = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
       act(() => {
         ta.focus()

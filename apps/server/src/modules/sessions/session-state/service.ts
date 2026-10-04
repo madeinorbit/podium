@@ -32,20 +32,24 @@
 import { createLogger } from '@podium/logger'
 import {
   applyDraftEdit,
-  sessionUserStateRowId,
   type Capability,
   computePriorities,
   DEFAULT_LEASE_MS,
   type DraftDoc,
   emptyDraftDoc,
+  type MachineId,
   type SessionId,
   type SessionUserOverlay,
+  sessionUserStateRowId,
   type UserId,
   type WorkState,
-  type MachineId,
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
-import type { RuntimeDraftResultMessage, RuntimeSnapshotResultMessage, ControlMessage } from '@podium/protocol/daemon'
+import type {
+  ControlMessage,
+  RuntimeDraftResultMessage,
+  RuntimeSnapshotResultMessage,
+} from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
@@ -157,10 +161,16 @@ export interface SessionStatePorts {
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
    *  no funnel span and no broadcast of its own. */
-  readonly writeSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => Promise<void>
+  readonly writeSession: (
+    sessionId: SessionId,
+    mutate: (draft: SessionStateDraft) => void,
+  ) => Promise<void>
   /** Shared session-field mutation through the host's canonical metadata seam
    *  — the funnel span and the broadcast that makes it visible. */
-  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => Promise<void>
+  readonly mutateSession: (
+    sessionId: SessionId,
+    mutate: (draft: SessionStateDraft) => void,
+  ) => Promise<void>
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
@@ -172,8 +182,10 @@ export interface SessionStatePorts {
     input: { sessionId: SessionId; operation: { verb: 'get' } | { verb: 'set'; text: string } },
     machineId: MachineId,
   ) => Promise<{ result: RuntimeDraftResultMessage['result'] }>
-  readonly runtimeSnapshot?: (sessionId: SessionId, machineId: MachineId) =>
-    Promise<{ result: RuntimeSnapshotResultMessage['result'] }>
+  readonly runtimeSnapshot?: (
+    sessionId: SessionId,
+    machineId: MachineId,
+  ) => Promise<{ result: RuntimeSnapshotResultMessage['result'] }>
   /** Re-arm durable inbox delivery after native terminal control is released. */
   readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
@@ -282,14 +294,15 @@ export class SessionStateService {
         const updatedAt = times[sessionId]
         if (updatedAt !== undefined) this.draftTimes.set(sessionId, updatedAt)
         const stored = docs[sessionId]
-        if (stored) this.draftDocs.set(sessionId, {
-          sessionId,
-          text: stored.text,
-          rev: stored.rev,
-          origin: stored.origin ?? 'seed',
-          editedAt: stored.updatedAt,
-          history: stored.history,
-        })
+        if (stored)
+          this.draftDocs.set(sessionId, {
+            sessionId,
+            text: stored.text,
+            rev: stored.rev,
+            origin: stored.origin ?? 'seed',
+            editedAt: stored.updatedAt,
+            history: stored.history,
+          })
       }
     }
   }
@@ -365,8 +378,12 @@ export class SessionStateService {
     await this.primeOwnerMemo(memo, ids)
     for (const sessionId of ids) {
       const target = await this.ports.sessionOwner({ sessionId, memo })
-      if (target && (target.owner === principal.userId ||
-          target.grants.includes(principal.userId) || principal.capability.scope.kind === 'all')) {
+      if (
+        target &&
+        (target.owner === principal.userId ||
+          target.grants.includes(principal.userId) ||
+          principal.capability.scope.kind === 'all')
+      ) {
         visible.add(sessionId)
       }
     }
@@ -398,12 +415,20 @@ export class SessionStateService {
   }
 
   /** Capture the reader cache once; the returned overlays have no service access. */
-  async overlaySnapshot(userId: UserId, sessionIds: readonly SessionId[]): Promise<ReadonlyMap<SessionId, SessionUserOverlay>> {
+  async overlaySnapshot(
+    userId: UserId,
+    sessionIds: readonly SessionId[],
+  ): Promise<ReadonlyMap<SessionId, SessionUserOverlay>> {
     const cached = await this.cachedOverlay(userId)
-    return new Map(sessionIds.map(id => [id, {
-      readAt: cached.readAt[id] ?? null,
-      snoozedUntil: id in cached.snoozes ? cached.snoozes[id] : undefined,
-    }]))
+    return new Map(
+      sessionIds.map((id) => [
+        id,
+        {
+          readAt: cached.readAt[id] ?? null,
+          snoozedUntil: id in cached.snoozes ? cached.snoozes[id] : undefined,
+        },
+      ]),
+    )
   }
 
   async readOverlay(
@@ -426,7 +451,11 @@ export class SessionStateService {
     this.overlays.clear()
   }
 
-  private async persistPerUser(userId: UserId, sessionId: SessionId, write: () => void | Promise<void>): Promise<boolean> {
+  private async persistPerUser(
+    userId: UserId,
+    sessionId: SessionId,
+    write: () => void | Promise<void>,
+  ): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
     try {
       await this.ports.persistSession(
@@ -466,19 +495,24 @@ export class SessionStateService {
 
   async markRead(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
-    return this.persistPerUser(principal.userId, sessionId, async () =>
-      await this.ports.store.sessions.markSessionRead(
-        principal.userId,
-        sessionId,
-        new Date(this.ports.now()).toISOString(),
-      ),
+    return this.persistPerUser(
+      principal.userId,
+      sessionId,
+      async () =>
+        await this.ports.store.sessions.markSessionRead(
+          principal.userId,
+          sessionId,
+          new Date(this.ports.now()).toISOString(),
+        ),
     )
   }
 
   async markUnread(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
-    return this.persistPerUser(principal.userId, sessionId, async () =>
-      await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
+    return this.persistPerUser(
+      principal.userId,
+      sessionId,
+      async () => await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
     )
   }
 
@@ -506,15 +540,19 @@ export class SessionStateService {
     until: string | null,
   ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
-    return this.persistPerUser(principal.userId, sessionId, async () =>
-      await this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
+    return this.persistPerUser(
+      principal.userId,
+      sessionId,
+      async () => await this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
     )
   }
 
   async clearSnooze(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
-    return this.persistPerUser(principal.userId, sessionId, async () =>
-      await this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
+    return this.persistPerUser(
+      principal.userId,
+      sessionId,
+      async () => await this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
     )
   }
 
@@ -553,7 +591,9 @@ export class SessionStateService {
     const panelVisible = await Promise.all(
       rows.panels.map(async (id) => {
         const sessionId = id as SessionId
-        return !this.ports.getSession(sessionId) || (await this.canReadSession(principal, sessionId))
+        return (
+          !this.ports.getSession(sessionId) || (await this.canReadSession(principal, sessionId))
+        )
       }),
     )
     return {
@@ -752,7 +792,10 @@ export class SessionStateService {
    * is precisely the old last-writer-wins behaviour, now expressed inside the
    * one arbitration rather than beside it.
    */
-  async setDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): Promise<void> {
+  async setDraft(
+    input: { sessionId: SessionId; text: string },
+    fromClientId?: string,
+  ): Promise<void> {
     await this.applyVersionedEdit(
       input.sessionId,
       { text: input.text, origin: fromClientId ?? 'seed' },
@@ -831,9 +874,11 @@ export class SessionStateService {
       this.draftEdits.set(sessionId, queue)
     }
     const currentQueue = queue
-    const operation = currentQueue.tail.catch(() => {}).then(async () => {
-      if (!currentQueue.cancelled) await this.commitVersionedEdit(sessionId, edit, fromClientId)
-    })
+    const operation = currentQueue.tail
+      .catch(() => {})
+      .then(async () => {
+        if (!currentQueue.cancelled) await this.commitVersionedEdit(sessionId, edit, fromClientId)
+      })
     currentQueue.tail = operation
     return operation.finally(() => {
       if (this.draftEdits.get(sessionId) === currentQueue && currentQueue.tail === operation) {
@@ -858,7 +903,14 @@ export class SessionStateService {
       if (fromClientId) this.ports.deliverToClient(fromClientId, this.draftWire(result.doc))
       return
     }
-    if (!result.changed) return
+    if (!result.changed) {
+      // A restored/offline edit may already be the server's current text. It
+      // still needs an acknowledgement, especially for a retried clear whose
+      // empty document is omitted from reconnect replay. Otherwise that device
+      // stays dirty and later re-offers its cache over another device's edit.
+      if (fromClientId) this.ports.deliverToClient(fromClientId, this.draftWire(result.doc))
+      return
+    }
     const doc = result.doc
     this.draftDocs.set(sessionId, doc)
     this.draftTimes.set(sessionId, doc.editedAt)
@@ -974,19 +1026,30 @@ export class SessionStateService {
     }
     const before = this.draftDocs.get(sessionId)
     const revision = before?.rev
-    if (before && before.rev > 0 && (!session.lastActiveAt || before.editedAt > session.lastActiveAt)) {
+    if (
+      before &&
+      before.rev > 0 &&
+      (!session.lastActiveAt || before.editedAt > session.lastActiveAt)
+    ) {
       this.sendDraftTarget(sessionId, machineId, before.text)
       return
     }
     const snapshot = await this.ports.runtimeSnapshot?.(sessionId, machineId)
-    let text = snapshot && 'snapshot' in snapshot.result ? snapshot.result.snapshot.draft : undefined
+    let text =
+      snapshot && 'snapshot' in snapshot.result ? snapshot.result.snapshot.draft : undefined
     if (text === undefined) {
-      const answer = await this.ports.runtimeDraft?.({ sessionId, operation: { verb: 'get' } }, machineId)
+      const answer = await this.ports.runtimeDraft?.(
+        { sessionId, operation: { verb: 'get' } },
+        machineId,
+      )
       if (answer && 'text' in answer.result) text = answer.result.text
     }
     // A delayed bootstrap must never replace a draft edited while it was in flight.
-    if (text !== undefined && this.ports.getSession(sessionId) === session &&
-        this.draftDocs.get(sessionId)?.rev === revision) {
+    if (
+      text !== undefined &&
+      this.ports.getSession(sessionId) === session &&
+      this.draftDocs.get(sessionId)?.rev === revision
+    ) {
       await this.handleNativeDraft(sessionId, text)
     }
   }
@@ -996,9 +1059,11 @@ export class SessionStateService {
       this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text })
       return
     }
-    void this.ports.runtimeDraft?.({ sessionId, operation: { verb: 'set', text } }, machineId)
+    void this.ports
+      .runtimeDraft?.({ sessionId, operation: { verb: 'set', text } }, machineId)
       .then(({ result }) => {
-        if ('reason' in result) log.warn('runtime draft write refused', { sessionId, reason: result.reason })
+        if ('reason' in result)
+          log.warn('runtime draft write refused', { sessionId, reason: result.reason })
       })
       .catch((error: unknown) => log.warn('runtime draft write failed', { sessionId, err: error }))
   }

@@ -588,7 +588,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     const drafts = { ...this.state.drafts }
     for (const id of Object.keys(this.draftLedger.snapshot())) {
-      const sessionId = asSessionId(id)
+      const sessionId = id as SessionId
       const local = this.draftLedger.get(sessionId)
       if (local) drafts[sessionId] = local.text
     }
