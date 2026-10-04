@@ -8,36 +8,39 @@ import { ExperimentalSection } from './experimental'
 const state = vi.hoisted(() => ({ features: null as FeaturesStateSnapshot | null }))
 
 vi.mock('@/lib/use-feature', () => ({
-  useFeaturesState: () => state.features ?? ({
-    devMode: false,
-    channel: 'stable',
-    flags: [
-      {
-        id: 'merge-queue',
-        name: 'Queues',
-        description: 'Show merge and heavy-test queues in the right sidebar.',
-        visibility: 'edge',
-        listed: true,
-        enabled: false,
-        source: 'default',
-        locked: false,
-      },
-      {
-        id: 'runtime-drivers',
-        name: 'Headless session drivers',
-        description:
-          'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
-        visibility: 'stable',
-        listed: true,
-        enabled: false,
-        source: 'default',
-        locked: false,
-      },
-    ],
-  }),
+  useFeaturesState: () =>
+    state.features ?? {
+      devMode: false,
+      channel: 'stable',
+      flags: [
+        {
+          id: 'merge-queue',
+          name: 'Queues',
+          description: 'Show merge and heavy-test queues in the right sidebar.',
+          visibility: 'edge',
+          listed: true,
+          enabled: false,
+          source: 'default',
+          locked: false,
+        },
+        {
+          id: 'runtime-drivers',
+          name: 'Headless session drivers',
+          description:
+            'Route headed sessions through the driver contract by default, keep legacy PTY available, and offer available headless runtime drivers when starting a session.',
+          visibility: 'stable',
+          listed: true,
+          enabled: false,
+          source: 'default',
+          locked: false,
+        },
+      ],
+    },
 }))
 
-beforeEach(() => { state.features = null })
+beforeEach(() => {
+  state.features = null
+})
 afterEach(cleanup)
 
 describe('ExperimentalSection', () => {
@@ -91,7 +94,9 @@ describe('ExperimentalSection', () => {
       ),
     ).toBeTruthy()
 
-    const row = screen.getByText('Headless session drivers').closest<HTMLDivElement>('.settings-row')
+    const row = screen
+      .getByText('Headless session drivers')
+      .closest<HTMLDivElement>('.settings-row')
     expect(row).not.toBeNull()
     const toggle = within(row!).getByRole('switch')
     expect(toggle.getAttribute('aria-checked')).toBe('false')

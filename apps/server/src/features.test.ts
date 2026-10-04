@@ -153,7 +153,10 @@ describe('retired reader pilot', () => {
     expect(result.flags.find((flag) => flag.id === HIDDEN)?.listed).toBe(false)
   })
 
-  it.each([true, false])('keeps the development override without the reader pilot: %s', (development) => {
+  it.each([
+    true,
+    false,
+  ])('keeps the development override without the reader pilot: %s', (development) => {
     const result = getFeatureStates(
       settings({ 'podium-development': !development }),
       { updateChannel: 'dev', features: { 'podium-development': development } },
