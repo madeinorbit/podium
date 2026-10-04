@@ -324,17 +324,12 @@
   },
   {
     "issue": "POD-5421",
-    "reason": "Review findings 2, 3 and 4: mission topology, pane/history projections, header closure and navigation walks.",
+    "reason": "Review findings 2, 3 and 4. The mission pane, navigation and folded-header readers no longer walk mission history per click or per change (focused gate: mission-screen-work.test.ts). What remains is recorded exactly: the two context menus (readMissionActionInputs: the issue catalog and the whole seat roster), the sidebar row model the folded header reads for progress, the engine's navigate-by-ref work (legacy optimism repaint of every session view, tab pruning) and its republication at 4x, and a second publication per single-row delta at 4x that runs each reader twice.",
     "readers": [
-      {
-        "reader": "Mission@guard-root.topology",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
       {
         "reader": "consumer:header.folded",
         "actions": {
+          "navigate-by-ref": ["elements"],
           "heartbeat": ["derivations"]
         }
       },
@@ -398,13 +393,15 @@
       {
         "reader": "consumer:header.folded/header.folded",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["derivations"]
+        }
+      },
+      {
+        "reader": "consumer:header.folded/header.foldedMission:guard-root",
+        "actions": {
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "derivations"]
         }
       },
       {
@@ -428,12 +425,10 @@
       {
         "reader": "consumer:mission.pane",
         "actions": {
-          "select": ["rows", "elements"],
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "derivations", "elements"],
           "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"],
           "lane-change": ["rows", "derivations", "elements"]
         }
       },
@@ -444,38 +439,35 @@
         }
       },
       {
-        "reader": "consumer:mission.pane/MissionNode@guard-child.missionPaneFull",
-        "actions": {
-          "select": ["elements"],
-          "stage-change": ["elements"],
-          "pane-switch": ["elements"]
-        }
-      },
-      {
         "reader": "consumer:mission.pane/MissionNode@guard-root.missionHandoff",
         "actions": {
-          "select": ["elements"],
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["rows", "derivations", "elements"],
           "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["elements"],
           "lane-change": ["rows", "derivations", "elements"]
         }
       },
       {
-        "reader": "consumer:mission.pane/MissionNode@guard-root.missionIssue",
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneCoreFull",
         "actions": {
-          "stage-change": ["rows", "elements"]
+          "navigate-by-ref": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "derivations", "elements"]
         }
       },
       {
         "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull",
         "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "navigate-by-ref": ["derivations"],
+          "heartbeat": ["derivations"],
+          "lane-change": ["derivations"]
+        }
+      },
+      {
+        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneRowsFull",
+        "actions": {
+          "navigate-by-ref": ["derivations", "elements"],
+          "heartbeat": ["derivations", "elements"]
         }
       },
       {
@@ -490,22 +482,20 @@
         }
       },
       {
+        "reader": "consumer:mission.session-menu/MissionNode@guard-root.missionAttachments",
+        "actions": {
+          "pane-switch": ["rows", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
+          "machine-flip": ["rows", "elements"]
+        }
+      },
+      {
         "reader": "consumer:mission.workspace",
         "actions": {
           "navigate-by-ref": ["derivations"],
           "heartbeat": ["derivations"],
           "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.activity",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -554,11 +544,16 @@
         }
       },
       {
+        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue",
+        "actions": {
+          "navigate-by-ref": ["derivations"]
+        }
+      },
+      {
         "reader": "pool projection",
         "actions": {
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "heartbeat": ["rows", "derivations"],
+          "lane-change": ["rows", "derivations"]
         }
       }
     ]
