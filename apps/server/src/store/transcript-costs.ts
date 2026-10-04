@@ -6,7 +6,7 @@
  * cost", for a task that closed months ago and whose week is long gone.
  *
  * NO DOLLARS IN THIS FILE. `models_json` is tokens by model, and the one price
- * table lives in `client-core/viewmodels/usage.ts` — see `entities/cost.ts` for
+ * table lives in `client-core/values/usage.ts` — see `entities/cost.ts` for
  * why there must never be a second one.
  *
  * WRITES ARE IDEMPOTENT UPSERTS, NOT ACCUMULATIONS. The daemon reports absolute

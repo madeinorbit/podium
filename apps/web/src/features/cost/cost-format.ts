@@ -1,7 +1,7 @@
 /**
  * HOW A COST FIGURE IS WORDED (POD-1859).
  *
- * `client-core/viewmodels/cost.ts` deliberately stops at arithmetic — its header
+ * `client-core/values/cost.ts` deliberately stops at arithmetic — its header
  * says so, and the reason is that a viewmodel which pre-rendered the words would
  * put the same sentence in four surfaces. This is the other half: the rounding
  * and the phrasing, in ONE module, so the panel and the task-detail page cannot
@@ -11,7 +11,7 @@
  * TWO PRECISIONS, AND THE DIFFERENCE IS THE POINT
  * ─────────────────────────────────────────────────────────────────────────────
  * NOTHING HERE ROUNDS OR NAMES A HARNESS ITSELF. Every function below delegates
- * to `client-core/viewmodels`, which the coordinator made binding for all four
+ * to `client-core/values`, which the coordinator made binding for all four
  * cost surfaces: `formatCostRounded`, `formatCostExact`, `costHarnessLabel` and
  * the sheet's own `formatCostWeightRatio`. A second implementation of the same
  * rounding is how one task comes to read two prices — the defect this feature

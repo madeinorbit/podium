@@ -1155,7 +1155,7 @@ const DECLARED = defineSchema({
       recency: 'lastActiveAt',
       order: 'first-member',
       source:
-        'dedupeSessionsByResume (model/src/identity/session-identity.ts:45), applied to every session list the runtime reads (client-core/src/engine/optimism.ts:876).',
+        'dedupeSessionsByResume (model/src/identity/session-identity.ts), preserved by the pool resumeGroup collapse rule.',
       why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting/reconnecting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
     cold: {

@@ -6,7 +6,7 @@
  * NO DOLLARS CROSS THIS BOUNDARY, AND THAT IS THE DESIGN
  * ─────────────────────────────────────────────────────────────────────────────
  * Every figure here is TOKENS. The one price table lives in
- * `client-core/viewmodels/usage.ts` and its header records why there must never
+ * `client-core/values/usage.ts` and its header records why there must never
  * be a second copy: two tables quote two dollar figures for the same tokens the
  * first time a model id lands on a different row. The server has no dependency
  * on client-core and must not grow one, so it ships token totals and the client
