@@ -354,7 +354,9 @@ export function createSideCache(init: SideCacheInit): SideCache {
   const onStorage = (event: StorageEvent): void => {
     if (event.key !== uiKey) return
     const next = readJson<Record<string, string>>(storage, uiKey, {})
-    const changed = new Set([...Object.keys(ui), ...Object.keys(next)].filter(key => ui[key] !== next[key]))
+    const changed = new Set(
+      [...Object.keys(ui), ...Object.keys(next)].filter((key) => ui[key] !== next[key]),
+    )
     ui = next
     for (const cb of uiListeners) cb(changed)
   }

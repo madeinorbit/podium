@@ -1,15 +1,23 @@
+import type { PodiumClientApi } from '@podium/client-core/api'
+import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import { observe, reaction, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
-import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
-import type { PodiumClientApi } from '@podium/client-core/api'
+import {
+  HEADER_SCHEMA,
+  type HeaderEntity,
+  type HeaderRecord,
+  type HeaderRows,
+} from './header-schema'
 import type { MobxPool } from './pool'
-import { HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
 import { createFieldInputs } from './shared/field-inputs'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. The metric
  * channel never subscribes to snapshots. Polling has one owner per principal,
  * and late replies cannot enter a disposed pool. */
-export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool, runtime: ClientRuntime<TApi>): () => void {
+export function attachHeaderSource<TApi extends PodiumClientApi>(
+  pool: MobxPool,
+  runtime: ClientRuntime<TApi>,
+): () => void {
   let disposed = false
   const known = new Map<HeaderEntity, Set<string>>()
   function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
@@ -27,11 +35,19 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   }
   // Keyed (POD-5433): machines and repos arrive by id, with only the rows
   // that changed; the window wakes on its own four locals.
-  function keyed(entity: 'machine' | 'repository', name: 'machines' | 'repos', change?: KeyedListChange): void {
+  function keyed(
+    entity: 'machine' | 'repository',
+    name: 'machines' | 'repos',
+    change?: KeyedListChange,
+  ): void {
     if (disposed) return
     const ids = runtime.listIds(name)
     const changed = change === undefined ? ids : [...change.ids]
-    const records = changed.map((id) => ({ kind: entity, id, value: runtime.listRow(name, id) })) as HeaderRecord[]
+    const records = changed.map((id) => ({
+      kind: entity,
+      id,
+      value: runtime.listRow(name, id),
+    })) as HeaderRecord[]
     known.set(entity, new Set(ids))
     runInAction(() => {
       pool.header.apply(records)
@@ -42,14 +58,23 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   const inputs = createFieldInputs<HeaderRows['window']>(windowKeys, {}, 'headerWindow')
   function locals(changed?: ReadonlySet<string>): void {
     runInAction(() => {
-      for (const key of windowKeys) if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
+      for (const key of windowKeys)
+        if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
     })
   }
   function metrics(): void {
-    replace('hostMetric', runtime.hostMetrics.getSnapshot().map((metric) => [metric.machineId ?? metric.hostname, metric]))
+    replace(
+      'hostMetric',
+      runtime.hostMetrics
+        .getSnapshot()
+        .map((metric) => [metric.machineId ?? metric.hostname, metric]),
+    )
   }
   function shipping(): void {
-    replace('shipOrder', runtime.replica.rows('shipOrders').map((order) => [order.id, order]))
+    replace(
+      'shipOrder',
+      runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
+    )
   }
   const api = runtime.getSnapshot().trpc
   let quotaPending = false
@@ -60,15 +85,27 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
       const rows = await api.quota.summary.query()
       if (disposed) return
       pool.header.received.quotas = rows
-      replace('quota', rows.map((row) => [row.machineId, row]))
-    } catch { /* Preserve the last reading, as the legacy indicator does. */ }
-    finally { quotaPending = false }
+      replace(
+        'quota',
+        rows.map((row) => [row.machineId, row]),
+      )
+    } catch {
+      /* Preserve the last reading, as the legacy indicator does. */
+    } finally {
+      quotaPending = false
+    }
   }
   runInAction(() => {
     for (const [id, row] of allResidentSessions(pool)) pool.header.change('session', id, row)
   })
   const offSessions = observe(pool.tables.session, (change) => {
-    pool.header.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined)
+    pool.header.change(
+      'session',
+      change.name,
+      change.type === 'delete'
+        ? undefined
+        : (pool.row('session', change.name) as object | undefined),
+    )
   })
   keyed('machine', 'machines')
   keyed('repository', 'repos')
@@ -77,21 +114,35 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   metrics()
   shipping()
   replace('connection', [['server', runtime.hub.connectionHealth()]])
-  const stops = [offSessions, runtime.replica.subscribeAddressedBatch!((batch) => {
-    if (batch.type === 'replace' || batch.rows.some((record) => record.kind === 'shipOrders')) shipping()
-  }), runtime.onLocals(windowKeys, locals),
+  const stops = [
+    offSessions,
+    runtime.replica.subscribeAddressedBatch!((batch) => {
+      if (batch.type === 'replace' || batch.rows.some((record) => record.kind === 'shipOrders'))
+        shipping()
+    }),
+    runtime.onLocals(windowKeys, locals),
     runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
     runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
     runtime.hostMetrics.subscribe(metrics),
-    runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]]))]
+    runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]])),
+  ]
   void quota()
-  void api.settings.get.query().then((settings) => {
-    if (disposed) return
-    pool.header.received.lifecycle = settings
-    replace('lifecycle', [['hosts', settings]])
-  }).catch(() => {})
+  void api.settings.get
+    .query()
+    .then((settings) => {
+      if (disposed) return
+      pool.header.received.lifecycle = settings
+      replace('lifecycle', [['hosts', settings]])
+    })
+    .catch(() => {})
   // This endpoint is optional on the structural client API; the web supplies it.
-  const historyApi = (api.sessions as typeof api.sessions & { concurrencyHistory?: { query(): Promise<import('./header-schema').HeaderRows['history']> } } | undefined)?.concurrencyHistory
+  const historyApi = (
+    api.sessions as
+      | (typeof api.sessions & {
+          concurrencyHistory?: { query(): Promise<import('./header-schema').HeaderRows['history']> }
+        })
+      | undefined
+  )?.concurrencyHistory
   let historyPending = false
   async function history(): Promise<void> {
     if (!historyApi || disposed || historyPending) return
@@ -99,16 +150,42 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
     try {
       const reading = await historyApi.query()
       if (disposed) return
-      if (reading.buckets.length === 24 && Number.isFinite(reading.bucketMs) && reading.bucketMs > 0 && Number.isInteger(reading.peak) && reading.peak >= 0 && reading.buckets.every((bucket) => Number.isInteger(bucket.count) && bucket.count >= 0 && Number.isFinite(Date.parse(bucket.start)))) {
+      if (
+        reading.buckets.length === 24 &&
+        Number.isFinite(reading.bucketMs) &&
+        reading.bucketMs > 0 &&
+        Number.isInteger(reading.peak) &&
+        reading.peak >= 0 &&
+        reading.buckets.every(
+          (bucket) =>
+            Number.isInteger(bucket.count) &&
+            bucket.count >= 0 &&
+            Number.isFinite(Date.parse(bucket.start)),
+        )
+      ) {
         pool.header.received.history = reading
         replace('history', [['fleet', reading]])
       }
-    } catch {} finally { historyPending = false }
+    } catch {
+    } finally {
+      historyPending = false
+    }
   }
-  stops.push(reaction(() => pool.headerViews.working().length, () => { void history() }))
+  stops.push(
+    reaction(
+      () => pool.headerViews.working().length,
+      () => {
+        void history()
+      },
+    ),
+  )
   void history()
-  const historyTimer = setInterval(() => { void history() }, 5 * 60_000)
-  const timer = setInterval(() => { void quota() }, 60_000)
+  const historyTimer = setInterval(() => {
+    void history()
+  }, 5 * 60_000)
+  const timer = setInterval(() => {
+    void quota()
+  }, 60_000)
   return () => {
     if (disposed) return
     disposed = true

@@ -201,10 +201,7 @@ export function createPoolHost({
       last.value = view.getSnapshot(reader.current)
       return last.value
     }, [active, last, view])
-    return useSyncExternalStore(
-      active && view ? view.subscribe : EMPTY_SUBSCRIPTION,
-      snapshot,
-    )
+    return useSyncExternalStore(active && view ? view.subscribe : EMPTY_SUBSCRIPTION, snapshot)
   }
 
   return { attach, usePool, usePoolProjection, survivors }

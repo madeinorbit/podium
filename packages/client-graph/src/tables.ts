@@ -54,12 +54,12 @@
 
 import { type ObservableMap, observable } from 'mobx'
 import { debugName } from './debug-name'
-import { ingestWorktreeRecord, repoFieldOf } from './shared/repo-from-lane'
-import { createFieldInputs } from './shared/field-inputs'
-import { type EntityName, SCHEMA } from './shared/schema'
-import type { RowRecord } from './shared/source'
 import type { RelationMaintenance } from './relations'
 import type { Residency } from './residency'
+import { createFieldInputs } from './shared/field-inputs'
+import { ingestWorktreeRecord, repoFieldOf } from './shared/repo-from-lane'
+import { type EntityName, SCHEMA } from './shared/schema'
+import type { RowRecord } from './shared/source'
 
 /** A stored row: the borrowed object the feed handed out, untouched. */
 export type StoredRow = object
@@ -101,7 +101,10 @@ function tablesOf<T extends WritableTable>(make: (entity: EntityName) => T): Tab
 /** The live pool's tables: shallow observable maps, one per schema entity. */
 export function createObservableTables(): PoolTables {
   return tablesOf((entity) =>
-    observable.map<string, StoredRow>(undefined, { deep: false, name: debugName(() => `pool.${entity}`) }),
+    observable.map<string, StoredRow>(undefined, {
+      deep: false,
+      name: debugName(() => `pool.${entity}`),
+    }),
   )
 }
 
@@ -173,7 +176,10 @@ export function put(
   }
   if (entity === 'repo') {
     const next: RepoInputs = {
-      id: (row as { id?: unknown; repoId?: unknown }).id ?? (row as { repoId?: unknown }).repoId ?? id,
+      id:
+        (row as { id?: unknown; repoId?: unknown }).id ??
+        (row as { repoId?: unknown }).repoId ??
+        id,
       prefix: repoFieldOf(row, 'prefix'),
       repoPath: repoFieldOf(row, 'path'),
     }
@@ -212,7 +218,10 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
   const value = record.value as StoredRow | undefined
   if (record.kind === 'worktree') {
     let holders = repoHolders.get(target.write.repo)
-    if (!holders) { holders = new Map(); repoHolders.set(target.write.repo, holders) }
+    if (!holders) {
+      holders = new Map()
+      repoHolders.set(target.write.repo, holders)
+    }
     // Repo-from-lane is the shared feed-layer composition (POD-4695): the
     // pool only adapts its slot writes. The takeover reads the maintained
     // `repo.worktrees` collection; with no relations (rebuild, replace
@@ -220,9 +229,12 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
     ingestWorktreeRecord(
       {
         getWorktree: (id) => target.read.worktree.get(id) as StoredRow | undefined,
-        getRepo: (id) => holders.get(id) ?? target.read.repo.get(id) as StoredRow | undefined,
+        getRepo: (id) => holders.get(id) ?? (target.read.repo.get(id) as StoredRow | undefined),
         putWorktree: (id, row) => put(target, 'worktree', id, row, out),
-        putRepo: (id, row) => { holders.set(id, row); put(target, 'repo', id, row, out) },
+        putRepo: (id, row) => {
+          holders.set(id, row)
+          put(target, 'repo', id, row, out)
+        },
         dropWorktree: (id) => drop(target, 'worktree', id, out),
         dropRepo: (id) => drop(target, 'repo', id, out),
         repoWorktreeMembers: (repoId) => target.relations?.members('repo', repoId, 'worktrees'),

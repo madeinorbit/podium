@@ -1,10 +1,10 @@
-import type { SettingsOwner } from './settings-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { attachHeaderSource } from './header-source'
 import { Reaction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
+import { attachHeaderSource } from './header-source'
 import type { MobxPool } from './pool'
+import type { SettingsOwner } from './settings-source'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import {
   createRowSource,
@@ -12,9 +12,13 @@ import {
   type RowSourceReplica,
   type RowSourceRuntime,
 } from './shared/row-source'
-import { createPoolTransactions, type PoolTransactions, type PoolTransactionsPorts } from './write/transactions'
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { PoolSummaryFields } from './source-registry'
+import {
+  createPoolTransactions,
+  type PoolTransactions,
+  type PoolTransactionsPorts,
+} from './write/transactions'
 
 /** Readers return identities owned by their memoized row/band projections.
  * Small scalar tuples may opt into an explicit equality function. */
@@ -25,8 +29,11 @@ export const samePoolProjection = Object.is
  * palette and project controls, which need only a small section projection.
  * Optional diagnostics let the structural harness observe this real boundary;
  * the app uses reference equality by default. */
-export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T,
-  options: { name?: string; equals?: (before: T, next: T) => boolean } = {}) {
+export function createPoolProjection<T>(
+  pool: MobxPool,
+  read: (pool: MobxPool) => T,
+  options: { name?: string; equals?: (before: T, next: T) => boolean } = {},
+) {
   const state = projectionState(pool, read, options)
   const view = {
     /** Hidden owners retain their last paint but release every dependency.
@@ -47,7 +54,8 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
         state.dirty = true
       }
       if (!state.active) {
-        if (state.snapshot === null) throw new Error('An inactive projection has no painted snapshot')
+        if (state.snapshot === null)
+          throw new Error('An inactive projection has no painted snapshot')
         return state.snapshot.value
       }
       if (observeProjection(state) && !state.listeners.size) {
@@ -60,7 +68,9 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
       return state.snapshot!.value
     },
     subscribe(wake: () => void): () => void {
-      const before = state.snapshot, error = state.error, version = state.version
+      const before = state.snapshot,
+        error = state.error,
+        version = state.version
       if (state.active) observeProjection(state)
       // Lazy reader construction can publish observable initialization during
       // tracking. Settle those real changes before attaching an imperative watch.
@@ -70,7 +80,10 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
       state.listeners.add(listener)
       // Imperative readers paint before subscribing. A lazy source can finish
       // initialization during that read; publish its newer snapshot at attachment.
-      if ((before !== null || error !== null || state.version !== version) && (state.snapshot !== before || state.error !== error))
+      if (
+        (before !== null || error !== null || state.version !== version) &&
+        (state.snapshot !== before || state.error !== error)
+      )
         wake()
       return () => {
         state.listeners.delete(listener)
@@ -97,8 +110,11 @@ interface ProjectionState<T> {
 
 // These helpers stay outside createPoolProjection: reaction closures must not
 // share a context with the view, or they would retain the finalization target.
-function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T,
-  options: { name?: string; equals?: (before: T, next: T) => boolean }): ProjectionState<T> {
+function projectionState<T>(
+  pool: MobxPool,
+  read: (pool: MobxPool) => T,
+  options: { name?: string; equals?: (before: T, next: T) => boolean },
+): ProjectionState<T> {
   return {
     pool,
     name: options.name ?? 'pool projection',
@@ -123,7 +139,8 @@ function observeProjection<T>(state: ProjectionState<T>): boolean {
     // Filter before notifying React or imperative consumers: equal projections
     // must not trigger owner renders, even when an observed input changes.
     if (state.listeners.size) {
-      const before = state.snapshot, error = state.error
+      const before = state.snapshot,
+        error = state.error
       refreshProjection(state)
       if (state.snapshot !== before || state.error !== error)
         for (const listener of [...state.listeners]) listener()
@@ -144,7 +161,10 @@ function refreshProjection<T>(state: ProjectionState<T>): void {
       state.error = { cause }
     }
   })
-  if (state.error === null && (state.snapshot === null || !state.equals(state.snapshot.value, next)))
+  if (
+    state.error === null &&
+    (state.snapshot === null || !state.equals(state.snapshot.value, next))
+  )
     state.snapshot = { value: next }
 }
 
@@ -175,9 +195,19 @@ type TransactionsRuntime = WorklistRuntime & {
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
-  if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes || !rt.enqueueOverlayed ||
-    !rt.spawnPlaceholders || !rt.subscribeSpawnPlaceholders || !rt.attachPoolWriter || !subscribeAddressed) {
-    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams')
+  if (
+    !rt.principal ||
+    !rt.outbox ||
+    !rt.subscribeOutboxOutcomes ||
+    !rt.enqueueOverlayed ||
+    !rt.spawnPlaceholders ||
+    !rt.subscribeSpawnPlaceholders ||
+    !rt.attachPoolWriter ||
+    !subscribeAddressed
+  ) {
+    throw new Error(
+      'Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams',
+    )
   }
   return createPoolTransactions({
     userId: rt.principal.userId,
@@ -190,7 +220,10 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
 }
 
 /** Route the runtime's queued actions through the log; returns the detach. */
-export function attachRuntimeWriter(runtime: WorklistRuntime, transactions: PoolTransactions): () => void {
+export function attachRuntimeWriter(
+  runtime: WorklistRuntime,
+  transactions: PoolTransactions,
+): () => void {
   return (runtime as TransactionsRuntime).attachPoolWriter(transactions)
 }
 
@@ -204,13 +237,27 @@ export function attachRuntimeWriter(runtime: WorklistRuntime, transactions: Pool
  * the model setters do. The ledger keeps painting legacy screens from the
  * same outbox records.
  */
-export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { preferences?: boolean; settings?: boolean; header?: boolean; summaries?: PoolSummaryFields; owns?: readonly PoolOwnedKind[] } = {}): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
+export function createRuntimeWorklistPool(
+  runtime: WorklistRuntime,
+  options: {
+    preferences?: boolean
+    settings?: boolean
+    header?: boolean
+    summaries?: PoolSummaryFields
+    owns?: readonly PoolOwnedKind[]
+  } = {},
+): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
   const owned = new Set(options.owns ?? [])
   const transactions = owned.size > 0 ? createRuntimeTransactions(runtime) : null
   let rows: ReturnType<typeof createRowSource>
   try {
-    rows = createRowSource(runtime, runtime.replica,
-      transactions === null ? { mode: 'overlaid' } : { mode: 'pooled', pending: transactions.pending, owned })
+    rows = createRowSource(
+      runtime,
+      runtime.replica,
+      transactions === null
+        ? { mode: 'overlaid' }
+        : { mode: 'pooled', pending: transactions.pending, owned },
+    )
   } catch (error) {
     transactions?.dispose()
     throw error
@@ -227,7 +274,9 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
         ...rows.source,
         // The pool's display reader follows first-in-replica order. The
         // replica's unique-only resolver keeps its existing ambiguity rule.
-        ...(rows.source.issueIdsByRef ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] } : {}),
+        ...(rows.source.issueIdsByRef
+          ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] }
+          : {}),
         subscribe: (listener) =>
           rows.source.subscribe((event) => {
             measureWorklistPoolDelivery(runtime, () => listener(event))
@@ -244,14 +293,22 @@ export function createRuntimeWorklistPool(runtime: WorklistRuntime, options: { p
     }
     if (options.settings) {
       const owner = runtime as unknown as Partial<SettingsOwner> & Pick<SettingsOwner, 'readLocal'>
-      if (typeof owner.onList !== 'function' || !Array.isArray(owner.readLocal('machines')) || owner.readLocal('settingsTab') === undefined) {
+      if (
+        typeof owner.onList !== 'function' ||
+        !Array.isArray(owner.readLocal('machines')) ||
+        owner.readLocal('settingsTab') === undefined
+      ) {
         throw new Error('Settings require the existing runtime catalog and window owner')
       }
       // The shared row-source seam exposes only its repo inputs. The provider
       // runtime also owns the catalog/window fields checked above.
       handle.pool.attachSettings(runtime as WorklistRuntime & SettingsOwner)
     }
-    if (options.header) stopHeader = attachHeaderSource(handle.pool, runtime as Parameters<typeof attachHeaderSource>[1])
+    if (options.header)
+      stopHeader = attachHeaderSource(
+        handle.pool,
+        runtime as Parameters<typeof attachHeaderSource>[1],
+      )
     stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
     if (transactions !== null) {
       transactions.bind(rows)

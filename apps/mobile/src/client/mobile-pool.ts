@@ -17,13 +17,13 @@ import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-sc
 import { navigationPoolScreen } from '@podium/client-graph/navigation-screen'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { useProjectionFocus } from './projection-focus'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
   SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
+import { useProjectionFocus } from './projection-focus'
 
 export interface MobilePool {
   readonly host: PoolHost

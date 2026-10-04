@@ -45,7 +45,11 @@ import {
   noticeMessages,
   noticeRecovery,
 } from '@podium/client-graph/notice-views'
-import { createPoolProjection, createRuntimeWorklistPool, samePoolProjection } from '@podium/client-graph/runtime-pool'
+import {
+  createPoolProjection,
+  createRuntimeWorklistPool,
+  samePoolProjection,
+} from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
   SESSION_PANE_SUMMARIES,

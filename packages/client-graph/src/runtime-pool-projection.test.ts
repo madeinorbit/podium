@@ -1,9 +1,9 @@
 import { compareStructural, getObserverTree } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
+import { projectionComparisonMechanism } from '../diagnostics/projection-comparison-mechanism'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
-import { projectionComparisonMechanism } from '../diagnostics/projection-comparison-mechanism'
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -17,22 +17,33 @@ function fixture() {
   // Track size as well as membership so another key can change an observed
   // input while preserving the projected result. The size atom also exposes
   // the projection's real observer lifetime through getObserverTree.
-  const read = vi.fn((current: MobxPool) => ({ selected: current.selection.size > 0 && current.selection.has('target') }))
+  const read = vi.fn((current: MobxPool) => ({
+    selected: current.selection.size > 0 && current.selection.has('target'),
+  }))
   const view = createPoolProjection(pool, read, { equals: compareStructural })
   const subscribe = (wake = vi.fn()) => {
     const stop = view.subscribe(wake)
     cleanups.push(stop)
     return stop
   }
-  return { pool, read, view, subscribe,
-    change: (id: string | null) => pool.applyLocals({ selectedIssueId: id, coarseNow: 0 }, new Set(['selectedIssueId'])),
+  return {
+    pool,
+    read,
+    view,
+    subscribe,
+    change: (id: string | null) =>
+      pool.applyLocals({ selectedIssueId: id, coarseNow: 0 }, new Set(['selectedIssueId'])),
     observers: () => getObserverTree(pool.selection).observers?.length ?? 0,
   }
 }
 
 it('uses reference equality without reading collection fields at either scale', () => {
   for (const scale of [1, 4] as const) {
-    expect(projectionComparisonMechanism(scale)).toEqual({ scale, derivations: 1, comparedFields: 0 })
+    expect(projectionComparisonMechanism(scale)).toEqual({
+      scale,
+      derivations: 1,
+      comparedFields: 0,
+    })
   }
 })
 
@@ -46,7 +57,8 @@ it('does no reads or equality work for a hidden projection, then pulls the lates
   cleanups.push(view.subscribe(wake))
   view.setActive(false)
   expect(f.observers()).toBe(0)
-  read.mockClear(); equals.mockClear()
+  read.mockClear()
+  equals.mockClear()
   for (const id of ['one', 'two', 'three', 'target']) f.change(id)
   expect(view.getSnapshot()).toBe(first)
   expect(read).not.toHaveBeenCalled()
@@ -65,8 +77,10 @@ it('tracks the first snapshot once and shares one observer among all subscriptio
   expect(f.view.getSnapshot()).toBe(first)
   expect(f.read).toHaveBeenCalledTimes(1)
   expect(f.observers()).toBe(1)
-  const a = vi.fn(), b = vi.fn()
-  const stopA = f.subscribe(a), stopB = f.subscribe(b)
+  const a = vi.fn(),
+    b = vi.fn()
+  const stopA = f.subscribe(a),
+    stopB = f.subscribe(b)
   expect(f.read).toHaveBeenCalledTimes(1)
   f.change('target')
   const next = f.view.getSnapshot()
@@ -128,8 +142,18 @@ it('re-arms after the last unsubscribe and preserves equal snapshot identity', (
 
 it('publishes lazy reference initialization when subscribing before the first snapshot', () => {
   const f = fixture()
-  const issue = { id: 'one', seq: 1, prefix: 'POD', title: 'Task one', stage: 'review',
-    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false, repoPath: '/r', deps: [] }
+  const issue = {
+    id: 'one',
+    seq: 1,
+    prefix: 'POD',
+    title: 'Task one',
+    stage: 'review',
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+    archived: false,
+    repoPath: '/r',
+    deps: [],
+  }
   f.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'one', value: issue as never }] })
   const read = vi.fn((current: MobxPool) => current.references.read('POD-1'))
   const view = createPoolProjection(f.pool, read)
@@ -139,7 +163,10 @@ it('publishes lazy reference initialization when subscribing before the first sn
   expect(wake).toHaveBeenCalledTimes(1)
   // The first read builds the reference index, which publishes its readiness.
   expect(read).toHaveBeenCalledTimes(2)
-  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'one', value: { ...issue, title: 'Changed' } as never }] })
+  f.pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: 'one', value: { ...issue, title: 'Changed' } as never }],
+  })
   expect(view.getSnapshot()).toMatchObject({ title: 'Changed' })
   expect(read).toHaveBeenCalledTimes(3)
   expect(wake).toHaveBeenCalledTimes(2)

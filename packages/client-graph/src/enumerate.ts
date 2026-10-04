@@ -14,19 +14,19 @@
  * (`harness/src/adapters/mobx-rebuild.ts`, POD-4945), never product.
  */
 
-import type { RowRecord } from './shared/source'
-import type { EntityName } from './shared/schema'
-import type { MobxPool } from './pool'
 import type { HeaderEntity } from './header-schema'
+import type { MobxPool } from './pool'
+import type { EntityName } from './shared/schema'
+import type { RowRecord } from './shared/source'
 import {
   createPlainTables,
   drop,
   ENTITIES,
   type IngestOut,
   type IngestTarget,
-  type PoolTables,
   ingestOut,
   ingestRecord,
+  type PoolTables,
   put,
   replaceRepoHolders,
   type StoredRow,
@@ -34,12 +34,19 @@ import {
 
 /** One startup seed for the reference reader. Only resident slots participate;
  * subsequent upkeep follows individual table changes, never cold summaries. */
-export function seedIssueReferences(tables: Pick<PoolTables, 'issue'>, track: (id: string) => void): void {
+export function seedIssueReferences(
+  tables: Pick<PoolTables, 'issue'>,
+  track: (id: string) => void,
+): void {
   for (const id of tables.issue.keys()) track(id)
 }
 
 /** Header attachment seeds once; all subsequent session upkeep is by id. */
-export function seedHeaderSessions(pool: MobxPool, resident: (id: string) => void, cold: (id: string) => void): void {
+export function seedHeaderSessions(
+  pool: MobxPool,
+  resident: (id: string) => void,
+  cold: (id: string) => void,
+): void {
   for (const id of pool.queries.ids({ kind: 'headerSessions' })) {
     if (pool.tables.session.has(id)) resident(id)
     else cold(id)
@@ -104,13 +111,20 @@ export function reseed(
       yield [key.slice(0, colon) as EntityName, key.slice(colon + 1), row]
     }
   }
-  residency?.attach(target, carried === null ? null : (entity, id) => carried?.get(`${entity}:${id}`), out, unknown())
+  residency?.attach(
+    target,
+    carried === null ? null : (entity, id) => carried?.get(`${entity}:${id}`),
+    out,
+    unknown(),
+  )
 }
 
 /** Header key census stays in the pool's one enumeration module. Values are
  * read only through pool.row; unloaded rows use their declared summaries. */
 export function headerIds(pool: MobxPool, entity: HeaderEntity): string[] {
-  return [...new Set([...(pool.header.orders.get(entity) ?? []), ...pool.header.tables[entity].keys()])]
+  return [
+    ...new Set([...(pool.header.orders.get(entity) ?? []), ...pool.header.tables[entity].keys()]),
+  ]
 }
 export function residentSessionIds(pool: MobxPool): string[] {
   return pool.header.sessionOrder.get()
@@ -127,7 +141,9 @@ export function allResidentSessions(pool: MobxPool): [string, object][] {
  * with a whole-catalog control; no product reader enumerates history.
  */
 export function knownIds(pool: MobxPool, entity: 'issue' | 'session'): string[] {
-  const all = pool.coldIndex().readerIds({ kind: entity === 'issue' ? 'commandIssues' : 'commandSessions' })
+  const all = pool
+    .coldIndex()
+    .readerIds({ kind: entity === 'issue' ? 'commandIssues' : 'commandSessions' })
   return [...new Set([...pool.tables[entity].keys(), ...all])].sort()
 }
 export function residentWorktreeIds(pool: MobxPool): string[] {

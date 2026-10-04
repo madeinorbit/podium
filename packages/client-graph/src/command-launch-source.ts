@@ -1,10 +1,16 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
-import type { MobxPool } from './pool'
+import {
+  COMMAND_ENTITIES,
+  COMMAND_LAUNCH_SCHEMA,
+  COMMAND_RELATIONS,
+  type CommandEntity,
+  type CommandLaunchRows,
+} from './command-launch-schema'
 import { allResidentSessions } from './enumerate'
-import { COMMAND_ENTITIES, COMMAND_RELATIONS, COMMAND_LAUNCH_SCHEMA, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
+import type { MobxPool } from './pool'
 import { createFieldInputs } from './shared/field-inputs'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -12,8 +18,15 @@ import { LOADING, type Loaded } from './worklist/rollup'
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
  * acquired from the runtime, and only resident session rows enter the indexes. */
 export class CommandLaunchSource implements PoolSource<CommandEntity> {
-  private readonly tables = Object.fromEntries(COMMAND_ENTITIES.map(entity => [entity, observable.map<string, object>(undefined, { deep: false })])) as Record<CommandEntity, ReturnType<typeof observable.map<string, object>>>
-  private readonly orders = observable.map<CommandEntity, readonly string[]>(undefined, { deep: false })
+  private readonly tables = Object.fromEntries(
+    COMMAND_ENTITIES.map((entity) => [
+      entity,
+      observable.map<string, object>(undefined, { deep: false }),
+    ]),
+  ) as Record<CommandEntity, ReturnType<typeof observable.map<string, object>>>
+  private readonly orders = observable.map<CommandEntity, readonly string[]>(undefined, {
+    deep: false,
+  })
   private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
   private readonly edges = new Map<string, readonly string[]>()
   private worktreesByPath = new Map<string, string[]>()
@@ -24,71 +37,121 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   private readonly sessionCwd = new Map<string, string>()
   private readonly stops: (() => void)[] = []
   private disposed = false
-  readonly counts = { publications: 0, windowChanges: 0, repoChanges: 0, sessionChanges: 0, sessionLinks: 0 }
+  readonly counts = {
+    publications: 0,
+    windowChanges: 0,
+    repoChanges: 0,
+    sessionChanges: 0,
+    sessionLinks: 0,
+  }
   private readonly catalog
 
-  constructor(private readonly pool: MobxPool, runtime: ClientRuntime<PodiumClientApi>) {
-    this.catalog = computed((): CommandLaunchRows['commandCatalog'] => ({
-      repositories: this.orders.get('commandRepository') ?? [], repos: this.orders.get('commandRepo') ?? [],
-      worktrees: this.orders.get('commandWorktree') ?? [], machines: this.orders.get('commandMachine') ?? [],
-      issues: pool.queries.ids({ kind: 'commandIssues' }).sort(), sessions: this.sessionOrder(),
-    }), { equals: compareStructural })
+  constructor(
+    private readonly pool: MobxPool,
+    runtime: ClientRuntime<PodiumClientApi>,
+  ) {
+    this.catalog = computed(
+      (): CommandLaunchRows['commandCatalog'] => ({
+        repositories: this.orders.get('commandRepository') ?? [],
+        repos: this.orders.get('commandRepo') ?? [],
+        worktrees: this.orders.get('commandWorktree') ?? [],
+        machines: this.orders.get('commandMachine') ?? [],
+        issues: pool.queries.ids({ kind: 'commandIssues' }).sort(),
+        sessions: this.sessionOrder(),
+      }),
+      { equals: compareStructural },
+    )
     // Keyed (POD-5433): the window wakes on its own locals; machines and
     // repos arrive by id, and a repo change re-links only the sessions under
     // a path whose targets moved.
     const windowKeys = COMMAND_LAUNCH_SCHEMA.commandWindow.fields
-    const inputs = createFieldInputs<CommandLaunchRows['commandWindow']>(windowKeys, {}, 'commandWindow')
+    const inputs = createFieldInputs<CommandLaunchRows['commandWindow']>(
+      windowKeys,
+      {},
+      'commandWindow',
+    )
     const locals = (changed?: ReadonlySet<string>) => {
       if (this.disposed) return
       this.counts.publications++
       runInAction(() => {
         let moved = false
-        for (const key of windowKeys) if (!changed || changed.has(key)) moved = inputs.set(key, runtime.readLocal(key)) || moved
+        for (const key of windowKeys)
+          if (!changed || changed.has(key)) moved = inputs.set(key, runtime.readLocal(key)) || moved
         if (moved) this.counts.windowChanges++
-        if (!this.tables.commandWindow.has('window')) this.replace('commandWindow', [['window', inputs.row]])
+        if (!this.tables.commandWindow.has('window'))
+          this.replace('commandWindow', [['window', inputs.row]])
         else if (moved) this.change('commandWindow', 'window', inputs.row)
       })
     }
     const repos = () => {
       if (this.disposed) return
       runInAction(() => {
-        this.repositories(runtime.listIds('repos').flatMap(id => runtime.listRow('repos', id) ?? []))
+        this.repositories(
+          runtime.listIds('repos').flatMap((id) => runtime.listRow('repos', id) ?? []),
+        )
         this.counts.repoChanges++
       })
     }
     const machines = () => {
       if (this.disposed) return
-      runInAction(() => this.replace('commandMachine', runtime.listIds('machines').flatMap(id => {
-        const row = runtime.listRow('machines', id)
-        return row ? [[id, row] as const] : []
-      })))
+      runInAction(() =>
+        this.replace(
+          'commandMachine',
+          runtime.listIds('machines').flatMap((id) => {
+            const row = runtime.listRow('machines', id)
+            return row ? [[id, row] as const] : []
+          }),
+        ),
+      )
     }
     repos()
     machines()
     locals()
     // Attach links every resident member once; later only addressed rows and
     // the sessions under a moved discovery path are visited.
-    runInAction(() => { for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row) })
-    this.stops.push(runtime.onLocals(windowKeys, locals), runtime.onList('repos', repos), runtime.onList('machines', machines),
-      observe(pool.tables.session, change => {
+    runInAction(() => {
+      for (const [id, row] of allResidentSessions(pool)) this.change('session', id, row)
+    })
+    this.stops.push(
+      runtime.onLocals(windowKeys, locals),
+      runtime.onList('repos', repos),
+      runtime.onList('machines', machines),
+      observe(pool.tables.session, (change) => {
         if (this.disposed) return
         this.counts.sessionChanges++
-        runInAction(() => this.change('session', change.name, change.type === 'delete' ? undefined : pool.row('session', change.name) as object | undefined))
-      }))
+        runInAction(() =>
+          this.change(
+            'session',
+            change.name,
+            change.type === 'delete'
+              ? undefined
+              : (pool.row('session', change.name) as object | undefined),
+          ),
+        )
+      }),
+    )
   }
 
   private sessionOrder(): readonly string[] {
-    return this.pool.queries.ids({ kind: 'commandSessions' })
-      .filter(id => !this.pool.queries.collapsed(id))
+    return this.pool.queries
+      .ids({ kind: 'commandSessions' })
+      .filter((id) => !this.pool.queries.collapsed(id))
       .sort((a, b) => {
-        const left = this.pool.queries.orderKey(a), right = this.pool.queries.orderKey(b)
+        const left = this.pool.queries.orderKey(a),
+          right = this.pool.queries.orderKey(b)
         return left < right ? -1 : left > right ? 1 : 0
       })
   }
 
   private replace(entity: CommandEntity, rows: readonly (readonly [string, object])[]): void {
-    const table = this.tables[entity], ids = rows.map(([id]) => id), next = new Set(ids)
-    for (const id of this.orders.get(entity) ?? []) if (!next.has(id)) { table.delete(id); this.change(entity, id, undefined) }
+    const table = this.tables[entity],
+      ids = rows.map(([id]) => id),
+      next = new Set(ids)
+    for (const id of this.orders.get(entity) ?? [])
+      if (!next.has(id)) {
+        table.delete(id)
+        this.change(entity, id, undefined)
+      }
     for (const [id, row] of rows) {
       if (compareStructural(table.get(id), row)) continue
       table.set(id, row)
@@ -101,34 +164,64 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
    *  moved row is written). Sessions are re-linked only under the paths whose
    *  worktree or repository targets moved. */
   private repositories(repos: readonly Store['repos'][number][]): void {
-    const linked = new Set(repos.flatMap(repo => repo.worktrees.map(tree => tree.path)))
-    const scans: [string, object][] = [], groups: [string, object][] = [], trees: [string, object][] = []
+    const linked = new Set(repos.flatMap((repo) => repo.worktrees.map((tree) => tree.path)))
+    const scans: [string, object][] = [],
+      groups: [string, object][] = [],
+      trees: [string, object][] = []
     const groupIds = new Set<string>()
-    const worktreesByPath = new Map<string, string[]>(), repositoriesByRoot = new Map<string, string[]>()
-    const add = (index: Map<string, string[]>, key: string, value: string) => index.set(key, [...(index.get(key) ?? []), value])
+    const worktreesByPath = new Map<string, string[]>(),
+      repositoriesByRoot = new Map<string, string[]>()
+    const add = (index: Map<string, string[]>, key: string, value: string) =>
+      index.set(key, [...(index.get(key) ?? []), value])
     for (const discovery of repos) {
       const id = JSON.stringify([discovery.machineId ?? '', discovery.path])
       const origin = normalizeOriginUrl(discovery.originUrl)
-      const groupId = discovery.repoId ?? (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
+      const groupId =
+        discovery.repoId ??
+        (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
       scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path) }])
-      for (const root of [discovery.path, ...discovery.worktrees.map(tree => tree.path)]) add(repositoriesByRoot, root, id)
+      for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])
+        add(repositoriesByRoot, root, id)
       if (linked.has(discovery.path)) continue
-      if (!groupIds.has(groupId)) { groupIds.add(groupId); groups.push([groupId, { id: groupId }]) }
-      for (const tree of [{ path: discovery.path, branch: discovery.branch, isMain: true }, ...discovery.worktrees.map(tree => ({ ...tree, isMain: false }))]) {
+      if (!groupIds.has(groupId)) {
+        groupIds.add(groupId)
+        groups.push([groupId, { id: groupId }])
+      }
+      for (const tree of [
+        { path: discovery.path, branch: discovery.branch, isMain: true },
+        ...discovery.worktrees.map((tree) => ({ ...tree, isMain: false })),
+      ]) {
         const treeId = JSON.stringify([id, tree.path])
-        trees.push([treeId, { path: tree.path, ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
-          repoPath: discovery.path, isMain: tree.isMain, ...(discovery.machineId ? { machineId: discovery.machineId } : {}),
-          ...(discovery.repoId ? { repoId: discovery.repoId } : {}), repositoryId: id, groupId }])
+        trees.push([
+          treeId,
+          {
+            path: tree.path,
+            ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
+            repoPath: discovery.path,
+            isMain: tree.isMain,
+            ...(discovery.machineId ? { machineId: discovery.machineId } : {}),
+            ...(discovery.repoId ? { repoId: discovery.repoId } : {}),
+            repositoryId: id,
+            groupId,
+          },
+        ])
         add(worktreesByPath, tree.path, treeId)
       }
     }
     const moved = new Set<string>()
-    for (const [before, after] of [[this.worktreesByPath, worktreesByPath], [this.repositoriesByRoot, repositoriesByRoot]] as const) {
-      for (const [path, ids] of after) if (!compareStructural(before.get(path), ids)) moved.add(path)
+    for (const [before, after] of [
+      [this.worktreesByPath, worktreesByPath],
+      [this.repositoriesByRoot, repositoriesByRoot],
+    ] as const) {
+      for (const [path, ids] of after)
+        if (!compareStructural(before.get(path), ids)) moved.add(path)
       for (const path of before.keys()) if (!after.has(path)) moved.add(path)
     }
-    this.worktreesByPath = worktreesByPath; this.repositoriesByRoot = repositoriesByRoot
-    this.replace('commandRepository', scans); this.replace('commandRepo', groups); this.replace('commandWorktree', trees)
+    this.worktreesByPath = worktreesByPath
+    this.repositoriesByRoot = repositoriesByRoot
+    this.replace('commandRepository', scans)
+    this.replace('commandRepo', groups)
+    this.replace('commandWorktree', trees)
     const affected = new Set<string>()
     for (const path of moved) for (const id of this.sessionsByPath.get(path) ?? []) affected.add(id)
     for (const id of affected) {
@@ -139,19 +232,25 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
 
   /** Index a resident session under its cwd and each '/'-prefix of it. */
   private indexSession(id: string, row: Record<string, unknown> | undefined): void {
-    const before = this.sessionCwd.get(id), cwd = typeof row?.cwd === 'string' && row.cwd ? row.cwd : undefined
+    const before = this.sessionCwd.get(id),
+      cwd = typeof row?.cwd === 'string' && row.cwd ? row.cwd : undefined
     if (before === cwd) return
     const paths = (key: string) => {
       const out = [key]
-      for (let at = key.indexOf('/'); at >= 0; at = key.indexOf('/', at + 1)) out.push(key.slice(0, at))
+      for (let at = key.indexOf('/'); at >= 0; at = key.indexOf('/', at + 1))
+        out.push(key.slice(0, at))
       return out
     }
-    if (before !== undefined) for (const path of paths(before)) {
-      const set = this.sessionsByPath.get(path)
-      set?.delete(id)
-      if (set?.size === 0) this.sessionsByPath.delete(path)
+    if (before !== undefined)
+      for (const path of paths(before)) {
+        const set = this.sessionsByPath.get(path)
+        set?.delete(id)
+        if (set?.size === 0) this.sessionsByPath.delete(path)
+      }
+    if (cwd === undefined) {
+      this.sessionCwd.delete(id)
+      return
     }
-    if (cwd === undefined) { this.sessionCwd.delete(id); return }
     this.sessionCwd.set(id, cwd)
     for (const path of paths(cwd)) {
       const set = this.sessionsByPath.get(path) ?? new Set<string>()
@@ -160,7 +259,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     }
   }
 
-  private targets(row: Record<string, unknown> | undefined, relation: typeof COMMAND_RELATIONS[number]): readonly string[] {
+  private targets(
+    row: Record<string, unknown> | undefined,
+    relation: (typeof COMMAND_RELATIONS)[number],
+  ): readonly string[] {
     if ('excludeShell' in relation && row?.agentKind === 'shell') return []
     const key = row?.[relation.key]
     if (typeof key !== 'string' || !key) return []
@@ -180,37 +282,60 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     for (const relation of COMMAND_RELATIONS) {
       if (relation.from !== entity) continue
       const address = `${entity}:${id}:${relation.to}:${relation.name}`
-      const previous = this.edges.get(address) ?? [], next = this.targets(row as Record<string, unknown> | undefined, relation)
+      const previous = this.edges.get(address) ?? [],
+        next = this.targets(row as Record<string, unknown> | undefined, relation)
       if (compareStructural(previous, next)) continue
-      for (const target of previous) if (!next.includes(target)) {
-        const key = `${relation.to}:${target}:${relation.name}`, ids = (this.members.get(key) ?? []).filter(member => member !== id)
-        if (ids.length) this.members.set(key, ids); else this.members.delete(key)
-      }
-      for (const target of next) if (!previous.includes(target)) {
-        const key = `${relation.to}:${target}:${relation.name}`
-        this.members.set(key, [...(this.members.get(key) ?? []), id])
-      }
-      if (next.length) this.edges.set(address, next); else this.edges.delete(address)
+      for (const target of previous)
+        if (!next.includes(target)) {
+          const key = `${relation.to}:${target}:${relation.name}`,
+            ids = (this.members.get(key) ?? []).filter((member) => member !== id)
+          if (ids.length) this.members.set(key, ids)
+          else this.members.delete(key)
+        }
+      for (const target of next)
+        if (!previous.includes(target)) {
+          const key = `${relation.to}:${target}:${relation.name}`
+          this.members.set(key, [...(this.members.get(key) ?? []), id])
+        }
+      if (next.length) this.edges.set(address, next)
+      else this.edges.delete(address)
     }
   }
 
   read<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
     if (this.disposed) return LOADING
-    if (entity === 'commandIssue') return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
-    return (entity === 'commandCatalog' && id === 'catalog' ? this.catalog.get() : this.tables[entity].get(id)) as Loaded<PoolSourceRows[K]>
+    if (entity === 'commandIssue')
+      return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
+    return (
+      entity === 'commandCatalog' && id === 'catalog'
+        ? this.catalog.get()
+        : this.tables[entity].get(id)
+    ) as Loaded<PoolSourceRows[K]>
   }
-  related(entity: string, id: string, name: string): readonly string[] { return this.members.get(`${entity}:${id}:${name}`) ?? [] }
+  related(entity: string, id: string, name: string): readonly string[] {
+    return this.members.get(`${entity}:${id}:${name}`) ?? []
+  }
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     for (const stop of this.stops) stop()
-    runInAction(() => { for (const table of Object.values(this.tables)) table.clear(); this.orders.clear(); this.members.clear() })
-    this.edges.clear(); this.worktreesByPath.clear(); this.repositoriesByRoot.clear()
-    this.sessionsByPath.clear(); this.sessionCwd.clear()
+    runInAction(() => {
+      for (const table of Object.values(this.tables)) table.clear()
+      this.orders.clear()
+      this.members.clear()
+    })
+    this.edges.clear()
+    this.worktreesByPath.clear()
+    this.repositoriesByRoot.clear()
+    this.sessionsByPath.clear()
+    this.sessionCwd.clear()
   }
 }
 
-export function attachCommandLaunchSource(pool: MobxPool, runtime: ClientRuntime<PodiumClientApi>): CommandLaunchSource {
+export function attachCommandLaunchSource(
+  pool: MobxPool,
+  runtime: ClientRuntime<PodiumClientApi>,
+): CommandLaunchSource {
   const source = new CommandLaunchSource(pool, runtime)
   pool.sources.register(COMMAND_ENTITIES, source)
   return source

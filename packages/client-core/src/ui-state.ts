@@ -13,8 +13,8 @@ import {
   DEVICE_LOCAL_UI_KEYS,
   type IssueId,
   isLayoutKey,
-  layoutKeyFromLegacy,
   LAYOUT_KEY_FROM_LEGACY,
+  layoutKeyFromLegacy,
   type SessionId,
   THEME_UI_KEYS,
 } from '@podium/model'
@@ -609,7 +609,9 @@ export function createRoutedUiState(init: {
   replicated: ReplicatedUiStatePort
 }): RoutedUiState {
   const { local, replicated } = init
-  const legacyKeys = new Map<string, string>(Object.keys(LAYOUT_KEY_FROM_LEGACY).map(key => [requireReplicatedLayoutKey(key), key]))
+  const legacyKeys = new Map<string, string>(
+    Object.keys(LAYOUT_KEY_FROM_LEGACY).map((key) => [requireReplicatedLayoutKey(key), key]),
+  )
   for (const key of Object.values(UI_STATE_KEYS)) {
     const canonical = layoutKeyFromLegacy(key)
     if (canonical !== null) legacyKeys.set(canonical, key)
@@ -653,10 +655,14 @@ export function createRoutedUiState(init: {
     },
     subscribe: (cb) => {
       const offLocal = local.subscribe(cb)
-      const offReplicated = replicated.subscribe(keys => {
+      const offReplicated = replicated.subscribe((keys) => {
         const changed = new Set(keys)
         for (const key of keys) {
-          const legacy = legacyKeys.get(key) ?? (key.startsWith('sidebar.section.') ? `podium:sidebar:${key.slice('sidebar.section.'.length)}` : undefined)
+          const legacy =
+            legacyKeys.get(key) ??
+            (key.startsWith('sidebar.section.')
+              ? `podium:sidebar:${key.slice('sidebar.section.'.length)}`
+              : undefined)
           if (legacy !== undefined) changed.add(legacy)
         }
         cb(changed)

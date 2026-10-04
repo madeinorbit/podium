@@ -9,12 +9,21 @@ import { useCallback, useContext, useSyncExternalStore } from 'react'
 export function useProjectionFocus(): boolean {
   const navigation = useContext(NavigationContext)
   const focused = useContext(IsFocusedContext)
-  const subscribe = useCallback((wake: () => void) => {
-    if (!navigation || focused !== undefined) return () => {}
-    const focus = navigation.addListener('focus', wake)
-    const blur = navigation.addListener('blur', wake)
-    return () => { focus(); blur() }
-  }, [navigation, focused])
-  const snapshot = useCallback(() => focused ?? navigation?.isFocused() ?? true, [focused, navigation])
+  const subscribe = useCallback(
+    (wake: () => void) => {
+      if (!navigation || focused !== undefined) return () => {}
+      const focus = navigation.addListener('focus', wake)
+      const blur = navigation.addListener('blur', wake)
+      return () => {
+        focus()
+        blur()
+      }
+    },
+    [navigation, focused],
+  )
+  const snapshot = useCallback(
+    () => focused ?? navigation?.isFocused() ?? true,
+    [focused, navigation],
+  )
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }

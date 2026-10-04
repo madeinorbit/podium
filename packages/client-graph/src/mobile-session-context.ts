@@ -21,8 +21,8 @@ import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit
 import { paneHasSessions, paneSession } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
-import { LOADING, type Loaded } from './worklist/rollup'
 import { createFieldInputs } from './shared/field-inputs'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Loaded<IssueViewModel> {
   if (id === undefined) return undefined
@@ -102,7 +102,11 @@ export function createMobileSessionReader(pool: MobxPool) {
  * nor the legacy derived snapshot arrays are read here. */
 export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) {
   const reader = createMobileSessionReader(pool)
-  const inputs = createFieldInputs<MobileSessionRows['mobileSessionWindow']>(['cursor', 'pendingSpawnPrompts'], {}, 'mobileSessionWindow')
+  const inputs = createFieldInputs<MobileSessionRows['mobileSessionWindow']>(
+    ['cursor', 'pendingSpawnPrompts'],
+    {},
+    'mobileSessionWindow',
+  )
   const window = observable.box<MobileSessionRows['mobileSessionWindow'] | undefined>(undefined, {
     deep: false,
   })
@@ -130,8 +134,12 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
     })
   }
   // Keyed (POD-5433): the spawn prompts local and the cursor signal.
-  if (!owner.replica.subscribeCursor) throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.onLocals(['pendingSpawnPrompts'], () => schedule('pendingSpawnPrompts')), owner.replica.subscribeCursor(() => schedule('cursor'))]
+  if (!owner.replica.subscribeCursor)
+    throw new Error('Phone session context requires the replica cursor signal')
+  const stops = [
+    owner.onLocals(['pendingSpawnPrompts'], () => schedule('pendingSpawnPrompts')),
+    owner.replica.subscribeCursor(() => schedule('cursor')),
+  ]
   return {
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING

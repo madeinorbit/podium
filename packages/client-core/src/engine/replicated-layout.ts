@@ -180,7 +180,8 @@ export function createReplicatedLayoutController(init: {
 
   const keysOf = (operation: LayoutOperation): readonly string[] =>
     operation.kind === 'set' ? Object.keys(operation.values) : operation.keys
-  const outboxKeys = (): Set<string> => new Set(layoutEntries().flatMap(entry => keysOf(operationForEntry(entry)!)))
+  const outboxKeys = (): Set<string> =>
+    new Set(layoutEntries().flatMap((entry) => keysOf(operationForEntry(entry)!)))
   let previousOutboxKeys = outboxKeys()
 
   const durableOperations = (): LayoutOperation[] =>
@@ -213,11 +214,12 @@ export function createReplicatedLayoutController(init: {
     ])
 
   const currentOperations = (): readonly LayoutOperation[] => [
-    ...durableOperations(), ...temporary.map(entry => entry.operation),
+    ...durableOperations(),
+    ...temporary.map((entry) => entry.operation),
   ]
   const valueAt = (key: string, operations = currentOperations()): unknown => {
     const held = accepted.get(key)
-    let value = held ? held.present ? held.value : undefined : base[key]
+    let value = held ? (held.present ? held.value : undefined) : base[key]
     for (const operation of operations) {
       if (operation.kind === 'set') {
         if (Object.hasOwn(operation.values, key)) value = operation.values[key]
@@ -276,7 +278,7 @@ export function createReplicatedLayoutController(init: {
   }
 
   const removeTemporary = (token: number): void => {
-    const removed = temporary.find(entry => entry.token === token)
+    const removed = temporary.find((entry) => entry.token === token)
     const next = temporary.filter((entry) => entry.token !== token)
     if (next.length === temporary.length) return
     temporary = next

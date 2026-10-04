@@ -42,7 +42,9 @@ async function mount(inline: boolean, initiallyActive = true) {
   const paints = { selected: { selected: true }, empty: { selected: false } }
   const read = (current: MobxPool) => {
     reads++
-    return current.selection.size > 0 && current.selection.has('projection-target') ? paints.selected : paints.empty
+    return current.selection.size > 0 && current.selection.has('projection-target')
+      ? paints.selected
+      : paints.empty
   }
   let reader = read
   let target = 'projection-target'
@@ -51,7 +53,9 @@ async function mount(inline: boolean, initiallyActive = true) {
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
     reads++
-    return current.selection.size > 0 && current.selection.has(captured) ? paints.selected : paints.empty
+    return current.selection.size > 0 && current.selection.has(captured)
+      ? paints.selected
+      : paints.empty
   }
   // This fixture counts ordinary hook-driven renders, including an unchanged
   // parent render. Keep it plain and give React its name without an observer
@@ -124,7 +128,10 @@ async function mount(inline: boolean, initiallyActive = true) {
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     render,
-    focus: (value: boolean) => { active = value; render() },
+    focus: (value: boolean) => {
+      active = value
+      render()
+    },
     replaceReader: () => {
       reader = (current) => read(current)
       render()
@@ -155,7 +162,8 @@ describe('real host projection read counts', () => {
     const fixture = await mount(false)
     const first = fixture.snapshot()
     fixture.focus(false)
-    const reads = fixture.reads(), renders = fixture.renders()
+    const reads = fixture.reads(),
+      renders = fixture.renders()
     await fixture.select('projection-target')
     await fixture.select('another-target')
     await fixture.select('projection-target')

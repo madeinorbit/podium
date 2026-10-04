@@ -17,7 +17,7 @@ export class PreferenceSource {
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
 
   constructor(private readonly ui: RoutedUiState) {
-    this.unsubscribe = ui.subscribe(keys => {
+    this.unsubscribe = ui.subscribe((keys) => {
       if (this.disposed) return
       this.counts.notifications++
       const loaded: PreferenceRow[] = []
@@ -57,14 +57,20 @@ export class PreferenceSource {
     return LOADING
   }
 
-  keys(): readonly string[] { return [...this.homes.keys()] }
+  keys(): readonly string[] {
+    return [...this.homes.keys()]
+  }
 
   private load(key: string): PreferenceRow | undefined {
     const home = this.homes.get(key)
     if (home === undefined || this.disposed) return undefined
     this.refreshing.add(key)
     let value: string | null
-    try { value = this.ui.get(key) } finally { this.refreshing.delete(key) }
+    try {
+      value = this.ui.get(key)
+    } finally {
+      this.refreshing.delete(key)
+    }
     this.counts.loaded++
     return { key, home, value }
   }
@@ -91,7 +97,7 @@ export class PreferenceSource {
       this.counts.batches++
       // ui.get may finish the owner's one-shot legacy key migration and notify.
       // Keep that write in the existing owner, outside the MobX publish action.
-      this.publish(keys.flatMap(key => this.load(key) ?? []))
+      this.publish(keys.flatMap((key) => this.load(key) ?? []))
     })
   }
 
@@ -104,9 +110,11 @@ export class PreferenceSource {
     this.rows.clear()
     // Principal teardown can run inside StoreProvider's render. Detach and
     // refuse reads immediately, then notify obsolete projections after render.
-    queueMicrotask(() => runInAction(() => {
-      for (const atom of this.atoms.values()) atom.reportChanged()
-      this.atoms.clear()
-    }))
+    queueMicrotask(() =>
+      runInAction(() => {
+        for (const atom of this.atoms.values()) atom.reportChanged()
+        this.atoms.clear()
+      }),
+    )
   }
 }

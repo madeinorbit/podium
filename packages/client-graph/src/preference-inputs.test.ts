@@ -6,17 +6,31 @@ import { checkPreferences } from '../diagnostics/preference-check'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
-const flush = async () => { for (let turn = 0; turn < 6; turn++) await Promise.resolve() }
+const flush = async () => {
+  for (let turn = 0; turn < 6; turn++) await Promise.resolve()
+}
 
 function fixture() {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-  const data = new Map<string, unknown>(), listeners = new Set<(keys: ReadonlySet<string>) => void>()
+  const data = new Map<string, unknown>(),
+    listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const replicated: ReplicatedUiStatePort = {
-    get: key => data.get(key),
-    set: (key, value) => { data.set(key, value); for (const wake of listeners) wake(new Set([key])) },
-    clear: key => { data.delete(key); for (const wake of listeners) wake(new Set([key])) },
+    get: (key) => data.get(key),
+    set: (key, value) => {
+      data.set(key, value)
+      for (const wake of listeners) wake(new Set([key]))
+    },
+    clear: (key) => {
+      data.delete(key)
+      for (const wake of listeners) wake(new Set([key]))
+    },
     hydrate: async () => {},
-    subscribe: wake => { listeners.add(wake); return () => { listeners.delete(wake) } },
+    subscribe: (wake) => {
+      listeners.add(wake)
+      return () => {
+        listeners.delete(wake)
+      }
+    },
   }
   const ui = createRoutedUiState({ local: side.uiState(), replicated })
   const get = vi.spyOn(ui, 'get')
@@ -27,13 +41,20 @@ function fixture() {
 
 it('re-reads only the changed key synchronously, routes both homes, and drops unobserved keys', async () => {
   const f = fixture()
-  const keys = ['podium:sidebar:project-fold:a', 'podium:sidebar:project-fold:b', 'podium:sidebar:width']
-  const seen: Record<string, unknown> = {}, runs: Record<string, number> = {}
-  const stops = keys.map(key => autorun(() => {
-    runs[key] = (runs[key] ?? 0) + 1
-    const row = f.pool.row('preference', key)
-    seen[key] = row && row !== LOADING ? row.value : row
-  }))
+  const keys = [
+    'podium:sidebar:project-fold:a',
+    'podium:sidebar:project-fold:b',
+    'podium:sidebar:width',
+  ]
+  const seen: Record<string, unknown> = {},
+    runs: Record<string, number> = {}
+  const stops = keys.map((key) =>
+    autorun(() => {
+      runs[key] = (runs[key] ?? 0) + 1
+      const row = f.pool.row('preference', key)
+      seen[key] = row && row !== LOADING ? row.value : row
+    }),
+  )
   try {
     expect(Object.values(seen)).toEqual([LOADING, LOADING, LOADING])
     await flush()
@@ -44,7 +65,7 @@ it('re-reads only the changed key synchronously, routes both homes, and drops un
       f.ui.set(key, '1')
       expect(seen[key]).toBe('1')
       expect(f.get.mock.calls).toEqual([[key]])
-      expect(runs).toEqual(Object.fromEntries(keys.map(field => [field, field === key ? 1 : 0])))
+      expect(runs).toEqual(Object.fromEntries(keys.map((field) => [field, field === key ? 1 : 0])))
     }
     // A replicated clear/rollback identifies the canonical key and reaches
     // the same legacy-spelled reader without scanning other routed keys.
@@ -54,20 +75,29 @@ it('re-reads only the changed key synchronously, routes both homes, and drops un
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
     expect(f.pool.preferenceKeys()).not.toContain(keys[1])
-    f.get.mockClear(); f.ui.set(keys[1]!, '2')
+    f.get.mockClear()
+    f.ui.set(keys[1]!, '2')
     expect(f.get).not.toHaveBeenCalled()
-  } finally { for (const stop of stops) stop(); f.pool.dispose() }
+  } finally {
+    for (const stop of stops) stop()
+    f.pool.dispose()
+  }
 })
 
 it('preserves exact preference values and rejects a planted stale value in the parity check', async () => {
-  const f = fixture(), key = 'podium:sidebar:project-fold:parity'
+  const f = fixture(),
+    key = 'podium:sidebar:project-fold:parity'
   const stop = autorun(() => f.pool.row('preference', key))
   try {
-    await flush(); f.ui.set(key, '1')
+    await flush()
+    f.ui.set(key, '1')
     expect(checkPreferences(f.pool, f.ui, [key])).toMatchObject({ differences: 0, pending: 0 })
     const get = f.get.mockImplementation(() => 'planted-stale-value')
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(1)
     get.mockRestore()
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(0)
-  } finally { stop(); f.pool.dispose() }
+  } finally {
+    stop()
+    f.pool.dispose()
+  }
 })
