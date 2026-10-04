@@ -130,7 +130,9 @@ test('pool-only phone warm start into a session, timed and profiled', async ({ p
       const at = performance.now(),
         request = open(name, version)
       const log = (what: string) =>
-        console.info(`[idb] ${name} v${version} ${what} after ${(performance.now() - at).toFixed(0)} ms (opened at ${at.toFixed(0)})`)
+        console.info(
+          `[idb] ${name} v${version} ${what} after ${(performance.now() - at).toFixed(0)} ms (opened at ${at.toFixed(0)})`,
+        )
       request.addEventListener('success', () => log('success'))
       request.addEventListener('error', () => log(`error ${request.error?.name}`))
       request.addEventListener('blocked', () => log('blocked'))
@@ -142,31 +144,50 @@ test('pool-only phone warm start into a session, timed and profiled', async ({ p
       const bump = (key: string) => {
         counts[key] = (counts[key] ?? 0) + 1
       }
-      for (const method of ['put', 'add', 'delete', 'clear', 'getAll', 'openCursor', 'get'] as const) {
+      for (const method of [
+        'put',
+        'add',
+        'delete',
+        'clear',
+        'getAll',
+        'openCursor',
+        'get',
+      ] as const) {
         const original = IDBObjectStore.prototype[method] as (...args: unknown[]) => IDBRequest
         ;(IDBObjectStore.prototype as unknown as Record<string, unknown>)[method] = function (
           this: IDBObjectStore,
           ...args: unknown[]
         ) {
           bump(`${method}:${this.name}`)
-          if (method === 'clear') console.info(`[idb] clear ${this.name} at ${performance.now().toFixed(0)}`)
+          if (method === 'clear')
+            console.info(`[idb] clear ${this.name} at ${performance.now().toFixed(0)}`)
           return original.apply(this, args)
         }
       }
       const transaction = IDBDatabase.prototype.transaction
-      IDBDatabase.prototype.transaction = function (this: IDBDatabase, ...args: Parameters<IDBDatabase['transaction']>) {
+      IDBDatabase.prototype.transaction = function (
+        this: IDBDatabase,
+        ...args: Parameters<IDBDatabase['transaction']>
+      ) {
         const tx = transaction.apply(this, args)
         const at = performance.now()
         tx.addEventListener('abort', () =>
-          console.info(`[idb] abort ${String(args[0])} ${tx.error?.name} ${tx.error?.message} after ${(performance.now() - at).toFixed(0)} ms`),
+          console.info(
+            `[idb] abort ${String(args[0])} ${tx.error?.name} ${tx.error?.message} after ${(performance.now() - at).toFixed(0)} ms`,
+          ),
         )
         tx.addEventListener('complete', () => {
           const ms = performance.now() - at
-          if (ms > 200) console.info(`[idb] slow complete ${String(args[0])} ${args[1] ?? 'readonly'} ${ms.toFixed(0)} ms`)
+          if (ms > 200)
+            console.info(
+              `[idb] slow complete ${String(args[0])} ${args[1] ?? 'readonly'} ${ms.toFixed(0)} ms`,
+            )
         })
         return tx
       } as IDBDatabase['transaction']
-      addEventListener('pagehide', () => console.info(`[idb] counts ${location.pathname} ${JSON.stringify(counts)}`))
+      addEventListener('pagehide', () =>
+        console.info(`[idb] counts ${location.pathname} ${JSON.stringify(counts)}`),
+      )
     }
     if (!location.pathname.includes('/session/')) return
     const ready = () =>
@@ -193,14 +214,18 @@ test('pool-only phone warm start into a session, timed and profiled', async ({ p
   const cdp = await page.context().newCDPSession(page)
   if (process.env.PODIUM_PHONE_PROFILE_DEBUG === '1')
     page.on('framenavigated', (frame) => {
-      if (frame === page.mainFrame()) console.log(`[nav ${new Date().toISOString()}] ${frame.url()}`)
+      if (frame === page.mainFrame())
+        console.log(`[nav ${new Date().toISOString()}] ${frame.url()}`)
     })
   if (process.env.PODIUM_PHONE_PROFILE_DEBUG === '1')
     page.on('response', async (response) => {
       const url = new URL(response.url())
       if (!url.pathname.startsWith('/sync/')) return
-      const body = response.status() === 409 ? (await response.text().catch(() => '')).slice(0, 300) : ''
-      console.log(`[sync ${new Date().toISOString()}] ${response.status()} ${url.pathname}${url.search} ${body}`)
+      const body =
+        response.status() === 409 ? (await response.text().catch(() => '')).slice(0, 300) : ''
+      console.log(
+        `[sync ${new Date().toISOString()}] ${response.status()} ${url.pathname}${url.search} ${body}`,
+      )
     })
   await firstLaunch(page)
   // Warm the pool reader once; retained IndexedDB is what "warm" means.
@@ -211,8 +236,7 @@ test('pool-only phone warm start into a session, timed and profiled', async ({ p
     traced: Sample[] = []
   const order = Array.from({ length: samples }, () => true)
   for (const _pool of order) timed.push(await run())
-  for (const [index] of order.entries())
-    traced.push(await run(`warm-on-${index}.trace.json.gz`))
+  for (const [index] of order.entries()) traced.push(await run(`warm-on-${index}.trace.json.gz`))
   expect(corpus.installations()).toBeGreaterThan(0)
   // Every measured launch is warm: it resumed from the saved cursor.
   expect([...timed, ...traced].map((sample) => sample.bootstraps)).toEqual(

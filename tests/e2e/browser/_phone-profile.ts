@@ -77,14 +77,16 @@ export async function sizedBootstrap(page: Page, seed: { issueId: string; sessio
     if (process.env.PODIUM_PHONE_PROFILE_UNSIZED === '1') {
       installations++
       if (process.env.PODIUM_PHONE_PROFILE_DEBUG === '1')
-        console.log(`[bootstrap ${new Date().toISOString()}] #${installations} unsized pass-through`)
+        console.log(
+          `[bootstrap ${new Date().toISOString()}] #${installations} unsized pass-through`,
+        )
       await route.fulfill({ response: reply })
       return
     }
     const frames = (await reply.text())
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as Frame)
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Frame)
     const meta = frames[0]!,
       complete = frames.at(-1)!,
       chunks = frames.filter((frame) => frame.type === 'feedBootstrap')
@@ -146,7 +148,11 @@ export async function sizedBootstrap(page: Page, seed: { issueId: string; sessio
     const all = [...chunks.map((chunk) => ({ ...chunk, last: false })), ...extra]
     all.at(-1)!.last = true
     const rows = original.length + additions.length
-    const body = `${[{ ...meta, totalRows: rows }, ...all, { ...complete, rows, records: all.length }]
+    const body = `${[
+      { ...meta, totalRows: rows },
+      ...all,
+      { ...complete, rows, records: all.length },
+    ]
       .map((frame) => JSON.stringify(frame))
       .join('\n')}\n`
     async function* lines() {
@@ -164,7 +170,9 @@ export async function sizedBootstrap(page: Page, seed: { issueId: string; sessio
     delete headers['transfer-encoding']
     installations++
     if (process.env.PODIUM_PHONE_PROFILE_DEBUG === '1')
-      console.log(`[bootstrap ${new Date().toISOString()}] #${installations} ${route.request().url()} rows=${rows} frames=${all.length}`)
+      console.log(
+        `[bootstrap ${new Date().toISOString()}] #${installations} ${route.request().url()} rows=${rows} frames=${all.length}`,
+      )
     await route.fulfill({ status: reply.status(), body, headers })
   })
   return { installations: () => installations }
@@ -227,7 +235,9 @@ export function observeErrors(page: Page) {
   page.on('pageerror', (error) => errors.push(error.message))
   page.on('console', (message) => {
     if (process.env.PODIUM_PHONE_PROFILE_DEBUG === '1')
-      console.log(`[page ${message.type()} ${new Date().toISOString()}] ${message.text().slice(0, 400)}`)
+      console.log(
+        `[page ${message.type()} ${new Date().toISOString()}] ${message.text().slice(0, 400)}`,
+      )
     if (
       message.type() === 'error' &&
       !/^Failed to load resource:.*status of 401/.test(message.text())
