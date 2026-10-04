@@ -58,14 +58,18 @@ function pruningState(state: EngineState): EngineState {
   }
   const sessions: SessionView[] = []
   const pending = new Set(state.pendingSpawnIds)
+  const loading = new Set<string>()
   for (const id of ids) {
     if (id.startsWith('file:')) continue
     const session = state.navigation.session(id)
-    if (session === NAVIGATION_LOADING) pending.add(id as SessionId)
+    if (session === NAVIGATION_LOADING) {
+      pending.add(id as SessionId)
+      loading.add(id)
+    }
     else if (session) sessions.push(session)
   }
   for (const tab of state.fileTabs) {
-    if (tab.scope.kind === 'session' && pending.has(tab.scope.sessionId))
+    if (tab.scope.kind === 'session' && loading.has(tab.scope.sessionId))
       pending.add(tab.id as SessionId)
   }
   return overlayState(state, { sessions, pendingSpawnIds: pending })

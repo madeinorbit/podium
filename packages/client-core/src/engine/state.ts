@@ -1,14 +1,7 @@
-import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
-import {
-  countLegacyNavigation,
-  NAVIGATION_LOADING,
-  type NavigationIssue,
-  type NavigationProvider,
-} from './navigation-provider'
-
+import { sessionById } from '../session-index'
+import { countLegacyNavigation, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
 export * from './navigation-provider'
-
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -343,24 +336,16 @@ export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
   return key === NAVIGATION_LOADING ? 'none' : key
 }
 
-export function resolvedWorkspaceKey(
-  st: WorkspaceSelection,
-): WorkspaceKey | typeof NAVIGATION_LOADING {
+export function resolvedWorkspaceKey(st: WorkspaceSelection): WorkspaceKey | typeof NAVIGATION_LOADING {
   if (st.navigation) {
     const selected = st.selectedIssueId ? st.navigation.issue(st.selectedIssueId) : undefined
     if (selected === NAVIGATION_LOADING) return NAVIGATION_LOADING
-    const root =
-      selected && !selected.archived && !selected.deletedAt
-        ? st.navigation.missionRoot(selected.id)
-        : undefined
+    const root = selected && !selected.archived && !selected.deletedAt
+      ? st.navigation.missionRoot(selected.id) : undefined
     if (root === NAVIGATION_LOADING) return NAVIGATION_LOADING
     // The provider owns invalidation. Never cache this answer against the
     // legacy issue array, which need not move when a cold pool row arrives.
-    return workspaceKeyFor({
-      missionRootId: root ?? null,
-      issueId: st.selectedIssueId,
-      worktreePath: st.selectedWorktree,
-    })
+    return workspaceKeyFor({ missionRootId: root ?? null, issueId: st.selectedIssueId, worktreePath: st.selectedWorktree })
   }
   const cached = workspaceKeys.get(st)
   if (
@@ -373,9 +358,7 @@ export function resolvedWorkspaceKey(
   let selected: IssueProjection | undefined
   if (st.selectedIssueId) {
     countLegacyNavigation('issuesFind')
-    selected = st.issueProjections.find(
-      (i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt,
-    )
+    selected = st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
   }
   if (selected) countLegacyNavigation('missionRootFor')
   const root = selected ? missionRootFor(st.issueProjections, selected.id) : undefined
@@ -623,9 +606,7 @@ export function workspaceMembership(
     const issueId = key.slice(6)
     // Resolved for the KEY, not for the session: the old code re-found the same
     // issue for every session that did not name one.
-    const issue = st.navigation
-      ? st.navigation.issue(issueId)
-      : issuesById(st.issueProjections).get(issueId)
+    const issue = st.navigation ? st.navigation.issue(issueId) : issuesById(st.issueProjections).get(issueId)
     const wt = issue !== NAVIGATION_LOADING ? issue?.worktreePath : undefined
     return (session) => {
       if (session.issueId !== undefined) return session.issueId === issueId
@@ -655,9 +636,7 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return (
-          loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
-        )
+        return loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
       }
     }
     const ids = missionIssueIds(issueTopology(st), rootId, st.sessions)
@@ -712,10 +691,7 @@ export function foregroundIssue(st: EngineState): NavigationIssue | undefined {
 }
 
 /** Session reactions use the same addressed provider as a selection gesture. */
-export function navigationSession(
-  st: Pick<EngineState, 'sessions' | 'navigation'>,
-  id: string,
-): SessionView | undefined {
+export function navigationSession(st: Pick<EngineState, 'sessions' | 'navigation'>, id: string): SessionView | undefined {
   if (st.navigation) {
     const session = st.navigation.session(id)
     return session === NAVIGATION_LOADING ? undefined : session
@@ -732,11 +708,8 @@ export function navigationActivityAt(st: EngineState, issue: NavigationIssue): s
 }
 
 export function navigationIssueReadAt(st: EngineState, id: string): string | null {
-  return (
-    (st.navigation
-      ? st.navigation.issueReadAt(id)
-      : st.issueUserStates.find((marker) => marker.entityId === id)?.readAt) ?? null
-  )
+  return (st.navigation ? st.navigation.issueReadAt(id)
+    : st.issueUserStates.find(marker => marker.entityId === id)?.readAt) ?? null
 }
 
 /** The UI-state module's view of the workspace — the single input to routing,
