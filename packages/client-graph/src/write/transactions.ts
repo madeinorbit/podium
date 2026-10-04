@@ -120,8 +120,7 @@ export interface PoolRejection {
 export interface PoolTransactionsPorts {
   /** The principal whose per-user rows the log paints. */
   readonly userId: string
-  readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe'> &
-    Partial<Pick<EngineOutbox, 'deadLetters'>>
+  readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe' | 'deadLetters'>
   /** Applied, refused and superseded answers by mutation id. */
   readonly outcomes: (listener: (outcome: OutboxOutcome) => void) => () => void
   /** The outbox's single enqueue path, under the log's id and press clock. */
@@ -260,7 +259,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
    * Keep row slots stable when unrelated queue entries change. Multiple refusals
    * on one row keep its mark until the last one leaves recovery. */
   function reconcileParked(): void {
-    const records: readonly OutboxDeadLetterEntry[] = ports.outbox.deadLetters?.() ?? []
+    const records: readonly OutboxDeadLetterEntry[] = ports.outbox.deadLetters()
     const seen = new Set<MutationId>()
     const removeParked = (id: MutationId): void => {
       const previous = parked.get(id)

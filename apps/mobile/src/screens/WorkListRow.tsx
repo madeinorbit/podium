@@ -9,6 +9,7 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
+import { NotSavedMark } from '../components/NotSavedMark'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { type MobileRowPaint, mobilePaintNow, mobileRowPaint } from '../lib/work-sections'
@@ -114,6 +115,7 @@ export const WorkRow = memo(function WorkRow({
             {unsnoozed ? <Text style={rowStyles.unsnoozed}>Unsnoozed</Text> : null}
           </View>
           <View style={rowStyles.rowStatusLine}>
+            {isIssue ? <NotSavedMark kind="issue" id={paint.id} /> : null}
             {isIssue ? <Text style={rowStyles.rowRef}>{ref}</Text> : null}
             {attention ? <Text style={rowStyles.rowWaitCount}>{waiting}</Text> : null}
             {pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}

@@ -26,6 +26,7 @@ import { lazy, memo, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { idSquareLabel } from '@/components/IdSquare'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import { NotSavedMark } from '@/components/NotSavedMark'
 import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { issueIdTitle } from '@/lib/issue-labels'
@@ -372,6 +373,7 @@ function UnifiedIssueRowInner({
         // one inside the Snoozed fold, so both restated the row's own address.
         marks={
           <>
+            <NotSavedMark kind="issue" id={issue.id} />
             {/* One rule, no exceptions: an agent on this issue or anywhere in its
                 subtree shows here. Drafts used to be carved out on the grounds
                 that their row already WAS the agent — true when the sidebar was

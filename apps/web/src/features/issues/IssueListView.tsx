@@ -10,6 +10,7 @@ import {
   useRef,
 } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { NotSavedMark } from '@/components/NotSavedMark'
 import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
@@ -262,6 +263,7 @@ function VirtualStageRows({
                 {m.seqLabel}
               </span>
               <span className="min-w-0 flex-1 truncate text-[13px]">{m.title}</span>
+              <NotSavedMark kind="issue" id={issue.id} />
               {/* `deleted` and `epic` are the board's own tokens: mono,
                       lowercase-set-uppercase, no pill. A violet outline badge
                       was a hue the palette does not contain, and two word-pills

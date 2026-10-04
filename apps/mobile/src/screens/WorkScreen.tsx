@@ -27,6 +27,7 @@ import { Icon } from '../components/Icon'
 import { ChevronDown, ChevronRight, Pin, Search, Settings, X } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { RefreshOffer } from '../components/RefreshOffer'
@@ -454,6 +455,7 @@ const PoolFoldRow = memo(function PoolFoldRow({
       style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
     >
       <Text style={styles.foldedRef}>{value.ref}</Text>
+      <NotSavedMark kind="issue" id={id} />
       <Text style={styles.foldedTitle} numberOfLines={1}>
         {value.title}
       </Text>

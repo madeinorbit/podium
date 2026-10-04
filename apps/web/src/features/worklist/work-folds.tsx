@@ -13,6 +13,7 @@ import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useId, useRef, useState } from 'react'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
+import { NotSavedMark } from '@/components/NotSavedMark'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
@@ -411,6 +412,7 @@ function FoldedWorkRowInner({
       <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
         {issue.title}
       </span>
+      <NotSavedMark kind="issue" id={issue.id} />
       <span className="shell-type-micro flex flex-none items-center gap-1.5 font-mono">
         <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>
           {marker}

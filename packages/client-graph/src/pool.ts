@@ -620,6 +620,7 @@ export class MobxPool {
       spawnLog: false,
       attachTransactions: false,
       spawnPlaceholders: false,
+      notSaved: false,
       mutate: false,
       row: false,
       rosterCandidates: false,

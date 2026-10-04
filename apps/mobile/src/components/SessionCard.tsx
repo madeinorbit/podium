@@ -17,6 +17,7 @@ import {
 } from '../theme/theme'
 import { IdSquare, type IdSquareState } from './IdSquare'
 import { PressableScale } from './PressableScale'
+import { NotSavedMark } from './NotSavedMark'
 import { Pill, StatusDot } from './ui'
 import { WorkingMark } from './WorkingMark'
 
@@ -129,6 +130,7 @@ export function SessionCard({
           >
             {model.subtitle}
           </Text>
+          <NotSavedMark kind="session" id={session.sessionId} />
         </View>
         <View style={styles.status}>
           {working ? (

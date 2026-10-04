@@ -44,8 +44,8 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
   const copyAuthored = async () => {
     if (authored === null) return
     try {
-      await Clipboard.setStringAsync(authored)
-      setFailed(null)
+      const copied = await Clipboard.setStringAsync(authored)
+      setFailed(copied ? null : 'Couldn’t copy your text. Select the text to copy it.')
     } catch {
       setFailed('Couldn’t copy your text. Select the text to copy it.')
     }

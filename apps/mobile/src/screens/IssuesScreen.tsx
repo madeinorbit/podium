@@ -30,6 +30,7 @@ import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
+import { NotSavedMark } from '../components/NotSavedMark'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -690,6 +691,7 @@ function TaskRow({
           </Text>
         </View>
         <View style={styles.metaRow}>
+          <NotSavedMark kind="issue" id={issue.id} />
           <Pill label={issue.type} />
           <Pill label={`P${issue.priority}`} />
           {state ? (

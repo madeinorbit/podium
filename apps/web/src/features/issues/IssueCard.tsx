@@ -38,6 +38,7 @@ import { memo } from 'react'
 import { useBoardCard } from './board-pool-row'
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
+import { NotSavedMark } from '@/components/NotSavedMark'
 import { UnreadDot } from '@/components/UnreadMark'
 import { issueColorHex } from '@/lib/issueColors'
 import { WorkingMark } from '@/lib/motion'
@@ -340,6 +341,7 @@ function IssueCardLeaf({
           )}
         >
           <span className="line-clamp-2 min-w-0 flex-1 break-words">{issue.title}</span>
+          <NotSavedMark kind="issue" id={issue.id} />
           {issue.unread ? <UnreadDot className="mt-1.5" /> : null}
         </div>
 

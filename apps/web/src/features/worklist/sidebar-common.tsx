@@ -35,6 +35,7 @@ import {
 } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import { NotSavedMark } from '@/components/NotSavedMark'
 import { AttributionPair } from '@/features/issues/issue-page/AttributionPair'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { sessionDotClass } from '@/lib/derive'
@@ -841,6 +842,7 @@ function PanelRowInner({
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
+          <NotSavedMark kind="session" id={session.sessionId} />
           {/* M6 coordinator/driver badge — who is driving this issue.
               On `--info`, not raw sky-500: the Flight Deck's spine says `coord`
               about the same session in the same words, and two columns naming

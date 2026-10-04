@@ -1,5 +1,6 @@
 import { asMutationId } from '@podium/model'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import * as Clipboard from 'expo-clipboard'
 import { Alert } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -13,6 +14,8 @@ const mobile = vi.hoisted(() => ({
     }
   },
 }))
+
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }))
 
 vi.mock('../client/use-pool-notices', () => ({
   usePoolRecovery: () => mobile.state.outboxDeadLetters,
@@ -41,6 +44,7 @@ function parked(code: 'invalid' | 'conflict' | 'max-age' = 'invalid') {
 }
 
 beforeEach(() => {
+  vi.mocked(Clipboard.setStringAsync).mockReset().mockResolvedValue(true)
   mobile.state = {
     outboxDeadLetters: [parked()],
     recoverOutbox: { retry: vi.fn(), edit: vi.fn(), discard: vi.fn() },
@@ -53,6 +57,31 @@ afterEach(() => {
 })
 
 describe('mobile parked-write recovery', () => {
+  it('copies refused authored text verbatim, including whitespace, and retains it on screen', async () => {
+    const change = parked()
+    change.entry.input.patch.title = '  careful words\nsecond line  '
+    mobile.state.outboxDeadLetters = [change]
+    render(<OutboxRecoveryPanel />)
+    fireEvent.click(screen.getByTestId('outbox-copy'))
+    await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith('  careful words\nsecond line  '))
+    expect(screen.getByText('careful words second line')).toBeTruthy()
+  })
+
+  it('keeps refused text selectable and shows an error when clipboard access fails', async () => {
+    vi.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error('clipboard unavailable'))
+    render(<OutboxRecoveryPanel />)
+    fireEvent.click(screen.getByTestId('outbox-copy'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Select the text'))
+    expect(screen.getByText('careful words')).toBeTruthy()
+  })
+
+  it('reports a clipboard refusal returned as false', async () => {
+    vi.mocked(Clipboard.setStringAsync).mockResolvedValueOnce(false)
+    render(<OutboxRecoveryPanel />)
+    fireEvent.click(screen.getByTestId('outbox-copy'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Select the text'))
+  })
+
   it('shows only the author input and edits it through the shared store action', () => {
     render(<OutboxRecoveryPanel />)
 

@@ -82,6 +82,7 @@ function useFixturePool(): MobxPool {
     const threads = () => current().superThreads ?? []
     const repos = () => current().repos ?? []
     const pool = {
+      notSaved: () => false,
       row(entity: string, id: string): unknown {
         switch (entity) {
           case 'session':

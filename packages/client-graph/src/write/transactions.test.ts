@@ -78,6 +78,7 @@ describe('PoolTransactions refusal (POD-5431)', () => {
       outbox: {
         pending: () => queue,
         awaiting: () => [],
+        deadLetters: () => [],
         subscribe: (listener) => {
           publish = listener
           return () => {}
