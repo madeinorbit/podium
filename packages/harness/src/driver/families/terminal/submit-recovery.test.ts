@@ -60,7 +60,7 @@ function retainedInput(phase: string, recover = true) {
 }
 
 describe('retained input submit recovery', () => {
-  it.each(['working', 'compacting'])('submits the retained input once while %s, without another paste', async (phase) => {
+  it.each(['idle', 'working', 'compacting'])('submits the retained input once while %s, without another paste', async (phase) => {
     vi.useFakeTimers()
     const run = retainedInput(phase)
     try {
@@ -68,6 +68,30 @@ describe('retained input submit recovery', () => {
       expect(run.writes).toEqual([injectionPayload(run.text, { rawFirstTurn: false }).bytes, '\r', '\r'])
       expect(run.draft()).toBe('')
       expect(await run.delivery).toMatchObject({ outcome: 'accepted', held: 'memory', provenBy: 'transcript-echo' })
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('recovers a paste Claude collapsed into its measured input placeholder', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working')
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      run.ports.readInput = async () => '[Pasted text #1 +3 lines]'
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS)
+      expect(run.writes).toEqual([injectionPayload(run.text, { rawFirstTurn: false }).bytes, '\r', '\r'])
+      expect(await run.delivery).toMatchObject({ outcome: 'accepted', held: 'memory' })
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('does not claim a placeholder without writer accounting', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working')
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      run.ports.readInput = async () => '[Pasted text #1 +3 lines]'
+      delete (run.ports as Partial<typeof run.ports>).foreignWriteCount
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
     } finally { await run.close(); vi.useRealTimers() }
   })
 
@@ -99,6 +123,17 @@ describe('retained input submit recovery', () => {
     try {
       await vi.advanceTimersByTimeAsync(100)
       run.edit(run.text)
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('rechecks writer accounting after the asynchronous screen read', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working')
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      run.ports.readInput = async () => { run.edit(run.text); return run.text }
       await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
       expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
     } finally { await run.close(); vi.useRealTimers() }

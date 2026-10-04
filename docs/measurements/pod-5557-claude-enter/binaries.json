@@ -1,0 +1,10 @@
+{
+  "2.1.283": {
+    "path": "/tmp/pod5557-binaries/claude-2.1.283",
+    "sha256": "1859583ce32920595c61ef868bee52e1b1594f7486db209935e01f1e5e804ae2"
+  },
+  "2.1.289": {
+    "path": "/home/mgw/.local/share/claude/versions/2.1.289",
+    "sha256": "a186b99e4a9c88366cd49df2f7dad56c61fc306ef0140b19ee64b7c42a8d1348"
+  }
+}

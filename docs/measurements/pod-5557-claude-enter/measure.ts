@@ -22,6 +22,7 @@ const bg = args.includes('--bg')
 const stall = Number(option('--stall-ms', '0'))
 const repeat = Number(option('--repeat', '1'))
 const fault = option('--fault-first-cr', 'none')
+const verifyInput = args.includes('--verify-input')
 const port = Number(option('--port', '45557'))
 const here = import.meta.dir
 const label = option('--label', `${version}-${load ? 'load' : 'normal'}${retries ? '-retries' : ''}${stall ? `-stall${stall}` : ''}`)
@@ -106,6 +107,7 @@ function inject(text: string, delay: number, withRetries = false) {
     setTimer(callback, ms) { return setTimeout(callback, ms === SUBMIT_CR_DELAY_MS ? delay : ms) },
     clearTimer(handle) { clearTimeout(handle as ReturnType<typeof setTimeout>) },
     rawFirstTurn: () => false, needsSubmitVerification: () => withRetries, observedTurnEpoch: () => 0,
+    ...(verifyInput ? { readInput: async () => { await flush(); return screen().inputDraft }, foreignWriteCount: () => 0 } : {}),
     echoAccept: { watch(body) {
       const baseline = records().length
       let done = false
@@ -156,7 +158,7 @@ try {
   await sleep(300)
   writeFileSync(join(scratch, 'screen-start.json'), JSON.stringify(screen()))
   const idle = async () => {
-    await until(() => !screen().lines.some(line => /esc to interrupt/i.test(line)))
+    await until(() => !classifyClaudeScreen(screen().lines).turnRunning)
     await sleep(load ? 500 : 160)
     phase = 'idle'
   }
@@ -206,12 +208,12 @@ try {
     }
     if (state !== 'idle') { writeFileSync(releaseFile, 'released'); await control({ release: true }) }
     let recordedEventually = true
-    try { await until(() => accepted(id).length > 0, 5000) } catch { recordedEventually = false }
+    try { await until(() => accepted(id).some(row => row.type === 'user' || row.type === 'attachment'), 5000) } catch { recordedEventually = false }
     await idle(); await flush()
     const finalRecords = accepted(id)
     const firstCR = beforeRecovery.writes.find(row => row.intended === '\r')
     const firstPaste = beforeRecovery.writes.find(row => row.bytes !== '\r')
-    const row = { case: id, version, state, body: kind, delay, load, stall, retries, bg, fault, iteration, started, text, recordedEventually,
+    const row = { case: id, version, state, body: kind, delay, load, stall, retries, bg, fault, verifyInput, iteration, started, text, recordedEventually,
       observedDelay: firstCR && firstPaste ? firstCR.mono - firstPaste.mono : null,
       firstCRSubmitted: didSubmit, before, beforeRecovery, final: { at: Date.now(), screen: screen(), records: finalRecords, writes }, setupRecords }
     appendFileSync(output, `${JSON.stringify(row)}\n`)

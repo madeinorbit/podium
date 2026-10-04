@@ -1,0 +1,98 @@
+{
+  "baselineCases": 240,
+  "baselineSubmitted": 240,
+  "groups": [
+    {
+      "version": "2.1.283",
+      "load": false,
+      "cases": 60,
+      "submitted": 60,
+      "nativeRecords": {
+        "user": 45,
+        "attachment": 15
+      }
+    },
+    {
+      "version": "2.1.283",
+      "load": true,
+      "cases": 60,
+      "submitted": 60,
+      "nativeRecords": {
+        "user": 45,
+        "attachment": 15
+      }
+    },
+    {
+      "version": "2.1.289",
+      "load": false,
+      "cases": 60,
+      "submitted": 60,
+      "nativeRecords": {
+        "user": 45,
+        "attachment": 15
+      }
+    },
+    {
+      "version": "2.1.289",
+      "load": true,
+      "cases": 60,
+      "submitted": 60,
+      "nativeRecords": {
+        "user": 45,
+        "attachment": 15
+      }
+    }
+  ],
+  "proofSnapshotLag": [
+    {
+      "case": "ENTER-2.1.283-load-5-idle-short-500",
+      "firstCR": 1791143015177,
+      "recorded": 1791143015362.0,
+      "manualCR": 1791143016772
+    }
+  ],
+  "coalescedCases": 20,
+  "coalescedSubmitted": 20,
+  "observedDelayRanges": {
+    "0": [
+      1.0674609999987297,
+      19.889911000005668
+    ],
+    "30": [
+      30.068299000005936,
+      69.78451999999925
+    ],
+    "90": [
+      90.11559800000396,
+      135.39147499999672
+    ],
+    "200": [
+      200.11937499999476,
+      276.7093329999989
+    ],
+    "500": [
+      500.1343840000336,
+      564.7375650000031
+    ]
+  },
+  "faults": [
+    {
+      "file": "2.1.283-missed-enter-before.jsonl",
+      "cases": 3,
+      "verifiedBeforeManualRecovery": 0,
+      "singlePastePerCase": true,
+      "messageCRCounts": {
+        "0": 3
+      }
+    },
+    {
+      "file": "2.1.289-missed-enter-before.jsonl",
+      "cases": 3,
+      "verifiedBeforeManualRecovery": 0,
+      "singlePastePerCase": true,
+      "messageCRCounts": {
+        "0": 3
+      }
+    }
+  ]
+}
