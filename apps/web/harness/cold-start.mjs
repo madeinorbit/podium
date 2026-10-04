@@ -15,6 +15,7 @@ const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const query = arg('query', '')
+const paired = process.argv.includes('--paired')
 const variantQueries = {
   control: '', memo:'coldStartFlatMemo=1', reader:'coldStartNoIssueReaderIndex=1',
   attach:'coldStartNoDormantAttach=1', hydrate:'coldStartNoDiscardedHydrate=1',
@@ -23,6 +24,8 @@ const variantQueries = {
   candidates:'coldStartFlatMemo=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartNoDiscardedHydrate=1',
   quick:'coldStartQuickMemos=1',
   quickCandidates:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartNoDiscardedHydrate=1',
+  replaceQueries:'coldStartSkipReplaceQueries=1', attachAll:'coldStartNoAttachedScreens=1',
+  bounded:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
 }
 const variants = arg('variants','').split(',').filter(Boolean)
 if (variants.some(name => !(name in variantQueries))) throw Error('Unknown diagnostic variant')
@@ -34,6 +37,7 @@ const startupOnly=true
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
+if (existsSync(resolve(out,'run.json'))) throw Error('Capture output already exists; use a fresh round')
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
 const corpus = JSON.parse(corpusBytes), synthetic = controlOnly?[]:JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${scale}x.json`, 'utf8'))
@@ -67,7 +71,9 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   httpCache:'disabled by bootstrap request routing',
   warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
   sameOriginTracePriming:true,
-  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,query,variants,
+  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,query,variants,paired,
+  build:JSON.parse(readFileSync('apps/web/dist/podium-build.json','utf8')),
+  diagnostic:existsSync('apps/web/dist/ablation-provenance.json'),
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -80,7 +86,7 @@ const save = () => {
   renameSync(resolve(out,'run.pending'),resolve(out,'run.json'))
 }
 save()
-const port = surface === 'web' ? 19561 : 19562
+const port = Number(arg('port',surface === 'web' ? '19561' : '19562'))
 const base = `http://127.0.0.1:${port}`, relay = base.replace('http','ws')
 const env = { ...process.env, PORT:String(port), PODIUM_NO_RELAY:'1' }
 for (const key of Object.keys(env)) if (/^PODIUM_(SESSION|AGENT|CODEX_HOOK|ISSUE_RELAY|INSTANCE|HOME|STATE_DIR|AGENT_HOME|SERVER|PORT)/.test(key)) delete env[key]
@@ -387,6 +393,10 @@ try {
     // reloads it, retaining durable rows and preferences. Bootstrap request
     // routing disables HTTP cache; this is a warm-data reload.
     for(let i=0;i<samples+1;i++) {
+      if (paired) {
+        const step = resolve(out,`step-${i}.go`)
+        while (!existsSync(step)) await pause(100)
+      }
       const order=variants.length ? [...variants.slice(i%variants.length),...variants.slice(0,i%variants.length)] : ['production']
       for(const variant of order) {
         activeVariant=variant
@@ -396,6 +406,7 @@ try {
         await population(f.page)
         if(i!==samples || variant!==order.at(-1))await f.context.close()
       }
+      if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))
     }
   }
   else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}

@@ -238,6 +238,35 @@ function fixture(scale = 1, bootOnly = false) {
   return { pool, index: cold({}), load, rows, values }
 }
 
+it('rebuilds observed identities once on replacement without probing every cold member first', () => {
+  const f = fixture(4, true)
+  let seen: string[] = [], publications = 0
+  const stop = autorun(() => {
+    seen = f.pool.queries.ids({ kind: 'commandIssues' }).sort()
+    publications++
+  })
+  const contains = vi.spyOn(f.index, 'readerContains')
+  try {
+    expect(seen).toHaveLength(512)
+    f.pool.apply({ type: 'replace', rows: f.rows })
+    expect(seen).toHaveLength(512)
+    expect(publications).toBe(2)
+    expect(contains.mock.calls.length).toBeLessThan(16)
+    contains.mockClear()
+    const rows = f.rows.filter(row => row.id !== 'cold-issue-0')
+    f.index.apply({ type: 'replace', rows })
+    f.pool.apply({ type: 'replace', rows })
+    expect(seen).toHaveLength(511)
+    expect(seen).not.toContain('cold-issue-0')
+    expect(publications).toBe(3)
+    expect(contains.mock.calls.length).toBeLessThan(16)
+  } finally {
+    contains.mockRestore()
+    stop()
+    f.pool.dispose()
+  }
+})
+
 /** Comparison rows are the actual ordered values consumed by the screens.
  * Independent legacy-vs-pool render comparisons live in the reader suites. */
 function snapshot(name: string, value: unknown): SidebarSnapshot {

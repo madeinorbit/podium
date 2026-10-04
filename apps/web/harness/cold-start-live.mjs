@@ -13,6 +13,7 @@ if (hostname() !== 'ludovico') throw Error('Operator data must stay on ludovico'
 const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback
 const arm = arg('arm', 'latest'), samples = Number(arg('samples', '8'))
 const dist = resolve(arg('dist', `.artifacts/cold-start/live/${arm}`))
+const baselineDist = arg('baseline-dist', '') ? resolve(arg('baseline-dist','')) : undefined
 const out = resolve(arg('out', `.artifacts/cold-start/live-results/${arm}`))
 const variantQueries = {
   control:'', memo:'coldStartFlatMemo=1', reader:'coldStartNoIssueReaderIndex=1',
@@ -22,17 +23,21 @@ const variantQueries = {
   candidates:'coldStartFlatMemo=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartNoDiscardedHydrate=1',
   quick:'coldStartQuickMemos=1',
   quickCandidates:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartNoDiscardedHydrate=1',
+  replaceQueries:'coldStartSkipReplaceQueries=1', attachAll:'coldStartNoAttachedScreens=1',
+  bounded:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
 }
-const variants = arg('variants','').split(',').filter(Boolean)
-if(variants.some(name=>!(name in variantQueries)))throw Error('Unknown live ablation')
+const variants = baselineDist ? ['baseline','production'] : arg('variants','').split(',').filter(Boolean)
+if(!baselineDist && variants.some(name=>!(name in variantQueries)))throw Error('Unknown live ablation')
 const live = 'http://127.0.0.1:18787'
 const token = execFileSync('podium', ['auth', 'mint-session', '--print-only', '--ttl', '20m'], {encoding:'utf8', stdio:['ignore','pipe','ignore']}).trim()
 if (!token || !Number.isInteger(samples) || samples < 1) throw Error('Invalid live capture setup')
 mkdirSync(out, {recursive:true})
 const result = {version:1, arm, method:'A1 private production preview; connected live backend; fresh browser context per cold sample', transport:'identity HTTP bootstrap, service workers blocked', build:JSON.parse(readFileSync(resolve(dist,'podium-build.json'),'utf8')), collectorSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'), host:hostname(), samples, variants, query:arg('query',''), startedAt:new Date().toISOString(), actions:[], errors:[], counts:[], pid:process.pid}
+if(baselineDist)result.baselineBuild=JSON.parse(readFileSync(resolve(baselineDist,'podium-build.json'),'utf8'))
 const save = () => writeFileSync(resolve(out, 'run.json'), JSON.stringify(result,null,2)+'\n')
+writeFileSync(resolve(out,'collector-source.mjs'),readFileSync(new URL(import.meta.url)))
 const mime = {'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.json':'application/json','.woff2':'font/woff2','.png':'image/png'}
-const server = Bun.serve({
+const preview = previewDist => Bun.serve({
   hostname:'127.0.0.1', port:0, idleTimeout:120,
   async fetch(request, server) {
     const url = new URL(request.url)
@@ -44,16 +49,24 @@ const server = Bun.serve({
     }
     if (url.pathname === '/__benchmark_blank') return new Response('<!doctype html><title>Preparation</title>',{headers:{'content-type':'text/html'}})
     const pathname = decodeURIComponent(url.pathname)
-    const file = Bun.file(resolve(dist,'.'+pathname))
+    const file = Bun.file(resolve(previewDist,'.'+pathname))
     if (request.method === 'GET' && pathname !== '/' && await file.exists()) return new Response(file,{headers:{'content-type':mime[extname(pathname)]??file.type}})
     if (request.method === 'GET' && (pathname==='/' || !/\.(js|css|json|map|png|svg|woff2)$/.test(pathname)) && !/^\/(auth|trpc|sync|version|health|api)(\/|$)/.test(pathname))
-      return new Response(Bun.file(resolve(dist,'index.html')),{headers:{'content-type':'text/html'}})
+      return new Response(Bun.file(resolve(previewDist,'index.html')),{headers:{'content-type':'text/html'}})
     const headers = new Headers(request.headers)
     headers.set('cookie',`podium_session=${token}`); headers.delete('host')
     // Bun 1.4.2 cannot proxy Chromium's streaming zstd bootstrap. Both arms
     // use identity transport; this proxy's cost is outside client CPU claims.
     headers.set('accept-encoding','identity')
-    const response = await fetch(live+url.pathname+url.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual'})
+    headers.set('connection','close')
+    let response
+    try {
+      response = await fetch(live+url.pathname+url.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual',signal:request.signal})
+    } catch(error) {
+      result.proxyErrors??=[]
+      result.proxyErrors.push({at:new Date().toISOString(),path:url.pathname,aborted:request.signal.aborted,code:error.code??error.name})
+      return new Response(null,{status:request.signal.aborted?499:502})
+    }
     const responseHeaders = new Headers(response.headers)
     responseHeaders.delete('content-encoding'); responseHeaders.delete('content-length')
     return new Response(response.body,{status:response.status,headers:responseHeaders})
@@ -70,7 +83,7 @@ const server = Bun.serve({
     close(socket) {socket.data.upstream.close()},
   },
 })
-const base = `http://127.0.0.1:${server.port}`
+const server = preview(dist), baselineServer = baselineDist ? preview(baselineDist) : undefined
 let browser, diagnosticPage
 save()
 try {
@@ -80,14 +93,16 @@ try {
   for(let round=0;round<samples+1;round++) {
     const order=variants.length?[...variants.slice(round%variants.length),...variants.slice(0,round%variants.length)]:['production']
     for(const variant of order) {
+    const base = `http://127.0.0.1:${(variant==='baseline'?baselineServer:server).port}`
     const profile = round===samples
-    const query=[variants.length?'coldStartTrace=1':'',variantQueries[variant]??'',arg('query','')].filter(Boolean).join('&')
+    const query=[variants.length && !baselineDist?'coldStartTrace=1':'',variantQueries[variant]??'',arg('query','')].filter(Boolean).join('&')
     const context = await browser.newContext({viewport:{width:1600,height:1000},serviceWorkers:'block'})
     await context.addCookies([{name:'podium_session',value:token,url:base}])
     const page = await context.newPage()
     diagnosticPage=page
-    page.on('pageerror',error=>result.errors.push({index,kind:'pageerror',message:error.message.slice(0,250)}))
-    page.on('response',response=>{if(response.status()>=400)result.errors.push({index,kind:'http',status:response.status(),path:new URL(response.url()).pathname})})
+    const sampleIndex=index
+    page.on('pageerror',error=>result.errors.push({index:sampleIndex,at:new Date().toISOString(),kind:'pageerror',message:error.message.slice(0,250)}))
+    page.on('response',response=>{if(response.status()>=400)result.errors.push({index:sampleIndex,at:new Date().toISOString(),kind:'http',status:response.status(),path:new URL(response.url()).pathname})})
     await page.goto(base+'/__benchmark_blank')
     await page.addInitScript(()=>{
       localStorage.setItem('podium.panelMode','chat')
@@ -111,6 +126,7 @@ try {
     await cdp.send('Tracing.start',{categories:'toplevel,devtools.timeline,blink.user_timing',transferMode:'ReportEvents'})
     if(profile){await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:100});await cdp.send('Profiler.start')}
     const load=loadavg()
+    const startedAt=new Date().toISOString()
     await page.goto(`${base}/?server=${encodeURIComponent(base.replace('http','ws'))}&e2e=1&${query}`,{waitUntil:'domcontentloaded',timeout:120000})
     await page.waitForFunction(()=>window.__comparisonStartup,undefined,{timeout:120000})
     await page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))))
@@ -124,7 +140,8 @@ try {
     const mainThreadCpuMs=typeof input.tts==='number'&&typeof paint.tts==='number'&&typeof paint.tdur==='number'?(paint.tts+paint.tdur-input.tts)/1000:null
     const phaseMetrics=await page.evaluate(end=>(window.__coldStartMetrics??[]).filter(entry=>entry.end<=end),measured.inputToPaintMs)
     const assets=await page.evaluate(end=>performance.getEntriesByType('resource').filter(entry=>/\.(js|css)(\?|$)/.test(entry.name)&&entry.startTime<=end).map(entry=>({path:new URL(entry.name).pathname,ms:entry.duration,encodedBytes:entry.encodedBodySize,decodedBytes:entry.decodedBodySize})),measured.inputToPaintMs)
-    result.actions.push({index,round,variant,query,profiled:profile,load,...measured,mainThreadCpuMs,phaseMetrics,assets})
+    const paintAt=await page.evaluate(ms=>new Date(performance.timeOrigin+ms).toISOString(),measured.inputToPaintMs)
+    result.actions.push({index,round,variant,query,profiled:profile,load,startedAt,paintAt,...measured,mainThreadCpuMs,phaseMetrics,assets})
     writeFileSync(resolve(out,`${index}.trace.json.gz`),gzipSync(JSON.stringify(events)))
     const counts=await page.evaluate(async()=>{
       const counts={}
@@ -147,4 +164,4 @@ try {
   result.failureBoundary=await diagnosticPage?.evaluate(()=>({bootSplash:!!document.querySelector('[data-testid="boot-splash"]'),aside:!!document.querySelector('aside'),rows:document.querySelectorAll('aside [data-issue-row]').length,dialogs:document.querySelectorAll('[role="dialog"]').length,cannotStart:/cannot start/i.test(document.body.innerText),signIn:/sign in/i.test(document.body.innerText)})).catch(()=>null)
   console.error(result.failure);console.error('Failure boundary '+JSON.stringify(result.failureBoundary));process.exitCode=1
 }
-finally {result.endedAt=new Date().toISOString();result.loadEnd=loadavg();save();await browser?.close();server.stop(true)}
+finally {result.endedAt=new Date().toISOString();result.loadEnd=loadavg();save();await browser?.close();server.stop(true);baselineServer?.stop(true)}

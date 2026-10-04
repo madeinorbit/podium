@@ -177,10 +177,15 @@ export class ReaderQueries {
       for (const [entity, id] of [...delta.flips, ...delta.orders])
         if (entity === 'session') this.sessionQuestions().visibilityChanged(id)
     }
+    // Replacement counts were rebuilt from residents above. Observed identity
+    // answers are rebuilt below from the new source catalog. Updating every
+    // cold member here would construct an answer that is immediately discarded.
     for (const row of event.rows)
       if (row.kind === 'issue' || row.kind === 'session') {
-        this.correctCount(row.kind, row.id)
-        this.updateIdentity(row.kind, row.id)
+        if (event.type !== 'replace' && !fresh) {
+          this.correctCount(row.kind, row.id)
+          this.updateIdentity(row.kind, row.id)
+        }
         if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
           this.sessionQuestions().setFacts(row.id, index.sessionQuestionFact(row.id))
       }

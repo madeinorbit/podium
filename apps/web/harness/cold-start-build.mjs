@@ -38,9 +38,14 @@ function coldStartComposeIssue(projection, userState, gitState, repo, deps, bloc
   return value
 }
 `
-const quickMemo = `
-const coldStartQuickJoins = new WeakMap()
-function coldStartWalkJoin(root, keys) {
+const joinMemoSource = readFileSync(resolve(arg('join-memo','packages/client-core/src/join-memo.ts')),'utf8')
+const quickMemo = joinMemoSource+`
+const coldStartActualJoins = new JoinMemo()
+function coldStartJoinMemo(root, keys) {
+  if (coldStartFlag('coldStartQuickMemos')) {
+    const owner=keys.shift()
+    return coldStartActualJoins.cell(owner,keys)
+  }
   let memo=root
   for (const key of keys) {
     let next=memo.next.get(key)
@@ -49,23 +54,8 @@ function coldStartWalkJoin(root, keys) {
   }
   return memo
 }
-function coldStartJoinMemo(root, keys) {
-  if (!coldStartFlag('coldStartQuickMemos')) return coldStartWalkJoin(root,keys)
-  const owner=keys[0]
-  const previous=coldStartQuickJoins.get(owner)
-  if (!previous) {
-    const cell={}
-    coldStartQuickJoins.set(owner,{keys,cell})
-    return cell
-  }
-  if (previous.keys) {
-    if (keys.every((key,at)=>key===previous.keys[at])) return previous.cell
-    coldStartWalkJoin(root,previous.keys).value=previous.cell.value
-    coldStartQuickJoins.set(owner,{promoted:true})
-  }
-  return coldStartWalkJoin(root,keys)
-}
 `
+
 const plugin = {
   name:'cold-start-ablation', enforce:'pre',
   transform(original, id) {
@@ -91,10 +81,16 @@ const plugin = {
     }
     if (id.endsWith('/client-graph/src/host/screens.ts')) {
       code = helper+code.replace('    if (!screen.attach) continue', `    if (!screen.attach) continue
+    if (coldStartFlag('coldStartNoAttachedScreens') && screen.id !== 'sidebar') continue
     if (coldStartFlag('coldStartNoDormantAttach') && ['automations','notices','workflows','chatContext'].includes(screen.id)) continue
     const coldStartAttachBegan = performance.now()`)
       code = code.replace('      .then((stop) => {', `      .then((stop) => {
         coldStartMeasure('attach:'+screen.id, coldStartAttachBegan)`)
+    }
+    if (id.endsWith('/client-graph/src/reader-queries.ts')) {
+      code=helper+code.replace('    for (const row of event.rows)\n', `    if (!(coldStartFlag('coldStartSkipReplaceQueries') && (event.type === 'replace' || fresh)))
+    for (const row of event.rows)
+`)
     }
     if (id.endsWith('/client-graph/src/create.ts')) {
       code = helper+code.replace('  const row = source.row?.bind(source)', `  const coldStartBuildBegan = performance.now()
@@ -179,6 +175,7 @@ await build({configFile:resolve('apps/web/vite.config.ts'),root:resolve('apps/we
 writeFileSync(resolve(out,'ablation-provenance.json'),JSON.stringify({
   sourceSha:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
   builderSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
+  joinMemoSha256:createHash('sha256').update(joinMemoSource).digest('hex'),
   changes,
 },null,2))
 console.log(`Ablation build ready: ${out}; ${changes.length} transformed modules`)

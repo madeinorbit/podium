@@ -62,11 +62,18 @@ def cold_samples(paths):
             raise ValueError(f'{path}: missing corpus, browser or timing lease provenance')
         if run['lease'].get('name') != 'bench:flatblock':
             raise ValueError(f'{path}: startup timing requires bench:flatblock')
+        if not run.get('paired') or not run['lease'].get('cohort') or not run.get('harnessSha256'):
+            raise ValueError(f'{path}: alternating captures in one leased cohort are required')
+        stamp = run.get('build', {})
+        source = stamp.get('sourceSha', '')
+        if not re.fullmatch(r'[0-9a-f]{7,40}', source) or not run.get('sha', '').startswith(source) or not stamp.get('bundleVersion'):
+            raise ValueError(f'{path}: production bundle must name its measured checkout')
         count = run.get('population', {})
         expected = run['corpus']
         if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected['syntheticSessions']:
             raise ValueError(f'{path}: complete corpus did not hydrate')
-        provenance.append((run['semanticSha256'], run['browser'], run.get('httpCache')))
+        provenance.append((run['semanticSha256'], run['browser'], run.get('httpCache'),
+                           run['lease']['cohort'], run['harnessSha256']))
         for row in run['actions']:
             if row['action'] != 'app-cold-start' or row.get('profiled'):
                 continue
@@ -85,7 +92,7 @@ def compare(old_paths, candidate_paths, max_ms=2500):
     old, old_provenance = cold_samples(old_paths)
     candidate, candidate_provenance = cold_samples(candidate_paths)
     if old_provenance != candidate_provenance:
-        raise ValueError('OLD and candidate must use the same corpus, Chromium and cache policy')
+        raise ValueError('OLD and candidate must use the same corpus, Chromium, collector and paired lease')
     old_median = statistics.median(old)
     candidate_median = statistics.median(candidate)
     return {
@@ -97,6 +104,7 @@ def compare(old_paths, candidate_paths, max_ms=2500):
         'changePercent': (candidate_median / old_median - 1) * 100,
         'oldMaxMs': max(old), 'candidateMaxMs': max(candidate),
         'semanticSha256': old_provenance[0], 'browser': old_provenance[1],
+        'cohort': old_provenance[3], 'collectorSha256': old_provenance[4],
     }
 
 

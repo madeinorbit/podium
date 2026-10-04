@@ -13,7 +13,9 @@ function run(ms: number, patch: Record<string, unknown> = {}) {
   return {
     status: 'complete', host: 'flatblock', surface: 'web', scale: 1,
     semanticSha256: 'same-semantic-corpus', browser: '153.0.8010.12',
-    httpCache: 'disabled by bootstrap request routing', lease: { name: 'bench:flatblock' },
+    httpCache: 'disabled by bootstrap request routing', lease: { name: 'bench:flatblock', cohort: 'paired-fixture' },
+    paired: true, harnessSha256: 'same-collector', sha: '0123456789abcdef',
+    build: { sourceSha: '0123456', bundleVersion: 'fixture-bundle' },
     population: { issueProjection: 4_867, session: 4_304 },
     corpus: { syntheticIssues: 4_867, syntheticSessions: 4_304 }, errors: [],
     actions: Array.from({ length: 8 }, (_, index) => ({
@@ -54,6 +56,8 @@ describe('cold startup admission', () => {
       { population: { issueProjection: 100, session: 4_304 } },
       { semanticSha256: 'different-corpus' }, { browser: 'different-browser' },
       { lease: { name: 'meter:flatblock' } }, { actions: run(2_400).actions.slice(0, 7) },
+      { paired: false }, { lease: { name: 'bench:flatblock', cohort: 'other-run' } },
+      { harnessSha256: 'different-collector' }, { build: { sourceSha: '7654321', bundleVersion: 'stale' } },
     ]) expect(compare(run(2_500), run(2_400, patch)).status).not.toBe(0)
   })
 
