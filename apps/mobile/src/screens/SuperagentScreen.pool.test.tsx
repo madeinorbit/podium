@@ -23,11 +23,17 @@ vi.mock('expo-haptics', () => ({ NotificationFeedbackType: { Error: 'error' }, n
 vi.mock('../hooks/useTabBarInset', () => ({ useTabBarInset: () => 72 }))
 vi.mock('../hooks/useKeyboardHeight', () => ({ useKeyboardLift: () => 0 }))
 vi.mock('../components/Screen', () => ({ Screen: ({ children, right }: { children: ReactNode; right: ReactNode }) => <div>{right}{children}</div>,
-  HeaderButton: ({ children, label, onPress }: { children: ReactNode; label: string; onPress: () => void }) => <button aria-label={label} onClick={onPress}>{children}</button> }))
+  HeaderButton: ({ children, label, onPress }: { children: ReactNode; label: string; onPress: () => void }) => (
+  // biome-ignore lint/a11y/useButtonType: Preserve accepted native Pressable mock HTML; it never belongs to a form.
+  <button aria-label={label} onClick={onPress}>{children}</button>
+) }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/LaunchPlaceholders', () => ({ BootstrapCrossfade: ({ children }: { children: ReactNode }) => children, TranscriptSkeleton: () => null }))
 vi.mock('../components/PullToRefreshBoundary', () => ({ PullToRefreshBoundary: ({ children }: { children: ReactNode }) => children }))
-vi.mock('../components/Composer', () => ({ Composer: ({ onSend }: { onSend: (text: string) => void }) => <button onClick={() => onSend('Synthetic handoff')}>Send</button> }))
+vi.mock('../components/Composer', () => ({ Composer: ({ onSend }: { onSend: (text: string) => void }) => (
+  // biome-ignore lint/a11y/useButtonType: Preserve accepted native Pressable mock HTML; it never belongs to a form.
+  <button onClick={() => onSend('Synthetic handoff')}>Send</button>
+) }))
 vi.mock('../components/SuperagentBackendRail', () => ({ SuperagentBackendRail: () => null }))
 vi.mock('../components/TranscriptList', () => ({ TranscriptList: (props: typeof state.transcripts[number]) => {
   state.transcripts.push(props)
