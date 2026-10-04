@@ -47,7 +47,7 @@ const log = createLogger('server:updates')
 export interface PreparedCoordinatorUpdate {
   readonly committed?: boolean
   activate(): Promise<void>
-  cancel(): Promise<void>
+  cancel(reason?: string): Promise<void>
 }
 
 export type PrepareCoordinatorUpdate = (
@@ -188,8 +188,8 @@ export function createInstalledCoordinatorUpdate(
               throw new Error('Coordinator preparation authority was replaced.')
             await requestMachineUpdate(runtimeDir, '/activate', { grantId: grant.grantId })
           },
-          cancel: async () => {
-            await requestMachineUpdate(runtimeDir, '/cancel', { grantId: grant.grantId })
+          cancel: async (reason) => {
+            await requestMachineUpdate(runtimeDir, '/cancel', { grantId: grant.grantId, reason })
           },
         }
       } else await requestSwap(target, deps.pinnedPubkey)

@@ -7,7 +7,7 @@ import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime
 import { createInstalledCoordinatorUpdate } from './installed-restart'
 import { UpdateRecoveryStore } from './recovery-store'
 import { asMachineId, type UpdateChannel } from '@podium/model'
-import type { Operation, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
+import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
   UPDATE_FAILURE_EXAMPLES,
@@ -4690,7 +4690,7 @@ describe('coordinator snapshot activation boundary', () => {
         return {
           committed: receipt.committed,
           activate: async () => { await receipt.activate(); receiptSettled.resolve() },
-          cancel: async () => { await receipt.cancel(); receiptSettled.resolve() },
+          cancel: async (reason) => { await receipt.cancel(reason); receiptSettled.resolve() },
         }
       },
       requestCoordinatorRestart: fallbackRestart,
@@ -4712,7 +4712,8 @@ describe('coordinator snapshot activation boundary', () => {
       discard: vi.fn(async () => {}),
       restart: vi.fn(async () => 'handover-pending' as const),
     }
-    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: () => {} })
+    const reports: UpdateStatusMessage[] = []
+    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: (status) => reports.push(status) })
     const control = await startMachineUpdateControl(runtimeDir, executor)
     // Observable old-coordinator availability, separate from the control endpoint.
     const serving = createServer((_req, res) => res.end('old coordinator serving'))
@@ -4729,7 +4730,7 @@ describe('coordinator snapshot activation boundary', () => {
       return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
     }
     return {
-      h, target, executor, adapter, snapshot, snapshotting, preparing, activated, receiptSettled,
+      h, target, executor, adapter, reports, snapshot, snapshotting, preparing, activated, receiptSettled,
       releasePreparation, releaseSnapshot, fallbackRestart, start, repeat, oldServer, runtimeDir,
       failSnapshot: () => { failSnapshot = true },
       transfer: () => { transfer = true },
@@ -4796,10 +4797,47 @@ describe('coordinator snapshot activation boundary', () => {
         expect(f.fallbackRestart).not.toHaveBeenCalled()
         expect(await f.oldServer()).toBe('old coordinator serving')
         expect(f.executor.snapshot()!.phase).toBe('canceled')
+        if (failure === 'verification') {
+          expect(f.executor.snapshot()!.detail).toContain('verification timed out')
+          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+        }
+        if (failure === 'persistence') {
+          expect(f.executor.snapshot()!.detail).toContain('snapshot receipt disk full')
+          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+        }
         if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
       } finally { vi.restoreAllMocks(); await f.close() }
     },
   )
+
+  it('preserves a snapshot failure when cancellation reports reach the fleet first [POD-5290]', async () => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      f.failSnapshot()
+      // Prevent the detached runner report from winning: production can receive
+      // the supervisor's cancellation report before /cancel returns to the runner.
+      // The runner already captured its context; hold its report at the engine seam.
+      const runnerReported = latch<void>()
+      const report = vi.spyOn(f.h.engine, 'recordProgress').mockImplementation(async () => {
+        runnerReported.resolve()
+      })
+      f.releaseSnapshot.resolve()
+      await f.receiptSettled.promise
+      await runnerReported.promise
+      const canceled = f.reports.findLast(status => status.phaseDetail === 'canceled')!
+      await f.h.updates.onStatus('host', canceled)
+      report.mockRestore()
+      await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()
+      await f.h.engine.whenSettled('op_1')
+      expect((await f.h.read()).state).toBe('failed')
+      expect((await f.h.read()).error?.detail).toContain('verification timed out')
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+    } finally { vi.restoreAllMocks(); await f.close() }
+  })
 
   it('never cancels a replacement grant after authority changes during snapshot verification', async () => {
     const f = await fixture()

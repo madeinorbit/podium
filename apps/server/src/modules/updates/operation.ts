@@ -2374,10 +2374,12 @@ async function runCoordinatorReplacement(
     }
   }
   let activated = false
+  let cancelReason = 'Coordinator update lost admission before activation.'
   try {
     if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
     if (prepared?.committed &&
         (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
+      cancelReason = 'Committed coordinator update has no matching durable snapshot receipt.'
       return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
     }
     // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
@@ -2385,13 +2387,16 @@ async function runCoordinatorReplacement(
     // identity mismatch here is a structured operation failure and the OLD
     // SERVER KEEPS RUNNING. Only a proved snapshot reaches `requestCoordinatorRestart`.
     const fromVersion = details.fromVersion ?? context.appVersion()
-    const snapshotFailure = (detail: string): StepOutcome => ({
-      state: 'failed',
-      error: describeUpdateOperationFailure({
-        code: 'preparation-failed',
-        detail: `Database snapshot failed; the server was not restarted: ${detail}`,
-      }),
-    })
+    const snapshotFailure = (detail: string): StepOutcome => {
+      cancelReason = `Database snapshot failed; the server was not restarted: ${detail}`
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({
+          code: 'preparation-failed',
+          detail: cancelReason,
+        }),
+      }
+    }
     let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
       ? details.databaseSnapshotPath : undefined
     if (databaseSnapshotPath) {
@@ -2431,11 +2436,12 @@ async function runCoordinatorReplacement(
       else await context.requestCoordinatorRestart()
       activated = true
     } catch (error) {
+      cancelReason = `Coordinator activation refused: ${describeError(error)}`
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
           code: 'preparation-failed',
-          detail: `Coordinator activation refused: ${describeError(error)}`,
+          detail: cancelReason,
         }),
       }
     }
@@ -2448,8 +2454,13 @@ async function runCoordinatorReplacement(
       heldCoordinatorUpdates.delete(operation.id)
     }
     if (!activated && prepared) {
+      log.warn('coordinator preparation abandoned before activation', {
+        operationId: operation.id,
+        grantId: grant?.grantId,
+        reason: cancelReason,
+      })
       try {
-        await prepared.cancel()
+        await prepared.cancel(cancelReason)
       } catch (error) {
         log.warn('could not cancel held coordinator preparation', { operationId: operation.id, err: error })
       }

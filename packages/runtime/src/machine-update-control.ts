@@ -88,7 +88,10 @@ export async function startMachineUpdateControl(
         return
       }
       if (req.method === 'POST' && req.url === '/cancel') {
-        json({ canceled: await executor.cancel(parsed.grantId) })
+        const failure = typeof parsed.reason === 'string' && parsed.reason.length > 0
+          ? { detail: parsed.reason, reasonCode: 'coordinator-preparation-failed' }
+          : undefined
+        json({ canceled: await executor.cancel(parsed.grantId, failure) })
         return
       }
       res.writeHead(404).end()

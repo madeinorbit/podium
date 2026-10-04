@@ -51,7 +51,6 @@ import { isFeatureEnabled } from './features'
 import { importFingerprintKey } from './fingerprint-key-import'
 import { importConfigSettings } from './settings-config-import'
 import { importInstallationIdentity } from './installation-identity-import'
-import { backupDatabase } from './migrations/backup'
 import { latestAppliedMigration } from './migrations/index'
 import {
   type SnapshotVerification,
@@ -571,26 +570,12 @@ export class SessionStore {
     fromVersion: string,
     targetVersion: string,
   ): Promise<string | undefined> {
-    return await this.executor.exclusive(async () =>
-      this.stageUpdateSnapshot(fromVersion, targetVersion),
-    )
-  }
-
-  private stageUpdateSnapshot(fromVersion: string, targetVersion: string): string | undefined {
     if (this.path === ':memory:') return undefined
+    // Drain earlier transactions before the child takes its own consistent
+    // SQLite snapshot. The scan itself must not hold the store's read barrier.
+    await this.executor.exclusive(async () => undefined)
     const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
-    const snapshot = backupDatabase(
-      this.db,
-      this.path,
-      `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
-      undefined,
-      undefined,
-      () => this.snapshotVerifier.verifiedFallbackPath(),
-    )
-    // Staged, not proved. The record is published before anything can await the
-    // proof so a crash in between is legible as "staged and never verified".
-    if (snapshot) this.snapshotVerifier.recordStaged(snapshot, randomUUID())
-    return snapshot
+    return await this.snapshotVerifier.stage(`update-${safe(fromVersion)}-to-${safe(targetVersion)}`)
   }
 
   /**

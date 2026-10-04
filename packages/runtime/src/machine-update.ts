@@ -509,22 +509,22 @@ export class MachineUpdateExecutor {
       release()
     }
   }
-  async cancel(grantId: string): Promise<boolean> {
+  async cancel(grantId: string, failure?: { detail: string; reasonCode: string }): Promise<boolean> {
     const release = await this.acquireAdmission()
     try {
-      return await this.cancelAccepted(grantId)
+      return await this.cancelAccepted(grantId, failure)
     } finally {
       release()
     }
   }
-  private async cancelAccepted(grantId: string): Promise<boolean> {
+  private async cancelAccepted(grantId: string, failure?: { detail: string; reasonCode: string }): Promise<boolean> {
     if (!this.journal || this.journal.grant.grantId !== grantId) return false
     if (committed(this.journal.phase)) return false
     if (terminal(this.journal.phase)) return this.journal.phase === 'canceled'
     this.abort?.abort()
     await this.active
     await this.deps.adapter.discard()
-    this.transition('canceled', { detail: 'Update canceled before activation.', reasonCode: 'update-canceled' })
+    this.transition('canceled', failure ?? { detail: 'Update canceled before activation.', reasonCode: 'update-canceled' })
     return true
   }
   private run(): Promise<void> {

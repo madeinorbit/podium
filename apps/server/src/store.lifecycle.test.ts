@@ -123,6 +123,31 @@ describe('store file operations behind transactions', () => {
 })
 
 describe('snapshot proof stays off the exclusive lane (rule 67)', () => {
+  it('serves store writes while update snapshot staging is parked [POD-5290]', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pod5290-stage-'))
+    const parked = barrier()
+    const entered = barrier()
+    const store = await openTestStore(join(dir, 'store.db'), undefined, {
+      stageChild: async (request) => {
+        entered.release()
+        await parked.wait()
+        return { result: { ok: true, correlationId: request.correlationId } }
+      },
+    })
+    try {
+      const staging = store.snapshotBeforeUpdate('before', 'after')
+      await entered.wait()
+      await notBlocked(store.repos.addRepo('/during-staging', store.hostMachineId), 'addRepo during staging')
+      expect(await store.repos.listRepoPaths()).toEqual(['/during-staging'])
+      parked.release()
+      await staging
+    } finally {
+      parked.release()
+      await store.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('serves store writes while a parked server-replacement proof runs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod3557-proof-'))
     const parked = barrier()

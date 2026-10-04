@@ -14,6 +14,8 @@
  * the parent records as `failed` rather than as a bad snapshot.
  */
 
+import { describeError } from '@podium/logger'
+import type { StageSnapshotRequest, StageSnapshotResult } from './snapshot-staging'
 import type { VerifySnapshotRequest } from './snapshot-verification'
 
 /** Environment variable carrying the JSON {@link VerifySnapshotRequest}. */
@@ -32,8 +34,20 @@ export async function runSnapshotVerifierChildIfRequested(
   const raw = env[SNAPSHOT_VERIFIER_ENV]
   if (!raw) return false
   // Imported lazily so the ordinary CLI boot never pays for the SQLite verifier.
+  const request = JSON.parse(raw) as VerifySnapshotRequest | StageSnapshotRequest
+  if ('kind' in request) {
+    const { stageSnapshotFile } = await import('./snapshot-staging')
+    let result: StageSnapshotResult
+    try {
+      const path = stageSnapshotFile(request)
+      result = { ok: true, correlationId: request.correlationId, ...(path ? { path } : {}) }
+    } catch (error) {
+      result = { ok: false, correlationId: request.correlationId, detail: describeError(error) }
+    }
+    write(`${JSON.stringify(result)}\n`)
+    return true
+  }
   const { verifySnapshotFile } = await import('./snapshot-verification')
-  const request = JSON.parse(raw) as VerifySnapshotRequest
   write(`${JSON.stringify(verifySnapshotFile(request))}\n`)
   return true
 }

@@ -38,6 +38,7 @@ import {
   verifiedFallback,
   writeSnapshotCatalogue,
 } from './snapshot-catalogue'
+import type { StageSnapshotRequest, StageSnapshotResult } from './snapshot-staging'
 import type { VerifySnapshotRequest, VerifySnapshotResult } from './snapshot-verification'
 import { SNAPSHOT_VERIFIER_ENV } from './snapshot-verifier-child'
 
@@ -80,11 +81,30 @@ export interface SnapshotVerifierDeps {
   /** Process seam shared by foreground and background verification. */
   spawnProcess?: SnapshotProcessSpawner
   runChild?: SnapshotChildRunner
+  stageChild?: (
+    request: StageSnapshotRequest,
+    timeoutMs: number,
+    signal: AbortSignal,
+  ) => Promise<SnapshotStageOutcome>
   now?: () => number
   keep?: number
   timeoutMs?: number
   /** Injected so a test never leaves a real timer behind. */
   schedule?: (fn: () => void) => void
+}
+
+export interface SnapshotStageOutcome {
+  result?: StageSnapshotResult
+  failure?: SnapshotChildOutcome['failure']
+}
+
+export interface SnapshotProcessDeps {
+  spawnProcess?: SnapshotProcessSpawner
+  execPath?: string
+  compiled?: boolean
+  killGraceMs?: number
+  signal?: AbortSignal
+  onChildLifetime?: (exited: Promise<void>) => void
 }
 
 /**
@@ -99,17 +119,18 @@ export interface SnapshotVerifierDeps {
 export function spawnSnapshotVerifierChild(
   request: VerifySnapshotRequest,
   timeoutMs: number,
-  deps: {
-    spawnProcess?: SnapshotProcessSpawner
-    execPath?: string
-    compiled?: boolean
-    killGraceMs?: number
-    /** Shutdown seam: aborting terminates the child on the same escalation. */
-    signal?: AbortSignal
-    /** Tracks actual process termination separately from the bounded result deadline. */
-    onChildLifetime?: (exited: Promise<void>) => void
-  } = {},
-): Promise<SnapshotChildOutcome> {
+  deps?: SnapshotProcessDeps,
+): Promise<SnapshotChildOutcome>
+export function spawnSnapshotVerifierChild(
+  request: StageSnapshotRequest,
+  timeoutMs: number,
+  deps?: SnapshotProcessDeps,
+): Promise<SnapshotStageOutcome>
+export function spawnSnapshotVerifierChild(
+  request: VerifySnapshotRequest | StageSnapshotRequest,
+  timeoutMs: number,
+  deps: SnapshotProcessDeps = {},
+): Promise<SnapshotChildOutcome | SnapshotStageOutcome> {
   const spawnProcess = deps.spawnProcess ?? spawn
   const compiled = deps.compiled ?? import.meta.url.includes('/$bunfs/')
   const args = compiled
@@ -119,7 +140,7 @@ export function spawnSnapshotVerifierChild(
         fileURLToPath(new URL('../../../../scripts/cli.ts', import.meta.url)),
         'snapshot-verify',
       ]
-  return new Promise<SnapshotChildOutcome>((resolve) => {
+  return new Promise<SnapshotChildOutcome | SnapshotStageOutcome>((resolve) => {
     let child: ChildProcess
     try {
       child = spawnProcess(deps.execPath ?? process.execPath, args, {
@@ -149,7 +170,7 @@ export function spawnSnapshotVerifierChild(
     // Settling does NOT cancel the pending SIGKILL: the parent stops waiting at
     // the deadline, but the child still has to die. Only the child actually
     // exiting cancels it.
-    const finish = (outcome: SnapshotChildOutcome): void => {
+    const finish = (outcome: SnapshotChildOutcome | SnapshotStageOutcome): void => {
       if (settled) return
       settled = true
       clearTimeout(deadline)
@@ -223,7 +244,11 @@ export function spawnSnapshotVerifierChild(
         return
       }
       try {
-        finish({ result: JSON.parse(line) as VerifySnapshotResult })
+        finish(
+          'kind' in request
+            ? { result: JSON.parse(line) as StageSnapshotResult }
+            : { result: JSON.parse(line) as VerifySnapshotResult },
+        )
       } catch (error) {
         finish({
           failure: {
@@ -248,6 +273,7 @@ export function spawnSnapshotVerifierChild(
  */
 export class SnapshotVerifier {
   private inFlight: Promise<SnapshotVerification> | undefined
+  private staging: Promise<string | undefined> | undefined
   private backgroundQueued = false
   private closed = false
   private closing: Promise<void> | undefined
@@ -385,12 +411,55 @@ export class SnapshotVerifier {
     )
   }
 
+  /** Staging has the same bounded child lifetime and shutdown owner as proof. */
+  async stage(label: string): Promise<string | undefined> {
+    while (this.staging) await this.staging
+    if (this.closed) throw new Error('snapshot staging is shut down')
+    const run = this.stageOnce(label)
+    this.staging = run
+    try {
+      return await run
+    } finally {
+      if (this.staging === run) this.staging = undefined
+    }
+  }
+
+  private async stageOnce(label: string): Promise<string | undefined> {
+    const request: StageSnapshotRequest = {
+      kind: 'stage',
+      dbPath: this.dbPath,
+      label,
+      correlationId: randomUUID(),
+      activeFallback: this.verifiedFallbackPath(),
+    }
+    const signal = this.lifetime.signal
+    const timeout = this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS
+    const outcome = this.deps.stageChild
+      ? await this.deps.stageChild(request, timeout, signal)
+      : await spawnSnapshotVerifierChild(request, timeout, {
+          signal,
+          ...(this.deps.spawnProcess ? { spawnProcess: this.deps.spawnProcess } : {}),
+          onChildLifetime: (exited) => {
+            this.children.add(exited)
+            void exited.then(() => this.children.delete(exited))
+          },
+        })
+    if (outcome.failure) {
+      throw new Error(`Snapshot staging ${outcome.failure.code}: ${outcome.failure.detail}`)
+    }
+    const result = outcome.result
+    if (!result || result.correlationId !== request.correlationId) {
+      throw new Error('Snapshot staging returned no matching result')
+    }
+    if (!result.ok) throw new Error(result.detail)
+    if (this.closed) throw new Error('snapshot staging is shut down')
+    if (result.path) this.recordStaged(result.path, request.correlationId)
+    return result.path
+  }
+
   /**
-   * Prove `path` in a child process and publish the result.
-   *
-   * Awaiting this is legitimate ONLY from the operation runner: the event loop
-   * stays free while the child works, which is what lets health and read
-   * requests continue during a server replacement.
+   * Prove `path` in a child process and publish the result. Only the operation
+   * runner waits here; the server keeps serving while the child scans.
    */
   async verify(path: string, expectedSchemaVersion?: string): Promise<SnapshotVerification> {
     if (this.closed) {
@@ -602,7 +671,9 @@ export class SnapshotVerifier {
     this.lifetime.abort()
     // The result can settle at the deadline BEFORE SIGKILL takes effect. Await
     // the child close event as well, so no scan outlives database shutdown.
-    this.closing = Promise.allSettled([this.inFlight, ...this.children]).then(() => undefined)
+    this.closing = Promise.allSettled([this.inFlight, this.staging, ...this.children]).then(
+      () => undefined,
+    )
     return this.closing
   }
 }
