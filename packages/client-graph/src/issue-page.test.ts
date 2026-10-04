@@ -90,7 +90,8 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     reads.mockClear()
     stop()
     pool.apply({ type: 'update', rows: [seat('history-000', { title: 'After release' })] })
-    expect(reads).not.toHaveBeenCalled()
+    // Pool maintenance still uses mark/peek; released page readers demand no rows.
+    expect(reads.mock.calls.filter(([, , mode]) => mode !== 'mark' && mode !== 'peek')).toEqual([])
     views.dispose()
     expect(views.memberSessions('root')).toBe(LOADING)
   } finally { stop(); views.dispose(); pool.dispose(); vi.restoreAllMocks() }
