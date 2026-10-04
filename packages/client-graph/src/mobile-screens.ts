@@ -337,9 +337,18 @@ export function createMobileScreenReader(pool: MobxPool) {
       const presence = values.rows.some((row) => row.issue.id === values.root?.id)
         ? values.presence
         : null
-      return progress === values.progress && presence === values.presence
-        ? values
-        : { ...values, progress, presence }
+      // The phone deck draws the mission's whole crew, archived included. The
+      // shared pane carries seated senders only (its heartbeats never walk
+      // history), so the phone adds every attached sender of the pane's issues,
+      // as the pane once did itself.
+      const crew = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
+      for (const id of values.byId.keys()) {
+        const attached = mission.attached(id)
+        if (attached === LOADING) throw LOADING
+        for (const seat of attached) crew.set(seat.sessionId, seat)
+      }
+      const sessions = [...crew.values()].sort(mission.sessionOrder)
+      return { ...values, progress, presence, sessions }
     })
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {
