@@ -47,7 +47,18 @@ const preview = previewDist => Bun.serve({
     const url = new URL(request.url)
     if (request.headers.get('upgrade') === 'websocket') {
       const upstream = new WebSocket(live.replace('http','ws')+url.pathname+url.search, {headers:{cookie:`podium_session=${token}`,origin:live}})
-      const data = {upstream, queued:[]}
+      upstream.binaryType = 'arraybuffer'
+      const data = {upstream, queued:[], incoming:[], socket:undefined, closed:false}
+      // The upstream can open before Bun calls the downstream open handler.
+      // Install listeners now so its hello/bootstrap frames cannot be lost.
+      upstream.addEventListener('open',()=>{for(const value of data.queued.splice(0))upstream.send(value)})
+      upstream.addEventListener('message',event=>{
+        if(data.socket)data.socket.send(event.data)
+        else data.incoming.push(event.data)
+      })
+      const close = () => {data.closed=true;data.socket?.close()}
+      upstream.addEventListener('close',close)
+      upstream.addEventListener('error',close)
       if (server.upgrade(request,{data})) return
       upstream.close(); return new Response('Upgrade refused',{status:400})
     }
@@ -65,7 +76,7 @@ const preview = previewDist => Bun.serve({
     headers.set('connection','close')
     let response
     try {
-      response = await fetch(live+url.pathname+url.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual',signal:request.signal})
+      response = await fetch(live+url.pathname+url.search,{method:request.method,headers,body:request.method==='GET'||request.method==='HEAD'?undefined:await request.arrayBuffer(),redirect:'manual',signal:request.signal,keepalive:false})
     } catch(error) {
       result.proxyErrors??=[]
       result.proxyErrors.push({at:new Date().toISOString(),path:url.pathname,aborted:request.signal.aborted,code:error.code??error.name})
@@ -77,14 +88,13 @@ const preview = previewDist => Bun.serve({
   },
   websocket:{
     open(socket) {
-      const {upstream, queued} = socket.data
-      upstream.addEventListener('open',()=>{for(const value of queued.splice(0))upstream.send(value)})
-      upstream.addEventListener('message',event=>socket.send(event.data))
-      upstream.addEventListener('close',()=>socket.close())
-      upstream.addEventListener('error',()=>socket.close())
+      const data = socket.data
+      data.socket=socket
+      if(data.closed){socket.close();return}
+      for(const value of data.incoming.splice(0))socket.send(value)
     },
     message(socket, value) {const {upstream,queued}=socket.data; if(upstream.readyState===1)upstream.send(value);else queued.push(value)},
-    close(socket) {socket.data.upstream.close()},
+    close(socket) {socket.data.socket=undefined;socket.data.closed=true;socket.data.upstream.close()},
   },
 })
 const server = preview(dist), baselineServer = baselineDist ? preview(baselineDist) : undefined
@@ -156,6 +166,9 @@ try {
       }
       return {entities:counts,rows:document.querySelectorAll('aside [data-issue-row]').length,elements:document.querySelectorAll('*').length}
     })
+    // getAll runs after the write transaction, so this records persistence
+    // work that continued after the first paint rather than hiding it.
+    result.actions.at(-1).settledPhaseMetrics=await page.evaluate(()=>window.__coldStartMetrics??[])
     result.counts.push(counts);save()
     console.log(`live ${arm}/${variant} ${index}: ${measured.inputToPaintMs.toFixed(1)} ms${profile?' (profile, excluded)':''}; ${counts.entities.issueProjection??0} issues, ${counts.entities.session??0} sessions`)
     await context.close()

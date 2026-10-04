@@ -103,7 +103,7 @@ const plugin = {
       code=helper+writeBatch+code.replace("    const tx = this.db.transaction(scopeOf(draft), 'readwrite')", `    const coldStartCommitBegan = performance.now()
     const tx = this.db.transaction(scopeOf(draft), 'readwrite')`)
       code=code.replace('      for (const op of draft.ops) {\n        const store = tx.objectStore(op.store)', `      const coldStartQueueBegan = performance.now()
-      if (coldStartFlag('coldStartChunkWrites')) await enqueueWrites(tx,draft.ops)
+      if (coldStartFlag('coldStartChunkWrites')) await Promise.all([enqueueWrites(tx,draft.ops),completion])
       else for (const op of draft.ops) {
         const store = tx.objectStore(op.store)`)
       code=code.replace("        if (op.kind === 'put') store.put(op.value)", `        if (op.kind === 'put') {
