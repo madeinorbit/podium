@@ -184,13 +184,14 @@ export class MissionViewReader {
   }
   constructor(readonly pool: MobxPool) {}
   /** The pane is cached per mission ROOT and mode. The selection only picks
-   * the root (an addressed ancestry read), so another row of the same mission
-   * reuses the derived pane instead of rebuilding it (review finding 2). */
+   * the root through {@link selectedRoot} (cached reads; a screen may override
+   * which roots it shows), so another row of the same mission reuses the
+   * derived pane instead of rebuilding it (review finding 2). */
   values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     if (!id) return EMPTY_MISSION_VIEW
-    const rootId = this.rootFor(id)
-    if (rootId === LOADING) return LOADING
-    return rootId ? paneValues[mode](this.node(rootId)) : EMPTY_MISSION_VIEW
+    const root = this.selectedRoot(id)
+    if (root === LOADING) return LOADING
+    return root ? paneValues[mode](this.node(root.id)) : EMPTY_MISSION_VIEW
   }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
@@ -408,10 +409,6 @@ export class MissionViewReader {
   selectedRoot(selectedId: string | null): Loaded<IssueNavigationModel> {
     const rootId = this.rootFor(selectedId)
     if (rootId === LOADING || !rootId) return rootId === LOADING ? LOADING : undefined
-    return this.shownRoot(rootId)
-  }
-  /** A mission root as the pane shows it: visible, and a draft only while occupied. */
-  shownRoot(rootId: string): Loaded<IssueNavigationModel> {
     const root = this.issue(rootId)
     if (root === LOADING || !root || !visible(root)) return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {
@@ -794,7 +791,8 @@ function deriveMissionArchive(view: MissionViewReader, rowIds: readonly string[]
 function deriveMissionView(view: MissionViewReader, rootId: string, mode: FlightDeckMode): Omit<MissionViewValues, 'archivedCount'> | typeof LOADING {
   view.stats.values++
   try {
-    const root = view.shownRoot(rootId)
+    // The root the reader's selection policy chose (values / selectedRoot).
+    const root = view.issue(rootId)
     if (root === LOADING) return LOADING
     if (!root) return EMPTY_MISSION_VIEW
     const members = missions(view.pool).members(root.id)
