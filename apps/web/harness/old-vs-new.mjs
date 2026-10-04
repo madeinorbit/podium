@@ -322,13 +322,19 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
   const before=await metrics(cdp), stop=await trace(cdp)
   if(profile){await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:100});await cdp.send('Profiler.start')}
   const began=new Date().toISOString(), load=loadavg()
-  let events, cpu
+  let events, cpu, captureFailure
   try {await perform();await page.waitForFunction(()=>window.__comparison?.twoRaf,undefined,{timeout:20000})}
+  catch(error){captureFailure=error}
   finally {if(profile)cpu=(await cdp.send('Profiler.stop')).profile;events=await stop();await page.evaluate(()=>{window.__comparison?.observer?.disconnect();window.__comparison?.removeInput?.();window.__comparison=null})}
   const after=await metrics(cdp)
   const stem=`${String(recordIndex++).padStart(4,'0')}-${name}`
   writeFileSync(resolve(out,`${stem}.trace.json.gz`),gzipSync(JSON.stringify(events)))
   if(cpu)writeFileSync(resolve(out,`${stem}.cpuprofile`),JSON.stringify(cpu))
+  if(captureFailure) {
+    result.failedActions??=[]
+    result.failedActions.push({action:name,startedAt:began,load,profiled:profile,expectation,reason:String(captureFailure),trace:`${stem}.trace.json.gz`,cpu:cpu?`${stem}.cpuprofile`:null})
+    save();throw captureFailure
+  }
   let measured, boundary='Paint'
   try{measured=paintOf(events,'comparison:input','comparison:dom')}catch(error){
     if(!['phone-work-screen','phone-issue-screen'].includes(name) || !String(error).includes('No actual Chromium Paint'))throw error
