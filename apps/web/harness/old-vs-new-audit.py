@@ -8,10 +8,11 @@ import pathlib
 parser = argparse.ArgumentParser()
 parser.add_argument('--new-sha', required=True)
 parser.add_argument('--deleted-sha', required=True)
+parser.add_argument('--current-sha', required=True)
 parser.add_argument('--home', type=pathlib.Path, default=pathlib.Path.home())
 args = parser.parse_args()
 checkouts = {arm: args.home / f'podium-test-5501-{arm}' for arm in ['old', 'new']}
-expected_sha = {'old': '5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb', 'new': args.new_sha, 'new-deleted': args.deleted_sha}
+expected_sha = {'old': '5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb', 'new': args.new_sha, 'new-deleted': args.deleted_sha, 'new-current': args.current_sha}
 web = set('sidebar-select sidebar-collapse sidebar-expand sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch large-mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
 phone = set('phone-issue-screen phone-work-screen phone-mission-open phone-long-press phone-mission-details phone-composer-typing phone-issue-open phone-issue-picker-search phone-issue-rename phone-work-search'.split())
 errors = []
@@ -62,7 +63,10 @@ for checkout_arm, checkout in checkouts.items():
             require(run['heapUse']['actions'] == len(run['heapUse']['stepsCompleted']), 'workload count mismatch')
             heaps[(*key, run['arm'])] += 1
             continue
-        expected_actions = (web if run['surface'] == 'web' else phone) | {'app-cold-start', 'app-warm-start'}
+        arm_actions = web if run['surface'] == 'web' else phone
+        if run['arm'] == 'new-current' and run['surface'] == 'web':
+            arm_actions = arm_actions | {'session-composer-typing'}
+        expected_actions = arm_actions | {'app-cold-start', 'app-warm-start'}
         # This attempt used a collector witness that incorrectly expected the
         # mission root among child rows. Its other observations remain valid;
         # corrected round 11 supplies both large-mission cells with eight samples.
@@ -109,7 +113,7 @@ for checkout_arm, checkout in checkouts.items():
         for row in run['background']:
             require(row['taskMs'] >= 0 and (file.parent / row['trace']).is_file(), 'update CPU/evidence missing')
             evidence_count += 1
-for pair in ['new', 'new-deleted']:
+for pair in ['new', 'new-deleted', 'new-current']:
     for surface in ['web', 'phone']:
         for scale in [1, 4]:
             key = (pair, surface, scale)
@@ -118,7 +122,10 @@ for pair in ['new', 'new-deleted']:
                     if failures[('timing', *key)] < 2 or failures[('memory', *key)] < 1:
                         errors.append(f'{key}: OLD boot failure evidence incomplete')
                     continue
-                for action in (web if surface == 'web' else phone) | {'app-cold-start', 'app-warm-start'}:
+                arm_actions = web if surface == 'web' else phone
+                if arm == 'new-current' and surface == 'web':
+                    arm_actions = arm_actions | {'session-composer-typing'}
+                for action in arm_actions | {'app-cold-start', 'app-warm-start'}:
                     expected_n = 8 if action in ['app-cold-start', 'app-warm-start'] else 16
                     if pair == 'new' and surface == 'web' and scale == 1 and action == 'large-mission-switch':
                         expected_n = 8
