@@ -2,9 +2,15 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { MissionActionInputs } from '@podium/client-graph/mission-view'
-import { type ComponentProps, useCallback } from 'react'
+import { type ComponentProps, lazy, Suspense, useCallback } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { IssueContextMenu } from './IssueContextMenu'
+import { throughRestarts } from '@/lib/chunk-recovery'
+
+const IssueContextMenu = lazy(() =>
+  throughRestarts(() => import('./IssueContextMenu')).then((module) => ({
+    default: module.IssueContextMenu,
+  })),
+)
 
 export type IssueMenuPoolInputs = Pick<MissionActionInputs, 'sessions' | 'repos' | 'machines'>
 
@@ -38,5 +44,9 @@ export function PoolIssueContextMenu(
     [props.issues],
   )
   const inputs = useWorklistPoolProjection(read, LOADING)
-  return inputs === LOADING ? null : <IssueContextMenu {...props} poolInputs={inputs} />
+  return inputs === LOADING ? null : (
+    <Suspense fallback={null}>
+      <IssueContextMenu {...props} poolInputs={inputs} />
+    </Suspense>
+  )
 }

@@ -6,8 +6,16 @@ import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
-import { type ComponentProps, type JSX, type ReactNode, useCallback, useMemo } from 'react'
-import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
+import {
+  type ComponentProps,
+  type JSX,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useMemo,
+} from 'react'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import {
   FlightDeckContent,
   type FlightDeckPreferences,
@@ -21,6 +29,12 @@ import { useStoreSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 type PaneValues = Exclude<ReturnType<typeof readMissionPane>, typeof LOADING>
+
+const IssueContextMenu = lazy(() =>
+  throughRestarts(() => import('@/features/issues/IssueContextMenu')).then((module) => ({
+    default: module.IssueContextMenu,
+  })),
+)
 
 /** The same pool and mutation owner as the sidebar. This module loads only
  * for the mission pane and reads only pool entity values. */
@@ -120,11 +134,13 @@ function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu
   )
   const values = useWorklistPoolProjection(read, LOADING)
   return values === LOADING ? null : (
-    <IssueContextMenu
-      {...props}
-      issues={values.issues}
-      allIssues={values.allIssues}
-      poolInputs={values}
-    />
+    <Suspense fallback={null}>
+      <IssueContextMenu
+        {...props}
+        issues={values.issues}
+        allIssues={values.allIssues}
+        poolInputs={values}
+      />
+    </Suspense>
   )
 }

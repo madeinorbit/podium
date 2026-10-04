@@ -6,11 +6,22 @@ import {
 } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { type IssueViewModel, useStoreSelector } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { useNow } from '@/lib/useNow'
@@ -18,7 +29,6 @@ import { BoardShortcutSheet } from './BoardShortcutSheet'
 import { useBoardBase, useBoardData } from './board-pool-data'
 import { useBoardCloseGuard } from './board-pool-row'
 import { boardKeyAction } from './board-shortcuts'
-import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
 import { IssuePage } from './IssuePage'
 import {
@@ -42,6 +52,12 @@ import {
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import type { IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
+
+const IssueContextMenu = lazy(() =>
+  throughRestarts(() => import('./IssueContextMenu')).then((module) => ({
+    default: module.IssueContextMenu,
+  })),
+)
 
 const ResponsiveIssueList = memo(IssueListView)
 const ResponsiveIssuesKanban = memo(IssuesKanban)
@@ -550,14 +566,16 @@ export function IssuesView(): JSX.Element {
             .map((id) => issues.find((issue) => issue.id === id))
             .filter((issue): issue is IssueViewModel => issue !== undefined)
           return targets.length > 0 && menuInputs ? (
-            <IssueContextMenu
-              poolInputs={menuInputs}
-              issues={targets}
-              allIssues={view.scope}
-              anchor={ctxMenu.anchor}
-              onClose={() => setCtxMenu(null)}
-              onOpen={setOpenIssueId}
-            />
+            <Suspense fallback={null}>
+              <IssueContextMenu
+                poolInputs={menuInputs}
+                issues={targets}
+                allIssues={view.scope}
+                anchor={ctxMenu.anchor}
+                onClose={() => setCtxMenu(null)}
+                onOpen={setOpenIssueId}
+              />
+            </Suspense>
           ) : null
         })()}
     </section>

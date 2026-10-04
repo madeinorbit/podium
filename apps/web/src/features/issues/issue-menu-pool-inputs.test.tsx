@@ -181,7 +181,7 @@ it('loads only the selected members in a batch and keeps task menu click work bo
     await act(async () => {
       expect(pool.hydrate()).toBe(1)
     })
-    expect(screen.getByTestId('pool-task-menu').textContent).toBe('Pool task member')
+    expect((await screen.findByTestId('pool-task-menu')).textContent).toBe('Pool task member')
     expect(load.mock.calls).toEqual([['session', 'chosen-session']])
     expect(
       read.mock.calls
@@ -213,7 +213,7 @@ it('withholds the task menu until pool attachment and drops its inputs on detach
   await act(async () => {
     pool.hydrate()
   })
-  expect(screen.getByTestId('pool-task-menu').textContent).toBe('Pool task member')
+  expect((await screen.findByTestId('pool-task-menu')).textContent).toBe('Pool task member')
   f.pool = null
   view.rerender(<PoolIssueContextMenu {...props} />)
   expect(screen.queryByTestId('pool-task-menu')).toBeNull()
