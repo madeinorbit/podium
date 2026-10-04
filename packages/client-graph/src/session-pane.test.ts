@@ -14,21 +14,23 @@ import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-sc
 import { LOADING } from './worklist/rollup'
 
 
-function fixture() {
+function fixture(attachLog = true) {
   const sessions = sessionPaneFixture()
   const machines = [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false }] as MachineWire[]
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
-    reposLoaded: true, pendingSpawnIds: new Set(['pane-11']), coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
+    reposLoaded: true, coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
   const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }) as unknown as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find(row => row.sessionId === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined,
     { summaries: SESSION_PANE_SUMMARIES, load: load as never, schedule: () => () => {} })
+  const spawnPrompts = observable.map<string, string | null>([['pane-11', null]])
+  if (attachLog) pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never)
   pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })) })
   pool.header.apply(machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
   pool.header.order('machine', machines.map(row => row.id))
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
-  return { sessions, machines, pool, load, listeners,
+  return { sessions, machines, pool, load, listeners, spawnPrompts,
     state: () => state, change(patch: Partial<Store>) { state = { ...state, ...patch }; for (const f of listeners) f() },
     settle() { checkSessionPanes(pool, state); pool.hydrate(); return checkSessionPanes(pool, state) },
   }
@@ -53,7 +55,8 @@ it('matches all pane status, urgency, header, recovery and control inputs over t
     f.sessions[1] = next
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: next as never }] })
     expect(f.settle().differences).toBe(0)
-    f.change({ panelMode: { [id]: 'native' }, pendingSpawnIds: new Set() })
+    f.change({ panelMode: { [id]: 'native' } })
+    runInAction(() => f.spawnPrompts.clear())
     expect(paneSpawnConfirmed(f.pool, id)).toBe(true)
     expect(f.settle()).toMatchObject({ differences: 0, pending: 0 })
   } finally { f.pool.dispose() }
@@ -163,20 +166,20 @@ it('inherits the selected issue tint through summary fields and stops on a paren
   } finally { pool.dispose() }
 })
 
-it('reads spawn placeholders from the pool log while it owns sessions, else the ledger window (POD-5432)', () => {
+it('reads spawn confirmation only from an attached pool log (POD-5432)', () => {
   for (const ownsSessions of [true, false]) {
-    const f = fixture()
+    const f = fixture(false)
     try {
       const spawnPrompts = observable.map<string, string | null>()
       f.pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never, ownsSessions)
       const seen: boolean[] = []
       const stop = autorun(() => seen.push(paneSpawnConfirmed(f.pool, 'pane-3')))
-      // The ledger window marks pane-11 pending; the log knows nothing yet.
+      // An empty owned log confirms the row; an unowned fixture stays unconfirmed.
       expect(paneSpawnConfirmed(f.pool, 'pane-11')).toBe(ownsSessions)
       runInAction(() => spawnPrompts.set('pane-3', 'First turn'))
-      expect(seen).toEqual(ownsSessions ? [true, false] : [true])
+      expect(seen).toEqual(ownsSessions ? [true, false] : [false])
       runInAction(() => spawnPrompts.delete('pane-3'))
-      expect(seen).toEqual(ownsSessions ? [true, false, true] : [true])
+      expect(seen).toEqual(ownsSessions ? [true, false, true] : [false])
       stop()
     } finally { f.pool.dispose() }
   }

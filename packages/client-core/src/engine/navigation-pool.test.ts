@@ -549,6 +549,7 @@ describe('navigation with an injected pool provider', () => {
     const resolve = vi.fn().mockResolvedValue({ kind: 'session', sessionId: seat.sessionId })
     const actions = createEngineActions({
       state: () => st,
+      outbox: { awaiting: () => [], pending: () => [] },
       navigate,
       waitForSessionNavigation,
       api: { sessions: { resolve: { query: resolve } } },

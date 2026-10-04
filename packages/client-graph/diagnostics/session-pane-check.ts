@@ -31,7 +31,7 @@ export function paneComparable(row: SessionView | undefined, now: number): Recor
     dockDead: row.archived || row.status === 'exited', dockParked: !row.archived && row.status === 'hibernated',
   }
 }
-export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'pendingSpawnIds' | 'coarseNow' | 'selectedIssueId'>,
+export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' | 'machines' | 'panelMode' | 'dockShells' | 'reposLoaded' | 'coarseNow' | 'selectedIssueId'>,
   ids = state.sessions.map(row => row.sessionId as string), issues: readonly IssueViewModel[] = [],
   hex: (color: string | null | undefined) => string | undefined = color => color ?? undefined) {
   let pending = 0
@@ -88,7 +88,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     { key: 'ownership', fields: { selectedIssueId: state.selectedIssueId, issueHex: expectedColor() }, rows: [] },
   ], pending: 0 }, { sections: [
     { key: 'sessions', fields: {}, rows: actual },
-    { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded', 'pendingSpawnIds'] : [], rows: [] },
+    { key: 'controls', fields: controls(window), pendingFields: windowPending ? ['panelMode', 'dockShells', 'reposLoaded'] : [], rows: [] },
     { key: 'machines', fields: {}, rows: machineRows(paneMachines(pool)) },
     { key: 'ownership', fields: { selectedIssueId, issueHex: issueHex === LOADING ? undefined : issueHex },
       pendingFields: issueHex === LOADING ? ['issueHex'] : [], rows: [] },

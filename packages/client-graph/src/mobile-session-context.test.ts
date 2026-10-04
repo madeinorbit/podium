@@ -63,9 +63,9 @@ it('keeps spawn confirmation loading until the shared pane source is attached an
   expect(reader.exit(undefined)).toBeUndefined()
   expect(reader.spawnPending('not-attached')).toBe(LOADING)
   expect(reader.booting()).toBe(true)
+  pool.attachTransactions({ mutate: vi.fn(), spawnPrompts: observable.map([['provisional', null]]) } as never)
   pool.sources.register(['sessionPaneWindow'], {
     read: () => ({
-      pendingSpawnIds: new Set([asSessionId('provisional')]),
       panelMode: {},
       dockShells: {},
       reposLoaded: false,
