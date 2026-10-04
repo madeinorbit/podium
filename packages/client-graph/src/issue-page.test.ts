@@ -26,7 +26,9 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     path: `/repo/w${n}`, projectRoot: false,
   } } as RowRecord))
   const rows = [root, hop, tip, ...history, ...worktrees,
-    { kind: 'repo', id: 'repo', value: { id: 'repo', path: '/repo', prefix: 'P' } } as RowRecord,
+    { kind: 'worktree', id: '/repo', value: {
+      path: '/repo', repoId: 'repo', repoPath: '/repo', repoName: 'Repo', prefix: 'P', projectRoot: true,
+    } } as RowRecord,
     seat('tip-agent', { issueId: 'tip', archived: false, status: 'running' })]
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
   pool.apply({ type: 'replace', rows })
