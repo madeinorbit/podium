@@ -48,7 +48,7 @@ export function useRuntimeList<N extends KeyedListName>(name: N): KeyedListRow<N
   return useSyncExternalStore(view.subscribe, view.read)
 }
 
-/** Only identity-stable actions/services are acquired from the old API. */
+/** Identity-stable actions/services acquired from their runtime owner. */
 export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pick<Store, K> {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {

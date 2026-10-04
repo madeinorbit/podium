@@ -1,6 +1,6 @@
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createReplica } from '@podium/client-core/replica'
+import { createHeaderFixture } from '../../test/header-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -92,7 +92,7 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
-  const s = useRuntimeSelector(s => s)
+  const s = useRuntimeSelector(s => ({ selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }))
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
   // The bug manifested as an unbounded update loop (React #185). Fail fast and
@@ -134,7 +134,7 @@ async function mountAt(url: string): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createReplica()}
+        createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={(m) => {
           throw new Error(`fatal: ${m}`)

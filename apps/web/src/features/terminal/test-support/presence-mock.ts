@@ -23,8 +23,8 @@ import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 const paneOwner = withKeyedInputs({
   getSnapshot: () =>
     Object.create(
-      readFixture((state) => state),
-      Object.getOwnPropertyDescriptors(fakeStoreHandle.getSnapshot()),
+      fakeStoreHandle.getSnapshot(),
+      Object.getOwnPropertyDescriptors(readFixture((state) => state)),
     ),
   subscribe: fakeStoreHandle.subscribe,
 })

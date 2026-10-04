@@ -1,8 +1,3 @@
-import {
-  endStoreStatsMeasure,
-  recordStoreSelector,
-  startStoreStatsMeasure,
-} from '../perf/store-stats'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).
@@ -10,7 +5,7 @@ import {
  * Two jobs, and deliberately no third:
  *
  *  1. BIND. A thin `useSyncExternalStore` binding over the runtime's
- *     subscribe/getSnapshot pair. No transport wiring, no replica hydration, no
+ *     keyed local channels. No transport wiring, no replica hydration, no
  *     outbox drain, no effects beyond one start/dispose pair — all of that is
  *     the non-React modules (`engine/runtime.ts` and the four it coordinates).
  *

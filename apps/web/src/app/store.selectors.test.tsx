@@ -1,7 +1,7 @@
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId } from '@podium/model'
-import { createReplica } from '@podium/client-core/replica'
+import { createHeaderFixture } from '../../test/header-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -96,7 +96,7 @@ async function render(): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createReplica()}
+        createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
       >
@@ -151,7 +151,7 @@ describe('selector-scoped store', () => {
       root.render(
         <StoreProvider
           principal={TEST_PRINCIPAL}
-          createReplicaFn={() => createReplica()}
+          createReplicaFn={() => createHeaderFixture(0, 0).newReplica()}
           config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
           onFatalError={() => {}}
         >
@@ -187,17 +187,4 @@ describe('selector-scoped store', () => {
     expect(commits.workspace ?? 0).toBeGreaterThan(before.workspace ?? 0)
   })
 
-  it('compat useRuntimeSelector(s => s) keeps snapshot identity across a no-op provider render', async () => {
-    await render()
-    const snapA = latestStore
-    // A drafts write that sets the SAME value is a no-op — the store publishes a
-    // shallow-equal object and keeps the old snapshot identity.
-    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'x'))
-    await settle()
-    const snapB = latestStore
-    expect(snapB).not.toBe(snapA)
-    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'x'))
-    await settle()
-    expect(latestStore).toBe(snapB)
-  })
 })

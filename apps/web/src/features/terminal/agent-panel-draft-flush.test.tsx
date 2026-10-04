@@ -74,6 +74,15 @@ let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storeDrafts: Record<string, string> = {}
 
+vi.mock('./use-session-pane-inputs', () => ({
+  usePaneSession: (id: string | undefined) => storeSessions.find(session => session.sessionId === id),
+  usePaneMachines: () => [],
+  usePanePanelModes: () => storePanelMode,
+  usePaneSpawnConfirmed: () => true,
+  usePaneOwnership: () => ({ selectedIssueId: null, stampIssue: undefined, issueHex: undefined }),
+  usePaneReferenceStages: () => ({ resolveStage: () => null, subscribe: () => () => {} }),
+}))
+
 const fakeHub = {
   subscribeTranscript: (_s: string, _since: string | undefined, _cb: unknown): (() => void) => {
     return () => {}

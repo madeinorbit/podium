@@ -517,6 +517,7 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const before = referenceState(runtime)
+    before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
     const seat = before.sessions.find(
       (session) =>
         !session.archived &&
@@ -662,6 +663,8 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
+    const initial = referenceState(runtime)
+    runtime.setNavigationProvider(fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates }))
     referenceState(runtime).setView('workspace')
     referenceState(runtime).setSelectedIssueId(target)
     expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)

@@ -109,6 +109,6 @@ it('declares launch and palette demand after attachment, follows window updates 
     paletteOpen: true,
     selectedIssueId: 'synthetic-1',
   })
-  expect(storeStats.snapshot().runtimes[0]).toMatchObject({ selectorRuns: 0, slices: {} })
+  expect(storeStats.snapshot().runtimes).toEqual([])
   expect(fatal).not.toHaveBeenCalled()
 })

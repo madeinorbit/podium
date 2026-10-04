@@ -1120,8 +1120,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     // TASK SWITCH → restore that workspace's panes (POD-710). The layouts are
     // the truth; the pane scalars follow whichever workspace is now on screen.
-    // `issueProjections` is in the trigger set because the key resolves through the
-    // mission root, which an issue update can move.
+    // Pool navigation invalidates the mission root when issue topology moves.
     if (any('selectedIssueId', 'selectedWorktree', 'navigation'))
       this.syncWorkspaceSelection()
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it

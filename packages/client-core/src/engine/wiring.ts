@@ -820,9 +820,8 @@ export function outboxExecutors(
   }
 }
 
-/** Durable write path for the covered mutations. The queue doubles as the
- *  optimistic overlay (#263: the outbox IS the overlay — see overlay.ts): a
- *  pending entry paints its patch over the replica's server truth, so an
+/** Durable write path for the covered mutations. PoolTransactions paints each
+ *  pending entry over the replica's server truth, so an
  *  offline write both survives a reload AND keeps painting after it, then
  *  replays (deduped by mutationId) on reconnect. */
 export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKinds> {

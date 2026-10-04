@@ -1,4 +1,5 @@
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
 import { routeDefaults } from '@podium/client-core/ui-state'
@@ -22,6 +23,7 @@ const binding = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   missionReady: false,
 }))
+const workspaceOwner = withKeyedInputs({ getSnapshot: () => binding.state, subscribe: () => () => {} })
 vi.mock('./store', () => ({
   useRuntimeSelector: (select: (state: EngineState) => unknown) => select(binding.state),
   useReplicaIssues: () => {
@@ -55,6 +57,7 @@ vi.mock('./operator-focus', () => ({
 }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => workspaceOwner,
   useHarnessDescriptors: () => ({ served: [] }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
