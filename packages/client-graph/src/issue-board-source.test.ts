@@ -54,6 +54,38 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     },
   }
 }
+it('indexes residents only while a board or catalogue reader observes them', () => {
+  const rows = Array.from({ length: 512 }, (_, index) => row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }))
+  const { source, pool, paint, stop } = setup(rows)
+  let closeBoard = () => {}
+  let closeCatalog = () => {}
+  try {
+    expect(source.stats()).toMatchObject({ residentRows: 0, cached: 0 })
+    paint('resident-1', { title: 'Changed while closed' })
+    source.issue('resident-0')
+    expect(source.stats().residentRows).toBe(0)
+    closeBoard = autorun(() => source.queryIds({ kind: 'board', filter: { priority: 1 } }))
+    expect(source.stats().residentRows).toBe(pool.tables.issue.size)
+    closeCatalog = autorun(() => source.catalog(false))
+    // An imperative snapshot must not release the index of an open surface.
+    expect(source.queryIds({ kind: 'board', filter: { priority: 1 } })).toEqual({ ids: ['resident-0'] })
+    expect(source.stats().residentRows).toBe(512)
+    closeBoard()
+    expect(source.stats().residentRows).toBe(512)
+    closeCatalog()
+    expect(source.stats().residentRows).toBe(0)
+    expect(source.stats().demandKeys).toBe(0)
+    paint('resident-1', { title: 'Freshly renamed while closed' })
+    expect(source.stats().residentRows).toBe(0)
+    expect(source.queryIds({ kind: 'board', filter: { text: 'Freshly renamed' } })).toEqual({ ids: ['resident-1'] })
+    expect(source.stats().residentRows).toBe(0)
+  } finally {
+    closeBoard()
+    closeCatalog()
+    stop()
+  }
+})
+
 it('releases demanded ID results on filter change and unmount', () => {
   const { source, stop } = setup()
   const query = observable.box('in_progress')
@@ -87,7 +119,7 @@ it('uses declared cold summaries without promoting cards or hydrating the world'
       defaultAgent: 'codex',
     })
     expect(pool.tables.issue.has('cold')).toBe(false)
-    expect(source.stats().residentRows).toBe(1)
+    expect(source.stats().residentRows).toBe(0)
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
   } finally {

@@ -16,6 +16,7 @@ import {
 import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
   _isComputingDerivation,
+  createAtom,
   compareStructural,
   computed,
   type IComputedValue,
@@ -290,17 +291,41 @@ export function createIssueBoardSource(
     set?.delete(id)
     if (set?.size === 0) buckets.delete(key)
   }
-  const stopTable = observe(pool.tables.issue, (change) => {
-    if (change.type === 'add') track(change.name)
-    if (change.type === 'delete') {
-      stops.get(change.name)?.()
-      stops.delete(change.name)
+  let stopTable: (() => void) | undefined
+  const indexDemand = createAtom('IssueBoard@residentIndex', undefined, releaseIndex)
+  function ensureIndex() {
+    if (stopTable || disposed) return
+    stopTable = observe(pool.tables.issue, (change) => {
+      if (change.type === 'add') track(change.name)
+      if (change.type === 'delete') {
+        stops.get(change.name)?.()
+        stops.delete(change.name)
+      }
+    })
+    const bootstrap = performance.now()
+    seedIssueReferences(pool.tables, track)
+    countIssueBoard('residentIndexRows', stops.size)
+    countIssueBoard('residentIndexBootstrapMs', performance.now() - bootstrap)
+  }
+  function releaseIndex() {
+    stopTable?.()
+    stopTable = undefined
+    for (const stop of stops.values()) stop()
+    stops.clear()
+    runInAction(() => buckets.clear())
+  }
+  function indexed<T>(read: () => T): T {
+    const retained = Boolean(stopTable)
+    const observed = indexDemand.reportObserved()
+    ensureIndex()
+    try {
+      return read()
+    } finally {
+      // Imperative snapshots borrow the index for this read only. Observed
+      // board/explorer queries share it until their last reader closes.
+      if (!observed && !retained) releaseIndex()
     }
-  })
-  const bootstrap = performance.now()
-  seedIssueReferences(pool.tables, track)
-  countIssueBoard('residentIndexRows', stops.size)
-  countIssueBoard('residentIndexBootstrapMs', performance.now() - bootstrap)
+  }
   const bucket = (key: string): ReadonlySet<string> => buckets.get(key) ?? new Set<string>()
   function union(sets: readonly ReadonlySet<string>[]): Set<string> {
     return new Set(sets.flatMap((set) => [...set]))
@@ -356,7 +381,7 @@ export function createIssueBoardSource(
     return query.tab === 'needs' ? actionable(row) : tabOf(row) === query.tab
   }
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
-    return memo(`query:${JSON.stringify(query)}`, () => {
+    return memo(`query:${JSON.stringify(query)}`, () => indexed(() => {
       countIssueBoard('queries')
       const ids: string[] = []
       let pending = false
@@ -397,10 +422,10 @@ export function createIssueBoardSource(
       countIssueBoard('coldSummaryMs', performance.now() - start)
       countIssueBoard('matchedIds', ids.length)
       return pending ? LOADING : { ids: [...new Set(ids)].sort(byId) }
-    })
+    }))
   }
   function catalog(agents: boolean): Loaded<BoardCatalog> {
-    return memo(`catalog:${agents}`, () => {
+    return memo(`catalog:${agents}`, () => indexed(() => {
       const scope: string[] = [],
         paths = new Set<string>(),
         assignees = new Set<string>(),
@@ -434,7 +459,7 @@ export function createIssueBoardSource(
               (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
             ),
           }
-    })
+    }))
   }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`row:${id}`, () => {
@@ -848,7 +873,7 @@ export function createIssueBoardSource(
       if (disposed) return
       disposed = true
       stopOwner()
-      stopTable()
+      releaseIndex()
       for (const projection of projections.values()) projection.dispose()
       for (const stop of stops.values()) stop()
       for (const result of [...rosters.values()]) result.dispose()
