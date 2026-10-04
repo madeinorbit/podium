@@ -96,6 +96,24 @@ export function createShellViews(pool: MobxPool) {
       return values
     })
   }
+  function session(id: string): Loaded<SessionView> {
+    if (pool.queries.collapsed(id)) return undefined
+    const row = pool.row('session', id, 'summary')
+    if (row === LOADING) {
+      void pool.row('session', id)
+      return LOADING
+    }
+    return row
+      ? Object.fromEntries(
+          SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
+        ) as unknown as SessionView
+      : undefined
+  }
+  function sessionCount(): number {
+    return memo('sessionCount', () =>
+      pool.queries.ids({ kind: 'shellSessions' }).filter((id) => !pool.queries.collapsed(id)).length,
+    )
+  }
   function issues(): Loaded<IssueViewModel[]> {
     return memo('issues', () => {
       const values: IssueViewModel[] = []
@@ -198,9 +216,8 @@ export function createShellViews(pool: MobxPool) {
   function chrome() {
     return memo('chrome', () => {
       const state = window(),
-        crew = sessions(),
         repos = repositories()
-      if (!state || state === LOADING || crew === LOADING) return LOADING
+      if (!state || state === LOADING) return LOADING
       const root = missionView(pool).selectedRoot(state.selectedIssueId)
       if (root === LOADING) return LOADING
       const missionRoot = root
@@ -226,35 +243,40 @@ export function createShellViews(pool: MobxPool) {
         selectedIssueId: state.selectedIssueId,
         repoCount: repos.length,
         worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
-        sessionCount: crew?.length ?? 0,
+        sessionCount: sessionCount(),
         colorIssue,
         colors,
         missionRoot,
       }
     })
   }
-  function dock(): Loaded<ShellDockData> {
-    return memo('dock', () => {
+  function dock(includeIssues = false): Loaded<ShellDockData> {
+    return memo(includeIssues ? 'dockCatalog' : 'dock', () => {
+      if (includeIssues) {
+        const context = dock(), tasks = issues()
+        return !context || context === LOADING || tasks === LOADING
+          ? LOADING
+          : { ...context, issues: tasks ?? [] }
+      }
       const state = window(),
-        crew = sessions(),
         fileTabs = files(),
-        tasks = issues(),
         shipLanes = lanes()
       if (
         !state ||
         state === LOADING ||
-        crew === LOADING ||
         fileTabs === LOADING ||
-        tasks === LOADING ||
         shipLanes === LOADING
       )
         return LOADING
       let active: ActiveWorktree | null = null
-      const selected = crew?.find((session) => session.sessionId === state.paneA)
+      const selectedFile = fileTabs?.find((file) => file.id === state.paneA)
+      let activeSession = state.paneA && !selectedFile ? session(state.paneA) : undefined
+      if (activeSession === LOADING) return LOADING
+      const selected = activeSession
       if (selected)
         active = { cwd: selected.cwd, machineId: selected.machineId, sessionId: selected.sessionId }
       else {
-        const tab = fileTabs?.find((file) => file.id === state.paneA)
+        const tab = selectedFile
         if (tab?.worktreePath)
           active = {
             cwd: tab.worktreePath,
@@ -264,16 +286,29 @@ export function createShellViews(pool: MobxPool) {
       }
       if (!active) {
         let latest: SessionView | undefined
-        for (const session of crew ?? [])
-          if (!session.archived && (!latest || session.lastActiveAt > latest.lastActiveAt))
-            latest = session
+        const excluded: string[] = []
+        for (;;) {
+          const id = pool.queries.indexed({ kind: 'headerRecentSession', excluded })[0]
+          if (!id) break
+          const candidate = session(id)
+          if (candidate === LOADING) return LOADING
+          if (candidate && !candidate.archived) {
+            latest = candidate
+            break
+          }
+          excluded.push(id)
+        }
         if (latest)
           active = { cwd: latest.cwd, machineId: latest.machineId, sessionId: latest.sessionId }
+        activeSession = latest
       }
       let containing: IssueViewModel | undefined
       if (active)
-        for (const candidate of tasks ?? []) {
+        for (const id of pool.queries.indexed({ kind: 'containingIssues', cwd: active.cwd })) {
+          const candidate = issue(id) as Loaded<IssueViewModel>
+          if (candidate === LOADING) return LOADING
           if (
+            !candidate ||
             candidate.archived ||
             candidate.deletedAt ||
             !candidate.worktreePath ||
@@ -289,8 +324,9 @@ export function createShellViews(pool: MobxPool) {
             containing = candidate
         }
       const attachedId =
-        active?.issueId ?? crew?.find((session) => session.sessionId === active?.sessionId)?.issueId
-      const attached = attachedId ? tasks?.find((task) => task.id === attachedId) : containing
+        active?.issueId ?? activeSession?.issueId
+      const attached = attachedId ? issue(attachedId) as Loaded<IssueViewModel> : containing
+      if (attached === LOADING) return LOADING
       let scope: ShellDockData['scope'] = null
       if (active)
         for (const group of worktrees()) {
@@ -315,16 +351,17 @@ export function createShellViews(pool: MobxPool) {
       const scoped = scope?.repoId
         ? shipOrders.filter((order) => order.repoId === scope!.repoId)
         : []
+      const explicitGitIssue = active?.issueId ? issue(active.issueId) as Loaded<IssueViewModel> : undefined
+      if (explicitGitIssue === LOADING) return LOADING
       return {
         active,
         scope,
         gitIssue:
-          (active?.issueId ? tasks?.find((task) => task.id === active.issueId) : undefined) ??
-          containing,
+          explicitGitIssue ?? containing,
         mailIssueId:
-          crew?.find((session) => session.sessionId === active?.sessionId)?.issueId ??
+          activeSession?.issueId ??
           containing?.id,
-        issues: tasks ?? [],
+        issues: [],
         shipOrders,
         shipLanes: shipLanes ?? [],
         coarseNow: state.coarseNow,
@@ -355,6 +392,7 @@ export function createShellViews(pool: MobxPool) {
     files,
     lanes,
     sessions,
+    session,
     issues,
     issue,
     machines,

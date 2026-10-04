@@ -4,7 +4,7 @@ import { observer } from '@podium/client-graph/react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useShellActions, useShellSessions } from './shell-data'
+import { useShellActions, useShellSessionResolver } from './shell-data'
 
 interface PendingOpen {
   request: SessionOpenUrlMessage
@@ -59,9 +59,9 @@ function openNewTab(url: string): void {
  */
 export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.Element | null {
   const { hub } = useShellActions()
-  const sessions = useShellSessions()
-  const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
+  const resolveSession = useShellSessionResolver()
+  const resolveSessionRef = useRef(resolveSession)
+  resolveSessionRef.current = resolveSession
   const [pending, setPending] = useState<Map<string, PendingOpen>>(() => new Map())
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
           return next
         })
       }
-      const session = sessionsRef.current.find((item) => item.sessionId === request.sessionId)
+      const session = resolveSessionRef.current(request.sessionId)
       const label = session?.name || session?.title || 'Agent'
       toast(`${label} wants to open ${displayHost(request.url)}`, {
         id: `browser-open-${key}`,

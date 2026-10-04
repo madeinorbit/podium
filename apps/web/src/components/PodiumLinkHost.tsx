@@ -20,6 +20,7 @@ import { findLinkedIssue, resolvePodiumTarget } from '@/lib/podium-link-open'
 
 export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
 export const PODIUM_LINK_QUEUE_CAPACITY = 32
+const EMPTY_LINK_ROWS: never[] = []
 
 interface PendingPodiumHref {
   href: string
@@ -48,9 +49,8 @@ function pendingPodiumHref(
  *    mismatch is the whole bug. Registering it is what lets the markdown
  *    pipeline and the offer renderer recognise a link home.
  *  - HOW TO OPEN ONE. Issues and sessions navigate; artifacts and files open as
- *    tabs through the store actions that already exist. Re-registered on every
- *    render so the activator always closes over the current issue rows —
- *    resolving `POD-1606` needs live data, exactly like the ref activator.
+ *    tabs through the store actions that already exist. Read current rows on
+ *    activation, and observe them while a cold URL awaits resolution.
  */
 function PodiumLinkHostView({
   initialHref = null,
@@ -69,7 +69,7 @@ function PodiumLinkHostView({
     openArtifact,
     openFileInWorktree,
   } = useShellActions()
-  const { issues, sessions, artifactIssue } = useShellLinks()
+  const { readIssues, readSessions, artifactIssue } = useShellLinks()
   // Manifests use the existing batched loader. A click accepted while its row
   // is cold is retried locally; native URLs retain their acknowledgement queue.
   const [artifactDemands, setArtifactDemands] = useState<
@@ -82,6 +82,11 @@ function PodiumLinkHostView({
     initialHref ? [pendingPodiumHref(initialHref, () => onInitialHrefConsumed?.())] : [],
   )
   const [pendingRevision, setPendingRevision] = useState(0)
+  // Idle registration does not retain the global catalogues. Pending native
+  // URLs still observe arriving rows so hydration retries the queue.
+  const issues = pendingHrefs.current.length || browserArtifacts.current.length
+    ? readIssues() : EMPTY_LINK_ROWS
+  const sessions = pendingHrefs.current.length ? readSessions() : EMPTY_LINK_ROWS
 
   useEffect(() => {
     setKnownPodiumOrigins(httpOrigin ? [httpOrigin] : [])
@@ -108,9 +113,10 @@ function PodiumLinkHostView({
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {
-      let targets = issues
+      let targets = target.kind === 'issue' || target.kind === 'artifact'
+        ? readIssues() : EMPTY_LINK_ROWS
       if (target.kind === 'artifact') {
-        const linked = findLinkedIssue(target.issue, issues)
+        const linked = findLinkedIssue(target.issue, targets)
         const full = linked ? artifactIssue(linked.id) : undefined
         if (linked && !full) {
           if (artifactDemands.length >= PODIUM_LINK_QUEUE_CAPACITY * 2) return false
@@ -135,7 +141,10 @@ function PodiumLinkHostView({
         }
         if (full) targets = [full]
       }
-      const open = resolvePodiumTarget(target, { issues: targets, sessions })
+      const open = resolvePodiumTarget(target, {
+        issues: targets,
+        sessions: target.kind === 'session' ? readSessions() : EMPTY_LINK_ROWS,
+      })
       // FALSE, NOT SILENCE. Everything below reports whether it opened
       // something; the caller cancels the anchor only on true, so an address
       // this client cannot answer falls back to an ordinary navigation.
@@ -255,6 +264,9 @@ function PodiumLinkHostView({
       )
       return () => window.clearTimeout(retry)
     }
+    // Release pending catalogue observations after the final URL resolves.
+    if (issues !== EMPTY_LINK_ROWS || sessions !== EMPTY_LINK_ROWS)
+      setPendingRevision((value) => value + 1)
   }, [issues, sessions, pendingRevision, replicaReady, demandedArtifacts])
 
   useEffect(() => {

@@ -299,11 +299,14 @@ export class ReaderQueries {
     }
     return result.get() as Loaded<T[]>
   }
-  /** The row source's indexed candidates, including pending spawn rows. These
-   * questions use the source's birth-reference and repository buckets without
-   * enumerating every resident row. */
+  /** The effective source's indexed candidates, including pending overlays.
+   * References, context paths and ranked windows must not add every resident
+   * identity to an already bounded answer. */
   indexed(
-    question: Extract<ReaderQuestion, { kind: 'sessionReference' | 'spawnIssues' }>,
+    question: Extract<
+      ReaderQuestion,
+      { kind: 'sessionReference' | 'spawnIssues' | 'headerRecentSession' | 'containingIssues' }
+    >,
   ): string[] {
     const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question))
     const ids = index.readerIds(question)

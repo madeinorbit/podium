@@ -181,7 +181,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
-    dock = views.dock(),
+    dock = views.dock(true),
     shipping = views.shipping(),
     sessions = views.sessions(),
     issues = views.issues(),

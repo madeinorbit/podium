@@ -106,7 +106,7 @@ export const RightDock = observer(function RightDock({
   onClose: () => void
 }): JSX.Element {
   const { trpc, setSelectedIssueId } = useShellActions()
-  const { active, scope: mergeQueueScope, gitIssue, mailIssueId, issues, shipOrders, shipLanes, coarseNow } = useShellDock()
+  const { active, scope: mergeQueueScope, gitIssue, mailIssueId, issues, shipOrders, shipLanes, coarseNow } = useShellDock(tab === 'merge-queue' || tab === 'shipping')
   const { setFocusedIssueId } = useOperatorFocus()
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({

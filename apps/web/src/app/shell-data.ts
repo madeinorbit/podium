@@ -48,9 +48,9 @@ const EMPTY_DOCK: ShellDockData = {
   coarseNow: 0,
   shipping: { unfinishedCount: 0, decisionCount: 0 },
 }
-export function useShellDock(): ShellDockData {
+export function useShellDock(includeIssues = false): ShellDockData {
   const pool = useWorklistPool(),
-    value = pool ? shellViews(pool).dock() : LOADING
+    value = pool ? shellViews(pool).dock(includeIssues) : LOADING
   return value && value !== LOADING ? value : EMPTY_DOCK
 }
 export function useShellShipping() {
@@ -76,17 +76,28 @@ const EMPTY_ISSUES: IssueViewModel[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellViews(pool) : null
-  const sessions = views?.sessions(),
-    issues = views?.issues()
-  return {
-    sessions: sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS,
-    issues: issues && issues !== LOADING ? issues : (EMPTY_ISSUES as unknown as IssueViewModel[]),
+  return useMemo(() => ({
+    readSessions: () => {
+      const sessions = views?.sessions()
+      return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
+    },
+    readIssues: () => {
+      const issues = views?.issues()
+      return issues && issues !== LOADING ? issues : EMPTY_ISSUES
+    },
     artifactIssue: (id: string) => {
       const row = views?.issue(id, true)
       return row && row !== LOADING ? (row as IssueViewModel) : undefined
     },
     pool,
-  }
+  }), [pool, views])
+}
+export function useShellSessionResolver() {
+  const pool = useWorklistPool()
+  return useMemo(() => (id: string) => {
+    const value = pool ? shellViews(pool).session(id) : undefined
+    return value && value !== LOADING ? value : undefined
+  }, [pool])
 }
 export function useShellSessions() {
   const pool = useWorklistPool(),

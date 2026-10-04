@@ -40,7 +40,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
     const pool = useWorklistPool()
     states.push(Boolean(pool))
     const chrome = reads.useShellChrome(),
-      dock = reads.useShellDock(),
+      dock = reads.useShellDock(true),
       window = reads.useShellWindow()
     const approvals = reads.useShellApprovals(),
       sessions = reads.useShellSessions(),
@@ -56,7 +56,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
           dock.issues.length,
           approvals.length,
           sessions.length,
-          links.issues.length,
+          links.readIssues().length,
           machines.length,
         ].join(':')}
       </div>

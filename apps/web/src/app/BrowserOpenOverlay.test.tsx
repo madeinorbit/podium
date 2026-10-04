@@ -23,22 +23,15 @@ const h = vi.hoisted(() => {
     error: vi.fn(),
     success: vi.fn(),
   })
-  return { handlers, hub, toast }
+  const resolveSession = vi.fn(() => ({
+    sessionId: 's1', name: 'Remote Codex', title: '', agentKind: 'codex',
+  }))
+  return { handlers, hub, toast, resolveSession }
 })
 
-vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
-    selector({
-      hub: h.hub,
-      sessions: [
-        { sessionId: asSessionId('s1'), name: 'Remote Codex', title: '', agentKind: 'codex' },
-      ],
-    }),
-}))
-
-vi.mock('@podium/client-core/react', async (load) => ({
-  ...await load<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => ({ get access() { return ({ hub: h.hub }) } }),
+vi.mock('./shell-data', () => ({
+  useShellActions: () => ({ hub: h.hub }),
+  useShellSessionResolver: () => h.resolveSession,
 }))
 
 vi.mock('sonner', () => ({ toast: h.toast }))
@@ -92,7 +85,9 @@ describe('BrowserOpenOverlay', () => {
   it('requires a user click to open and keeps the callback paste-back affordance', () => {
     const { opened, windowOpen } = captureOpens()
     render(<BrowserOpenOverlay />)
+    expect(h.resolveSession).not.toHaveBeenCalled()
     emit('openUrl', request)
+    expect(h.resolveSession).toHaveBeenCalledExactlyOnceWith(request.sessionId)
 
     expect(h.toast).toHaveBeenCalledWith(
       'Remote Codex wants to open auth.example',

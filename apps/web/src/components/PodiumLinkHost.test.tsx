@@ -18,31 +18,25 @@ const hostStore = vi.hoisted(() => {
     navigateToSession: vi.fn(),
     openArtifact: vi.fn(),
     openFileInWorktree: vi.fn(),
+    readIssues: vi.fn(),
+    readSessions: vi.fn(),
   }
 })
 
-vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => hostStore.issues,
-  useRuntimeSelector: (select: (state: unknown) => unknown) =>
-    select({
+vi.mock('@/app/shell-data', () => ({
+  useShellActions: () => ({
       httpOrigin: 'http://127.0.0.1:18787',
-      sessions: [],
       setOpenIssueId: hostStore.setOpenIssueId,
       setView: hostStore.setView,
       navigateToSession: hostStore.navigateToSession,
       openArtifact: hostStore.openArtifact,
       openFileInWorktree: hostStore.openFileInWorktree,
-    }),
-}))
-
-vi.mock('@podium/client-core/react', async (load) => ({
-  ...await load<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => ({ get access() { return ({
-    httpOrigin: 'http://127.0.0.1:18787',
-    setOpenIssueId: hostStore.setOpenIssueId, setView: hostStore.setView,
-    navigateToSession: hostStore.navigateToSession, openArtifact: hostStore.openArtifact,
-    openFileInWorktree: hostStore.openFileInWorktree,
-  }) } }),
+  }),
+  useShellLinks: () => ({
+    readIssues: hostStore.readIssues,
+    readSessions: hostStore.readSessions,
+    artifactIssue: () => undefined,
+  }),
 }))
 
 import {
@@ -72,6 +66,8 @@ describe('PodiumLinkHost native delivery', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    hostStore.readIssues.mockImplementation(() => hostStore.issues)
+    hostStore.readSessions.mockReturnValue([])
     hostStore.issues = [hostStore.allIssues[1]!]
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -86,6 +82,20 @@ describe('PodiumLinkHost native delivery', () => {
     delete nativeWindow.__PODIUM_NATIVE_OPEN_ACK__
     delete nativeWindow.__PODIUM_NATIVE_OPEN_READY__
     vi.useRealTimers()
+  })
+
+  it('does not acquire either roster while idle and reads fresh issues on activation', () => {
+    act(() => root.render(<PodiumLinkHost />))
+    expect(hostStore.readIssues).not.toHaveBeenCalled()
+    expect(hostStore.readSessions).not.toHaveBeenCalled()
+    hostStore.issues = [...hostStore.allIssues]
+    act(() => nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710'))
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
+    hostStore.readIssues.mockClear()
+    hostStore.readSessions.mockClear()
+    act(() => root.render(<PodiumLinkHost />))
+    expect(hostStore.readIssues).not.toHaveBeenCalled()
+    expect(hostStore.readSessions).not.toHaveBeenCalled()
   })
 
   it('keeps later cold URLs behind an unresolved queue head', () => {
