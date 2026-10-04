@@ -203,7 +203,9 @@ export function createPoolHost({
       // below without replacing its observer or React subscription.
       [pool, project, retainWhileInactive],
     )
-    useEffect(() => () => view?.dispose(), [view])
+    useEffect(() => {
+      if (retainWhileInactive) return () => view?.dispose()
+    }, [view, retainWhileInactive])
     // A principal/pool change discards any previous principal's last paint.
     const last = useMemo(
       () => ({ pool, project, paint: null as { value: T } | null }),
