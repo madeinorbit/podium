@@ -157,7 +157,8 @@ describe('pool screens work ratios', () => {
     // A new reader or unnamed mechanism does not silently inherit another screen's exception.
     assertScreenWork(unexpected)
     expect(at1x.cells.some((cell) => cell.work.rows! > 0 && cell.work.derivations > 0)).toBe(true)
-  }, 1_800_000)
+    // A loaded host (or one core) may take over 30 min; the counts must not depend on it.
+  }, 7_200_000)
 
   it('keeps the real legacy control arm as the failing whole-data read control', async () => {
     const heartbeat = FENCE_SCENARIOS.filter((entry) => entry.methodology === '#1')

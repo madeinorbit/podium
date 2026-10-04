@@ -1,3 +1,4 @@
+import type { ForeignRun } from './async-ledger'
 /** Ratio guards intentionally differ from the worklist's older additive budget. */
 import type { WorkCounts } from './work-meter'
 
@@ -18,6 +19,9 @@ export interface ScreenWorkCell {
   /** The drawn rows plus their addressed neighbours, measured outside the window. */
   neighbourhood: readonly string[]
   work: WorkCounts
+  /** POD-5466: deferred callbacks that ran in this window but were scheduled
+   *  elsewhere (a previous window, or between windows). Must be empty. */
+  foreign?: readonly ForeignRun[]
 }
 export interface ScreenWorkVerdict {
   action: ScreenAction

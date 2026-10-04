@@ -6,16 +6,15 @@
       {
         "reader": "consumer:board.card.compare",
         "actions": {
-          "heartbeat": ["derivations", "elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["derivations"]
+          "heartbeat": ["elements"],
+          "machine-flip": ["elements"]
         }
       },
       {
         "reader": "consumer:board.catalog.compare",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
         }
       },
@@ -24,7 +23,7 @@
         "actions": {
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"]
         }
       },
@@ -34,23 +33,17 @@
           "select": ["elements"],
           "stage-change": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
-          "lane-change": ["derivations", "elements"]
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.query.compare",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:chat.detail.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
         }
       },
       {
@@ -59,21 +52,9 @@
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:header.fleet.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
         }
       },
       {
@@ -82,7 +63,7 @@
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
         }
@@ -90,19 +71,13 @@
       {
         "reader": "consumer:issue-page.detail.compare",
         "actions": {
-          "stage-change": ["elements"],
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
+          "stage-change": ["elements"]
         }
       },
       {
         "reader": "consumer:issue-page.panel.compare",
         "actions": {
-          "stage-change": ["elements"],
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
+          "stage-change": ["elements"]
         }
       },
       {
@@ -110,7 +85,7 @@
         "actions": {
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"]
         }
       },
@@ -119,7 +94,7 @@
         "actions": {
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"]
         }
       },
@@ -130,9 +105,9 @@
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
-          "lane-change": ["derivations", "elements"]
+          "lane-change": ["elements"]
         }
       },
       {
@@ -140,34 +115,7 @@
         "actions": {
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
-          "heartbeat": ["derivations", "elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane.compare",
-        "actions": {
-          "select": ["elements"],
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:mission.session-menu.compare",
-        "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
-          "lane-change": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.workspace.compare",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
+          "machine-flip": ["elements"]
         }
       },
       {
@@ -176,85 +124,17 @@
           "select": ["elements"],
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations", "elements"],
+          "navigate-by-ref": ["elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
-          "lane-change": ["derivations", "elements"]
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:mobile-session.compare",
         "actions": {
           "stage-change": ["elements"],
-          "pane-switch": ["elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-work.row.compare",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations", "elements"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.activity.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.mission.compare",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations", "elements"],
-          "lane-change": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.ref.compare",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:notices",
-        "actions": {
-          "navigate-by-ref": ["rows", "derivations"],
-          "lane-change": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:notices.compare",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "lane-change": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:references",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:references.compare",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:references/ComputedValue@#",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:session-pane.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
+          "pane-switch": ["elements"]
         }
       },
       {
@@ -264,22 +144,9 @@
         }
       },
       {
-        "reader": "consumer:shell.chrome.compare",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.close/ComputedValue@#",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
         "reader": "consumer:shell.dock.compare",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
           "lane-change": ["elements"]
         }
       },
@@ -287,16 +154,8 @@
         "reader": "consumer:shell.links.compare",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:sidebar.row.compare",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations", "elements"],
-          "lane-change": ["derivations"]
         }
       },
       {
@@ -310,14 +169,7 @@
         "reader": "consumer:superagent.compare",
         "actions": {
           "pane-switch": ["elements"],
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:workflows.compare",
-        "actions": {
-          "heartbeat": ["derivations"]
+          "navigate-by-ref": ["elements"]
         }
       }
     ]
@@ -327,87 +179,18 @@
     "reason": "Review findings 2, 3 and 4. The mission pane, navigation and folded-header readers no longer walk mission history per click or per change (focused gate: mission-screen-work.test.ts). What remains is recorded exactly: the two context menus (readMissionActionInputs: the issue catalog and the whole seat roster), the sidebar row model the folded header reads for progress, the engine's navigate-by-ref work (legacy optimism repaint of every session view, tab pruning) and its republication at 4x, and a second publication per single-row delta at 4x that runs each reader twice.",
     "readers": [
       {
-        "reader": "consumer:header.folded",
-        "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/IssueModel@guard-root.attention",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/IssueModel@guard-root.loaded",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/IssueModel@guard-root.rowRollup",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
         "reader": "consumer:header.folded/IssueModel@guard-root.sidebar",
         "actions": {
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/IssueModel@guard-root.unitOwn",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/IssueModel@guard-root.unitsBelow",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
+          "heartbeat": ["elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:header.folded/SessionModel@guard-history-#.activityMs",
         "actions": {
-          "navigate-by-ref": ["rows", "derivations"],
-          "lane-change": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/SessionModel@guard-seat.activityMs",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/SessionModel@guard-seat.verdict",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/header.folded",
-        "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/header.foldedMission:guard-root",
-        "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.folded/header.selectedIssue",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
+          "navigate-by-ref": ["rows", "derivations"]
         }
       },
       {
@@ -417,57 +200,9 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane/MissionNode@guard-child.missionIssue",
-        "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane/MissionNode@guard-root.missionHandoff",
-        "actions": {
-          "stage-change": ["elements"],
-          "pane-switch": ["elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneCoreFull",
-        "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneFull",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:mission.pane/MissionNode@guard-root.missionPaneRowsFull",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -476,9 +211,9 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -491,25 +226,9 @@
         }
       },
       {
-        "reader": "consumer:mission.workspace",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.mission",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
         "reader": "consumer:navigation.navigate-by-ref",
         "actions": {
-          "navigate-by-ref": ["rows", "elements"]
+          "navigate-by-ref": ["elements"]
         }
       },
       {
@@ -529,32 +248,6 @@
         "actions": {
           "navigate-by-ref": ["elements"]
         }
-      },
-      {
-        "reader": "consumer:navigation.navigate-by-ref/pool projection",
-        "actions": {
-          "navigate-by-ref": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:navigation.ref",
-        "actions": {
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue",
-        "actions": {
-          "navigate-by-ref": ["derivations"]
-        }
-      },
-      {
-        "reader": "pool projection",
-        "actions": {
-          "heartbeat": ["rows", "derivations"],
-          "lane-change": ["rows", "derivations"]
-        }
       }
     ]
   },
@@ -563,60 +256,16 @@
     "reason": "Review finding 7: always-mounted whole-list shell and launcher guard consumers.",
     "readers": [
       {
-        "reader": "consumer:launcher.guard",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:shell.catalogs/ComputedValue@#",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:shell.chrome",
-        "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
         "reader": "consumer:shell.chrome/ComputedValue@#",
         "actions": {
           "select": ["elements"],
           "stage-change": ["elements"],
           "pane-switch": ["rows", "elements"],
           "open-menu": ["elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionAttachments",
-        "actions": {
-          "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
-          "machine-flip": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.chrome/MissionNode@guard-root.missionIssue",
-        "actions": {
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.dock",
-        "actions": {
-          "heartbeat": ["derivations"]
+          "lane-change": ["elements"]
         }
       },
       {
@@ -627,22 +276,15 @@
           "pane-switch": ["elements"],
           "open-menu": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:shell.links",
-        "actions": {
-          "heartbeat": ["derivations"]
         }
       },
       {
         "reader": "consumer:superagent",
         "actions": {
           "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"]
+          "navigate-by-ref": ["rows", "elements"]
         }
       }
     ]
@@ -652,24 +294,10 @@
     "reason": "Review findings 8 through 12: resident filing reactions, roster/history work, sidebar bands and joined rows.",
     "readers": [
       {
-        "reader": "(arm code)",
-        "actions": {
-          "heartbeat": ["rows"],
-          "machine-flip": ["rows"],
-          "lane-change": ["rows"]
-        }
-      },
-      {
-        "reader": "IssueModel@guard-root.facts",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
         "reader": "IssueModel@guard-root.members",
         "actions": {
           "pane-switch": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
         }
       },
@@ -678,57 +306,9 @@
         "actions": {
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "SessionModel@guard-history-#.headerWorking",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "SessionModel@guard-history-#.retention",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "SessionModel@guard-seat.headerWorking",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "SessionModel@guard-seat.retention",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.fleet",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.fleet/SessionModel@guard-history-#.headerHost",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:header.fleet/SessionModel@guard-seat.headerHost",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:header.shipping/SessionModel@guard-history-#.headerDock",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
         }
       },
       {
@@ -737,24 +317,7 @@
           "select": ["elements"],
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-work.row",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
+          "navigate-by-ref": ["elements"]
         }
       },
       {
@@ -762,14 +325,6 @@
         "actions": {
           "select": ["rows", "derivations", "elements"],
           "navigate-by-ref": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:sidebar.row",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
         }
       },
       {
@@ -805,16 +360,10 @@
     "reason": "Measured after POD-5406: declared query result reconstruction and resident count correction still scale with total rows.",
     "readers": [
       {
-        "reader": "IssueBoard@facts:guard-root",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
-        }
-      },
-      {
         "reader": "IssueBoard@sessions:guard-root",
         "actions": {
           "pane-switch": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"]
+          "heartbeat": ["rows", "elements"]
         }
       },
       {
@@ -830,39 +379,19 @@
         }
       },
       {
-        "reader": "consumer:board.card",
-        "actions": {
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
         "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}",
         "actions": {
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
-          "lane-change": ["derivations", "elements"]
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@row:guard-root",
         "actions": {
           "navigate-by-ref": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:board.catalog",
-        "actions": {
-          "heartbeat": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:board.explorer",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
+          "machine-flip": ["rows", "elements"]
         }
       },
       {
@@ -871,7 +400,7 @@
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
         }
@@ -882,7 +411,7 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
         }
@@ -900,13 +429,6 @@
         }
       },
       {
-        "reader": "consumer:board.model",
-        "actions": {
-          "heartbeat": ["rows", "derivations"],
-          "lane-change": ["rows", "derivations"]
-        }
-      },
-      {
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}",
         "actions": {
           "select": ["elements"],
@@ -917,16 +439,16 @@
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}",
         "actions": {
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@catalog:false",
         "actions": {
           "stage-change": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
         }
       },
@@ -934,35 +456,23 @@
         "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@row:guard-root",
         "actions": {
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:board.query",
-        "actions": {
-          "heartbeat": ["derivations"]
         }
       },
       {
         "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}",
         "actions": {
           "stage-change": ["elements"],
-          "heartbeat": ["derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:chat.detail",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
         }
       },
       {
@@ -971,15 +481,9 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:issue-page.catalog",
-        "actions": {
-          "heartbeat": ["derivations", "elements"]
         }
       },
       {
@@ -988,7 +492,7 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
         }
@@ -1000,18 +504,10 @@
         }
       },
       {
-        "reader": "consumer:issue-page.detail",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
         "reader": "consumer:issue-page.detail/IssuePage@members:guard-root",
         "actions": {
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"]
         }
       },
@@ -1026,53 +522,23 @@
       {
         "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
         "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@summaries",
         "actions": {
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:issue-page.panel",
-        "actions": {
-          "navigate-by-ref": ["derivations", "elements"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:issue-page.panel/IssuePage@panel:{\"issueId\":\"guard-root\",\"cwd\":\"/synthetic\"}",
-        "actions": {
-          "navigate-by-ref": ["derivations"],
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
-        }
-      },
-      {
-        "reader": "consumer:launcher.launch",
-        "actions": {
-          "heartbeat": ["derivations"]
         }
       },
       {
         "reader": "consumer:launcher.launch/ComputedValue@#",
         "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:launcher.palette",
-        "actions": {
-          "heartbeat": ["derivations"],
-          "lane-change": ["derivations"]
+          "navigate-by-ref": ["elements"]
         }
       },
       {
@@ -1083,9 +549,9 @@
           "pane-switch": ["rows", "elements"],
           "open-menu": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -1094,10 +560,10 @@
           "select": ["rows", "elements"],
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -1106,16 +572,10 @@
           "select": ["rows", "elements"],
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "derivations", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "navigate-by-ref": ["rows", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-child",
-        "actions": {
-          "navigate-by-ref": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -1124,9 +584,9 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -1136,9 +596,9 @@
           "stage-change": ["rows", "elements"],
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "derivations", "elements"]
+          "lane-change": ["rows", "elements"]
         }
       },
       {
@@ -1148,7 +608,7 @@
           "stage-change": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["elements"],
           "machine-flip": ["elements"],
           "lane-change": ["elements"]
         }
@@ -1171,20 +631,8 @@
           "select": ["elements"],
           "pane-switch": ["elements"],
           "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "derivations", "elements"],
+          "heartbeat": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:workflows/settings.session:guard-history-#",
-        "actions": {
-          "heartbeat": ["rows", "derivations"]
-        }
-      },
-      {
-        "reader": "consumer:workflows/settings.session:guard-seat",
-        "actions": {
-          "heartbeat": ["rows", "derivations", "elements"]
         }
       },
       {

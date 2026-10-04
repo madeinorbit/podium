@@ -91,6 +91,8 @@ import {
   upsert,
   upsertIssue,
 } from '../../shared/src/scenarios'
+import { type AsyncLedger, installAsyncLedger } from './async-ledger'
+import { FIXED_NOW } from './fixture/corpus'
 import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen-work-ratios'
 import { countedStructuralEqual, insideReader, measureWork } from './work-meter'
 
@@ -232,17 +234,32 @@ export async function poolScreenCellsAt(
    * full guard mounts every reader, as the app does. */
   only?: ReadonlySet<string>,
 ): Promise<ScreenWorkRun> {
-  const ctx = await startScenarioEngine(scale, { ownRows: true })
+  // POD-5466: installed before the engine starts, so every timer the app
+  // schedules, the startup ones included, is tagged and can be settled.
+  const ledger = installAsyncLedger({ holdBeyondMs: SETTLE_MAX_DELAY_MS, startAt: FIXED_NOW })
   try {
-    return await measureScreenCells(ctx, scale, onCell, only)
+    const ctx = await startScenarioEngine(scale, { ownRows: true })
+    try {
+      return await measureScreenCells(ctx, scale, ledger, onCell, only)
+    } finally {
+      ctx.engine.destroy()
+    }
   } finally {
-    ctx.engine.destroy()
+    ledger.dispose()
   }
 }
+
+/** A window owes every microtask and every timer up to this delay it scheduled. */
+const SETTLE_MAX_DELAY_MS = 1_000
+/** Virtual time between two scripted clicks (POD-5466). */
+const CLICK_INTERVAL_MS = 5_000
+/** Wall-clock bound on one settle; past it the meter fails rather than guess. */
+const SETTLE_DEADLINE_MS = 30_000
 
 async function measureScreenCells(
   ctx: ScenarioEngine,
   scale: FixtureScale,
+  ledger: AsyncLedger,
   onCell?: (cell: ScreenWorkCell) => void,
   only?: ReadonlySet<string>,
 ): Promise<ScreenWorkRun> {
@@ -563,6 +580,11 @@ async function measureScreenCells(
     }
     progress('readers mounted')
     await drain(pool)
+    await ledger.settle(null, {
+      maxDelayMs: SETTLE_MAX_DELAY_MS,
+      deadlineMs: SETTLE_DEADLINE_MS,
+      poll: () => pool.hydrate(),
+    })
     assertObservedParity(readers, values)
     progress(`${readers.length} reader projections settled`)
     // The neighbourhood is declared from the actual rows drawn by this probe,
@@ -664,18 +686,54 @@ async function measureScreenCells(
     }
     for (const action of SCREEN_ACTIONS) {
       const before = neighbourhood()
-      const counted = await measureWork(
-        async () => {
-          await actions[action]()
-          await drain(pool)
-        },
-        { pool },
-      )
+      const tag = `${scale}x ${action}`
+      const settle = (owner: string | null) =>
+        ledger.settle(owner, {
+          maxDelayMs: SETTLE_MAX_DELAY_MS,
+          deadlineMs: SETTLE_DEADLINE_MS,
+          poll: () => pool.hydrate(),
+        })
+      // Nothing scheduled before this window may still be due inside it.
+      await settle(null)
+      ledger.takeForeign()
+      // Clicks are seconds apart on the virtual clock, the same every run, so
+      // a time-throttled reaction behaves the same however slow the host is.
+      ledger.advance(CLICK_INTERVAL_MS)
+      ledger.open(tag)
+      let counted: Awaited<ReturnType<typeof measureWork>>
+      try {
+        counted = await measureWork(
+          async () => {
+            await actions[action]()
+            await drain(pool)
+            // The window closes only once the work this action deferred has run.
+            await settle(tag)
+          },
+          { pool },
+        )
+      } finally {
+        ledger.close()
+      }
+      const foreign = ledger.takeForeign()
+      // Work charged to the wrong window makes the count meaningless: refuse it.
+      if (foreign.length > 0) {
+        const sites = [
+          ...new Set(
+            foreign.map(
+              (f) =>
+                `${f.kind} ${f.delayMs} ms ${f.site} from ${f.scheduledIn ?? 'between windows'}`,
+            ),
+          ),
+        ]
+        throw new Error(
+          `${tag} ran ${foreign.length} deferred callback(s) from elsewhere: ${sites.slice(0, 8).join('; ')}`,
+        )
+      }
       const members = [...new Set([...before, ...neighbourhood()])]
-      cells.push({ action, neighbourhood: members, work: counted.work })
+      cells.push({ action, neighbourhood: members, work: counted.work, foreign })
       onCell?.(cells[cells.length - 1]!)
       progress(
-        `${action}: ${counted.work.rows} row calls, ${counted.work.derivations} derivations, ${counted.work.elements} collection elements; neighbourhood ${members.length}`,
+        `${action}: ${counted.work.rows} row calls, ${counted.work.derivations} derivations, ${counted.work.elements} collection elements; neighbourhood ${members.length}; foreign ${foreign.length}${foreign.length ? ` (${[...new Set(foreign.map((f) => `${f.kind} ${f.delayMs}ms ${f.site} from ${f.scheduledIn ?? 'between'}`))].slice(0, 6).join(' | ')})` : ''}`,
       )
       // Correctness is outside the count window, and is never expected-failed.
       await drain(pool)
