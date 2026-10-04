@@ -763,7 +763,9 @@ export class IndexedDbSyncStore {
           throw new SyncCommitConflict(conflicts)
         }
       }
-      await enqueueWrites(tx, draft.ops)
+      // Attach both rejection handlers before the first request event: a
+      // failure earlier in a batch can abort before its last request fires.
+      await Promise.all([enqueueWrites(tx, draft.ops), completion])
     } catch (error) {
       if (error instanceof SyncCommitConflict) throw error
       try {
@@ -774,7 +776,6 @@ export class IndexedDbSyncStore {
       await completion.catch(() => undefined)
       throw error
     }
-    await completion
   }
 
   /** Swap a committed draft into the mirror. Runs only after IndexedDB said complete. */

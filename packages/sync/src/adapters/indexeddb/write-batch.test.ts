@@ -2,7 +2,8 @@ import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { requestAsPromise } from './idb'
 import { ALL_STORES, ENTITY_STORE, META_STORE, OUTBOX_STORE, REPLICA_DB_NAME, upgradeSchema } from './schema'
-import { FaultyIdbFactory, freshFactory, readDurable } from './test-support'
+import { FaultyIdbFactory, freshFactory, QuotaExceededDomError, readDurable } from './test-support'
+import { IndexedDbSyncStore } from './store'
 import { enqueueWrites } from './write-batch'
 
 const principal = asUserId('write-batch-guard')
@@ -72,4 +73,27 @@ it.each(['deny', 'after'] as const)('a failure in a later batch rolls back every
     expect(factory.denials).toBe(1)
     expect(await readDurable(factory)).toEqual(pre)
   } finally { db.close() }
+})
+
+it('reports a later-batch quota abort as quota and keeps the pre-state durable', async () => {
+  const factory = new FaultyIdbFactory(freshFactory())
+  const degradations: { cause: string }[] = []
+  const store = await IndexedDbSyncStore.open({ factory, onDegraded: d => degradations.push(d) })
+  try {
+    store.viewFor(principal).cache.installSnapshot(
+      [{ entity: 'issueProjection', entityId: 'old', value: { title: 'old' } }],
+      { feedId: 'feed', epoch: 'one', seq: 1 }, [],
+    )
+    await store.settled()
+    const before = await readDurable(factory)
+    factory.denyWriteAt({ at: 300, mode: 'after', error: new QuotaExceededDomError() })
+    store.viewFor(principal).cache.installSnapshot(
+      Array.from({ length: 900 }, (_, i) => ({ entity: 'issueProjection', entityId: `new-${i}`, value: { title: 'new' } })),
+      { feedId: 'feed', epoch: 'one', seq: 2 }, [],
+    )
+    await store.settled()
+    expect(factory.denials).toBe(1)
+    expect(degradations).toMatchObject([{ cause: 'quota' }])
+    expect(await readDurable(factory)).toEqual(before)
+  } finally { store.close() }
 })

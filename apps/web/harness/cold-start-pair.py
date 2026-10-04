@@ -86,9 +86,21 @@ try:
         arm, line = receive()
         if line.startswith('CAPTURE_READY '):
             ready.add(arm)
-    grant = subprocess.run(['podium', 'lock', 'acquire', 'bench:flatblock', '--ttl', '10m',
-                            '--wait', '--json'], check=True, capture_output=True, text=True)
-    lease = json.loads(grant.stdout)
+    waiter_argv = ['podium', 'lock', 'acquire', 'bench:flatblock', '--ttl', '10m', '--wait', '--json']
+    waiter = subprocess.Popen(waiter_argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    (root / f'paired-waiter-r{args.round}-pid.json').write_text(json.dumps({
+        'pid': waiter.pid, 'role': 'paired-lease-waiter', 'argv': waiter_argv,
+    }) + '\n')
+    try:
+        stdout, stderr = waiter.communicate()
+        if waiter.returncode:
+            raise RuntimeError(f'Timing lease waiter failed: {stderr}')
+    finally:
+        if waiter.poll() is None:
+            waiter.terminate()
+            waiter.wait(timeout=20)
+            subprocess.run(['podium', 'lock', 'cancel', 'bench:flatblock'], check=True)
+    lease = json.loads(stdout)
     if not lease.get('data', {}).get('granted'):
         raise RuntimeError('Paired capture lease not granted')
     held = True

@@ -32,9 +32,9 @@ export function enqueueWrites(tx: IdbTransactionLike, ops: readonly Write[]): Pr
         // a large eager cache write continues. Completion still belongs to tx.
         const request = last!
         request.onsuccess = next
-        request.onerror = () => reject(request.error ?? new Error('IndexedDB write failed'))
+        request.onerror = () => reject(tx.error ?? request.error ?? new Error('IndexedDB write failed'))
       } catch (error) {
-        reject(error)
+        reject(tx.error ?? error)
       }
     }
     next()
