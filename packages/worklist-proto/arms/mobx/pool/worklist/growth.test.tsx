@@ -13,7 +13,7 @@
  * never the corpus; the recorded budget shows which). A whole-corpus walk per
  * change reads thousands of rows and fails the same `assertReads` — the
  * legacy control is that plant, kept red in
- * `harness/src/legacy-control/control.test.tsx` (its heartbeat reads every
+ * the retired whole-store control (its heartbeat reads every
  * session and issue row against a budget of 3).
  */
 

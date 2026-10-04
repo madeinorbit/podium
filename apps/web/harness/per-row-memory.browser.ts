@@ -1,10 +1,11 @@
-/** Reuse POD-5133's real runtime/replica/legacy sidebar fixture unchanged.
+/** Reuse POD-5133's real runtime/replica/sidebar fixture.
  * Collector slot `legacy` means hand here; slot `pool` means lean. Both use
- * the same switch-OFF product runtime, then add the same 20-row prototype window.
+ * the same product runtime, then add the same 20-row prototype window.
  * The original product fixture/build is also captured separately as the control. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource, type RowSourceReplica } from '@podium/client-graph/shared/row-source'
+import type { RowSourceReplica } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../packages/worklist-proto/shared/src/row-source'
 import { HandPool } from '../../../packages/worklist-proto/arms/hand/pool/pool'
 import { LeanPool } from '../../../packages/worklist-proto/arms/lean/src/pool'
 import {
@@ -31,7 +32,7 @@ const originalOwners = memory.owners.bind(memory)
 const owners = originalOwners()
 const runtime = owners.runtime as ClientRuntime
 const feed = createRowSource(runtime, owners.replica as unknown as RowSourceReplica, {
-  mode: 'overlaid',
+  mode: 'pooled',
 })
 const locals = createEngineLocals(runtime)
 // Same constructor, seed and subscriptions as handPoolArm.create, without its

@@ -144,8 +144,8 @@ Object.assign(window, {
     corpus: corpus.stats,
     now: FIXED_NOW,
     state: () => ({
-      issues: owner?.getSnapshot().issueProjections.length,
-      sessions: owner?.getSnapshot().sessions.length,
+      issues: owner?.replica.rowCount('issueProjections'),
+      sessions: owner?.replica.rowCount('sessions'),
       residentIssues: pool?.tables.issue.size,
       coldIssues: pool?.residency?.ids('issue', true).length,
     }),

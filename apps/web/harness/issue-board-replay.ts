@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { dedupeSessions } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -84,13 +85,13 @@ async function main() {
     pins: { repos: [], worktrees: [] },
     sidebarSettings: { repoOrder: [] },
   } as unknown as Store
-  const runtime = {
+  const runtime = withKeyedInputs({
+    principal: { userId: users[0]?.userId ?? '' },
     replica,
     getSnapshot: () => state,
     subscribe: () => () => {},
-    pendingOverlaysByRow: () => new Map(),
-  }
-  const handle = createRuntimeWorklistPool(runtime as never, { summaries: ISSUE_BOARD_SUMMARIES })
+  })
+  const handle = createRuntimeWorklistPool(runtime as never, { owns: [], summaries: ISSUE_BOARD_SUMMARIES })
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )

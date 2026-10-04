@@ -13,8 +13,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  *
  * READ-ONLY apart from selection. The page issues no write commands: no
  * renames, no stage moves, no mark-read calls of its own. Clicking a row calls
- * the engine's own `setSelectedIssueId` — the same write the legacy control's
- * pressable makes — and the runtime's own eager mark-read may follow, as it
+ * the engine's own `setSelectedIssueId` — and the runtime's own eager mark-read may follow, as it
  * does in the app. That selection path is the documented exception; everything
  * else on this page is a read.
  *
@@ -29,7 +28,10 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * never sees it. Do not import this file from `src/`.
  */
 
-import { createClientRuntime } from '@podium/client-core/engine'
+import { createClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
+import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
+import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { parseReplicaNamespaceKey } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
 import { type JSX, type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
@@ -42,7 +44,6 @@ import '@/styles.css'
 import { handPoolArm } from '../../../packages/worklist-proto/arms/hand/pool/arm'
 import { harnessMobxPoolArm } from '../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import { createEngineLocals } from '../../../packages/worklist-proto/harness/src/engine-locals'
-import { legacyControlArmFor } from '../../../packages/worklist-proto/harness/src/legacy-control/arm'
 import { oracleSnapshot } from '../../../packages/worklist-proto/harness/src/oracle/index'
 import type {
   ArmHandle,
@@ -66,8 +67,8 @@ import type { SliceSnapshot } from '../../../packages/worklist-proto/shared/src/
 // clock starts here, as on the harness pages (`scriptAt`).
 const scriptAt = performance.now()
 
-type ArmName = 'mobx' | 'hand' | 'control'
-const ARM_NAMES: readonly ArmName[] = ['mobx', 'hand', 'control']
+type ArmName = 'mobx' | 'hand'
+const ARM_NAMES: readonly ArmName[] = ['mobx', 'hand']
 
 function readParams(): { primary: ArmName; secondary: ArmName | null; invalid: string | null } {
   const params = new URLSearchParams(window.location.search)
@@ -81,7 +82,7 @@ function readParams(): { primary: ArmName; secondary: ArmName | null; invalid: s
   if (raw2 !== null && !(ARM_NAMES as readonly string[]).includes(raw2)) {
     return { primary, secondary: null, invalid: raw2 }
   }
-  const secondary = (raw2 as ArmName | null) ?? (primary === 'control' ? 'mobx' : 'control')
+  const secondary = (raw2 as ArmName | null) ?? (primary === 'hand' ? 'mobx' : 'hand')
   if (secondary === primary) return { primary, secondary: null, invalid: null }
   return { primary, secondary, invalid: null }
 }
@@ -103,6 +104,7 @@ interface LivePanel {
 interface LiveBoot {
   assembly: KernelAssembly
   runtime: ReturnType<typeof createClientRuntime>
+  poolHost: ReturnType<typeof createRuntimeWorklistPool>
   replica: ReturnType<KernelAssembly['createReplicaFn']>
   principalLabel: string
   panels: LivePanel[]
@@ -114,10 +116,8 @@ interface LiveBoot {
 /** Old objects, watched but never held: `survivors()` proves the rebuild dropped them. */
 let oldRefs: { label: string; ref: WeakRef<object> }[] = []
 
-function armOf(name: ArmName, boot: { runtime: LiveBoot['runtime'] }): CheckableArm {
-  if (name === 'mobx') return harnessMobxPoolArm
-  if (name === 'hand') return handPoolArm
-  return legacyControlArmFor(boot.runtime)
+function armOf(name: ArmName): CheckableArm {
+  return name === 'mobx' ? harnessMobxPoolArm : handPoolArm
 }
 
 function snapshotRows(snapshot: SliceSnapshot): number {
@@ -211,15 +211,17 @@ async function bootLive(
     createOutboxFn: assembly.createOutboxFn,
   })
   runtime.start()
+  const poolHost = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+  runtime.setNavigationProvider(createPoolNavigationProvider(poolHost.pool))
   const replica = assembly.createReplicaFn(assembly.principal)
   const engineMs = performance.now() - engineBegin
   const buildBegin = performance.now()
   const panels: LivePanel[] = names.map((name) => {
     const log = createCommitLog()
-    const source = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const source = createRowSource(runtime, replica, { mode: 'pooled' })
     const locals = createEngineLocals(runtime)
     const handle = withCommitLog(log, () =>
-      armOf(name, { runtime }).create(source.source as RowSource, locals.source as LocalsSource),
+      armOf(name).create(source.source as RowSource, locals.source as LocalsSource),
     )
     return {
       name,
@@ -238,6 +240,7 @@ async function bootLive(
   return {
     assembly,
     runtime,
+    poolHost,
     replica,
     principalLabel: parseReplicaNamespaceKey(principalStr)?.memberId ?? principalStr,
     panels,
@@ -276,22 +279,16 @@ async function teardown(boot: LiveBoot): Promise<void> {
       // Best effort.
     }
   }
-  const store = (() => {
-    try {
-      return referenceState(boot.runtime)
-    } catch {
-      return null
-    }
-  })()
   oldRefs = [
     { label: 'runtime', ref: new WeakRef(boot.runtime) },
-    ...(store === null ? [] : [{ label: 'store', ref: new WeakRef(store) }]),
     { label: 'replica', ref: new WeakRef(boot.replica) },
     ...boot.panels.flatMap((panel) => [
       { label: `arm:${panel.name}`, ref: new WeakRef(panel.handle) },
       { label: `rowSource:${panel.name}`, ref: new WeakRef(panel.source) },
     ]),
   ]
+  boot.runtime.setNavigationProvider(loadingNavigationProvider)
+  boot.poolHost.dispose()
   try {
     boot.runtime.destroy()
   } catch {
@@ -345,10 +342,9 @@ function onRowClick(boot: LiveBoot, event: MouseEvent): void {
   const row = target?.closest?.('[data-issue-row]') as HTMLElement | null
   const id = row?.getAttribute('data-issue-row')
   if (id === null || id === undefined || id === '') return
-  // The engine's own selection write — the same one the legacy control's
-  // pressable makes. Locals-only: arms hear it on the locals channel and the
+  // The engine's own selection write. Locals-only: arms hear it on the locals channel and the
   // runtime's own eager mark-read may follow, as in the app.
-  referenceState(boot.runtime).setSelectedIssueId(asIssueId(id))
+  boot.runtime.services.setSelectedIssueId(asIssueId(id))
 }
 
 declare global {
@@ -589,7 +585,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
         </h1>
         <div>
           Read-only apart from selection: this page issues no write commands. Clicking a row selects
-          it through the engine&apos;s own selection write (as the legacy control does).
+          it through the engine&apos;s own selection write (as the app does).
         </div>
         <div>
           principal <strong>{boot.principalLabel}</strong>
@@ -622,7 +618,7 @@ function LivePage({ names }: { names: readonly ArmName[] }): JSX.Element {
             Rebuild (principal switch path)
           </button>{' '}
           <span>
-            arms: ?arm=mobx|hand|control · side by side: ?split=1 (&amp;arm2=…) · parity ticks every
+            arms: ?arm=mobx|hand · side by side: ?split=1 (&amp;arm2=…) · parity ticks every
             10 s · console: __protoLive.survivors()
           </span>
         </div>
@@ -650,7 +646,7 @@ if (params.invalid !== null) {
     <main style={{ padding: 24, fontFamily: 'sans-serif' }}>
       <h1>Proto live — unknown arm</h1>
       <p>
-        ?arm={params.invalid} is not an arm. Use ?arm=mobx|hand|control, ?split=1 for side by side.
+        ?arm={params.invalid} is not an arm. Use ?arm=mobx|hand, ?split=1 for side by side.
       </p>
     </main>,
   )
