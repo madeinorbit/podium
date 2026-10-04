@@ -17,7 +17,7 @@ for surface in surfaces:
     for scale in scales:
         for round in args.rounds.split(','):
             for arm in ['old',args.new_arm]:
-                command=[sys.executable,'apps/web/harness/old-vs-new-remote.py','--arm',arm,'--checkout-arm','old' if arm=='old' else 'new','--surface',surface,'--scale',scale,'--mode',args.mode,'--round',round,'--samples',args.samples]
+                command=[sys.executable,'apps/web/harness/old-vs-new-remote.py','--arm',arm,'--checkout-arm','old' if arm=='old' else 'new','--surface',surface,'--scale',scale,'--mode',args.mode,'--round',round,'--samples',args.samples,'--comparison-arm',args.new_arm]
                 print('NEXT '+' '.join(command),flush=True)
                 result=subprocess.run(command)
                 # A failed OLD phone startup is retained as absence of evidence;

@@ -28,7 +28,7 @@ else if (dirtyProduct) throw Error(`Product checkout is dirty: ${dirtyProduct}`)
 const declarationTracked=execFileSync('git',['ls-files','packages/api-types/src/index.d.ts'],{encoding:'utf8'}).trim().length>0
 const productDirectories = ['apps/web/src', 'apps/mobile/src', 'apps/mobile/app', 'packages']
 const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-tree', '-r', 'HEAD', '--', ...productDirectories])).digest('hex')
-const result = { version:1, mode, arm, round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
+const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
   durationTimeDomain:'threadTicks',
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,
