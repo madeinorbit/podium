@@ -62,13 +62,15 @@ for checkout_arm, checkout in checkouts.items():
         expected_actions = (web if run['surface'] == 'web' else phone) | {'app-cold-start', 'app-warm-start'}
         # This attempt used a collector witness that incorrectly expected the
         # mission root among child rows. Its other observations remain valid;
-        # corrected round 11 supplies the large-mission cell with eight samples.
-        known_witness_error = (name == 'timing-old-web-1x-r10'
+        # corrected round 11 supplies both large-mission cells with eight samples.
+        known_witness_error = (name in {'timing-old-web-1x-r10','timing-new-web-1x-r10'}
             and run['harnessSha256'] == '4b4ad7b2ad639fd523b566b83e1dea56978255a9f1fac5c0f17a6ca75b60d18f')
         if known_witness_error:
             expected_actions = expected_actions - {'large-mission-switch'}
             require(any(gap['action'] == 'large-mission-switch' and '20000ms' in gap['reason']
                 for gap in run['unavailable']), 'documented collector failure missing')
+        if run.get('backgroundOnly'):
+            expected_actions = set()
         actual_actions = {row['action'] for row in run['actions']}
         require(actual_actions == expected_actions, f'action coverage mismatch: {sorted(expected_actions ^ actual_actions)}')
         attribution = json.loads((file.parent / 'cpu-attribution.json').read_text())
@@ -83,6 +85,11 @@ for checkout_arm, checkout in checkouts.items():
                     evidence_count += 1
             if not row['profiled']:
                 counts[(*key, run['arm'], row['action'])] += 1
+        if run.get('backgroundSuperseded'):
+            require(run['surface']=='web' and run['scale']==1 and run['round'] in [10,11] and pair=='new', 'unexpected background exclusion')
+            continue
+        require(run.get('issueUpdateEntities') == (['issue','issueProjection'] if run['arm']=='old' else ['issueProjection']), 'logical issue publication incomplete')
+        require(run.get('backgroundContext','').startswith('Fresh browser profile'), 'resident pane state not matched')
         require(len(run['background']) == 38, 'quiet/update window count mismatch')
         require(run.get('outputDeliveryWitness') is True, 'visible terminal delivery not verified')
         require(run['idle']['seconds'] >= 60, 'connected-idle window too short')
@@ -103,7 +110,7 @@ for pair in ['new', 'new-deleted']:
                     continue
                 for action in (web if surface == 'web' else phone) | {'app-cold-start', 'app-warm-start'}:
                     expected_n = 8 if action in ['app-cold-start', 'app-warm-start'] else 16
-                    if pair == 'new' and surface == 'web' and scale == 1 and arm == 'old' and action == 'large-mission-switch':
+                    if pair == 'new' and surface == 'web' and scale == 1 and action == 'large-mission-switch':
                         expected_n = 8
                     if counts[(*key, arm, action)] != expected_n:
                         errors.append(f'{key}/{arm}/{action}: sample count {counts[(*key, arm, action)]}, expected {expected_n}')
@@ -113,9 +120,10 @@ for pair in ['new', 'new-deleted']:
 # for the deletion priority slot do not become concurrent implementations.
 orders = collections.defaultdict(list)
 for run in sorted(captures, key=lambda row: row['captureStartedAt']):
-    orders[(run['mode'], run.get('comparisonArm', 'new'), run['surface'], run['scale'])].append(run['arm'])
+    lane='background' if run.get('backgroundOnly') else run['mode']
+    orders[(lane, run.get('comparisonArm', 'new'), run['surface'], run['scale'])].append(run['arm'])
 for key, arms in orders.items():
-    expected = ['old', key[1]] * (2 if key[0] == 'timing' else 1)
+    expected = ['old', key[1]] * (2 if key[0] in ['timing','background'] else 1)
     if arms != expected:
         errors.append(f'{key}: run order {arms}, expected {expected}')
 audit = {'ok': not errors, 'captures': len(captures), 'rawTraceAndProfileFiles': evidence_count, 'sampleCells': len(counts), 'errors': errors, 'sourceShas': expected_sha}
