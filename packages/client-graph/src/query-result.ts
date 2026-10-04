@@ -325,6 +325,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   const matches = (spec.matches ?? []).map((test, index) => ({
     test,
     atom: makeAtom(`${spec.name}.match:${index}`),
+    countAtom: makeAtom(`${spec.name}.count:${index}`),
     root: undefined as Node<T> | undefined,
   }))
   function replaceItem(before: Item<T> | undefined, after: Item<T> | undefined) {
@@ -332,9 +333,11 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     if (after) root = put(root, after)
     for (const match of matches) {
       const previous = at(match.root, 0)
+      const beforeSize = size(match.root)
       if (before && match.test(before.value)) match.root = remove(match.root, before)
       if (after && match.test(after.value)) match.root = put(match.root, after)
       if (at(match.root, 0) !== previous) match.atom.reportChanged()
+      if (size(match.root) !== beforeSize) match.countAtom.reportChanged()
     }
   }
   function changed() {
@@ -348,7 +351,10 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     entries.delete(id)
     if (entry.pending) pending--
     replaceItem(entry.item, undefined)
-    if (entry.pending) for (const match of matches) match.atom.reportChanged()
+    if (entry.pending) for (const match of matches) {
+      match.atom.reportChanged()
+      match.countAtom.reportChanged()
+    }
     changed()
   }
   function sync(id: string) {
@@ -376,7 +382,10 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const oldItem = entry.item
       entry.item = value === undefined || value === LOADING ? undefined : { id, order, value }
       replaceItem(oldItem, entry.item)
-      if (wasPending !== entry.pending) for (const match of matches) match.atom.reportChanged()
+      if (wasPending !== entry.pending) for (const match of matches) {
+        match.atom.reportChanged()
+        match.countAtom.reportChanged()
+      }
       changed()
     }
     entry.stop = () => row.dispose()
@@ -410,7 +419,10 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
         start()
         // An empty replacement has no row refresh to invalidate witnesses.
         // It can also resolve a formerly pending question to empty.
-        for (const match of matches) match.atom.reportChanged()
+        for (const match of matches) {
+          match.atom.reportChanged()
+          match.countAtom.reportChanged()
+        }
         changed()
       }
     })
@@ -430,6 +442,15 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       if (!match) throw new Error(`Undeclared query match: ${index}`)
       const tracked = match.atom.reportObserved()
       const result = pending ? LOADING : at(match.root, 0)
+      if (!tracked && !observed.size) clear()
+      return result
+    },
+    countMatch(index: number): Loaded<number> {
+      start()
+      const match = matches[index]
+      if (!match) throw new Error(`Undeclared query match: ${index}`)
+      const tracked = match.countAtom.reportObserved()
+      const result = pending ? LOADING : size(match.root)
       if (!tracked && !observed.size) clear()
       return result
     },

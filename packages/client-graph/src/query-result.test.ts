@@ -52,6 +52,29 @@ function fixture(prefix = '') {
 }
 
 describe('maintained query answers', () => {
+  it('publishes incremental counts when a non-witness changes and releases closed demand', () => {
+    const f = fixture(), counts: unknown[] = [], witnesses: unknown[] = []
+    const count = autorun(() => counts.push(f.result.countMatch(0)))
+    const witness = autorun(() => witnesses.push(f.result.firstMatch(0)))
+    try {
+      expect(counts).toEqual([1])
+      f.set('c', { title: 'Another', order: '3' })
+      expect(counts).toEqual([1, 2])
+      expect(witnesses).toHaveLength(1)
+      f.set('c', { title: 'Also matches', order: '3' })
+      expect(counts).toEqual([1, 2])
+      f.set('c', undefined)
+      expect(counts).toEqual([1, 2, 1])
+      expect(witnesses).toHaveLength(1)
+      f.reset()
+      expect(counts.at(-1)).toBe(1)
+      count(); witness()
+      f.read.mockClear()
+      f.set('a', { title: 'Changed while closed', order: '2' })
+      expect(f.read).not.toHaveBeenCalled()
+      expect(f.released).toHaveBeenCalledOnce()
+    } finally { count(); witness() }
+  })
   it('joins disjoint rosters in global order and preserves captured answers and native array behavior', () => {
     const left = fixture(), right = fixture('x')
     const seen: { id: string; title: string }[][] = []

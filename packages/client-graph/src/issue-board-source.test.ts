@@ -1,6 +1,7 @@
 import { issueBoardStats } from '@podium/client-core/perf'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
@@ -95,6 +96,39 @@ it('indexes residents only while a board or catalogue reader observes them', () 
     closeCatalog()
     stop()
   }
+})
+
+it('updates explorer counts by address at 1x/4x and releases all count demand when closed', async () => {
+  async function measured(scale: 1 | 4) {
+    const rows = Array.from({ length: 128 * scale }, (_, n) => row(`count-${n}`))
+    const f = setup(rows)
+    let counts: unknown
+    const stop = autorun(() => { counts = f.source.explorerCounts() })
+    try {
+      expect(counts).toMatchObject({ in_progress: rows.length, planning: 0 })
+      const ids = vi.spyOn(f.pool.queries, 'ids')
+      const { work } = await measureWork(async () => insideReader('explorer count update', () => {
+        f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', { stage: 'planning' }) }] })
+      }), { pool: f.pool })
+      expect(counts).toMatchObject({ in_progress: rows.length - 1, planning: 1 })
+      expect(ids).not.toHaveBeenCalled()
+      ids.mockRestore()
+      stop()
+      const closed = vi.spyOn(f.pool, 'row')
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'count-0', value: row('count-0', { stage: 'review' }) }] })
+      // Ingest may inspect the changed issue, but no aggregate reader remains.
+      expect(closed.mock.calls.some(([entity, id]) => entity === 'issue' && id !== 'count-0')).toBe(false)
+      expect(f.source.stats()).toMatchObject({ residentRows: 0, cached: 0 })
+      closed.mockRestore()
+      expect(f.load).not.toHaveBeenCalled()
+      return work
+    } finally { stop(); f.stop() }
+  }
+  const first = await measured(1), second = await measured(4)
+  console.info('explorer count update work 1x/4x', JSON.stringify({ first, second }))
+  expect(second.rows).toBe(first.rows)
+  expect(second.derivations).toBe(first.derivations)
+  expect(second.elements).toBe(first.elements)
 })
 
 it('releases demanded ID results on filter change and unmount', () => {

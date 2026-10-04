@@ -114,6 +114,10 @@ export class ReaderQueries {
       return this.residents.contains(question, id)
     return this.index().readerContains(question, id)
   }
+  /** Addressed predicate membership; no identity answer is enumerated. */
+  has(question: ReaderQuestion, id: string): boolean {
+    return this.includes(question, id)
+  }
   private updateIdentity(entity: 'issue' | 'session', id: string): void {
     for (const [key, result] of this.identities) {
       if (questionEntity(result.question) !== entity) continue

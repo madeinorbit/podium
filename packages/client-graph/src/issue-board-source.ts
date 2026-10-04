@@ -88,6 +88,30 @@ export function createIssueBoardSource(
   const stops = new Map<string, () => void>()
   const projections = new Map<string, BoardProjection>()
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
+  const countQuestion = { kind: 'boardCounts' } as const
+  // Counts are maintained contributions. Opening an explorer attaches its
+  // aggregate once; an addressed update changes only that issue's answer.
+  // Closing the last count reader releases every contribution and roster.
+  const tabCounts = createQueryResult<{ tab: BoardExplorerTab | null; needs: boolean }>({
+    name: 'IssueBoard@tabCounts',
+    ids: () => pool.queries.ids(countQuestion),
+    has: id => pool.queries.has(countQuestion, id),
+    read: id => {
+      const row = facts(id)
+      if (row === LOADING) return LOADING
+      if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) return undefined
+      return { tab: tabOf(row), needs: row.stage !== 'done' && !row.closedReason && actionable(row) }
+    },
+    matches: BOARD_EXPLORER_TABS.map(tab => value => tab === 'needs' ? value.needs : value.tab === tab),
+    subscribe: changed => {
+      const stopTable = observe(pool.tables.issue, change => changed(change.name))
+      const stopFeed = pool.queries.onChange(event => {
+        if (event.type === 'replace') changed(undefined)
+        else for (const row of event.rows) if (row.kind === 'issue') changed(row.id)
+      })
+      return () => { stopTable(); stopFeed() }
+    },
+  })
   let disposed = false
   const open = observable.box(owner?.readLocal('openIssueId') ?? null)
   // Keyed (POD-5433): only an open-issue change wakes the board.
@@ -766,20 +790,10 @@ export function createIssueBoardSource(
         BoardExplorerTab,
         number
       >
-      for (const id of new Set([
-        ...bucket('scope'),
-        ...pool.queries.ids({ kind: 'boardCounts' }),
-      ])) {
-        const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
-        if (row === LOADING) return LOADING
-        if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) continue
-        const tab = tabOf(row)
-        if (tab) counts[tab]++
-        if (row.stage !== 'done' && !row.closedReason) {
-          const attention = facts(id)
-          if (attention === LOADING) return LOADING
-          if (attention && actionable(attention)) counts.needs++
-        }
+      for (const [index, tab] of BOARD_EXPLORER_TABS.entries()) {
+        const count = tabCounts.countMatch(index)
+        if (count === LOADING) return LOADING
+        counts[tab] = count ?? 0
       }
       return counts
     })
@@ -880,6 +894,7 @@ export function createIssueBoardSource(
       disposed = true
       stopOwner()
       releaseIndex()
+      tabCounts.dispose()
       for (const projection of projections.values()) projection.dispose()
       for (const stop of stops.values()) stop()
       for (const result of [...rosters.values()]) result.dispose()
@@ -893,6 +908,7 @@ export function createIssueBoardSource(
     ...source,
     board,
     explorer,
+    explorerCounts,
     issue,
     card,
     sessions,
