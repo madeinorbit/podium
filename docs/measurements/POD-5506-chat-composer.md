@@ -2,7 +2,7 @@
 
 The composer had three proven keystroke amplifiers: `ConversationController.patch()` rebuilt and published the conversation, the deferred pool draft mirror made React restore the previous controlled value and then write the new one, and the autosize effect reset height before reading `scrollHeight`. Their combined ablation reduced complete-frame main-thread p95 from **68.23 to 31.89 ms** in the same frozen live view. These are overlapping causes; their marginal savings must not be added.
 
-The candidate removes those paths. It also isolates the mission root with `contain: layout paint`, after a separate matched experiment proved that unchanged mission DOM participated in native paint. The **16 ms p95 target is not yet established**; final production results are recorded below when available. No claim of invisible lag follows from a render-count test alone.
+The candidate removes those paths. It also isolates the mission root with `contain: layout paint`, after a separate matched experiment proved that unchanged mission DOM participated in native paint. The **16 ms p95 target remains unmet**: the last production observation was **18.35 ms input-to-paint / 39.41 ms complete-frame work**. The residual is page-size layerization and layout, with ongoing `PhaseTimer` updates, and goes to the render epic through POD-4286. No claim of invisible lag follows from a render-count test alone.
 
 ## Reproduction and privacy
 
@@ -102,3 +102,30 @@ The final production caret source **`d6ff76e4fb`** passes all four native Chrome
 The focused Happy DOM regression explicitly models the WebKit event order in which a changed default-text write follows native input and moves the caret to the end. Restoring the old composer fails **four of six** selection cases: mid-text caret **4→7**, and backward selection **[2,5]→[15,15]**, in both skins. The final candidate passes **65 tests in exactly three files** (`ChatComposer`, real-runtime chat-context pool, and mention hooks), web typecheck (**15 successful tasks**) and scoped Biome checks. The real-runtime 60-key guard also checks mid-text range replacement, unchanged default text, zero value assignments, zero outside-composer renders and zero additional outbox/order scans. A compact sizing regression verifies growth on an external draft and shrink on clear.
 
 Native Safari verification follows POD-5517's priority window on the shared Mac runner, using synthetic data only. It remains pending; Chrome and the modeled event-order regression are evidence for the defensive fix, not a claim that the operator's WebKit reproduction has been verified.
+
+
+## Urgent stale-draft follow-up
+
+The caret bridge is identical in the old/fixed policy comparison. `ClientRuntime.batch()` publishes the addressed draft synchronously, and `ChatComposer` focus only changes focus state. The replay defects are in ledger lifecycle and acknowledgement handling:
+
+- `DraftLedger.snapshot()` omitted empty drafts and `restore()` skipped them. An offline deletion therefore disappeared on reload, allowing the old server text back into the composer. Empty edits now persist and hydrate, including their revision.
+- The snapshot omitted acknowledgement state, and `restore()` marked every cached draft dirty. Reload could re-offer a previously confirmed old message over a newer server draft or deletion. The snapshot now retains `dirty`; known confirmed caches hydrate without re-offering, while unsent edits and legacy snapshots still retain offline protection.
+- `DraftLedger.adoptRemote()` accepted conflicting older/same-revision documents once the local edit was clean. Those documents now retain the local text and mark it for resend using the server's supplied base. Lower revisions still update the resend base, preserving POD-1204 recovery. An older matching empty document also cannot acknowledge a newer deletion.
+- The runtime persisted accepted text but skipped acknowledgement-only changes. It now schedules the existing coalesced save when revision or acknowledgement state changes. `SessionStateService.commitVersionedEdit()` also acknowledges identical offers to their sender; it does not increase the revision, broadcast, or write persistence for that no-op. This lets a retried clear settle when the server already has an empty document.
+
+Focused validation on flatblock with the private Bun 1.4.2 toolchain passed **104 tests in five files**: ledger **23**, offline-first runtime **17** (38 unrelated cases skipped), composer **43**, chat-context pool **13**, and server draft replay/ACK **8**. The 60-input guard still records **zero outside-composer renders, zero additional outbox/order scans, zero native value rewrites, and unchanged default text**. Both composer skins additionally exercise deletion, acknowledgement, two older echoes, repeated focus, and switching away/back. Their setter spy installs before React captures it and checks every intervening write. The two affected cases passed again after that instrumentation correction. Web dependency typecheck passed **15 tasks**, server dependency typecheck **13**, focused Biome reported no errors (existing warnings remain), and the production web build passed. No full suite ran.
+
+Restoring the old **d57f72dbf3** ledger/runtime/server sources in the throwaway flatblock checkout fails **all 13 targeted regression cases**: **9** ledger/runtime, **2** composer skins, and **2** unchanged-offer ACK cases. These failures come from collected tests, not an empty lane. The candidate sources were restored byte-for-byte afterward.
+
+The final native Chrome **148.0.7778.96** comparison uses **44,633 elements, 56 issue rows, 412 agent buttons and 7,195 transcript elements**. It uses the production client content at **35bdefb48f** (the later **4e7b0aff55** change affects only the regression spy).
+
+| Native interaction | Old ledger policy | Fixed ledger policy |
+|---|---:|---:|
+| Deletion stays empty after each of two older echoes and focus | 0/2 | 2/2 |
+| Stale textarea writes during deletion/replay | 2 | 0 |
+| Current draft survives each of two older echoes and focus | 0/2 | 2/2 |
+| Stale textarea writes during current-draft/focus check | 2 | 0 |
+
+The stale-write observer installs before React captures its prototype setter. An earlier run established final-value failures but installed that counter too late; those counter values are excluded. The final run blocks **9 draft offers** through both policies and never forwards a draft edit to the backend. Both native deletions initially succeeded, so the old policy's failure occurs on later sync, not keyboard routing. Native Chrome evidence and pending Safari acceptance are recorded in the attached draft replay evidence. The production preview contains the repaired client source, with only the original ledger policy swapped into the first comparison arm. All outgoing `draftEdit` and `setSessionDraft` frames are blocked before any draft input; incoming real draft frames are frozen during the synthetic comparison. Synthetic documents enter the existing `SocketHub` event/runtime ledger path. This keeps the operator backend unchanged and all live data on ludovico. A separate old full-bundle attempt timed out before hydration and is excluded. Source/bundle provenance is checked by matching the production files with the validated flatblock copy; that mirror's build stamp names its own checkout rather than this issue SHA.
+
+Native Safari checks are assigned to the existing POD-5508 acceptance lane, serialized behind POD-5517 on the shared Mac runner, using synthetic data only. They remain pending. This follow-up adds no compositing captures and does not establish a new latency result: the **18.35 / 39.41 ms** p95 residual remains the last measured result, and the **16 ms target is not met**.
