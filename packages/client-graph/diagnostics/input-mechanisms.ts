@@ -87,7 +87,7 @@ export async function inputMechanisms(scale: 1 | 4) {
   projectionReads = comparisons = 0
   for (let click = 0; click < 4; click++) f.pool.applyLocals({ selectedIssueId: `selected-${click}`, coarseNow: 0 }, new Set(['selectedIssueId']))
 
-  const keys = Array.from({ length: 20 * scale }, (_, index) => `podium.sidebar.folded:project-${index}`)
+  const keys = Array.from({ length: 20 * scale }, (_, index) => `podium:sidebar:project-fold:project-${index}`)
   let preferenceReads = 0
   const values = new Map<string, string>(), uiListeners = new Set<(keys?: ReadonlySet<string>) => void>()
   const ui: RoutedUiState = {
