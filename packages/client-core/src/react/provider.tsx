@@ -384,6 +384,8 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
   const view = useMemo(() => {
     let keys: string[] = []
     let selected: { value: T } | undefined
+    let readSelector: ((access: Store<TApi>) => T) | undefined
+    const localValues = new Map<string, unknown>()
     let stop: (() => void) | undefined
     let listener: (() => void) | undefined
     const arm = () => {
@@ -392,15 +394,27 @@ export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClien
     }
     const access = new Proxy(owner.access, {
       get(target, key, receiver) {
-        if (typeof key === 'string' && !Object.hasOwn(owner.services, key)) nextKeys.add(key)
-        return Reflect.get(target, key, receiver)
+        const value = Reflect.get(target, key, receiver)
+        if (typeof key === 'string' && !Object.hasOwn(owner.services, key)) {
+          nextKeys.add(key)
+          localValues.set(key, value)
+        }
+        return value
       },
     })
     let nextKeys = new Set<string>()
     return {
       read() {
+        // useSyncExternalStore may read repeatedly between publications. Keep
+        // structured selections stable while their addressed locals agree,
+        // including the render-to-subscribe gap.
+        if (selected && readSelector === current.current.selector && keys.every(key =>
+          Object.is(localValues.get(key), owner.readLocal(key as import('../engine/keyed-inputs').LocalKey))))
+          return selected.value
         nextKeys = new Set()
+        localValues.clear()
         const value = current.current.selector(access)
+        readSelector = current.current.selector
         const next = [...nextKeys].sort()
         if (next.join('|') !== keys.join('|')) { keys = next; arm() }
         if (!selected || !current.current.isEqual(selected.value, value)) selected = { value }

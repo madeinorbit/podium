@@ -63,6 +63,12 @@ function CompatProbe(): null {
   latestStore = useRuntimeSelector(s => s)
   return null
 }
+let selectedLocals: { view: string; pane: string | null } | undefined
+function StructuredProbe(): null {
+  renders.structured = (renders.structured ?? 0) + 1
+  selectedLocals = useRuntimeSelector(s => ({ view: s.view, pane: s.paneA }))
+  return null
+}
 
 let container: HTMLDivElement
 let root: Root
@@ -103,6 +109,7 @@ async function render(): Promise<void> {
         <ViewProbe />
         <DraftsProbe />
         <CompatProbe />
+        <StructuredProbe />
       </StoreProvider>,
     )
   })
@@ -110,6 +117,19 @@ async function render(): Promise<void> {
 }
 
 describe('selector-scoped store', () => {
+  it('caches structured local selections and follows only their keys', async () => {
+    await render()
+    const before = renders.structured
+    const initial = selectedLocals
+    act(() => latestStore?.setSessionDraft(asSessionId('s1'), 'hello'))
+    await settle()
+    expect(renders.structured).toBe(before)
+    expect(selectedLocals).toBe(initial)
+    act(() => latestStore?.setView('usage'))
+    await settle()
+    expect(selectedLocals?.view).toBe('usage')
+    expect(selectedLocals).not.toBe(initial)
+  })
   it('a slice subscriber does not re-render when an unrelated slice changes', async () => {
     await render()
     const viewBefore = renders.view ?? 0
