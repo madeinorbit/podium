@@ -11,4 +11,3 @@ describe('shallowEqual', () => {
     expect(shallowEqual(1, 1)).toBe(true)
   })
 })
-

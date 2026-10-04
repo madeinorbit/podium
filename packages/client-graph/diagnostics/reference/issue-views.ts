@@ -11,19 +11,19 @@ import type { Replica } from '@podium/client-core/replica'
 
 export interface IssueView {
   id: string
-  
+
   memberSessionIds: SessionId[]
-  
+
   displayRef: string
-  
+
   childIds: IssueId[]
   childCount: number
   childDoneCount: number
-  
+
   blocked: boolean
-  
+
   ready: boolean
-  
+
   deferred: boolean
 
   dependents: Array<{ id: IssueId; type: string }>
@@ -146,7 +146,7 @@ export function deriveIssueViews(
   opts: {
     now?: () => number
     previous?: ReadonlyMap<string, IssueView>
-    
+
     dependencyStage?: (id: string) => string | undefined
   } = {},
 ): Map<string, IssueView> {

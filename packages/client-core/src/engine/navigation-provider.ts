@@ -41,4 +41,3 @@ export const loadingNavigationProvider: NavigationProvider = {
   activityAt: () => NAVIGATION_LOADING,
   issueReadAt: () => undefined,
 }
-

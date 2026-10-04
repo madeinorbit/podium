@@ -1,19 +1,19 @@
 import type { IssueId, IssueProjection, IssueGitState, SessionId } from '@podium/model'
 export interface IssueView {
   id: string
-  
+
   memberSessionIds: SessionId[]
-  
+
   displayRef: string
-  
+
   childIds: IssueId[]
   childCount: number
   childDoneCount: number
-  
+
   blocked: boolean
-  
+
   ready: boolean
-  
+
   deferred: boolean
 
   dependents: Array<{ id: IssueId; type: string }>

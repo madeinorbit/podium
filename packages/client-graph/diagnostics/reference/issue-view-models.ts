@@ -27,7 +27,7 @@ export interface IssueViewsSnapshot {
   tree: IssueTreeNode[]
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
-  
+
   sessionById: Map<SessionId, SessionViewInput>
   issueInputById: Map<string, IssueViewInput>
   issueUserStates: readonly IssueUserStateWire[]

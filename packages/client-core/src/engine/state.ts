@@ -674,4 +674,3 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     coarseNow: seed.now,
   }
 }
-
