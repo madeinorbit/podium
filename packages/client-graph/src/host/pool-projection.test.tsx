@@ -24,7 +24,11 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   const original = runtimePool.createPoolProjection
   const create = vi.spyOn(runtimePool, 'createPoolProjection')
   const subscriptions: (() => number)[] = []
-  create.mockImplementation(<T,>(pool: MobxPool, read: (pool: MobxPool) => T, options) => {
+  create.mockImplementation(<T,>(
+    pool: MobxPool,
+    read: (pool: MobxPool) => T,
+    options?: Parameters<typeof original>[2],
+  ) => {
     const view = original(pool, read, options)
     const subscribe = vi.spyOn(view, 'subscribe')
     subscriptions.push(() => subscribe.mock.calls.length)
