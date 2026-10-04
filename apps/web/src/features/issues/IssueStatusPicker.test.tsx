@@ -15,7 +15,9 @@ vi.mock('@/components/ui/dropdown-menu', async (importOriginal) => {
       useEffect(() => {
         roots.mounts++
         roots.live++
-        return () => { roots.live-- }
+        return () => {
+          roots.live--
+        }
       }, [])
       return <actual.DropdownMenu {...props} />
     },
@@ -23,7 +25,10 @@ vi.mock('@/components/ui/dropdown-menu', async (importOriginal) => {
 })
 
 afterEach(cleanup)
-beforeEach(() => { roots.mounts = 0; roots.live = 0 })
+beforeEach(() => {
+  roots.mounts = 0
+  roots.live = 0
+})
 
 /** The picker as every list mounts it: inside the row's own button. */
 function Row({
@@ -49,9 +54,10 @@ describe('IssueStatusPicker', () => {
   it('mounts zero menus for 337 rows, then only the intended menu across row updates', () => {
     const onPick = vi.fn()
     const onRowClick = vi.fn()
-    const rows = (stage: 'backlog' | 'in_progress') => Array.from({ length: 337 }, (_, id) => (
-      <Row key={id} stage={stage} onPick={onPick} onRowClick={onRowClick} />
-    ))
+    const rows = (stage: 'backlog' | 'in_progress') =>
+      Array.from({ length: 337 }, (_, id) => (
+        <Row key={id} stage={stage} onPick={onPick} onRowClick={onRowClick} />
+      ))
     const view = render(<>{rows('backlog')}</>)
     expect(roots.mounts).toBe(0)
     expect(roots.live).toBe(0)
@@ -98,7 +104,12 @@ describe('IssueStatusPicker', () => {
     expect(onRowClick).not.toHaveBeenCalled()
   })
 
-  it.each(['Enter', 'ArrowDown', 'ArrowUp', ' '])('handles a first %s key without prior focus', async (key) => {
+  it.each([
+    'Enter',
+    'ArrowDown',
+    'ArrowUp',
+    ' ',
+  ])('handles a first %s key without prior focus', async (key) => {
     const onRowClick = vi.fn()
     render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
     fireEvent.keyDown(screen.getByLabelText('Status: Backlog'), { key })

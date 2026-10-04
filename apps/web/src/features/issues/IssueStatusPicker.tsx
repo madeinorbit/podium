@@ -103,111 +103,135 @@ export function IssueStatusPicker({
   }
   const current = issueStatusValueOf(issue)
   const trigger = (
-          // biome-ignore lint/a11y/useSemanticElements: a native button here would nest inside the row's own button (invalid markup) — this is the span-trigger pattern the list's disclosure chevron already uses
-          <span
-            ref={triggerRef}
-            id={triggerId}
-            data-pressable
-            data-slot="dropdown-menu-trigger"
-            role="button"
-            tabIndex={0}
-            aria-haspopup="menu"
-            {...(!ready ? { 'aria-expanded': false } : {})}
-            data-testid="issue-status-picker"
-            aria-label={`Status: ${label}`}
-            title={`${detail} — change status`}
-            className={cn(
-              '-m-[4px] grid flex-none cursor-pointer place-items-center rounded-[5px] p-[4px]',
-              'transition-colors hover:bg-hairline-soft',
-              'focus-visible:bg-hairline-soft data-popup-open:bg-hairline-soft',
-              className,
-            )}
-            onClick={(event) => {
-              event.stopPropagation()
-              if (!ready) {
-                setInitiallyOpen(true)
-                setReady(true)
-              }
-            }}
-            onPointerEnter={ready ? undefined : () => setReady(true)}
-            onFocus={ready ? undefined : () => {
+    // biome-ignore lint/a11y/useSemanticElements: a native button here would nest inside the row's own button (invalid markup) — this is the span-trigger pattern the list's disclosure chevron already uses
+    <span
+      ref={triggerRef}
+      id={triggerId}
+      data-pressable
+      data-slot="dropdown-menu-trigger"
+      role="button"
+      tabIndex={0}
+      aria-haspopup="menu"
+      {...(!ready ? { 'aria-expanded': false } : {})}
+      data-testid="issue-status-picker"
+      aria-label={`Status: ${label}`}
+      title={`${detail} — change status`}
+      className={cn(
+        '-m-[4px] grid flex-none cursor-pointer place-items-center rounded-[5px] p-[4px]',
+        'transition-colors hover:bg-hairline-soft',
+        'focus-visible:bg-hairline-soft data-popup-open:bg-hairline-soft',
+        className,
+      )}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!ready) {
+          setInitiallyOpen(true)
+          setReady(true)
+        }
+      }}
+      onPointerEnter={ready ? undefined : () => setReady(true)}
+      onFocus={
+        ready
+          ? undefined
+          : () => {
               restoreFocus.current = true
               setReady(true)
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation()
-              if (ready) return
-              setReady(true)
-              if (event.button === 0) {
-                // The cold node is replaced during this gesture. Suppress its
-                // compatibility mousedown so it cannot toggle the new menu.
-                event.preventDefault()
-                setInitiallyOpen(true)
-              }
-            }}
-            onKeyDown={(event) => {
-              if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return
-              event.stopPropagation()
-              if (ready) return
-              event.preventDefault()
-              // Focus normally warms the menu before a key arrives. Assistive
-              // technology can send the key directly: mount synchronously and
-              // let Base UI handle that same key, including Space's keyup and
-              // ArrowUp's last-item focus, rather than duplicating its rules.
-              const { key, code, altKey, ctrlKey, metaKey, shiftKey, repeat } = event
-              restoreFocus.current = true
-              flushSync(() => setReady(true))
-              triggerRef.current?.dispatchEvent(new KeyboardEvent('keydown', {
-                key, code, altKey, ctrlKey, metaKey, shiftKey, repeat,
-                bubbles: true, cancelable: true,
-              }))
-            }}
-          >
-            <StatusGlyph status={status} size={size} />
-          </span>
+            }
+      }
+      onPointerDown={(event) => {
+        event.stopPropagation()
+        if (ready) return
+        setReady(true)
+        if (event.button === 0) {
+          // The cold node is replaced during this gesture. Suppress its
+          // compatibility mousedown so it cannot toggle the new menu.
+          event.preventDefault()
+          setInitiallyOpen(true)
+        }
+      }}
+      onKeyDown={(event) => {
+        if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return
+        event.stopPropagation()
+        if (ready) return
+        event.preventDefault()
+        // Focus normally warms the menu before a key arrives. Assistive
+        // technology can send the key directly: mount synchronously and
+        // let Base UI handle that same key, including Space's keyup and
+        // ArrowUp's last-item focus, rather than duplicating its rules.
+        const { key, code, altKey, ctrlKey, metaKey, shiftKey, repeat } = event
+        restoreFocus.current = true
+        flushSync(() => setReady(true))
+        triggerRef.current?.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key,
+            code,
+            altKey,
+            ctrlKey,
+            metaKey,
+            shiftKey,
+            repeat,
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+      }}
+    >
+      <StatusGlyph status={status} size={size} />
+    </span>
   )
   return (
     // A stable event owner catches the first click even when pointerdown has
     // replaced its target. It adds no box and keeps the row's button closed.
-    <span className="contents" onClick={(event) => {
-      event.stopPropagation()
-      if (!ready) {
-        setInitiallyOpen(true)
-        setReady(true)
-      }
-    }} onKeyUp={(event) => {
-      if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
-    }}>
-    {ready ? <DropdownMenu defaultOpen={initiallyOpen} defaultTriggerId={triggerId}>
-      <DropdownMenuTrigger nativeButton={false} id={triggerId} render={trigger} />
-      {/* The same list, the same order, the same rules as the dock and the
+    <span
+      className="contents"
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!ready) {
+          setInitiallyOpen(true)
+          setReady(true)
+        }
+      }}
+      onKeyUp={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') event.stopPropagation()
+      }}
+    >
+      {ready ? (
+        <DropdownMenu defaultOpen={initiallyOpen} defaultTriggerId={triggerId}>
+          <DropdownMenuTrigger nativeButton={false} id={triggerId} render={trigger} />
+          {/* The same list, the same order, the same rules as the dock and the
           right-click menu — `issueStatusMenuEntries()` is the single place that
           decides them (POD-1074). Narrow: the words are short, and a picker
           hanging off a 12px mark should not out-measure the title beside it. */}
-      {/* THE MENU STOPS THE CLICK TOO, and this is not belt-and-braces. The
+          {/* THE MENU STOPS THE CLICK TOO, and this is not belt-and-braces. The
           popup is a React PORTAL: it leaves the row in the DOM but stays the
           row's child in the React tree, and React bubbles synthetic events
           along that tree — so picking `In Progress` would arrive at the row's
           onClick and open the task on top of the change just made. */}
-      <DropdownMenuContent
-        align={align}
-        className="w-[150px]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        {issueStatusMenuEntries().map((entry) => (
-          <Fragment key={entry.status}>
-            {entry.startsGroup && <DropdownMenuSeparator />}
-            <DropdownMenuItem onClick={() => onPick(entry.value)}>
-              <StatusGlyph status={entry.status} size={12} decorative />
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-              {current === entry.value && (
-                <Check className="ml-auto size-3 flex-none text-text-faint" aria-hidden="true" />
-              )}
-            </DropdownMenuItem>
-          </Fragment>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu> : trigger}
+          <DropdownMenuContent
+            align={align}
+            className="w-[150px]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {issueStatusMenuEntries().map((entry) => (
+              <Fragment key={entry.status}>
+                {entry.startsGroup && <DropdownMenuSeparator />}
+                <DropdownMenuItem onClick={() => onPick(entry.value)}>
+                  <StatusGlyph status={entry.status} size={12} decorative />
+                  <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+                  {current === entry.value && (
+                    <Check
+                      className="ml-auto size-3 flex-none text-text-faint"
+                      aria-hidden="true"
+                    />
+                  )}
+                </DropdownMenuItem>
+              </Fragment>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        trigger
+      )}
     </span>
   )
 }
