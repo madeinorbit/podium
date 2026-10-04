@@ -59,6 +59,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       }
       return pending ? NAVIGATION_LOADING : undefined
     },
+    sessionMembership(id) {
+      const row = pool.row('session', id, 'summary-fields')
+      return row === LOADING ? NAVIGATION_LOADING : row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>
+    },
     activityAt(id) {
       const latest = navigationActivity(pool).activityAt(id)
       return latest === LOADING ? NAVIGATION_LOADING : latest

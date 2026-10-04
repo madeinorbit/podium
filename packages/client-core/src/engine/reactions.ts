@@ -61,18 +61,19 @@ function pruningState(state: EngineState): EngineState {
   const loading = new Set<string>()
   for (const id of ids) {
     if (id.startsWith('file:')) continue
-    const session = state.navigation.session(id)
+    const session = state.navigation.sessionMembership
+      ? state.navigation.sessionMembership(id) : state.navigation.session(id)
     if (session === NAVIGATION_LOADING) {
       pending.add(id as SessionId)
       loading.add(id)
-    }
-    else if (session) sessions.push(session)
+    } else if (session) sessions.push(session as SessionView)
   }
   for (const tab of state.fileTabs) {
     if (tab.scope.kind === 'session' && loading.has(tab.scope.sessionId))
       pending.add(tab.id as SessionId)
   }
-  return overlayState(state, { sessions, pendingSpawnIds: pending })
+  // Define own properties rather than invoking the inherited lazy-list setter.
+  return Object.create(state, Object.getOwnPropertyDescriptors({ sessions, pendingSpawnIds: pending }))
 }
 
 /** Throttle window (ms) for mark-read-on-view. The FIRST activity on the surface

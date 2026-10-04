@@ -110,6 +110,16 @@ it.each([
   )
   expect(view.container.querySelector(`[data-panel="${sid}"]`)).not.toBeNull()
 
+  // Finish the startup attachment's queued navigation before measuring use.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+  let foldCaller = ''
+  const traced = runtime as unknown as { readSessionViews(input: unknown): unknown }
+  const originalRead = traced.readSessionViews
+  vi.spyOn(traced, 'readSessionViews').mockImplementation(input => {
+    foldCaller = new Error('Legacy session rebuild').stack ?? ''
+    return originalRead.call(traced, input)
+  })
+
   const check = async (name: string, action: () => void) => {
     const before = runtime!.legacyFoldStats
     await act(async () => {
@@ -123,7 +133,7 @@ it.each([
         after[key as keyof typeof ZERO] - before[key as keyof typeof ZERO],
       ]),
     )
-    expect({ name, ...work }).toEqual({ name, ...ZERO })
+    expect({ name, ...work }, foldCaller).toEqual({ name, ...ZERO })
   }
   await check('heartbeat', () =>
     data.patch('session', sid, { lastActiveAt: new Date().toISOString() }),

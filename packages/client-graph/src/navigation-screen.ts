@@ -1,13 +1,8 @@
 import { type ClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
 import type { PoolScreen } from './host'
-import { MISSION_SUMMARIES } from './mission-schema'
+import { NAVIGATION_SUMMARIES } from './navigation-schema'
 
 const generations = new WeakMap<ClientRuntime, object>()
-
-export const NAVIGATION_SUMMARIES = {
-  issue: [...MISSION_SUMMARIES.issue, 'id', 'updatedAt', 'worktreePath'],
-  session: ['displayRef', 'lastActiveAt'],
-} as const
 
 /** Keep runtime navigation addressed even while the phone pool imports. */
 export const navigationPoolScreen: PoolScreen = {

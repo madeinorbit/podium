@@ -1,13 +1,10 @@
 import { type ClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
 import type { PoolScreen } from '@podium/client-graph/host'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
+import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
+
+export { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
 
 const generations = new WeakMap<ClientRuntime, object>()
-
-export const NAVIGATION_SUMMARIES = {
-  issue: [...MISSION_SUMMARIES.issue, 'id', 'updatedAt', 'worktreePath'],
-  session: ['displayRef', 'lastActiveAt'],
-} as const
 
 export const panePoolScreen: PoolScreen = {
   id: 'pane',

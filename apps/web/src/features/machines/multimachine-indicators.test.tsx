@@ -2,7 +2,7 @@ import '@/test-support/mock-pool-fixture'
 import { enableFixtureHeader } from '@/test-support/pool-fixture'
 
 enableFixtureHeader()
-import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-store-handle'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.

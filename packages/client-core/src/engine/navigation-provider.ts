@@ -14,6 +14,8 @@ export interface NavigationProvider {
   missionRoot(id: string): NavigationRead<IssueId>
   missionMembers(rootId: string): ReadonlySet<string> | typeof NAVIGATION_LOADING
   session(id: string): NavigationRead<SessionView>
+  /** Only the facts workspace pruning needs; cold identities stay summaries. */
+  sessionMembership?(id: string): NavigationRead<Pick<SessionView, 'sessionId' | 'cwd' | 'issueId'>>
   activityAt(id: string): NavigationRead<string>
   issueReadAt(id: string): string | null | undefined
   /** Track just the addressed reads made by the current navigation. */
