@@ -20,7 +20,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const sid = asSessionId('synthetic-session-0')
-const ZERO = { replicaRowReads: 0, sessionViewBuilds: 0, ledgerFolds: 0, topologyScans: 0 }
 
 it.each([
   1, 4,
