@@ -82,14 +82,25 @@ export function createSessionSeats(pool: MobxPool): SessionSeats {
     if (row === LOADING || row === undefined) return row
     // A resident row is the whole row: an absent optional field is unset.
     const resident = pool.row('session', sessionId, 'mark') !== LOADING
-    const archived = Object.hasOwn(row, 'archived') ? Boolean(row.archived) : resident ? false : null
+    const archived = Object.hasOwn(row, 'archived')
+      ? Boolean(row.archived)
+      : resident
+        ? false
+        : null
     if (archived === false) return SEATED
     if (archived === null) return UNSETTLED
     return {
-      seat: 'retired', complete: resident, stamped: resident || Object.hasOwn(row, 'lastActiveAt'),
-      sessionId, lastActiveAt: row.lastActiveAt ?? '', lastInputAt: row.lastInputAt,
-      transcriptAvailable: row.transcriptAvailable, agentKind: row.agentKind ?? '',
-      moved: Boolean(row.handoffTarget), phase: row.agentState?.phase ?? 'unknown', archived: true,
+      seat: 'retired',
+      complete: resident,
+      stamped: resident || Object.hasOwn(row, 'lastActiveAt'),
+      sessionId,
+      lastActiveAt: row.lastActiveAt ?? '',
+      lastInputAt: row.lastInputAt,
+      transcriptAvailable: row.transcriptAvailable,
+      agentKind: row.agentKind ?? '',
+      moved: Boolean(row.handoffTarget),
+      phase: row.agentState?.phase ?? 'unknown',
+      archived: true,
       roster: !row.headless && row.agentKind !== 'shell',
     }
   })

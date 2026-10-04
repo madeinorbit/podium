@@ -107,7 +107,8 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     },
   )
   /** A leaf's roll-up is its own stamp: no subtree cache is built for it. */
-  const rolled = (id: string) => (pool.graph.size('issue', id, 'treeChildren') > 0 ? subtree(id) : own(id))
+  const rolled = (id: string) =>
+    pool.graph.size('issue', id, 'treeChildren') > 0 ? subtree(id) : own(id)
   return {
     activityAt(id) {
       const value = rolled(id)
