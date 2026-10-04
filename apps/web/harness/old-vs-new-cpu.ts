@@ -13,7 +13,7 @@ type Cpu = {
   nodes: { id: number; callFrame: Frame; children?: number[]; hitCount?: number; positionTicks?: unknown[] }[]
   samples: number[]; timeDeltas: number[]
 }
-type Event = { name: string; ph: string; ts: number; dur?: number; tts?: number; tdur?: number; pid: number; tid: number; args?: { data?: { type?: string } } }
+type Event = { name: string; ph: string; ts: number; dur?: number; tts?: number; tdur?: number; pid: number; tid: number; args?: { data?: { type?: string; callTime?: number } } }
 type Location = { file: string; line: number; column: number; name: string; mappedLine: number }
 type Segment = { column: number; source: number; line: number; originalColumn: number }
 type SourceMap = { sources: string[]; sourcesContent: (string | null)[]; mappings: string }
@@ -234,11 +234,15 @@ for (const action of run.actions) {
   const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input.pid && e.ts >= dom.ts).sort((a,b) => a.ts-b.ts)[0] ?? events.filter(e=>['DrawFrame','FramePresented'].includes(e.name) && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
   if(!paint){summaries.push({action:action.action,cpu:action.cpu,unavailable:'No frame boundary for source attribution'});continue}
   const end = paint.ts + (paint.dur ?? 0)
+  // The latency mark is backdated to the trusted event time. Its thread clock
+  // is sampled when the recorder actually runs; align stack attribution with
+  // that execution time so queued work is not allocated to handler CPU.
+  const profileStart = input.args?.data?.callTime ?? input.ts
   let cursor = profile.startTime
   let sampledMs = 0, storeDeriveInclusiveMs = 0, unmappedMs = 0
   for (let index = 0; index < profile.samples.length; index++) {
     const next = cursor + profile.timeDeltas[index]!
-    const ms = Math.max(0, Math.min(next, end) - Math.max(cursor, input.ts)) / 1000
+    const ms = Math.max(0, Math.min(next, end) - Math.max(cursor, profileStart)) / 1000
     cursor = next
     if (ms === 0) continue
     const chain: {frame: Frame; source: Location | null}[] = []
@@ -257,9 +261,9 @@ for (const action of run.actions) {
   const hardwareCpuMs=action.mainThreadCpuMs??boundaries[action.trace]?.mainThreadCpuMs??null
   const cpuPerWall=hardwareCpuMs!==null && activeSampledMs>0?hardwareCpuMs/activeSampledMs:null
   const cpuEstimates=Object.fromEntries(Object.entries(buckets).filter(([name])=>name!=='idle').map(([name,ms])=>[name,cpuPerWall===null?null:ms*cpuPerWall]))
-  summaries.push({action:action.action,cpu:action.cpu,mainThreadCpuMs:hardwareCpuMs,cpuBoundary:boundaries[action.trace]?.cpuBoundary??'Paint end',sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs,storeDeriveCpuEstimateMs:cpuPerWall===null?null:storeDeriveInclusiveMs*cpuPerWall,cpuEstimates})
+  summaries.push({action:action.action,cpu:action.cpu,mainThreadCpuMs:hardwareCpuMs,cpuBoundary:boundaries[action.trace]?.cpuBoundary??'Paint end',profileStartBasis:input.args?.data?.callTime!==undefined?'performance mark callTime, aligned with thread-clock start':'recorded mark timestamp fallback',inputQueueMs:(profileStart-input.ts)/1000,sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs,storeDeriveCpuEstimateMs:cpuPerWall===null?null:storeDeriveInclusiveMs*cpuPerWall,cpuEstimates})
 }
-await writeFile(resolve(runFile, '..', 'cpu-attribution.json'), JSON.stringify({method:'V8 sampled stack wall time at 100 microsecond requested interval; inclusive store/derive overlaps React categories, never add them. Profiles are clipped to trusted input through qualifying Paint; sampled time is approximate wall-time attribution, not hardware CPU. CPU estimates multiply measured thread CPU by each category’s non-idle sampled wall-time share; OS descheduling and sampling bias limit these estimates. Idle/program/unmapped samples remain explicit.',summaries},null,2)+'\n')
+await writeFile(resolve(runFile, '..', 'cpu-attribution.json'), JSON.stringify({method:'V8 sampled stack wall time at 100 microsecond requested interval; inclusive store/derive overlaps React categories, never add them. Profiles are clipped from the performance-mark callTime (actual recorder execution, matching thread-clock start) through qualifying Paint, excluding queued work before the handler. A timestamp fallback is explicitly labelled if callTime is absent. Sampled time is approximate wall-time attribution, not hardware CPU. CPU estimates multiply measured thread CPU by each category’s non-idle sampled wall-time share; OS descheduling and sampling bias limit these estimates. Idle/program/unmapped samples remain explicit.',summaries},null,2)+'\n')
 console.log(`Attributed ${summaries.length} action profiles`)
 
 }
