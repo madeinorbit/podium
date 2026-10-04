@@ -40,7 +40,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
   })
   for (let round = 0; round < 20 && pool.hydrate(); round++) {}
   stop()
-  const original = ctx.replica.row('issueProjections', id)!.title
+  const original = ctx.replica.row!('issueProjections', id)!.title
   return {
     ctx, handle, pool, id, original,
     get outbox() { return ctx.engine.outbox },

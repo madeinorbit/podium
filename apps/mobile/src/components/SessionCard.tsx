@@ -130,7 +130,7 @@ export function SessionCard({
           >
             {model.subtitle}
           </Text>
-          <NotSavedMark kind="session" id={session.sessionId} />
+          {session ? <NotSavedMark kind="session" id={session.sessionId} /> : issue ? <NotSavedMark kind="issue" id={issue.id} /> : null}
         </View>
         <View style={styles.status}>
           {working ? (

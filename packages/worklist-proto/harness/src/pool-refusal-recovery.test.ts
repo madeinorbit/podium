@@ -18,7 +18,7 @@ it('announces a refusal after its model rebases and preserves the exact input fo
   const views: { title: string | undefined; notSaved: boolean }[] = []
   const title = () => {
     const row = f.pool.row('issue', f.id)
-    return row && typeof row !== 'symbol' ? row.title : undefined
+    return row && typeof row !== 'symbol' ? (row as { title: string }).title : undefined
   }
   const stop = autorun(() => views.push({ title: title(), notSaved: f.pool.notSaved('issue', f.id) }))
   let announced: unknown
