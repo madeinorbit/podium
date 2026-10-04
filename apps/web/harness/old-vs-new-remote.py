@@ -3,6 +3,7 @@ import argparse
 import datetime
 import json
 import pathlib
+import re
 import shlex
 import subprocess
 import sys
@@ -31,7 +32,8 @@ log=root/(pathlib.Path(relative).name+'.log')
 try:
     with log.open('w') as output:
         for line in child.stdout:
-            print(line,end='',flush=True);output.write(line);output.flush()
+            if not re.match(r'^[a-z-]+: [0-9]+\.[0-9]+ ms',line):print(line,end='',flush=True)
+            output.write(line);output.flush()
             if line.startswith('CAPTURE_READY '):
                 acquired=subprocess.run(['podium','lock','acquire',name,'--ttl','20m','--wait','--json'],capture_output=True,text=True,check=True)
                 grant=json.loads(acquired.stdout)

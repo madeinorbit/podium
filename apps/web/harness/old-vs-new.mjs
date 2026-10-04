@@ -183,7 +183,7 @@ async function makePage() {
       capture.input=true
       performance.mark('comparison:input',{startTime:event.timeStamp})
     }
-    for(const type of ['pointerdown','keydown','beforeinput']) document.addEventListener(type,input,true)
+    for(const type of ['pointerdown','pointerup','keydown','beforeinput']) document.addEventListener(type,input,true)
     performance.mark('comparison:navigation-start',{startTime:0})
     window.__comparisonStartup=false
     const observeStartup=()=>{
@@ -400,6 +400,21 @@ async function runActions(f) {
         await page.mouse.move(box.x+box.width/2,box.y+box.height/2)
         try {
           await capture(f,'sidebar-drag-start',async()=>{await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2+20)},`()=> [...document.querySelectorAll('[data-drag-key]')].some(x=>x.style.zIndex!=='' && x.style.pointerEvents==='none')`)
+        } finally {await page.keyboard.press('Escape');await page.mouse.up()}
+      }
+    })
+    await attempt('sidebar-drag-drop',async()=>{
+      for(let i=0;i<samples+2;i++) {
+        await row(other.id).hover()
+        const grip=row(other.id).getByTestId('row-grip'), from=await grip.boundingBox(), target=await row(issue.id).boundingBox()
+        if(!from || !target || target.y<0 || target.y+target.height>1000)throw Error('Both control rows must be visible for a comparable drag drop')
+        const before=await page.evaluate(({a,b})=>!!(document.querySelector(`aside [data-issue-row="${a}"]`).compareDocumentPosition(document.querySelector(`aside [data-issue-row="${b}"]`))&Node.DOCUMENT_POSITION_FOLLOWING),{a:issue.id,b:other.id})
+        await page.mouse.move(from.x+from.width/2,from.y+from.height/2)
+        await page.mouse.down()
+        await page.mouse.move(from.x+from.width/2,before?target.y+4:target.y+target.height-4,{steps:5})
+        await pause(150)
+        try {
+          await capture(f,'sidebar-drag-drop',()=>page.mouse.up(),`()=>{const a=document.querySelector('aside [data-issue-row="${issue.id}"]'),b=document.querySelector('aside [data-issue-row="${other.id}"]');return !!a && !!b && (!!(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING))!==${before} && b.closest('[data-drag-key]').style.pointerEvents!=='none'}`)
         } finally {await page.keyboard.press('Escape');await page.mouse.up()}
       }
     })

@@ -1,8 +1,9 @@
 /** OLD/NEW offline sampled CPU attribution; maps from the full-screen profiler.
  * bun apps/web/harness/old-vs-new-cpu.ts --run=.../run.json --build-dir=apps/web/dist
  * All durations are clipped to input → qualifying Paint end. */
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { gunzipSync } from 'node:zlib'
 import ts from '../node_modules/typescript/lib/typescript.js'
 
@@ -12,7 +13,7 @@ type Cpu = {
   nodes: { id: number; callFrame: Frame; children?: number[]; hitCount?: number; positionTicks?: unknown[] }[]
   samples: number[]; timeDeltas: number[]
 }
-type Event = { name: string; ph: string; ts: number; dur?: number; pid: number; tid: number; args?: { data?: { type?: string } } }
+type Event = { name: string; ph: string; ts: number; dur?: number; tts?: number; tdur?: number; pid: number; tid: number; args?: { data?: { type?: string } } }
 type Location = { file: string; line: number; column: number; name: string; mappedLine: number }
 type Segment = { column: number; source: number; line: number; originalColumn: number }
 type SourceMap = { sources: string[]; sourcesContent: (string | null)[]; mappings: string }
@@ -200,10 +201,25 @@ function bucket(chain: { frame: Frame; source: Location | null }[]) {
   return 'other JS/native/program'
 }
 
-const runFile = resolve(arg('run', 'run.json'))
-const run = await read<{actions: {profiled: boolean; cpu: string | null; action: string; trace: string; mainThreadCpuMs: number | null}[]}>(runFile)
 const maps = new Maps()
+async function analyze(runFile: string) {
+const run = await read<{actions: {profiled: boolean; cpu: string | null; action: string; trace: string; mainThreadCpuMs: number | null}[]}>(runFile)
 const summaries = []
+const boundaries: Record<string, {mainThreadCpuMs: number; layoutCpuMs: number; cpuBoundary: string}> = {}
+for(const action of run.actions) {
+  if(action.mainThreadCpuMs!==null)continue
+  const events: Event[]=JSON.parse(gunzipSync(await readFile(resolve(runFile,'..',action.trace))).toString())
+  const input=events.find(event=>event.name==='comparison:input')!,dom=events.find(event=>event.name==='comparison:dom')!
+  const frame=events.filter(event=>['DrawFrame','FramePresented'].includes(event.name) && event.pid===input.pid && event.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
+  if(!frame || input.tts===undefined)continue
+  const endWall=frame.ts+(frame.dur??0)
+  const completed=events.filter(event=>event.ph==='X' && event.pid===input.pid && event.tid===input.tid && event.tts!==undefined && event.tdur!==undefined && event.ts+(event.dur??0)<=endWall && event.tts+event.tdur>=input.tts!)
+  if(!completed.length)continue
+  const endCpu=Math.max(...completed.map(event=>event.tts!+event.tdur!))
+  const layout=completed.filter(event=>['Layout','UpdateLayoutTree'].includes(event.name)).map(event=>[Math.max(input.tts!,event.tts!),Math.min(endCpu,event.tts!+event.tdur!)] as [number,number])
+  boundaries[action.trace]={mainThreadCpuMs:(endCpu-input.tts)/1000,layoutCpuMs:union(layout),cpuBoundary:'last completed main-thread event before compositor frame (lower bound)'}
+}
+await writeFile(resolve(runFile,'..','cpu-boundaries.json'),JSON.stringify({method:'For composited transitions without a raster Paint, thread clock from input handler to last completed main-thread event before qualifying DrawFrame. A conservative lower bound if a task overlaps the frame; no wall time is relabelled CPU.',actions:boundaries},null,2)+'\n')
 for (const action of run.actions) {
   if (!action.profiled || !action.cpu) continue
   const profile = await read<Cpu>(resolve(runFile, '..', action.cpu))
@@ -215,8 +231,8 @@ for (const action of run.actions) {
   const events: Event[] = JSON.parse(gunzipSync(await readFile(resolve(runFile, '..', action.trace))).toString())
   const input = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:navigation-start':'comparison:input'))!
   const dom = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:startup-dom':'comparison:dom'))!
-  const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input.pid && e.ts >= dom.ts).sort((a,b) => a.ts-b.ts)[0]!
-  if(!paint){summaries.push({action:action.action,cpu:action.cpu,unavailable:'Compositor-only action has no raster Paint boundary for source attribution'});continue}
+  const paint = events.filter(e => e.name === 'Paint' && e.ph === 'X' && e.pid === input.pid && e.ts >= dom.ts).sort((a,b) => a.ts-b.ts)[0] ?? events.filter(e=>['DrawFrame','FramePresented'].includes(e.name) && e.pid===input.pid && e.ts>=dom.ts).sort((a,b)=>a.ts-b.ts)[0]
+  if(!paint){summaries.push({action:action.action,cpu:action.cpu,unavailable:'No frame boundary for source attribution'});continue}
   const end = paint.ts + (paint.dur ?? 0)
   let cursor = profile.startTime
   let sampledMs = 0, storeDeriveInclusiveMs = 0, unmappedMs = 0
@@ -238,9 +254,25 @@ for (const action of run.actions) {
     if (chain.some(({frame, source}) => frame.url.endsWith('.js') && !source)) unmappedMs += ms
   }
   const activeSampledMs=sampledMs-(buckets.idle??0)
-  const cpuPerWall=action.mainThreadCpuMs!==null && activeSampledMs>0?action.mainThreadCpuMs/activeSampledMs:null
+  const hardwareCpuMs=action.mainThreadCpuMs??boundaries[action.trace]?.mainThreadCpuMs??null
+  const cpuPerWall=hardwareCpuMs!==null && activeSampledMs>0?hardwareCpuMs/activeSampledMs:null
   const cpuEstimates=Object.fromEntries(Object.entries(buckets).filter(([name])=>name!=='idle').map(([name,ms])=>[name,cpuPerWall===null?null:ms*cpuPerWall]))
-  summaries.push({action:action.action,cpu:action.cpu,mainThreadCpuMs:action.mainThreadCpuMs,sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs,storeDeriveCpuEstimateMs:cpuPerWall===null?null:storeDeriveInclusiveMs*cpuPerWall,cpuEstimates})
+  summaries.push({action:action.action,cpu:action.cpu,mainThreadCpuMs:hardwareCpuMs,cpuBoundary:boundaries[action.trace]?.cpuBoundary??'Paint end',sampledMs,buckets,storeDeriveInclusiveMs,unmappedMs,storeDeriveCpuEstimateMs:cpuPerWall===null?null:storeDeriveInclusiveMs*cpuPerWall,cpuEstimates})
 }
 await writeFile(resolve(runFile, '..', 'cpu-attribution.json'), JSON.stringify({method:'V8 sampled stack wall time at 100 microsecond requested interval; inclusive store/derive overlaps React categories, never add them. Profiles are clipped to trusted input through qualifying Paint; sampled time is approximate wall-time attribution, not hardware CPU. CPU estimates multiply measured thread CPU by each category’s non-idle sampled wall-time share; OS descheduling and sampling bias limit these estimates. Idle/program/unmapped samples remain explicit.',summaries},null,2)+'\n')
 console.log(`Attributed ${summaries.length} action profiles`)
+
+}
+if(process.argv.includes('--all')) {
+  const surface=arg('surface','web'),sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+  let analyzed=0
+  for(const entry of await readdir(root,{withFileTypes:true})) {
+    if(!entry.isDirectory() || !entry.name.startsWith('timing-'))continue
+    const path=resolve(root,entry.name,'run.json')
+    const run=await read<{mode:string;purpose:string;status:string;surface:string;sha:string}>(path)
+    if(run.mode!=='timing' || run.purpose!=='measurement' || run.status!=='complete' || run.surface!==surface || run.sha!==sha)continue
+    await analyze(path);analyzed++
+  }
+  if(!analyzed)throw Error('No completed measurement captures for current build and surface')
+  console.log(`Analyzed ${analyzed} runs with reused matching source maps`)
+} else await analyze(resolve(arg('run','run.json')))
