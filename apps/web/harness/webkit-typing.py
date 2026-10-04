@@ -131,6 +131,9 @@ def main():
         if args.setup_js:
             execute(args.setup_js)
         result["environment"] = execute(PROBE)
+        if result["environment"]["visibility"] != "visible" or not result["environment"]["focused"]:
+            execute("window.__webkitTyping.stop()")
+            raise RuntimeError("Foreground, focused page required; background timers are not blocking evidence")
         print(json.dumps({"stage": "typing", "environment": result["environment"]}), flush=True)
         actions = []
         text = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefgh"

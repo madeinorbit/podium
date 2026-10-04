@@ -10,6 +10,9 @@ const offline = process.env.WEBKIT_OFFLINE === '1'
 const api = offline ? await Bun.file(`${root}/fixture-api.json`).json() : {}
 const transcript = offline ? await Bun.file(`${root}/transcript.json`).json() : []
 const frames = offline ? await Bun.file(`${root}/socket-frames.json`).json() : []
+const workingSince = new Date((manifest.fixedNow ?? 1789905600000) - 15000).toISOString()
+const busy = value => ({...value, status: 'live', transcriptAvailable: true,
+    agentState: {phase: 'working', since: workingSince, nativeSubagentCount: 0}})
 const procedures = new Map()
 for (const [path, entry] of Object.entries(api)) {
     if (!path.startsWith('/trpc/')) continue
@@ -30,13 +33,23 @@ const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(reques
     if (request.headers.get('upgrade') === 'websocket') {
         if (server.upgrade(request, {data: {path: url.pathname + url.search, queue: []}})) return
     }
-    if (url.pathname === '/__fixture') return Response.json(manifest)
+    if (url.pathname === '/__fixture') {
+        const scaleFile = Bun.file(`${root}/scale.txt`)
+        const scale = await scaleFile.exists() ? Number((await scaleFile.text()).trim()) : 1
+        return Response.json({...manifest, scale, issues: 4867 * scale, sessions: 4304 * scale, busyControl: true})
+    }
     if (url.pathname === '/sync/bootstrap') {
         const scaleFile = Bun.file(`${root}/scale.txt`)
         const scale = await scaleFile.exists() ? (await scaleFile.text()).trim() : '1'
         if (!['1','4'].includes(scale)) throw Error('Invalid corpus scale')
         const path = scale === '1' ? `${root}/bootstrap.ndjson` : `${root}/bootstrap-4x.ndjson`
-        return new Response(Bun.file(path), {headers: {'content-type': 'application/x-ndjson'}})
+        const lines = (await Bun.file(path).text()).trim().split('\n').map(line => {
+            const record = JSON.parse(line)
+            if (record.type === 'feedBootstrap') record.changes = record.changes.map(row =>
+                row.entity === 'session' && row.entityId === manifest.control ? {...row, value: busy(row.value)} : row)
+            return JSON.stringify(record)
+        })
+        return new Response(lines.join('\n') + '\n', {headers: {'content-type': 'application/x-ndjson'}})
     }
     if (url.pathname === '/sw.js') return new Response('', {status: 404})
     if (offline && url.pathname.startsWith('/trpc/')) {
@@ -80,11 +93,22 @@ const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(reques
             const frame = JSON.parse(String(message))
             if (frame.type === 'ping') client.send(JSON.stringify({type: 'pong'}))
             if (frame.type === 'hello') for (const saved of frames) if (saved.type !== 'hostMetricsChanged') client.send(JSON.stringify(saved))
+            if (frame.type === 'transcriptSubscribe' && frame.sessionId === manifest.control) {
+                clearInterval(client.data.timer)
+                client.data.tick = 0
+                client.data.timer = setInterval(() => {
+                    const tick = ++client.data.tick
+                    const id = `synthetic-stream-${tick}`
+                    const item = {id, cursor: id, role: 'assistant', text: `Generated tool batch ${tick}: inspecting the next synthetic change.`, ts: new Date((manifest.fixedNow ?? 1789905600000) + tick * 1000).toISOString()}
+                    client.send(JSON.stringify({type: 'transcriptDelta', sessionId: manifest.control, items: [item], tail: id}))
+                }, 1000)
+            }
+            if (frame.type === 'transcriptUnsubscribe') clearInterval(client.data.timer)
             return
         }
         if (client.data.socket.readyState === WebSocket.OPEN) client.data.socket.send(message); else client.data.queue.push(message)
     },
-    close(client) {client.data.socket?.close()},
+    close(client) {clearInterval(client.data.timer); client.data.socket?.close()},
 }})
 await Bun.write(`${root}/preview.pid`, String(process.pid))
 console.log(`Mac synthetic preview ready: ${server.url} (${manifest.issues} issues)`)

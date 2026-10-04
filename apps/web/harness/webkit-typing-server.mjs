@@ -84,7 +84,9 @@ try {
         }
         item('assistant', `Change ${i} is checked. The generated result preserves the intended behavior.`, {answer: true})
     }
-    const decorate = row => row.entity === 'session' && row.entityId === session.sessionId ? {...row, value: {...row.value, transcriptAvailable: true}} : row
+    const busy = value => ({...value, status: 'live', transcriptAvailable: true,
+        agentState: {phase: 'working', since: new Date(corpus.fixedNow - 15000).toISOString(), nativeSubagentCount: 0}})
+    const decorate = row => row.entity === 'session' && row.entityId === session.sessionId ? {...row, value: busy(row.value)} : row
     let identity, seq
     async function bootstrap(response) {
         if (!response.ok) return response
@@ -177,7 +179,7 @@ try {
                 if (typeof event.data !== 'string') return client.send(event.data)
                 const frame = JSON.parse(event.data)
                 if (frame.changes) frame.changes = frame.changes.map(decorate)
-                if (frame.sessions) frame.sessions = frame.sessions.map(value => value.sessionId === session.sessionId ? {...value, transcriptAvailable: true} : value)
+                if (frame.sessions) frame.sessions = frame.sessions.map(value => value.sessionId === session.sessionId ? busy(value) : value)
                 if (frame.type === 'machinesChanged') frame.machines.push(...corpus.machines)
                 if (frame.type === 'feedDelta' && identity) {
                     const start = seq
