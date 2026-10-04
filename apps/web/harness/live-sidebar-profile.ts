@@ -178,11 +178,7 @@ try {
     document.addEventListener(
       'click',
       (e) => {
-        if (
-          !state.target ||
-          !(e.target instanceof Element) ||
-          !e.target.closest(state.trigger)
-        )
+        if (!state.target || !(e.target instanceof Element) || !e.target.closest(state.trigger))
           return
         state.input = e.timeStamp
         state.processingStart = performance.now()
@@ -194,7 +190,12 @@ try {
     new MutationObserver(() => {
       if (state.input === null || state.dom !== null) return
       const row = document.querySelector(`[data-issue-row="${state.target}"]`)
-      if (state.pageAction ? !document.querySelector('[data-testid="issue-page"]') : !row || row.getAttribute('data-selected') !== 'true') return
+      if (
+        state.pageAction
+          ? !document.querySelector('[data-testid="issue-page"]')
+          : !row || row.getAttribute('data-selected') !== 'true'
+      )
+        return
       state.dom = performance.now()
       performance.mark('speed:dom')
       requestAnimationFrame(() =>
@@ -225,7 +226,10 @@ try {
   if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
   if (process.argv.includes('--expand-closed')) {
     const closed = page.getByTestId('closed-fold-toggle')
-    if (await closed.count() && await closed.first().getAttribute('aria-expanded') === 'false') {
+    if (
+      (await closed.count()) &&
+      (await closed.first().getAttribute('aria-expanded')) === 'false'
+    ) {
       await closed.first().click()
       await page.waitForTimeout(1000)
     }
@@ -236,6 +240,8 @@ try {
     nodes.map((n) => ({
       id: n.getAttribute('data-issue-row')!,
       className: n.className,
+      phase: n.getAttribute('data-phase'),
+      selected: n.getAttribute('data-selected') === 'true',
       numbered: /^\d+$/.test(
         n
           .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
@@ -248,7 +254,7 @@ try {
     JSON.stringify({
       label,
       rows: rows.length,
-      numberedRows: rows.filter(r => r.numbered).length,
+      numberedRows: rows.filter((r) => r.numbered).length,
       renderer: await page.evaluate(() => window.__speedReact.renderer),
       loadavg: loadavg(),
       classes: [...new Set(rows.map((r) => r.className))],
@@ -285,22 +291,36 @@ try {
     )
   } else {
     const saved = targetsPath ? JSON.parse(await readFile(targetsPath, 'utf8')) : null
-    const unique = [...new Set(rows.filter((r) => r.numbered).map((r) => r.id))]
-    const targets: string[] = saved?.targets ?? unique.slice(1, limit + 1)
+    const unique = [
+      ...new Set(
+        rows.filter((r) => r.numbered && !r.selected && r.phase !== 'done').map((r) => r.id),
+      ),
+    ]
+    const anchor: string =
+      saved?.anchor ??
+      rows.find((r) => r.numbered && !r.selected && r.phase === 'working')?.id ??
+      unique[0]!
+    const targets: string[] = saved?.targets ?? unique.filter((id) => id !== anchor).slice(0, limit)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
-    const anchor: string = saved?.anchor ?? unique[0]!
     await writeFile(resolve(root, 'targets.json'), JSON.stringify({ anchor, targets }))
     // The client has a bounded pane cache: revisits and resident warm visits are separate labels.
-    const order = issuePageAction ? [...targets.map((id, index) => ({ id, index, visit: 'first' })),
-      ...targets.map((id, index) => ({ id, index, visit: 'revisit' }))] : targets.flatMap((id, index) => [
-      { id, index, visit: 'first' },
-      { id: anchor, index: -1, visit: 'anchor' },
-      { id, index, visit: 'revisit' },
-    ])
+    const order = issuePageAction
+      ? [
+          ...targets.map((id, index) => ({ id, index, visit: 'first' })),
+          ...targets.map((id, index) => ({ id, index, visit: 'revisit' })),
+        ]
+      : targets.flatMap((id, index) => [
+          { id, index, visit: 'first' },
+          { id: anchor, index: -1, visit: 'anchor' },
+          { id, index, visit: 'revisit' },
+        ])
     const titles = new Map<string, string>()
     if (issuePageAction) {
       for (const id of targets) {
-        const title = await page.locator(`[data-issue-row="${id}"] .shell-work-row-title`).first().textContent()
+        const title = await page
+          .locator(`[data-issue-row="${id}"] .shell-work-row-title`)
+          .first()
+          .textContent()
         if (!title) throw new Error('Issue-page target has no title')
         titles.set(id, title.trim())
       }
@@ -314,7 +334,9 @@ try {
         await page.getByRole('textbox', { name: 'Search tasks' }).fill(title.trim())
         await page.waitForTimeout(300)
       }
-      const trigger = issuePageAction ? `[data-issue-id="${item.id}"]` : `[data-issue-row="${item.id}"]`
+      const trigger = issuePageAction
+        ? `[data-issue-id="${item.id}"]`
+        : `[data-issue-row="${item.id}"]`
       const row = page.locator(trigger).first()
       await row.scrollIntoViewIfNeeded()
       let box = await row.boundingBox()
@@ -323,36 +345,41 @@ try {
       await page.waitForTimeout(1000)
       box = await row.boundingBox()
       if (!box) throw new Error('Sidebar target moved out of view')
-      await page.evaluate(({ id, trigger, pageAction }) => {
-        const state = (window as any).__speedCapture
-        Object.assign(state, {
-          target: id,
-          trigger,
-          pageAction,
-          input: null,
-          dom: null,
-          twoRaf: false,
-          twoRafAt: 0,
-          events: [],
-          mutations: [],
-        })
-        state.lastContentDom = 0
-        state.previousTrace = (window as any).__podiumSwitchTraces?.recent().at(-1)?.switchId
-        state.previousSessions = [...document.querySelectorAll('[data-panel-resident][data-pane]')]
-          .map((n) => n.getAttribute('data-session'))
-          .join(',')
-        state.expectSession =
-          Number(
-            document
-              .querySelector(`[data-issue-row="${id}"]`)
-              ?.querySelector('[data-testid="issue-fleet-total"]')?.textContent ?? 0,
-          ) > 0
-        state.launchBefore = (window as any).__liveLaunchCensus?.() ?? {}
-        state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
-        state.chatBefore = (window as any).__liveChatCensus?.() ?? {}
-        window.__speedReact.commits = []
-        performance.clearMarks()
-      }, { id: item.id, trigger, pageAction: issuePageAction })
+      await page.evaluate(
+        ({ id, trigger, pageAction }) => {
+          const state = (window as any).__speedCapture
+          Object.assign(state, {
+            target: id,
+            trigger,
+            pageAction,
+            input: null,
+            dom: null,
+            twoRaf: false,
+            twoRafAt: 0,
+            events: [],
+            mutations: [],
+          })
+          state.lastContentDom = 0
+          state.previousTrace = (window as any).__podiumSwitchTraces?.recent().at(-1)?.switchId
+          state.previousSessions = [
+            ...document.querySelectorAll('[data-panel-resident][data-pane]'),
+          ]
+            .map((n) => n.getAttribute('data-session'))
+            .join(',')
+          state.expectSession =
+            Number(
+              document
+                .querySelector(`[data-issue-row="${id}"]`)
+                ?.querySelector('[data-testid="issue-fleet-total"]')?.textContent ?? 0,
+            ) > 0
+          state.launchBefore = (window as any).__liveLaunchCensus?.() ?? {}
+          state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
+          state.chatBefore = (window as any).__liveChatCensus?.() ?? {}
+          window.__speedReact.commits = []
+          performance.clearMarks()
+        },
+        { id: item.id, trigger, pageAction: issuePageAction },
+      )
       const errorsBefore = proxyErrors
       const events: any[] = []
       const receive = ({ value }: { value: any[] }) => events.push(...value)
@@ -385,8 +412,30 @@ try {
             sessions === state.previousSessions && (sessions !== '' || !state.expectSession)
           const matching = trace?.issueId === state.target && trace.switchId !== state.previousTrace
           if (unchanged || matching) {
-            state.confirmed = unchanged || !trace.timedOut
-            state.readyAt = matching ? state.input + trace.totalMs : state.twoRafAt
+            const nativePanel =
+              matching &&
+              [...document.querySelectorAll<HTMLElement>('[data-panel-resident][data-pane]')].find(
+                (panel) => panel.getAttribute('data-session') === trace.sessionId,
+              )
+            const nativeMark =
+              matching &&
+              trace.marks.find((mark: { name: string }) => mark.name === 'term:interactable')
+            // A native surface keeps an inactive ChatView mounted. Its rows-built
+            // diagnostic can leave the generic trace waiting for an invisible
+            // chat sentinel. Recover only the connected, visible terminal's
+            // actual interactable mark, with the chat surface confirmed hidden.
+            const nativeOnly =
+              nativeMark &&
+              trace.meta?.terminalConnected &&
+              trace.meta?.terminalVisible &&
+              trace.meta?.terminalReady &&
+              nativePanel &&
+              !nativePanel.querySelector('[data-testid="chat-surface"]')?.getClientRects().length
+            state.nativeOnlyRecovery = Boolean(nativeOnly && trace.timedOut)
+            state.confirmed = unchanged || !trace.timedOut || Boolean(nativeOnly)
+            state.readyAt = matching
+              ? state.input + (nativeOnly ? nativeMark.atMs : trace.totalMs)
+              : state.twoRafAt
             const mutations = state.mutations.filter((at: number) => at <= state.readyAt)
             performance.mark('speed:content-dom', {
               startTime: Math.max(state.dom, mutations.at(-1) ?? 0),
@@ -465,20 +514,35 @@ try {
           ? (finishedPaint.ts + finishedPaint.dur - input.ts) / 1000
           : null,
         confirmed: state.boundary.confirmed,
+        nativeOnlyRecovery: Boolean(state.boundary.nativeOnlyRecovery),
+        traceTimedOut:
+          !issuePageAction && state.traces?.[0]?.issueId === item.id
+            ? state.traces[0].timedOut
+            : null,
         clickToPaintMs: (paint.ts + paint.dur - input.ts) / 1000,
         selectedDomMs: (dom.ts - input.ts) / 1000,
         elements: state.elements,
         commits: state.react.commits.length,
-        traceMs: !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].totalMs : null,
-        cold: !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
+        traceMs:
+          !issuePageAction && state.traces?.[0]?.issueId === item.id
+            ? state.traces[0].totalMs
+            : null,
+        cold:
+          !issuePageAction && state.traces?.[0]?.issueId === item.id ? state.traces[0].cold : null,
         poolRows: state.sidebar?.pool?.rows ?? null,
         proxyErrors: proxyErrors - errorsBefore,
         loadavg: loadavg(),
       }
       Object.assign(numbers, {
         action: issuePageAction ? 'issue-page-open' : 'sidebar-issue',
-        chatWork: Object.fromEntries(['mentionBuilds', 'mentionIssueReads', 'referenceBuilds', 'referenceSessionReads']
-          .map(key => [key, Number(chatAfter[key] ?? 0) - Number(state.boundary.chatBefore[key] ?? 0)])),
+        chatWork: Object.fromEntries(
+          ['mentionBuilds', 'mentionIssueReads', 'referenceBuilds', 'referenceSessionReads'].map(
+            (key) => [
+              key,
+              Number(chatAfter[key] ?? 0) - Number(state.boundary.chatBefore[key] ?? 0),
+            ],
+          ),
+        ),
         launchWork: Object.fromEntries(
           [
             'catalogBuilds',
@@ -495,7 +559,8 @@ try {
       })
       const file = `click-${iteration.toString().padStart(2, '0')}`
       const traceBytes = JSON.stringify({ traceEvents: events })
-      if (traceBytes.includes(token)) throw new Error('Credential found in capture; refusing to save it')
+      if (traceBytes.includes(token))
+        throw new Error('Credential found in capture; refusing to save it')
       await writeFile(resolve(root, file + '.trace.json'), traceBytes)
       if (profile) await writeFile(resolve(root, file + '.cpuprofile'), JSON.stringify(profile))
       await writeFile(resolve(root, file + '.json'), JSON.stringify({ ...numbers, ...state }))

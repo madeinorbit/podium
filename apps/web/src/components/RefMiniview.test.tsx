@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import '@/test-support/model-catalog-mock'
-import '@/test-support/mock-core-store-handle'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
@@ -25,6 +25,7 @@ const hostStore = vi.hoisted(() => ({
   legacyIssues: [] as RefIssueLike[],
   sessions: [] as RefSessionLike[],
   referenceReads: vi.fn(),
+  activeReferenceReaders: 0,
   setOpenIssueId: vi.fn(),
   setView: vi.fn(),
   navigateToSession: vi.fn(),
@@ -34,35 +35,52 @@ const hostStore = vi.hoisted(() => ({
   retarget: vi.fn(),
 }))
 
+vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/react')>()
+  const { withKeyedInputs } = await import('@podium/client-core/test-support/keyed-inputs')
+  const { fixtureStoreSnapshot } = await import('@/test-support/fixture-store')
+  const { useRuntimeSelector } = await import('@/app/store')
+  const owner = withKeyedInputs({
+    getSnapshot: () => fixtureStoreSnapshot(useRuntimeSelector((state) => state)),
+    services: {},
+    subscribe: () => () => {},
+  })
+  return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+})
+
 vi.mock('@/app/store', async () => {
   const { normalizedFixtureStore } = await import('@/test-support/normalized-issues')
   return {
-  useRuntimeSelector: (select: (state: unknown) => unknown) =>
-    select({
-      ...normalizedFixtureStore({ issues: hostStore.replicaIssues, sessions: hostStore.sessions }),
-      trpc: {
-        issues: {
-          start: { mutate: vi.fn() },
-          promote: { mutate: vi.fn() },
-          update: { mutate: vi.fn() },
-          comments: { query: vi.fn(async () => []) },
+    useRuntimeSelector: (select: (state: unknown) => unknown) =>
+      select({
+        ...normalizedFixtureStore({
+          issues: hostStore.replicaIssues,
+          sessions: hostStore.sessions,
+        }),
+        trpc: {
+          issues: {
+            start: { mutate: vi.fn() },
+            promote: { mutate: vi.fn() },
+            update: { mutate: vi.fn() },
+            comments: { query: vi.fn(async () => []) },
+          },
         },
-      },
-      issues: hostStore.legacyIssues,
-      sessions: hostStore.sessions,
-      repos: [],
-      machines: hostStore.machines,
-      setOpenIssueId: hostStore.setOpenIssueId,
-      setView: hostStore.setView,
-      setSelectedIssueId: hostStore.setSelectedIssueId,
-      navigateToSession: hostStore.navigateToSession,
-      updateIssue: hostStore.updateIssue,
-    }),
+        issues: hostStore.legacyIssues,
+        sessions: hostStore.sessions,
+        repos: [],
+        machines: hostStore.machines,
+        setOpenIssueId: hostStore.setOpenIssueId,
+        setView: hostStore.setView,
+        setSelectedIssueId: hostStore.setSelectedIssueId,
+        navigateToSession: hostStore.navigateToSession,
+        updateIssue: hostStore.updateIssue,
+      }),
   }
 })
 
 vi.mock('@/app/store-worklist-pool', async () => {
   const { fixturePoolHooks } = await import('@/test-support/pool-fixture')
+  const { createChatContextReader } = await import('@podium/client-graph/chat-context')
   const registered = new WeakSet()
   return {
     ...fixturePoolHooks,
@@ -70,11 +88,13 @@ vi.mock('@/app/store-worklist-pool', async () => {
       const pool = fixturePoolHooks.useWorklistPool()
       if (!registered.has(pool)) {
         registered.add(pool)
+        const reader = createChatContextReader(pool)
+        reader.sessions = () => {
+          hostStore.referenceReads()
+          return { sessions: hostStore.sessions as SessionView[], pending: 0 }
+        }
         pool.sources.register(['chatContextReader'], {
-          read: () => ({ sessions: () => {
-            hostStore.referenceReads()
-            return { sessions: hostStore.sessions }
-          } }),
+          read: () => reader,
           dispose() {},
         })
       }
@@ -83,14 +103,23 @@ vi.mock('@/app/store-worklist-pool', async () => {
   }
 })
 
-vi.mock('@/features/chat/use-chat-context', () => ({
-  useChatReferenceSessions: () => {
-    hostStore.referenceReads()
-    return hostStore.sessions
-  },
-  useChatReferenceMachines: () => hostStore.machines,
-  useChatRepositoryKey: () => '',
-}))
+vi.mock('@/features/chat/use-chat-context', async () => {
+  const { useEffect } = await import('react')
+  return {
+    useChatReferenceSessions: () => {
+      hostStore.referenceReads()
+      useEffect(() => {
+        hostStore.activeReferenceReaders++
+        return () => {
+          hostStore.activeReferenceReaders--
+        }
+      }, [])
+      return hostStore.sessions
+    },
+    useChatReferenceMachines: () => hostStore.machines,
+    useChatRepositoryKey: () => '',
+  }
+})
 
 vi.mock('@/app/operator-focus', () => ({
   useOperatorFocus: () => ({
@@ -185,12 +214,16 @@ describe('RefMiniviewHost issue resolution', () => {
     hostStore.replicaIssues = [rich]
     act(() => root.render(<RefMiniviewHost />))
     expect(hostStore.referenceReads).not.toHaveBeenCalled()
-    hostStore.sessions = [{ sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' }]
+    hostStore.sessions = [
+      { sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' },
+    ]
     act(() => root.render(<RefMiniviewHost />))
     expect(hostStore.referenceReads).not.toHaveBeenCalled()
     act(() => openMiniview('POD-517', { x: 100, y: 100 }))
-    expect(hostStore.referenceReads).toHaveBeenCalledTimes(1)
+    expect(hostStore.referenceReads).toHaveBeenCalled()
+    expect(hostStore.activeReferenceReaders).toBe(1)
     act(() => closeMiniview())
+    expect(hostStore.activeReferenceReaders).toBe(0)
     hostStore.referenceReads.mockClear()
     hostStore.sessions = []
     act(() => root.render(<RefMiniviewHost />))
@@ -210,7 +243,9 @@ describe('RefMiniviewHost issue resolution', () => {
 
   it('resolves direct session activation from the latest roster on demand', () => {
     act(() => root.render(<RefMiniviewHost />))
-    hostStore.sessions = [{ sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' }]
+    hostStore.sessions = [
+      { sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' },
+    ]
     act(() => activateRef('POD-517-A', { metaKey: true }))
     expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')
     expect(hostStore.referenceReads).toHaveBeenCalledTimes(1)

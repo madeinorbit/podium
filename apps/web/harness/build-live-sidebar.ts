@@ -17,8 +17,10 @@ await build({
       enforce: 'pre',
       transform(code, id) {
         if (id.endsWith('/packages/client-graph/src/chat-context.ts')) {
-          if (!code.includes('  return {\n    counts,')) throw new Error('Chat census boundary changed')
-          code = code.replace('  return {\n    counts,',
+          if (!code.includes('  return {\n    counts,'))
+            throw new Error('Chat census boundary changed')
+          code = code.replace(
+            '  return {\n    counts,',
             `  const census = ((globalThis as any).__liveChatReaders ??= [])
   census.push(counts)
   ;(globalThis as any).__liveChatCensus = () => census.reduce((sum: Record<string, number>, reader: Record<string, number>) => {
@@ -26,9 +28,11 @@ await build({
     return sum
   }, {})
   return {
-    counts,`)
+    counts,`,
+          )
           if (off === 'references') {
-            const boundary = 'export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {'
+            const boundary =
+              'export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {'
             if (!code.includes(boundary)) throw new Error('Reference control boundary changed')
             code = code.replace(boundary, boundary + '\n  return { sessions: [], pending: 0 }')
           }

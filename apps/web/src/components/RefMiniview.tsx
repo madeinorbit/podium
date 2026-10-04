@@ -192,18 +192,18 @@ function OpenPoolRefMiniview({
   )
   const data = useWorklistPoolProjection(read, { issues: [] as RefIssueLike[], loading: !!state })
   return (
-      <RefMiniviewContents
-        issues={data.issues}
-        sessions={sessions}
-        resolveIssue={(token) => {
-          const parsed = parseAnyRef(token)
-          const issue = data.issues[0]
-          return token === state?.ref && issue && parsed?.kind === 'issue'
-            ? { kind: 'issue', ref: parsed, issue }
-            : resolvePoolIssue(pool, token)
-        }}
-        loading={data.loading}
-      />
+    <RefMiniviewContents
+      issues={data.issues}
+      sessions={sessions}
+      resolveIssue={(token) => {
+        const parsed = parseAnyRef(token)
+        const issue = data.issues[0]
+        return token === state?.ref && issue && parsed?.kind === 'issue'
+          ? { kind: 'issue', ref: parsed, issue }
+          : resolvePoolIssue(pool, token)
+      }}
+      loading={data.loading}
+    />
   )
 }
 
