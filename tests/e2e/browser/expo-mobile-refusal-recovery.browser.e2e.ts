@@ -40,6 +40,8 @@ test('phone refusal rolls back, marks the row, copies preserved input, and retry
       body: JSON.stringify({ error: { message: 'Synthetic refusal', code: -32600, data: { code: 'CONFLICT', httpStatus: 409, path: 'issues.update' } } }),
     }))
     const cdp = await context.newCDPSession(page)
+    // Let the freshly mounted row settle before dispatching touch coordinates.
+    await row().click({ trial: true })
     const box = await row().boundingBox()
     if (!box) throw new Error('Missing phone work row')
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] })

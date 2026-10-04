@@ -2,9 +2,10 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import * as Clipboard from 'expo-clipboard'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useMemo, useSyncExternalStore } from 'react'
+import { Profiler, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { refusalFixture } from '../../../../packages/worklist-proto/harness/src/refusal-fixture'
+import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 import { PoolWorkRowSlot } from '../screens/WorkListRow'
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 
@@ -50,4 +51,36 @@ it('keeps refused words copyable on the phone, rolls back and marks the work row
   expect(f.outbox.deadLetters()).toHaveLength(0)
   expect(screen.getByText('phone words verbatim')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull()
+})
+
+it('phone Copy keeps pool work and React commits flat at 1x and 4x', async () => {
+  const samples: { scale: number; issues: number; commits: number; copy: Awaited<ReturnType<typeof measureWork>>['work'] }[] = []
+  for (const scale of [1, 4] as const) {
+    const f = state.current = await refusalFixture(scale)
+    let commits = 0
+    try {
+      render(<Profiler id="phone recovery" onRender={() => { commits++ }}>
+        <PoolWorkRowSlot item={{ kind: 'issue', id: f.id, listKey: f.id }} navPending={false}
+          onOpenIssue={() => {}} onOpenSession={() => {}} onLongPress={() => {}} onTuck={() => {}} />
+        <OutboxRecoveryPanel />
+      </Profiler>)
+      const authored = '  copy meter words\nverbatim  '
+      await act(async () => { f.pool.mutate('issueUpdate', { id: f.id, patch: { title: authored } }) })
+      await act(async () => { f.setOnline(true) })
+      await waitFor(() => expect(screen.getByTestId('not-saved')).toBeTruthy())
+      const copy = screen.getByRole('button', { name: 'Copy' })
+      vi.mocked(Clipboard.setStringAsync).mockClear()
+      commits = 0
+      const measured = await measureWork(async () => {
+        await act(async () => { fireEvent.click(copy) })
+      }, { pool: f.pool })
+      expect(Clipboard.setStringAsync).toHaveBeenCalledExactlyOnceWith(authored)
+      expect(f.outbox.deadLetters()).toHaveLength(1)
+      expect(f.pool.notSaved('issue', f.id)).toBe(true)
+      expect(commits).toBe(0)
+      expect(measured.work).toMatchObject({ derivations: 0, rows: 0, elements: 0, visits: 0 })
+      samples.push({ scale, issues: f.ctx.corpus.issues.length, commits, copy: measured.work })
+    } finally { cleanup(); f.dispose(); state.current = null }
+  }
+  console.info('[phone copy work]', JSON.stringify(samples))
 })
