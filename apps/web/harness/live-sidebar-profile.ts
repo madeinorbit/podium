@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { hostname, loadavg } from 'node:os'
 import { resolve } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { type CDPSession, chromium, type Page } from '@playwright/test'
 import { createLogger, preview } from 'vite'
 import { installCommitObserver, startCpu } from './full-screen-profile'
@@ -665,8 +666,12 @@ try {
       const traceBytes = JSON.stringify({ traceEvents: events })
       if (traceBytes.includes(token))
         throw new Error('Credential found in capture; refusing to save it')
-      await writeFile(resolve(root, file + '.trace.json'), traceBytes)
-      if (profile) await writeFile(resolve(root, file + '.cpuprofile'), JSON.stringify(profile))
+      await writeFile(resolve(root, file + '.trace.json.gz'), gzipSync(traceBytes, { level: 1 }))
+      if (profile)
+        await writeFile(
+          resolve(root, file + '.cpuprofile.gz'),
+          gzipSync(JSON.stringify(profile), { level: 1 }),
+        )
       await writeFile(resolve(root, file + '.json'), JSON.stringify({ ...numbers, ...state }))
       summaries.push(numbers)
       console.log(JSON.stringify(numbers))
