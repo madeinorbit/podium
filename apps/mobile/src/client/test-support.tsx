@@ -17,10 +17,10 @@
 
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
   type GitRepositoryWire,

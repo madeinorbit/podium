@@ -559,13 +559,9 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
     if (loaded === 0) break
     if (turn === 63) throw new Error('Complete session fixture did not settle')
   }
-  expect(
-    mobileSessionSnapshot(
-      enabled.pool(),
-      ids,
-      state.coarseNow,
-    ),
-  ).toMatchSnapshot('last green pilot-ON complete session output')
+  expect(mobileSessionSnapshot(enabled.pool(), ids, state.coarseNow)).toMatchSnapshot(
+    'last green pilot-ON complete session output',
+  )
   const before = mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)
   await act(async () =>
     enabled.data.patch('session', SID, { title: 'Planted session output error' }),
