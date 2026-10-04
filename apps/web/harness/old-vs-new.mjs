@@ -854,7 +854,17 @@ try {
     if(surface==='web'){await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
     else {await f.page.getByRole('button',{name:'Search work',exact:true}).click();await inspect(f.page,'phone-search')}
   }
-  if(mode==='timing'){if(!backgroundOnly)await runActions(f);await background(f)}
+  if(mode==='timing') {
+    if(!backgroundOnly) {
+      await runActions(f)
+      // A failed/unavailable action must not leave one arm with extra resident
+      // panes when comparing background updates. Match the initial UI state.
+      await f.context.close();f=fixture=await makePage()
+      await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(f.page);await population(f.page)
+    }
+    result.backgroundContext='Fresh browser profile; same visible control terminal and corpus, no resident panes from preceding action cases';save()
+    await background(f)
+  }
   if(mode==='memory') {
     await f.cdp.send('HeapProfiler.collectGarbage');result.heapStartup=await f.cdp.send('Runtime.getHeapUsage');save()
     const began=Date.now(), loads=[], steps=[]
