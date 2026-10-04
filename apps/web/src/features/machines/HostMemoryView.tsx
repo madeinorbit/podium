@@ -5,8 +5,8 @@ import {
   panelLabel,
   reclaimSpaceLabel,
 } from '@podium/client-core/viewmodels'
-import { asIssueId } from '@podium/model'
 import type { MobxPool } from '@podium/client-graph'
+import { asIssueId } from '@podium/model'
 import type {
   AgentMemoryWire,
   HostMemoryWire,
@@ -20,8 +20,8 @@ import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolSessionLabels } from '@/app/header-data'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useHostMetrics, useStoreSelector } from '@/app/store'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'

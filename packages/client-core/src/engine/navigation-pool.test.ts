@@ -419,7 +419,11 @@ describe('navigation with an injected pool provider', () => {
       markIssueRead: vi.fn(),
     })
     reactions.seedIssueIds([seat])
-    Object.defineProperty(st, 'sessions', { get() { throw new Error('Legacy focused ownership list') } })
+    Object.defineProperty(st, 'sessions', {
+      get() {
+        throw new Error('Legacy focused ownership list')
+      },
+    })
     try {
       expect(reactions.sessionIssueFollow()).toBe(false)
       expect(st.selectedIssueId).toBe(child.id)
