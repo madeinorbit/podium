@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type Store } from '@podium/client-core/engine'
+import { type Store, withKeyedInputs } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
@@ -101,12 +101,11 @@ async function main() {
     sessions: [],
     openIssueId: null,
   } as unknown as Store<PodiumClientApi>
-  const runtime = {
+  const runtime = withKeyedInputs({
     replica,
     getSnapshot: () => store,
-    pendingOverlaysByRow: () => new Map(),
     subscribe: () => () => {},
-  }
+  })
   let poolBatches = 0
   async function openPool() {
     const handle = createRuntimeWorklistPool(
