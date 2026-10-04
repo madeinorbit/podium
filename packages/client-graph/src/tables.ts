@@ -177,17 +177,14 @@ export function put(
   }
   if (entity === 'repo' && isObservableMap(target.write.repo)) {
     const table = target.write.repo
-    const next: RepoInputs = {
-      id,
-      prefix: repoFieldOf(row, 'prefix'),
-      repoPath: repoFieldOf(row, 'path'),
-    }
+    const read = (key: keyof RepoInputs) =>
+      key === 'id' ? id : repoFieldOf(row, key === 'repoPath' ? 'path' : key)
     let inputs = previous && repoInputs.get(previous)
     if (inputs) {
-      for (const key of ['id', 'prefix', 'repoPath'] as const) inputs.set(key, next[key])
+      inputs.replace(read)
     } else {
       inputs = createFieldInputs<RepoInputs>(
-        ['id', 'prefix', 'repoPath'], next, `repo:${id}`,
+        ['id', 'prefix', 'repoPath'], read, `repo:${id}`,
         // row(repo) tracks presence separately. Its existing value atom can
         // serve the most common field without adding a tracking object.
         (key) => key === 'prefix' && table.has(id) ? getAtom(table, id) : undefined,
