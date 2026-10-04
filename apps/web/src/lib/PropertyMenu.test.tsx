@@ -6,12 +6,20 @@ afterEach(cleanup)
 
 it('does no option work while closed and keeps filtering, selection and reopening', async () => {
   const labels = vi.fn((value: string) => value)
-  const options = ['Alpha', 'Beta'].map(value => ({
+  const options = ['Alpha', 'Beta'].map((value) => ({
     value,
-    get label() { return labels(value) },
+    get label() {
+      return labels(value)
+    },
   }))
-  const select = vi.fn(), changed = vi.fn()
-  const props = { trigger: <button type="button">Pick</button>, options, onSelect: select, onOpenChange: changed }
+  const select = vi.fn(),
+    changed = vi.fn()
+  const props = {
+    trigger: <button type="button">Pick</button>,
+    options,
+    onSelect: select,
+    onOpenChange: changed,
+  }
   const view = render(<PropertyMenu {...props} />)
   expect(labels).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Pick' }))

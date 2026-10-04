@@ -34,7 +34,10 @@ function usePoolIssues(): IssueViewModel[] {
 
 /** A closed selector owns no catalog derivation or row subscriptions. */
 export function useIssuePageCatalog(open: boolean): IssueViewModel[] {
-  const read = useCallback((pool: MobxPool) => open ? issuePages(pool).issues() : EMPTY_ISSUES, [open])
+  const read = useCallback(
+    (pool: MobxPool) => (open ? issuePages(pool).issues() : EMPTY_ISSUES),
+    [open],
+  )
   const value = useWorklistPoolProjection(read, EMPTY_ISSUES)
   return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
 }

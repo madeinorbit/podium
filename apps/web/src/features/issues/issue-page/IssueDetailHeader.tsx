@@ -11,12 +11,11 @@ import type { SessionView } from '@podium/client-core/session-values'
  * predicate and its ownership note.
  */
 import { motionPhase } from '@podium/client-core/values'
-import type { IssueId} from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react'
 import { Fragment, type JSX, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { useIssuePageCatalog, useIssuePageIssues } from './issue-page-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -33,6 +32,7 @@ import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { repoMatesOf } from '../issue-page-model'
+import { useIssuePageCatalog, useIssuePageIssues } from './issue-page-data'
 import {
   type IssuePageMenuAction,
   type IssuePageMenuEntry,
@@ -262,36 +262,38 @@ export function IssueOverflowMenu({
           </Button>
         }
       />
-      {open && <DropdownMenuContent align="end" className="w-52">
-        {entries.map((entry, index) => {
-          const Icon = entry.icon(issue)
-          const label = entry.label(issue)
-          return (
-            <Fragment key={entry.id}>
-              {startsGroup(entries, index) && <DropdownMenuSeparator />}
-              {entry.submenu === 'issue-targets' ? (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
-                    {targets.map((t) => (
-                      <DropdownMenuItem key={t.id} onClick={() => pickTarget(entry, t.id)}>
-                        {issueRefLong(t)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              ) : (
-                <DropdownMenuItem
-                  onClick={fire[entry.id]}
-                  variant={entry.danger ? 'destructive' : 'default'}
-                >
-                  <Icon aria-hidden="true" className="size-3.5 flex-none" /> {label}
-                </DropdownMenuItem>
-              )}
-            </Fragment>
-          )
-        })}
-      </DropdownMenuContent>}
+      {open && (
+        <DropdownMenuContent align="end" className="w-52">
+          {entries.map((entry, index) => {
+            const Icon = entry.icon(issue)
+            const label = entry.label(issue)
+            return (
+              <Fragment key={entry.id}>
+                {startsGroup(entries, index) && <DropdownMenuSeparator />}
+                {entry.submenu === 'issue-targets' ? (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                      {targets.map((t) => (
+                        <DropdownMenuItem key={t.id} onClick={() => pickTarget(entry, t.id)}>
+                          {issueRefLong(t)}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={fire[entry.id]}
+                    variant={entry.danger ? 'destructive' : 'default'}
+                  >
+                    <Icon aria-hidden="true" className="size-3.5 flex-none" /> {label}
+                  </DropdownMenuItem>
+                )}
+              </Fragment>
+            )
+          })}
+        </DropdownMenuContent>
+      )}
     </DropdownMenu>
   )
 }

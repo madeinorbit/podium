@@ -48,7 +48,11 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 import { StatusGlyph } from './issue-glyphs'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
-import { useIssuePageCatalog, useIssuePageIssues, useIssuePageSessions } from './issue-page/issue-page-data'
+import {
+  useIssuePageCatalog,
+  useIssuePageIssues,
+  useIssuePageSessions,
+} from './issue-page/issue-page-data'
 import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
