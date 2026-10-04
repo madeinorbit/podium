@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 /**
- * SINGLE CLICK AND DOUBLE CLICK ON ONE TARGET, resolved without a race.
+ * SINGLE CLICK AND DOUBLE CLICK ON ONE TARGET, resolved without a wait.
  *
- * A preview open and a permanent open are the same gesture repeated, so the
- * first click cannot act immediately — it would leave a stray fold toggle (and a
- * second navigation) behind every double click. The first click schedules; a
- * second click inside the window cancels the schedule and promotes instead,
- * which is the "promote on the second click" arm the contract allows and the one
- * that needs no `dblclick` event to be delivered.
+ * The first click acts at once (POD-5444): the 260 ms hold this hook used to
+ * impose is gone, so a session click paints without an idle window first. A
+ * second click inside the window then runs the caller's upgrade — promoting a
+ * preview tab to a kept one (deck rows, file tree) — on top of what the first
+ * click already did. That upgrade must therefore be safe to run after the
+ * single: same tab, kept rather than reopened, no extra navigation and no
+ * undone state. Where the double action is a rename instead (workspace tabs,
+ * sidebar rows), it rides the native `dblclick`, not this hook.
  *
  * One instance per row, so a fast click on one row followed by another row is
  * two singles rather than a double.
@@ -26,31 +28,35 @@ export interface ClickIntent {
 }
 
 export function useClickIntent(): ClickIntent {
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cancel = useCallback((): boolean => {
-    if (pending.current === null) return false
-    clearTimeout(pending.current)
-    pending.current = null
+  const windowTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearWindow = useCallback((): boolean => {
+    if (windowTimer.current === null) return false
+    clearTimeout(windowTimer.current)
+    windowTimer.current = null
     return true
   }, [])
-  useEffect(() => () => void cancel(), [cancel])
+  useEffect(() => () => void clearWindow(), [clearWindow])
   return useMemo(
     () => ({
       press: (single, double) => {
-        if (cancel()) {
+        if (clearWindow()) {
+          // Second click inside the window: the single already ran on the
+          // first press, so this only upgrades (promotes the preview the
+          // first press opened). Never re-fires the single.
           double()
           return
         }
-        pending.current = setTimeout(() => {
-          pending.current = null
-          single()
+        // First click: act at once, then hold the window open for the upgrade.
+        single()
+        windowTimer.current = setTimeout(() => {
+          windowTimer.current = null
         }, DOUBLE_CLICK_MS)
       },
       commit: (double) => {
-        cancel()
+        clearWindow()
         double()
       },
     }),
-    [cancel],
+    [clearWindow],
   )
 }

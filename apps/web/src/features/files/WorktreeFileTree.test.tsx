@@ -33,7 +33,7 @@ vi.mock('@/app/store', () => {
   }
 })
 
-/** Past the 260ms `useClickIntent` window, so a pending single click resolves. */
+/** Lets the double-click window lapse, so a pending upgrade can no longer fire. */
 function settleClickIntent(): void {
   act(() => void vi.advanceTimersByTime(400))
 }
@@ -61,17 +61,16 @@ describe('WorktreeFileTree', () => {
     vi.useFakeTimers()
 
     fireEvent.click(screen.getByText('a.ts'))
-    // Nothing yet — the first click cannot act, or every double click would
-    // leave a stray preview open behind it.
-    expect(openFileInWorktree).not.toHaveBeenCalled()
-    settleClickIntent()
-
+    // POD-5444: no 260 ms wait — the first click previews at once.
     expect(openFileInWorktree).toHaveBeenCalledWith({
       machineId: undefined,
       root: '/w',
       path: '/w/a.ts',
       permanent: false,
     })
+    settleClickIntent()
+
+    expect(openFileInWorktree).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the tab on a double click', async () => {
@@ -83,13 +82,11 @@ describe('WorktreeFileTree', () => {
     fireEvent.click(screen.getByText('a.ts'))
     settleClickIntent()
 
-    expect(openFileInWorktree).toHaveBeenCalledTimes(1)
-    expect(openFileInWorktree).toHaveBeenCalledWith({
-      machineId: undefined,
-      root: '/w',
-      path: '/w/a.ts',
-      permanent: true,
-    })
+    // POD-5444: the first click already previewed; the second only keeps it.
+    expect(openFileInWorktree.mock.calls.map(([args]) => [args.path, args.permanent])).toEqual([
+      ['/w/a.ts', false],
+      ['/w/a.ts', true],
+    ])
   })
 
   it('counts two rows as two singles, not one double', async () => {

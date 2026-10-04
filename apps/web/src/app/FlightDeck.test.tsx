@@ -276,7 +276,7 @@ const waterfallDeck = async (): Promise<ReturnType<typeof render>> => {
   return await deck()
 }
 
-/** The single-click action is deferred by the double-click window. */
+/** Lets the double-click window and other pending timers flush. */
 const settle = async (): Promise<void> => {
   await act(async () => {
     vi.advanceTimersByTime(400)
@@ -1459,7 +1459,8 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
   it('opens a session as a preview on one click', async () => {
     await deck()
     fireEvent.click(sessionRow('s2'))
-    expect(harness.openSessionTab).not.toHaveBeenCalled()
+    // POD-5444: no 260 ms wait — the first click previews at once.
+    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
     await settle()
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
@@ -1715,12 +1716,16 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(details).toEqual(['issue', 'issue'])
   })
 
-  it('promotes on the second click and never fires the single as well', async () => {
+  it('previews on the first click and promotes on the second (POD-5444)', async () => {
     await deck()
     fireEvent.click(sessionRow('s2'))
     fireEvent.click(sessionRow('s2'))
     await settle()
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
+    // The first click already previewed; the second only upgrades it in place.
+    expect(harness.openSessionTab.mock.calls).toEqual([
+      ['s2', { permanent: false }],
+      ['s2', { permanent: true }],
+    ])
   })
 
   it('treats Enter as the double click', async () => {
@@ -1739,13 +1744,16 @@ describe('flight deck click semantics (POD-710 §4.1)', () => {
     expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: false }]])
   })
 
-  it('promotes a task’s lead session on a double click and leaves the fold alone', async () => {
+  it('promotes a task’s lead session on a double click; the first click’s fold stands (POD-5444)', async () => {
     await deck()
     fireEvent.click(taskRow('t2'))
     fireEvent.click(taskRow('t2'))
     await settle()
-    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('true')
-    expect(harness.openSessionTab.mock.calls).toEqual([['s2', { permanent: true }]])
+    expect(chevron('Task t2').getAttribute('aria-expanded')).toBe('false')
+    expect(harness.openSessionTab.mock.calls).toEqual([
+      ['s2', { permanent: false }],
+      ['s2', { permanent: true }],
+    ])
   })
 
   it('changes a proposed issue from its status icon without opening the row', async () => {
