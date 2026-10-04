@@ -78,6 +78,15 @@ The two converted snapshot test keys were mechanically renamed to match their
 new test names. Their expected bodies were checked byte-for-byte. No expected
 screen value was generated from the retirement candidate.
 
+POD-4286 approved the separate STALE-42-B test repair in
+`msg_c6a5f421`. Commit `d752b6e0bd` changes only that test and records that its
+old assertion was already red on unchanged `b4d0134f17`. With the birth repo
+absent it now expects the accepted pool title, `Author agent`, and explicitly
+rejects the stale raw ref; the cleared-prefix assertion stays intact. No retired
+`displayRef` fallback is restored. The ten MissionDeck checks are green in
+both focused runs above. The repeated approval notice requires no new source
+edit or validation run.
+
 ## One reader and bounded input work
 
 The pool remains the only row reader. Cold questions are declared; missing
