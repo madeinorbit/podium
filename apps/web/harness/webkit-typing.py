@@ -82,6 +82,9 @@ def main():
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--css", default="")
+    parser.add_argument("--setup-js", default="", help="Throwaway page ablation; never product code")
+    parser.add_argument("--reuse-page", action="store_true", help="Measure the already hydrated fixture")
+    parser.add_argument("--reset", action="store_true", help="Clear the fixture draft before timing")
     args = parser.parse_args()
     session = args.session or request(args.driver, "POST", "/session", {
         "capabilities": {"alwaysMatch": {"browserName": "safari", "pageLoadStrategy": "eager",
@@ -92,9 +95,10 @@ def main():
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     result = {"sha": args.sha, "scale": args.scale, "session": session,
-              "profiled": args.profile, "cssAblation": args.css, "startedAt": time.time()}
+              "profiled": args.profile, "cssAblation": args.css, "jsAblation": args.setup_js, "startedAt": time.time()}
     try:
-        request(base, "POST", "/url", {"url": args.url})
+        if not args.reuse_page:
+            request(base, "POST", "/url", {"url": args.url})
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             if execute("return !!document.querySelector('.chat-composer-well textarea') && document.querySelectorAll('.transcript-row').length >= 40"):
@@ -103,11 +107,18 @@ def main():
         else:
             result["pageText"] = execute("return document.body.innerText")
             raise RuntimeError("Composer did not mount")
+        if args.reset:
+            execute("const t=document.querySelector('.chat-composer-well textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'');t.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'deleteContentBackward',data:null}));")
+            time.sleep(.5)
         time.sleep(2)
+        execute("document.getElementById('__typingAblation')?.remove()")
         if args.css:
-            execute("const s=document.createElement('style');s.textContent=arguments[0];document.head.append(s)", args.css)
+            execute("const s=document.createElement('style');s.id='__typingAblation';s.textContent=arguments[0];document.head.append(s)", args.css)
             time.sleep(.3)
+        if args.setup_js:
+            execute(args.setup_js)
         result["environment"] = execute(PROBE)
+        print(json.dumps({"stage": "typing", "environment": result["environment"]}), flush=True)
         actions = []
         text = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefgh"
         for char in text:

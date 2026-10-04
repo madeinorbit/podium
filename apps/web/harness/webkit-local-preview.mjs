@@ -4,8 +4,27 @@
  */
 const root = process.env.WEBKIT_PREVIEW_ROOT
 if (!root) throw Error('Set WEBKIT_PREVIEW_ROOT to the owned runner directory')
-const upstream = 'http://127.0.0.1:19668'
+const upstream = 'http://127.0.0.1:19688'
 const manifest = await Bun.file(`${root}/manifest.json`).json()
+const offline = process.env.WEBKIT_OFFLINE === '1'
+const api = offline ? await Bun.file(`${root}/fixture-api.json`).json() : {}
+const transcript = offline ? await Bun.file(`${root}/transcript.json`).json() : []
+const frames = offline ? await Bun.file(`${root}/socket-frames.json`).json() : []
+const procedures = new Map()
+for (const [path, entry] of Object.entries(api)) {
+    if (!path.startsWith('/trpc/')) continue
+    const url = new URL(path, 'http://fixture')
+    const names = url.pathname.slice(6).split(',')
+    const values = JSON.parse(entry.body)
+    for (const [index, name] of names.entries()) procedures.set(name, Array.isArray(values) ? values[index] : values)
+}
+function readTranscript(input = {}) {
+    const limit = input.limit ?? 200
+    let index = input.anchor ? transcript.findIndex(item => item.cursor === input.anchor) : transcript.length
+    if (index < 0) index = transcript.length
+    const items = input.direction === 'after' && input.anchor ? transcript.slice(index + 1, index + 1 + limit) : transcript.slice(Math.max(0, index - limit), index)
+    return {result: {data: {items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: index > limit}}}
+}
 const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(request, server) {
     const url = new URL(request.url)
     if (request.headers.get('upgrade') === 'websocket') {
@@ -14,6 +33,21 @@ const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(reques
     if (url.pathname === '/__fixture') return Response.json(manifest)
     if (url.pathname === '/sync/bootstrap') return new Response(Bun.file(`${root}/bootstrap.ndjson`), {headers: {'content-type': 'application/x-ndjson'}})
     if (url.pathname === '/sw.js') return new Response('', {status: 404})
+    if (offline && url.pathname.startsWith('/trpc/')) {
+        const names = url.pathname.slice(6).split(',')
+        const batch = url.searchParams.get('batch') === '1'
+        const input = url.searchParams.has('input') ? JSON.parse(url.searchParams.get('input')) : request.method === 'POST' ? await request.json() : {}
+        const results = names.map((name, index) => {
+            if (name === 'sessions.transcriptRead') return readTranscript(batch ? input[index] : input)
+            if (request.method === 'POST') return {result: {data: null}}
+            return procedures.get(name) ?? {error: {message: `Missing synthetic RPC: ${name}`, code: -32601, data: {code: 'NOT_FOUND', httpStatus: 404}}}
+        })
+        return Response.json(batch ? results : results[0])
+    }
+    if (offline && api[url.pathname + url.search]) {
+        const entry = api[url.pathname + url.search]
+        return new Response(entry.body, {status: entry.status, headers: {'content-type': entry.type}})
+    }
     if (/^\/(trpc|auth|setup|sync|version|health|files|client|podium-build\.json)/.test(url.pathname)) {
         const response = await fetch(new URL(url.pathname + url.search, upstream), {method: request.method, headers: request.headers, body: ['GET','HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()})
         const headers = new Headers(response.headers)
@@ -28,14 +62,23 @@ const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(reques
     return new Response(html, {headers: {'content-type':'text/html','cache-control':'no-store'}})
 }, websocket: {
     open(client) {
-        const socket = new WebSocket(`ws://127.0.0.1:19668${client.data.path}`)
+        if (offline) return
+        const socket = new WebSocket(`ws://127.0.0.1:19688${client.data.path}`)
         client.data.socket = socket
         socket.onopen = () => {for (const message of client.data.queue) socket.send(message); client.data.queue = []}
         socket.onmessage = event => client.send(event.data)
         socket.onclose = () => client.close()
     },
-    message(client, message) {if (client.data.socket.readyState === WebSocket.OPEN) client.data.socket.send(message); else client.data.queue.push(message)},
-    close(client) {client.data.socket.close()},
+    message(client, message) {
+        if (offline) {
+            const frame = JSON.parse(String(message))
+            if (frame.type === 'ping') client.send(JSON.stringify({type: 'pong'}))
+            if (frame.type === 'hello') for (const saved of frames) if (saved.type !== 'hostMetricsChanged') client.send(JSON.stringify(saved))
+            return
+        }
+        if (client.data.socket.readyState === WebSocket.OPEN) client.data.socket.send(message); else client.data.queue.push(message)
+    },
+    close(client) {client.data.socket?.close()},
 }})
 await Bun.write(`${root}/preview.pid`, String(process.pid))
 console.log(`Mac synthetic preview ready: ${server.url} (${manifest.issues} issues)`)
