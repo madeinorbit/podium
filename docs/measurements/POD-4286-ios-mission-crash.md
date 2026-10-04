@@ -2,7 +2,13 @@
 
 Issue: POD-5517. Baseline: `51f59c6f34` on `integrate/4286-pilot`.
 
-The operator reports repeated mission page reloads in iPhone Safari. Reproduction
+Status: POD-4286 reported at 22:44 UTC on October 4 that the operator's iPhone
+chat no longer crashes with the landed fixes. The coordinator explicitly ended
+the investigation and waived further desktop heap and Mac native captures.
+This is operator acceptance; it does not establish a WebContent termination
+reason or isolate each fix's effect on the physical iPhone.
+
+The operator reported repeated mission page reloads in iPhone Safari. Reproduction
 uses an isolated iPhone simulator on `podium-apple-runner` and POD-5508's
 operator-size synthetic mission/session/transcript corpus. The copied host
 metadata exception and its completed cleanup are documented below.
@@ -74,8 +80,9 @@ files and scoped client-core/web/mobile typecheck (16 tasks). Four existing
 hidden-pane assertions were updated to check deferred presentation and their
 33-test file reran green. A production comparison build contains temporary
 numeric counters and a `retainAll` switch, allowing a comparison of retention
-with the same static marks and viewport cap. A qualified native comparison is
-still pending; no post-warm CPU or heap improvement is claimed.
+with the same static marks and viewport cap. A qualified native comparison was
+not completed before operator acceptance; no post-warm CPU or heap improvement
+is claimed.
 
 A mobile follow-up explicitly retains Find history before a matching row moves
 the viewport. Its three-file Biome check, scoped mobile typecheck (14 tasks)
@@ -100,10 +107,15 @@ summaries describe resident backing stores, not a GC snapshot's live JS heap.
 `IOS_MOBILE_ARM=mobile-retention` selects the shared-retention comparison export.
 `IOS_INITIAL_HISTORY=33000` injects oversized cold history pages to represent
 3,000 turns already loaded during a long-running session; this is a stress seed,
-not a claim that production returns that many items in one read. Seeding ends
-at subscription; later reads honor their normal limit and native cursor.
+not a claim that production returns that many items in one read. With manual
+streaming, seeding ends when the qualified capture arms output; later reads
+honor their normal limit and native cursor.
 Generated turns vary their text,
 tool identifiers and results, and partial output updates an existing item.
+`IOS_STREAM_MANUAL=1` loads the complete history before streaming starts.
+After Working preflight, the capture arms `/__stream/start` for that document.
+This keeps large cold computations out of the active three-minute interval
+and prevents continuous output from starving the initial before-case render.
 
 Native preflight requires the exact chat URL, a Working tail, static marks,
 at least 80 held items and exactly one transcript subscription. Normal Safari
@@ -209,11 +221,64 @@ The stress seed was returned in one 33,000-item read, followed by a second
 80-item cold read before Working preflight. The original instrumentation did
 not measure incoming controller history, so this trace does not certify that
 the full seed entered the controller. The preview now seeds every cold read
-until subscription, and preflight checks `maximumInput` in the updated
+until manual stream arming, and preflight checks `maximumInput` in the updated
 comparison build. This is a measurement correction, not another product fix.
 
 Owned-cohort cleanup is confirmed: recorded Safari/WebContent/preview/capture
 PIDs 71254, 71272, 71289, 71326, 71732, 75313, 81631 and 82624 are absent.
 Runner load had fallen to 60/96/139 but remained unsuitable for timing.
-The bench was explicitly handed to queued POD-5558; both this issue and
-POD-5534 remain in progress pending the qualified comparisons.
+The bench was explicitly handed to queued POD-5558. Both this issue and
+POD-5534 remained in progress at that point, before the acceptance recorded
+above.
+
+## Desktop preflight corrections (22:32–22:43 UTC)
+
+Neither desktop attempt reached the timed heap interval. The first diagnostic
+URL used `/sessions/<id>?retainAll=1`, which the typed startup link declined;
+it normalized to a workspace without an active chat. The preview also returned
+404 for service-worker registration. The corrected diagnostic URL uses
+`/workspace?wt=<synthetic cwd>&pane=<id>` and serves the selected production
+export's service worker.
+
+The second attempt opened a Working chat with static marks and no recorded JS
+errors, but only 200 items entered its controller. Its transcript subscription
+preceded the first cold read by 8 ms, disabling the full-history seed before
+receipt. Manual captures now keep cold-read seeding enabled until the qualified
+capture explicitly starts output. This affects only the synthetic preview.
+The attempt's 180 telemetry records are preflight evidence, not heap comparison
+results. Recorded sampler, preview and Chrome processes exited normally, and
+the flatblock bench was released to POD-5501 at 22:45 UTC.
+
+## Final landed result and limits
+
+The product changes on `integrate/4286-pilot` are:
+
+| Commit | Result |
+| --- | --- |
+| `1e3f4feff7` | Bound following mobile DOM to 80 settled rows plus footer; preserve older-row reveal, reading anchors and browser scroll dispatch. |
+| `865b00d22b` | Bound following retained history, reuse item positions, coalesce desktop worker requests, send changed items, suspend hidden presentation and suppress unchanged conversation publications. |
+| `1d1738ad16` | Retain mobile Find history before viewport navigation. |
+
+POD-5508 separately landed the operator-authorized static working marks in
+`186f74e131`. Its visible animation change is not attributed to this issue.
+The operator's acceptance covers the combined pilot build, rather than an
+individual device ablation of these commits.
+
+The unbounded mounted-node path and its viewport correction were measured.
+Controller retention and repeated whole-history work were established in code
+and covered by the focused product regressions described above. Physical
+footprint is not a live JS heap measurement. No successful GC heap pair,
+qualified full-scale Working native interval, WebContent jetsam diagnosis,
+React #185 loop or automatic-reload reproduction was obtained. The incomplete
+traces and failed preflights remain explicitly excluded from those claims.
+
+The final landing changes the report and diagnostic harness only. Product
+tests, scoped typechecks, focused lint and production builds were completed on
+flatblock for their respective product changes; they are not rerun for this
+handoff. Final diagnostic JS syntax and Python AST parsing passed locally;
+the corrected manual seed has not been verified in another browser capture.
+No further desktop heap or native capture is started. The flatblock
+bench has been released, the Mac bench is free, and this session has no bench
+queue ticket. All recorded owned capture/preview/browser processes were
+cleaned up; the final read-only Mac SSH probe timed out and exited without
+starting a workload.

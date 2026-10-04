@@ -140,6 +140,7 @@ def preflight():
             with urllib.request.urlopen(endpoint, timeout=5) as response:
                 status = json.load(response)
                 last = status.get('page')
+            append('page.ndjson', {'waiting': last, 'subscribers': status.get('subscribers')})
             seed = status.get('seedItems', 0)
             seed_received = not seed or (status.get('seedDelivered') and last and any(
                 count.get('maximumInput', 0) >= seed and
@@ -156,6 +157,19 @@ def preflight():
         stop.wait(1)
     append('page.ndjson', {'preflightFailed': last})
     raise RuntimeError('Synthetic Working chat did not pass native preflight')
+
+
+def start_stream():
+    endpoint = urllib.parse.urljoin(args.url, '/__status')
+    with urllib.request.urlopen(endpoint, timeout=5) as response:
+        status = json.load(response)
+    if not status.get('streamManual'):
+        return
+    request = urllib.request.Request(urllib.parse.urljoin(args.url, '/__stream/start'),
+                                    data=json.dumps({'boot': status['page']['boot']}).encode(),
+                                    method='POST', headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        append('page.ndjson', {'streamStarted': json.load(response)})
 
 
 def coverage_report(page_records, memory_records, seconds, expect_working=False, expect_static=False):
@@ -259,6 +273,7 @@ try:
         if args.openurl:
             subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True, timeout=30)
         preflight()
+        start_stream()
         observe_normal()
         stop.set()
         thread.join(3)
@@ -288,6 +303,7 @@ try:
     except Exception as error:
         append('page.ndjson', {'navigationError': str(error)})
     preflight()
+    start_stream()
     end = time.monotonic() + args.seconds
     script = """
       return {url:location.href, age:performance.now(),

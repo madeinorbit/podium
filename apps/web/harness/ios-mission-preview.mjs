@@ -12,10 +12,12 @@ const manifest = await Bun.file(`${root}/manifest.json`).json()
 const api = await Bun.file(`${root}/fixture-api.json`).json()
 const transcript = await Bun.file(`${root}/transcript.json`).json()
 const streamMode = process.env.IOS_STREAM === '1'
+const manualStream = process.env.IOS_STREAM_MANUAL === '1'
+let streamArmed = !manualStream
 const streamSeconds = Number(process.env.IOS_STREAM_SECONDS ?? 180)
 // Optional stress seed represents history already loaded during a long session.
-// Seed all cold reads until subscription: a discarded bootstrap read must not
-// consume the only full-history response before the controller starts.
+// With a manually armed stream, seed cold reads until capture starts. Desktop
+// subscribes before its first read; subscription alone does not certify receipt.
 const initialHistory = Number(process.env.IOS_INITIAL_HISTORY ?? 0)
 const sessionId = manifest.control
 const template = structuredClone(transcript)
@@ -77,11 +79,12 @@ function resetTranscript() {
   }
   seededHistory=false
   streamDeadline=null
+  streamArmed=!manualStream
   liveTurn=null
 }
 resetTranscript()
 const streamTimer = streamMode ? setInterval(()=> {
-  if (subscribers.size === 0 || navigation) return
+  if (!streamArmed || subscribers.size === 0 || navigation) return
   if (streamDeadline === null) streamDeadline = Date.now() + streamSeconds * 1_000
   if (Date.now() >= streamDeadline) return
   const settled = liveTurn ? [{...liveTurn.at(-1),answer:true}] : []
@@ -94,7 +97,7 @@ const streamTimer = streamMode ? setInterval(()=> {
     items:[...settled,...items],tail:items.at(-1)?.cursor}))
 },250) : null
 const progressTimer = streamMode ? setInterval(()=> {
-  if (!liveTurn || !streamDeadline || Date.now() >= streamDeadline || subscribers.size === 0 || navigation) return
+  if (!streamArmed || !liveTurn || !streamDeadline || Date.now() >= streamDeadline || subscribers.size === 0 || navigation) return
   const previous=liveTurn.at(-1)
   const item={...previous,text:previous.text+'\nStreaming the generated verification result.',answer:false}
   liveTurn[liveTurn.length-1]=item
@@ -116,7 +119,8 @@ for (const [path, entry] of Object.entries(api)) {
 }
 function readTranscript(input = {}) {
   input=input.json??input
-  const seed=!input.anchor&&subscribers.size===0&&initialHistory>0
+  const seed=!input.anchor&&initialHistory>0&&
+    (manualStream ? !streamArmed : subscribers.size===0)
   const limit = seed ? initialHistory : input.limit ?? 200
   if(seed) seededHistory=true
   let index = input.anchor ? transcript.findIndex(item => item.cursor === input.anchor) : transcript.length
@@ -212,8 +216,18 @@ const server = Bun.serve({
       return Response.json({navigate:navigation?.boot===latestTelemetry.boot?navigation.url:null})
     }
     if (url.pathname === '/__latest') return Response.json(latestTelemetry)
-    if (url.pathname === '/__status') return Response.json({page:latestTelemetry,
-      subscribers:subscribers.size,items:transcript.length,seedItems:initialHistory,seedDelivered:seededHistory})
+    if (url.pathname === '/__status') return Response.json({previewPid:process.pid,page:latestTelemetry,
+      subscribers:subscribers.size,items:transcript.length,seedItems:initialHistory,seedDelivered:seededHistory,
+      streamManual:manualStream,streamArmed})
+    if (url.pathname === '/__stream/start' && request.method === 'POST') {
+      const command=await request.json()
+      if(command.boot!==latestTelemetry?.boot || subscribers.size!==1) {
+        return new Response('Start requires the current synthetic chat and one subscriber',{status:400})
+      }
+      streamArmed=true
+      streamDeadline=Date.now()+streamSeconds*1_000
+      return Response.json({ok:true,items:transcript.length})
+    }
     if (url.pathname === '/__navigate' && request.method === 'POST') {
       const command=await request.json()
       const target=new URL(command.url)
@@ -231,8 +245,13 @@ const server = Bun.serve({
     // by Safari. The acknowledgement contains counts, never stored values.
     if (url.pathname === '/__clear') {
       const mode=url.searchParams.get('next')
-      const target=new URL(`${mode?.startsWith('desktop') ? '/sessions/' : '/mobile/session/'}${sessionId}`,url.origin)
+      const desktop=mode?.startsWith('desktop')
+      const target=new URL(desktop?'/workspace':`/mobile/session/${sessionId}`,url.origin)
       if(mode?.endsWith('off')) target.searchParams.set('retainAll','1')
+      if(desktop) {
+        if(manifest.cwd) target.searchParams.set('wt',manifest.cwd)
+        target.searchParams.set('pane',sessionId)
+      }
       const next=['retention-on','retention-off','desktop-on','desktop-off'].includes(mode)?target.href:null
       return new Response(`<script>
         (async()=>{
@@ -284,7 +303,11 @@ const server = Bun.serve({
       return new Response(workingBootstrap.get(scale),
         {headers:{'content-type':'application/x-ndjson'}})
     }
-    if (url.pathname === '/sw.js') return new Response('', {status:404})
+    if (url.pathname === '/sw.js') {
+      const arm=(await Bun.file(`${root}/arm.txt`).text()).trim()
+      if(!/^[a-z0-9-]+$/.test(arm)) throw Error('Invalid build arm')
+      return new Response(Bun.file(`${root}/dist-${arm}/sw.js`),{headers:{'cache-control':'no-store'}})
+    }
     if (url.pathname === '/mobile' || url.pathname.startsWith('/mobile/')) {
       const path = url.pathname.slice('/mobile'.length)
       const file = Bun.file(`${mobileRoot}${path}`)
