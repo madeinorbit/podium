@@ -36,8 +36,9 @@
 /* THE WORKING MARK — the braille cell held still and lit in a travelling wave
    (see WorkingMark.tsx). The former eight SVG-circle animations forced Chromium
    through style and layout on most frames. A generated alpha-mask strip now
-   holds sampled dot states from the same wave and one HTML layer advances on
-   the compositor. */
+   holds sampled dot states from the same wave. Use a raster alpha mask: moving
+   an external SVG mask repeatedly invalidates its resource and compositing
+   hierarchy in WebKit (POD-5508). */
 @keyframes podium-mark-frames {
   to {
     transform: translate3d(0, -100%, 0);
@@ -152,16 +153,16 @@
   animation: podium-mark-frames 1.5s steps(45, end) infinite;
 }
 .pod-mark-small .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-small.svg");
-  mask-image: url("./working-mark-small.svg");
+  -webkit-mask-image: url("./working-mark-small.png");
+  mask-image: url("./working-mark-small.png");
 }
 .pod-mark-medium .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-medium.svg");
-  mask-image: url("./working-mark-medium.svg");
+  -webkit-mask-image: url("./working-mark-medium.png");
+  mask-image: url("./working-mark-medium.png");
 }
 .pod-mark-large .pod-mark-frames {
-  -webkit-mask-image: url("./working-mark-large.svg");
-  mask-image: url("./working-mark-large.svg");
+  -webkit-mask-image: url("./working-mark-large.png");
+  mask-image: url("./working-mark-large.png");
 }
 
 /* Handover transit wire (POD-337): a session moving to another machine covers

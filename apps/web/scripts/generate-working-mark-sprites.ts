@@ -1,13 +1,16 @@
 /**
- * Generate the three alpha-mask frame strips used by WorkingMark.
+ * Generate the three raster alpha-mask frame strips used by WorkingMark.
  *
  * The old mark animated every SVG circle. Chromium laid out the page on most
  * animation frames, so two visible marks consumed a large fraction of one
  * renderer core. These strips sample the same per-dot opacity, scale, delays,
- * and 1.5 s cycle at 30 fps while CSS moves one layer on the compositor.
+ * and 1.5 s cycle at 30 fps. Raster masks avoid WebKit repeatedly invalidating
+ * the external SVG resource while the strip moves. Keep the SVG sources for
+ * inspecting the generated dot geometry.
  *
  * Usage: bun apps/web/scripts/generate-working-mark-sprites.ts
  */
+import sharp from 'sharp'
 
 const FRAME_COUNT = 45
 const CYCLE_MS = 1_500
@@ -77,9 +80,12 @@ function sprite(radius: number, label: string): string {
 
 await Promise.all(
   Object.entries(RADII).map(([label, radius]) =>
-    Bun.write(
-      new URL(`../src/lib/motion/working-mark-${label}.svg`, import.meta.url),
-      sprite(radius, label),
-    ),
+    (async () => {
+      const source = sprite(radius, label)
+      await Bun.write(new URL(`../src/lib/motion/working-mark-${label}.svg`, import.meta.url), source)
+      await sharp(Buffer.from(source))
+        .png()
+        .toFile(new URL(`../src/lib/motion/working-mark-${label}.png`, import.meta.url).pathname)
+    })(),
   ),
 )
