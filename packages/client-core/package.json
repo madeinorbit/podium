@@ -150,6 +150,11 @@
       "types": "./src/session-values.ts",
       "import": "./src/session-values.ts"
     },
+    "./join-memo": {
+      "@podium/source": "./src/join-memo.ts",
+      "types": "./src/join-memo.ts",
+      "import": "./src/join-memo.ts"
+    },
     "./replica-assembly": {
       "@podium/source": "./src/replica-assembly/index.ts",
       "types": "./src/replica-assembly/index.ts",

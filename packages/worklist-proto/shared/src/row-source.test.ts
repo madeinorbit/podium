@@ -70,6 +70,35 @@ const sessionValue = (id: string, extra: Record<string, unknown> = {}) =>
 const issueValue = (id: string, extra: Record<string, unknown> = {}) =>
   ({ id, ...extra }) as unknown as { id: string }
 
+it('folds each session once when seeding a heavily staffed issue', () => {
+  const cache = new FakeCache()
+  cache.records = Array.from({ length: 1_000 }, (_, at) => ({
+    entity: 'session', entityId: `s${at}`, provenance: { seq: 1 },
+    value: sessionValue(`s${at}`, {
+      issueId: 'owner', agentKind: 'codex', headless: true, status: 'live',
+      lastActiveAt: new Date(Date.UTC(2026, 0, 1, 0, 0, at)).toISOString(),
+    }),
+  }))
+  cache.put('issueProjection', 'owner', issueValue('owner'))
+  const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+  const replica = createKernelReplica({ cache, side })
+  const handle = createRowSource(fakeRuntime(), replica, { mode: 'pooled' })
+  try {
+    const row = handle.source.snapshot('issue')[0]!.value as Record<string, unknown>
+    expect(row.sessionFacts).toMatchObject({
+      replicaActivityAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 999)).toISOString(),
+      tipActivityAt: new Date(Date.UTC(2026, 0, 1, 0, 0, 999)).toISOString(),
+      headlessStaffed: true,
+    })
+    expect(handle.stats.sessionFactVisits).toBe(1_000)
+    handle.stats.reset()
+    handle.source.snapshot('issue')
+    expect(handle.stats.sessionFactVisits).toBe(0)
+  } finally {
+    handle.dispose()
+  }
+})
+
 const joinedSessionValues = {
   readAt: '2026-09-20T11:00:00Z',
   unread: true,

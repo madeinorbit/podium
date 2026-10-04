@@ -384,7 +384,12 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       reconcile(kind, state)
     }
     if (state.rows === null) {
-      state.rows = [...state.byId.values()].sort((a, b) => keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)))
+      const rows = [...state.byId.values()]
+      rows.sort((a, b) => {
+        const left = keyOf(kind, a as never), right = keyOf(kind, b as never)
+        return left < right ? -1 : left > right ? 1 : 0
+      })
+      state.rows = rows.length === 0 ? EMPTY : rows
     }
     return state.rows as ReplicaRows[K][]
   }
@@ -418,19 +423,29 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       if (record.value === null || typeof record.value !== 'object') continue
       byId.set(record.entityId, record.value)
     }
-    issueRefs ??= new IssueRefIndex(records)
     for (const [kind, byId] of building) {
-      const rows = [...byId.values()]
-      // Deterministic order, by the kernel's own key rather than by store
-      // enumeration. The engine sorts everything it renders, so this is not a
-      // display decision — it is what stops `rows()` from returning two different
-      // permutations of one slice to the shadow comparison and to a memo.
-      rows.sort((a, b) => (keyOf(kind, a as never) < keyOf(kind, b as never) ? -1 : 1))
-      projected.set(kind, { rows: rows.length === 0 ? EMPTY : rows, byId })
+      // Counts and keyed reads need membership, not an ordered array of every
+      // kind. Materialize and sort only when rows(kind) asks for that kind.
+      projected.set(kind, { rows: null, byId })
       // A full read subsumes any recorded delta; leaving one behind would
       // re-apply it against state that already includes it.
       dirtyRows.delete(kind)
     }
+  }
+
+  function referenceIndex(): IssueRefIndex {
+    if (issueRefs !== undefined) return issueRefs
+    if (!projected.has('repos') || !projected.has('issueProjections')) buildMissingProjections()
+    const index = new IssueRefIndex([])
+    for (const kind of ['repos', 'issueProjections'] as const) {
+      const state = projected.get(kind)!
+      reconcileCount(kind, state)
+      for (const [id, row] of state.byId) {
+        if (kind === 'repos') index.repo(id, row)
+        else index.issue(id, row)
+      }
+    }
+    return issueRefs = index
   }
 
   /**
@@ -646,15 +661,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     },
 
     issueIdByRef(ref: string): string | undefined {
-      // Hydration seeds this from the same scan as the kind projections. A
-      // lookup before hydration can seed it too; subsequent reads are keyed.
-      if (issueRefs === undefined) buildMissingProjections()
-      return issueRefs?.id(ref)
+      return referenceIndex().id(ref)
     },
 
     issueIdsByRef(ref: string): readonly string[] {
-      if (issueRefs === undefined) buildMissingProjections()
-      return issueRefs?.candidates(ref) ?? EMPTY
+      return referenceIndex().candidates(ref)
     },
 
     subscribeAddressedBatch(cb): () => void {
