@@ -15,6 +15,7 @@ const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const controlOnly=process.argv.includes('--control-only')
+const backgroundOnly=process.argv.includes('--background-only')
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
@@ -41,7 +42,7 @@ const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-t
 const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
   durationTimeDomain:'threadTicks',
-  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,
+  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -701,6 +702,12 @@ async function runActions(f) {
 }
 async function background(f) {
   const heartbeat=synthetic.find(x=>x.entity==='session' && x.value.status==='live'), issue=synthetic.find(x=>x.entity==='issueProjection' && !x.value.closedAt)
+  const legacyIssue=synthetic.find(x=>x.entity==='issue' && x.entityId===issue.entityId)
+  const issueChanges=value=>[
+    ...(legacyIssue?[{...legacyIssue,value:{...legacyIssue.value,title:value.title}}]:[]),
+    {...issue,value}
+  ]
+  result.issueUpdateEntities=issueChanges(issue.value).map(row=>row.entity);save()
   const targetSession=controls[0].secondSession.sessionId
   await attempt('background-output-setup',async()=>{
     if(surface==='web') {
@@ -739,7 +746,7 @@ async function background(f) {
     if(!row){result.unavailable.push({action:`background-${kind}`,reason:'No fixture target'});continue}
     for(let i=0;i<samples+2;i++) {
       const value={...row.value,...(kind==='heartbeat'?{lastActiveAt:new Date(corpus.fixedNow+10000+i*1000).toISOString()}:{title:`Background issue revision ${i}`})}
-      await metricWindow(kind,async()=>push(row.entity,row.entityId,value))
+      await metricWindow(kind,async()=>kind==='issue-change'?pushChanges(issueChanges(value)):push(row.entity,row.entityId,value))
     }
   }
   if(outputAvailable)for(let i=0;i<samples+2;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
@@ -763,7 +770,7 @@ async function background(f) {
   // output is an explicitly synthetic assumption of two terminal frames/sec.
   for(let tick=0;tick<120;tick++) {
     if(heartbeat && tick%4===0){push(heartbeat.entity,heartbeat.entityId,{...heartbeat.value,lastActiveAt:new Date(corpus.fixedNow+720000+tick*500).toISOString()});delivered.heartbeat++;traffic.syntheticHeartbeat++}
-    if(issue && tick%12===0){push(issue.entity,issue.entityId,{...issue.value,title:`Live idle revision ${tick}`});delivered.issueChange++;traffic.syntheticIssue++}
+    if(issue && tick%12===0){pushChanges(issueChanges({...issue.value,title:`Live idle revision ${tick}`}));delivered.issueChange++;traffic.syntheticIssue++}
     if(outputAvailable){output(targetSession,`operator output frame ${tick}\r\n`);delivered.sessionOutput++}
     await pause(Math.max(0,began+(tick+1)*500-Date.now()))
   }
@@ -830,7 +837,7 @@ try {
   }
   result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
   let f=fixture=await makePage()
-  if(mode==='timing') {
+  if(mode==='timing' && !backgroundOnly) {
     // Each cold sample owns a new browser context; the paired warm sample
     // reloads it, retaining HTTP cache, durable rows and preferences.
     for(let i=0;i<5;i++) {
@@ -847,7 +854,7 @@ try {
     if(surface==='web'){await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
     else {await f.page.getByRole('button',{name:'Search work',exact:true}).click();await inspect(f.page,'phone-search')}
   }
-  if(mode==='timing'){await runActions(f);await background(f)}
+  if(mode==='timing'){if(!backgroundOnly)await runActions(f);await background(f)}
   if(mode==='memory') {
     await f.cdp.send('HeapProfiler.collectGarbage');result.heapStartup=await f.cdp.send('Runtime.getHeapUsage');save()
     const began=Date.now(), loads=[], steps=[]

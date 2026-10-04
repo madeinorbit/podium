@@ -18,12 +18,14 @@ parser.add_argument('--mode', choices=['probe','timing','memory'], default='prob
 parser.add_argument('--round', default='0')
 parser.add_argument('--samples', default='8')
 parser.add_argument('--control-only', action='store_true')
+parser.add_argument('--background-only', action='store_true')
 args=parser.parse_args()
 checkout=f'podium-test-5501-{args.checkout_arm or args.arm}'
 relative=f'.artifacts/old-vs-new/{args.mode}-{args.arm}-{args.surface}-{args.scale}x-r{args.round}'
 name='bench:flatblock' if args.mode=='timing' else 'meter:flatblock'
 argv=['--external-lease',f'--mode={args.mode}',f'--arm={args.arm}',f'--surface={args.surface}',f'--scale={args.scale}',f'--round={args.round}',f'--samples={args.samples}',f'--comparison-arm={args.comparison_arm or ("new" if args.arm=="old" else args.arm)}',f'--out={relative}']
 if args.control_only:argv.append('--control-only')
+if args.background_only:argv.append('--background-only')
 command=f'cd "$HOME/{checkout}" && export PATH="$PWD/.toolchain:$PATH" && export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && exec .toolchain/bun --conditions=@podium/source apps/web/harness/old-vs-new.mjs '+shlex.join(argv)
 child=subprocess.Popen(['ssh','-o','BatchMode=yes','flatblock',command],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
 held=False

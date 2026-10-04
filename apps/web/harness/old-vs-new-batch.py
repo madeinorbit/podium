@@ -10,6 +10,7 @@ parser.add_argument('--scale',choices=['1','4','both'],default='both')
 parser.add_argument('--new-arm',default='new')
 parser.add_argument('--rounds',default='0,1')
 parser.add_argument('--samples',default='8')
+parser.add_argument('--background-only',action='store_true')
 args=parser.parse_args()
 surfaces=['web','phone'] if args.surface=='both' else [args.surface]
 scales=['1','4'] if args.scale=='both' else [args.scale]
@@ -18,6 +19,7 @@ for surface in surfaces:
         for round in args.rounds.split(','):
             for arm in ['old',args.new_arm]:
                 command=[sys.executable,'apps/web/harness/old-vs-new-remote.py','--arm',arm,'--checkout-arm','old' if arm=='old' else 'new','--surface',surface,'--scale',scale,'--mode',args.mode,'--round',round,'--samples',args.samples,'--comparison-arm',args.new_arm]
+                if args.background_only:command.append('--background-only')
                 print('NEXT '+' '.join(command),flush=True)
                 result=subprocess.run(command)
                 # A failed OLD phone startup is retained as absence of evidence;
