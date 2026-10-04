@@ -5,7 +5,9 @@ Python standard library; never reads operator data or terminates processes.
 """
 import argparse
 import ctypes
+import datetime
 import json
+import math
 import os
 import pathlib
 import subprocess
@@ -32,6 +34,8 @@ out = pathlib.Path(args.out)
 out.mkdir(parents=True, exist_ok=True)
 (out / 'capture.pid').write_text(str(os.getpid()))
 start = time.monotonic()
+started_wall = time.time()
+observation_ended_wall = None
 stop = threading.Event()
 libproc = ctypes.CDLL('/usr/lib/libproc.dylib')
 libsystem = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
@@ -136,7 +140,12 @@ def preflight():
             with urllib.request.urlopen(endpoint, timeout=5) as response:
                 status = json.load(response)
                 last = status.get('page')
-            if (status.get('subscribers') == 1 and (not status.get('seedItems') or status.get('seedDelivered')) and last and last.get('url') == args.url and last.get('rows', 0) > 0 and
+            seed = status.get('seedItems', 0)
+            seed_received = not seed or (status.get('seedDelivered') and last and any(
+                count.get('maximumInput', 0) >= seed and
+                (not last.get('retainAll') or count.get('items', 0) >= seed)
+                for count in (last.get('retained') or {}).values()))
+            if (status.get('subscribers') == 1 and seed_received and last and last.get('url') == args.url and last.get('rows', 0) > 0 and
                     any(count.get('items', 0) >= 80 for count in (last.get('retained') or {}).values()) and
                     (not args.expect_working or last.get('working')) and
                     (not args.expect_static or last.get('markAnimations') == 0)):
@@ -147,6 +156,84 @@ def preflight():
         stop.wait(1)
     append('page.ndjson', {'preflightFailed': last})
     raise RuntimeError('Synthetic Working chat did not pass native preflight')
+
+
+def coverage_report(page_records, memory_records, seconds, expect_working=False, expect_static=False):
+    """Qualify observed coverage, while preserving failed/crashed traces too."""
+    reasons = []
+    beginning = next((row['elapsed'] for row in page_records if row.get('preflight')), None)
+    if beginning is None:
+        beginning = next((row['elapsed'] for row in page_records if row.get('page')), 0)
+        if expect_working or expect_static:
+            reasons.append('Working/static preflight missing')
+    seen = set()
+    pages = []
+    native = []
+    for row in page_records:
+        page = row.get('page') or row.get('preflight')
+        elapsed = row['elapsed'] - beginning
+        if page and page.get('rows', 0) > 0 and 0 <= elapsed <= seconds + 5:
+            key = (page.get('boot'), page.get('age'))
+            if key not in seen:
+                seen.add(key)
+                pages.append((elapsed, page, row))
+    for row in memory_records:
+        elapsed = row['elapsed'] - beginning
+        if 0 <= elapsed <= seconds + 5 and any(
+                'WebContent' in process['command'] and process.get('footprintBytes') is not None
+                for process in row.get('processes', [])):
+            native.append(elapsed)
+
+    def series(name, points, minimum):
+        span = points[-1] - points[0] if len(points) > 1 else 0
+        boundaries = [0, *points, max(seconds, points[-1] if points else seconds)]
+        gap = max(b - a for a, b in zip(boundaries, boundaries[1:]))
+        if len(points) < minimum or span < seconds * .8 or gap > max(10, seconds * .1):
+            reasons.append(f'{name} coverage insufficient')
+        return {'samples': len(points), 'spanSeconds': round(span, 3),
+                'maximumGapSeconds': round(gap, 3)}
+
+    page_coverage = series('page', [elapsed for elapsed, _, _ in pages], max(2, math.ceil(seconds / 6)))
+    native_coverage = series('native', native, max(2, math.ceil(seconds / 3)))
+    boots = sorted({page['boot'] for _, page, _ in pages if page.get('boot')})
+    if len(boots) > 1:
+        reasons.append('document restarted; inspect termination evidence')
+    if expect_working and any(not page.get('working') or row.get('subscribers', 1) != 1
+                              for _, page, row in pages):
+        reasons.append('Working/subscription state changed')
+    if expect_static and any(page.get('markAnimations') != 0 for _, page, _ in pages):
+        reasons.append('mark animation state changed')
+    if expect_working and len(pages) > 1:
+        updates = [max((count.get('updates', 0) for count in (page.get('retained') or {}).values()), default=0)
+                   for _, page, _ in pages]
+        if updates[-1] <= updates[0]:
+            reasons.append('no observed controller streaming updates')
+        items = [row['serverItems'] for _, _, row in pages if 'serverItems' in row]
+        if items and items[-1] <= items[0]:
+            reasons.append('no observed server appends')
+        late = [(page, row) for elapsed, page, row in pages if elapsed >= seconds * .75]
+        late_updates = [max((count.get('updates', 0) for count in (page.get('retained') or {}).values()), default=0)
+                        for page, _ in late]
+        if len(late_updates) < 2 or late_updates[-1] <= late_updates[0]:
+            reasons.append('controller streaming not observed near capture end')
+        late_items = [row['serverItems'] for _, row in late if 'serverItems' in row]
+        if late_items and late_items[-1] <= late_items[0]:
+            reasons.append('server appends stopped before capture end')
+    return {'qualified': not reasons, 'requestedSeconds': seconds, 'page': page_coverage,
+            'native': native_coverage, 'documentIds': boots, 'reasons': reasons}
+
+
+def qualify_capture():
+    global observation_ended_wall
+    observation_ended_wall = time.time()
+    def records(name):
+        path = out / name
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    report = coverage_report(records('page.ndjson'), records('memory.ndjson'), args.seconds,
+                             args.expect_working, args.expect_static)
+    (out / 'coverage.json').write_text(json.dumps(report, indent=2) + '\n')
+    append('page.ndjson', {'coverage': report})
+    return report['qualified']
 
 
 def observe_normal():
@@ -175,6 +262,7 @@ try:
         observe_normal()
         stop.set()
         thread.join(3)
+        qualified = qualify_capture()
         memory_categories()
         try:
             subprocess.run(['xcrun', 'simctl', 'io', args.udid, 'screenshot', str(out / 'phone.png')], check=True,
@@ -185,7 +273,7 @@ try:
         pass
     if args.openurl or args.existing:
         # Normal Safari telemetry is written by the isolated preview.
-        raise SystemExit(0)
+        raise SystemExit(0 if qualified else 2)
     capabilities = {'browserName': 'Safari', 'platformName': 'iOS',
                     'safari:useSimulator': True, 'safari:deviceUDID': args.udid}
     if args.desktop:
@@ -226,9 +314,12 @@ try:
     screenshot = request('GET', base + '/screenshot', timeout=20)
     stop.set()
     thread.join(3)
+    qualified = qualify_capture()
     memory_categories()
     import base64
     (out / 'phone.png').write_bytes(base64.b64decode(screenshot))
+    if not qualified:
+        raise RuntimeError('Native measurement coverage insufficient; see coverage.json')
 except Exception as error:
     append('page.ndjson', {'error': str(error)})
     raise
@@ -243,7 +334,11 @@ finally:
     with (out / 'native.log').open('w') as native:
         try:
             log_prefix = [] if args.desktop else ['xcrun', 'simctl', 'spawn', args.udid]
-            subprocess.run([*log_prefix, 'log', 'show', '--last', '5m',
+            # Anchor to the actual interval: slow vmmap/screenshot commands must
+            # not move a relative five-minute log window past the useful trace.
+            log_time = lambda value: datetime.datetime.fromtimestamp(value).astimezone().strftime('%Y-%m-%d %H:%M:%S%z')
+            subprocess.run([*log_prefix, 'log', 'show', '--start', log_time(started_wall),
+                            '--end', log_time(observation_ended_wall or time.time()),
                             '--style', 'compact', '--predicate',
                             'eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "memorystatus" OR '
                             '((process == "MobileSafari" OR process CONTAINS "WebContent" OR process == "runningboardd") AND '

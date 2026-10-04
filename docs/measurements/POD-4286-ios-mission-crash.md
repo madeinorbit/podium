@@ -74,9 +74,8 @@ files and scoped client-core/web/mobile typecheck (16 tasks). Four existing
 hidden-pane assertions were updated to check deferred presentation and their
 33-test file reran green. A production comparison build contains temporary
 numeric counters and a `retainAll` switch, allowing a comparison of retention
-with the same static marks and viewport cap. A qualified native comparison is still pending. The exclusive runner is held,
-but the first follow-up did not reach Working preflight and runner load remains
-high; no post-warm CPU or heap improvement is claimed.
+with the same static marks and viewport cap. A qualified native comparison is
+still pending; no post-warm CPU or heap improvement is claimed.
 
 A mobile follow-up explicitly retains Find history before a matching row moves
 the viewport. Its three-file Biome check, scoped mobile typecheck (14 tasks)
@@ -99,20 +98,31 @@ records physical footprint and CPU deltas converted from the host's Mach time
 base, then captures `vmmap` region summaries after the timing interval. Those
 summaries describe resident backing stores, not a GC snapshot's live JS heap.
 `IOS_MOBILE_ARM=mobile-retention` selects the shared-retention comparison export.
-`IOS_INITIAL_HISTORY=33000` injects one oversized initial history page to represent
+`IOS_INITIAL_HISTORY=33000` injects oversized cold history pages to represent
 3,000 turns already loaded during a long-running session; this is a stress seed,
-not a claim that production returns that many items in one read. Later reads
-honor their normal limit and native cursor. Generated turns vary their text,
+not a claim that production returns that many items in one read. Seeding ends
+at subscription; later reads honor their normal limit and native cursor.
+Generated turns vary their text,
 tool identifiers and results, and partial output updates an existing item.
 
 Native preflight requires the exact chat URL, a Working tail, static marks,
 at least 80 held items and exactly one transcript subscription. Normal Safari
 uses `simctl openurl`; subsequent cases use the preview's loopback-only
 `/__navigate` command to replace that same tab and reset the synthetic stream.
-Preflight also requires delivery of the full stress seed when enabled.
+Preflight also requires the controller's numeric `maximumInput` counter to
+confirm receipt of the full stress seed. With retention disabled, it additionally
+requires that full history remain held. `ios-mission-instrument.py` adds these
+number-only counters and the retention switch to an owned throwaway checkout;
+its backup restores the product controller after the comparison build.
 The sampler records document IDs, telemetry freshness and row paint geometry
 as well as CPU and footprint. The diagnostic `retainAll` query disables only
 the controller cap in a throwaway build; it is absent from product code.
+`coverage.json` reports sample counts, spans and gaps. A capture exits nonzero
+when useful page/native coverage is insufficient, Working/static state changes,
+the document restarts, or streaming is not observed through the final quarter.
+Failed traces are preserved
+for crash analysis. Native Console logs use the actual capture start/end times,
+so slow diagnostics cannot move a relative log window past the measurement.
 
 Capture evidence
 and the baseline screenshot are attached to POD-5517. Landing is ff-only on
@@ -167,10 +177,7 @@ and `readSyncStream` certified EOF with 21,963 rows. The final snapshot head is
 A fresh same-tab memory trace started on the corrected fixture. Runner load
 was 32.39, so CPU improvement is explicitly unqualified. Subsequent fresh SSH
 connections timed out repeatedly, including IPv4, while the existing trace
-connection remained pending. Until the raw result can be retrieved, this is
-not a qualified Working-state comparison or a successful reproduction of the
-operator's reload. Recorded private runner processes are preview 81631 and
-trace 82624; the generated stream is bounded to 600 seconds.
+connection remained pending. The generated stream was bounded to 600 seconds.
 
 Runner reachability diagnostics later confirmed both repeated SSH timeouts and
 a Tailscale ping with no reply. This is an external retrieval blocker, not a
@@ -188,3 +195,25 @@ were available. WebContent 71732 measured 469.1–498.8 MiB across those samples
 this does not establish a steady growth rate or a three-minute retention
 comparison. Runner load later reached 147/185/191. The retention-disabled
 comparison and desktop heap/native comparison remain outstanding.
+Replaying this trace through the corrected coverage check admits only one
+native sample inside the intended interval and rejects the measurement.
+
+Retrieval confirmed one document ID across the five samples, and the final
+phone screenshot visibly paints synthetic turn 3030 and the Working tail.
+All four `vmmap` outputs are empty after timeouts. Console collection also
+timed out: its partial log covers 21:27–21:31, after the useful page interval.
+The widget watchdog and generic memorystatus messages in that log do not
+establish WebContent jetsam or the operator's reload cause.
+
+The stress seed was returned in one 33,000-item read, followed by a second
+80-item cold read before Working preflight. The original instrumentation did
+not measure incoming controller history, so this trace does not certify that
+the full seed entered the controller. The preview now seeds every cold read
+until subscription, and preflight checks `maximumInput` in the updated
+comparison build. This is a measurement correction, not another product fix.
+
+Owned-cohort cleanup is confirmed: recorded Safari/WebContent/preview/capture
+PIDs 71254, 71272, 71289, 71326, 71732, 75313, 81631 and 82624 are absent.
+Runner load had fallen to 60/96/139 but remained unsuitable for timing.
+The bench was explicitly handed to queued POD-5558; both this issue and
+POD-5534 remain in progress pending the qualified comparisons.

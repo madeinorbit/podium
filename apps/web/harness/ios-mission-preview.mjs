@@ -14,7 +14,8 @@ const transcript = await Bun.file(`${root}/transcript.json`).json()
 const streamMode = process.env.IOS_STREAM === '1'
 const streamSeconds = Number(process.env.IOS_STREAM_SECONDS ?? 180)
 // Optional stress seed represents history already loaded during a long session.
-// Subsequent reads still honor their requested limit and native cursor.
+// Seed all cold reads until subscription: a discarded bootstrap read must not
+// consume the only full-history response before the controller starts.
 const initialHistory = Number(process.env.IOS_INITIAL_HISTORY ?? 0)
 const sessionId = manifest.control
 const template = structuredClone(transcript)
@@ -115,7 +116,7 @@ for (const [path, entry] of Object.entries(api)) {
 }
 function readTranscript(input = {}) {
   input=input.json??input
-  const seed=!input.anchor&&!seededHistory&&initialHistory>0
+  const seed=!input.anchor&&subscribers.size===0&&initialHistory>0
   const limit = seed ? initialHistory : input.limit ?? 200
   if(seed) seededHistory=true
   let index = input.anchor ? transcript.findIndex(item => item.cursor === input.anchor) : transcript.length
@@ -164,6 +165,7 @@ const telemetry = `<script>
       canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
       images:document.images.length,errors:window.__fixtureErrors,
       retained:window.__fixtureTranscriptCounts??null,worker:workerCounts,
+      retainAll:window.__fixtureRetainAll,
       working:!!document.querySelector('[data-tail="working"]')||
         (!!document.querySelector('[data-row-key="transcript:footer"] [data-testid="working-mark"]')&&
         /working/i.test(document.querySelector('[data-row-key="transcript:footer"]')?.textContent??'')),
