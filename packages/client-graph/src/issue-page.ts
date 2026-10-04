@@ -71,8 +71,8 @@ export function createIssuePageViews(pool: MobxPool) {
           const value = session(sid)
           if (!value || value === LOADING) return value
           // Keep born/current membership disjoint as sessions move owners.
-          return excluded.some(owner => pool.graph.many('issue', owner, 'missionSessions').has(sid))
-            ? undefined : value
+          // missionSessions is the declared, unfiltered explicit issueId relation.
+          return value.issueId && excluded.includes(value.issueId) ? undefined : value
         },
         subscribe: changed => pool.queries.onMembers('issue', id, relation, changed),
         released: () => rosters.delete(key),
