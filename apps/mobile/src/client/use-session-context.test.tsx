@@ -1,6 +1,5 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -233,7 +232,6 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
-  storeStats.enable(false)
   vi.restoreAllMocks()
   expect(reactErrors).toEqual([])
 })
@@ -383,8 +381,6 @@ async function mount(
       </>
     )
   }
-  storeStats.enable()
-  storeStats.reset()
   const view = render(
     <StrictMode>
       <StoreProvider
@@ -526,20 +522,19 @@ it('renders the same six phone readers through real late attachment with no Reac
   expect(seams.nativeInputs.at(-1)).toMatchObject({ spawnPending: false, cols: 80, rows: 24 })
 })
 
-it('has zero legacy selectors and conversation-port reads on relevant updates', async () => {
+it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
   const enabled = await mount()
-  const stats = () => readRuntimeStoreStats(enabled.runtime)!
-  expect(stats().selectorRuns).toBe(0)
-  expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
+  const wholeRows = vi.spyOn(enabled.runtime.replica, 'rows')
+  expect(enabled.runtime).not.toHaveProperty('getSnapshot')
   await act(async () => {
     enabled.data.activity(1)
-    referenceState(enabled.runtime).setSessionDraft(SID, 'Changed draft')
+    enabled.runtime.services.setSessionDraft(SID, 'Changed draft')
   })
   await waitFor(() =>
     expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'),
   )
-  expect(stats().selectorRuns).toBe(0)
-  expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
+  expect(wholeRows.mock.calls).toEqual([])
+  expect(enabled.runtime).not.toHaveProperty('subscribe')
 })
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
