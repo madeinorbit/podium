@@ -573,7 +573,7 @@ export function withDeliveryQueue(
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
-    if (!input.deliveryRecovery && !finished.has(input.rowId) && !rows.has(input.rowId) && !held.has(input.rowId) &&
+    if (input.deliveryRecovery === false && !finished.has(input.rowId) && !rows.has(input.rowId) && !held.has(input.rowId) &&
         !journal?.read(input.rowId)) journal?.store(input.rowId)
     const recovered = journal?.read(input.rowId)
     const recorded = recovered?.outcome
@@ -587,7 +587,7 @@ export function withDeliveryQueue(
         input: journal
           ? { ...input,
               deliveryRecovery: recovered?.typingStarted === true || recorded?.outcome === 'accepted' ||
-                (input.deliveryRecovery === true && (!recovered || input.held === 'durable')),
+                (input.deliveryRecovery !== false && (!recovered || input.held === 'durable')),
               ...(recorded?.outcome === 'accepted' && recorded.held === 'durable' ? { held: 'durable' } : {}),
             }
           : input,

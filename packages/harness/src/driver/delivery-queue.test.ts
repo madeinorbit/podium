@@ -8,7 +8,7 @@ afterEach(() => vi.useRealTimers())
 
 describe('daemon restart before typing (POD-5556)', () => {
   const options = { origin: 'mail', delivery: 'when-ready' } as const
-  const input = { id: 'held-mail', rowId: 'held-mail', text: 'send after the turn' }
+  const input = { id: 'held-mail', rowId: 'held-mail', text: 'send after the turn', deliveryRecovery: false }
 
   function owner(journal: DeliveryJournal) {
     let phase = 'working'

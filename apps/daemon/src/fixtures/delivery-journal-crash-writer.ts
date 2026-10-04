@@ -26,7 +26,7 @@ const handle = withDeliveryQueue({
   process.stdout.write('outcome-durable\n')
 }, undefined, undefined, outbox.deliveryJournal(sessionId))
 
-await handle.send({ id: 'held-mail', rowId: 'held-mail', text: 'send after the turn' }, { origin: 'mail', delivery: 'when-ready' })
+await handle.send({ id: 'held-mail', rowId: 'held-mail', text: 'send after the turn', deliveryRecovery: false }, { origin: 'mail', delivery: 'when-ready' })
 if (mode === 'held') process.stdout.write('held-untyped\n')
 // The parent SIGKILLs this exact recorded child, without any shutdown flush.
 setInterval(() => {}, 60_000)
