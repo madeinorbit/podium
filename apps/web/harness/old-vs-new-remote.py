@@ -66,6 +66,10 @@ try:
                 held=False
     code=child.wait()
 except Exception:
+    # A relay can disconnect after granting the lock but before printing JSON.
+    # Release is ownership-checked by Podium; it cannot release another holder.
+    if not held:
+        subprocess.run(['podium','lock','release',name],capture_output=True,text=True)
     # Closing SSH alone does not reap a remote process waiting for its lease.
     # Use only the PIDs recorded by this invocation, and verify their checkout.
     cleanup='''from pathlib import Path
