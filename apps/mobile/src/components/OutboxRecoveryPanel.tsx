@@ -12,6 +12,7 @@ import {
 import { useStoreHandle } from '@podium/client-core/react'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
+import * as Clipboard from 'expo-clipboard'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
@@ -39,6 +40,16 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(authored ?? '')
   const [failed, setFailed] = useState<string | null>(null)
+
+  const copyAuthored = async () => {
+    if (authored === null) return
+    try {
+      await Clipboard.setStringAsync(authored)
+      setFailed(null)
+    } catch {
+      setFailed('Couldn’t copy your text. Select the text to copy it.')
+    }
+  }
 
   useEffect(() => {
     setEditing(false)
@@ -164,12 +175,15 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
               />
             ) : null}
             {authored !== null ? (
-              <RecoveryButton
-                icon={Pencil}
-                label="Edit"
-                primary={copy.retryLabel === undefined}
-                onPress={() => setEditing(true)}
-              />
+              <>
+                <RecoveryButton label="Copy" onPress={copyAuthored} testID="outbox-copy" />
+                <RecoveryButton
+                  icon={Pencil}
+                  label="Edit"
+                  primary={copy.retryLabel === undefined}
+                  onPress={() => setEditing(true)}
+                />
+              </>
             ) : null}
           </>
         )}

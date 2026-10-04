@@ -69,7 +69,7 @@ import type {
   OutboxOutcome,
   SpawnPlaceholderEvent,
 } from '@podium/client-core/engine'
-import type { OutboxEntry } from '@podium/client-core/outbox'
+import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asMutationId, type MutationId } from '@podium/model'
 import { type ObservableMap, observable, runInAction } from 'mobx'
@@ -120,7 +120,8 @@ export interface PoolRejection {
 export interface PoolTransactionsPorts {
   /** The principal whose per-user rows the log paints. */
   readonly userId: string
-  readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe'>
+  readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe'> &
+    Partial<Pick<EngineOutbox, 'deadLetters'>>
   /** Applied, refused and superseded answers by mutation id. */
   readonly outcomes: (listener: (outcome: OutboxOutcome) => void) => () => void
   /** The outbox's single enqueue path, under the log's id and press clock. */
@@ -161,6 +162,9 @@ export interface PoolTransactions {
   write<K extends AnyKind>(kind: K, input: OutboxKinds[K]): Promise<void>
   /** Fires after a refused or failed change's models rebased. */
   onRejected(listener: (rejection: PoolRejection) => void): () => void
+  /** TRACKED, keyed by row: a refused or expired record is parked for recovery.
+   * Reads only the outbox index, never the target or the legacy snapshot. */
+  notSaved(kind: PoolRow['kind'], id: string): boolean
   /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
   readonly spawnPrompts: ReadonlyMap<string, string | null>
   /** Transactions in the log, painted or queued (tests and meters). */
@@ -243,6 +247,47 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     deep: false,
     name: debugName(() => 'transactions.spawnPrompts'),
   })
+  const notSavedRows = observable.map<string, number>(undefined, {
+    deep: false,
+    name: debugName(() => 'transactions.notSaved'),
+  })
+  const parked = new Map<MutationId, {
+    entry: OutboxEntry
+    rows: ReadonlyMap<string, PoolRow>
+  }>()
+
+  /** An index of the durable parked records, including boot, expiry and recovery.
+   * Keep row slots stable when unrelated queue entries change. Multiple refusals
+   * on one row keep its mark until the last one leaves recovery. */
+  function reconcileParked(): void {
+    const records: readonly OutboxDeadLetterEntry[] = ports.outbox.deadLetters?.() ?? []
+    const seen = new Set<MutationId>()
+    const removeParked = (id: MutationId): void => {
+      const previous = parked.get(id)
+      if (!previous) return
+      for (const key of previous.rows.keys()) {
+        const count = notSavedRows.get(key)! - 1
+        if (count) notSavedRows.set(key, count)
+        else notSavedRows.delete(key)
+      }
+      parked.delete(id)
+    }
+    for (const { entry } of records) {
+      seen.add(entry.mutationId)
+      const previous = parked.get(entry.mutationId)
+      if (previous?.entry.kind === entry.kind && previous.entry.input === entry.input) continue
+      removeParked(entry.mutationId)
+      const rows = rowsOf(reduce(entry))
+      // Sending text paints no model, but a refused send belongs to its session.
+      if (entry.kind === 'sendText') {
+        const { sessionId } = entry.input as OutboxKinds['sendText']
+        rows.set(`session:${sessionId}`, { kind: 'session', id: sessionId })
+      }
+      parked.set(entry.mutationId, { entry, rows })
+      for (const key of rows.keys()) notSavedRows.set(key, (notSavedRows.get(key) ?? 0) + 1)
+    }
+    for (const id of parked.keys()) if (!seen.has(id)) removeParked(id)
+  }
   const rejected = new Set<(rejection: PoolRejection) => void>()
   let cancelSweep: (() => void) | null = null
   const offs: (() => void)[] = []
@@ -627,6 +672,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     }
   }
   reconcile()
+  runInAction(reconcileParked)
   if (ports.spawns !== undefined) {
     const current = ports.spawns.current()
     spawns = current.overlays.filter((o): o is InsertOverlay => o.op === 'insert')
@@ -637,12 +683,16 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   offs.push(
     ports.outbox.subscribe(() => {
-      if (!disposed) runInAction(() => commit(new Map([...reconcile(), ...settle()])))
+      if (!disposed) runInAction(() => {
+        reconcileParked()
+        commit(new Map([...reconcile(), ...settle()]))
+      })
     }),
     ports.outcomes((outcome) => {
       if (disposed) return
       let refusal: PoolRejection | null = null
       runInAction(() => {
+        reconcileParked()
         if (outcome.type === 'applied') onApplied(outcome.entry)
         else if (outcome.type === 'rejected') {
           refusal = onRefused(outcome.entry, outcome.parked, outcome.reason)
@@ -767,6 +817,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   return {
     pending,
     spawnPrompts,
+    notSaved: (kind, id) => notSavedRows.has(`${kind}:${id}`),
 
     bind(next) {
       source = next
@@ -803,7 +854,11 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       settled.clear()
       rejected.clear()
       source = null
-      runInAction(() => spawnPrompts.clear())
+      parked.clear()
+      runInAction(() => {
+        spawnPrompts.clear()
+        notSavedRows.clear()
+      })
     },
   }
 }

@@ -191,6 +191,7 @@ export interface PoolLazyOptions {
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
 export interface PoolMutator {
   mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
+  notSaved?(kind: 'issue' | 'session', id: string): boolean
   /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
   readonly spawnPrompts: ReadonlyMap<string, string | null>
 }
@@ -860,6 +861,12 @@ export class MobxPool {
    */
   spawnPlaceholders(): ReadonlyMap<string, string | null> | null {
     return this.spawnLog?.spawnPrompts ?? null
+  }
+
+  /** TRACKED: the row has a refused or expired change kept by the outbox.
+   * This reads the transaction index only; it never loads the target's row. */
+  notSaved(kind: 'issue' | 'session', id: string): boolean {
+    return this.transactions?.notSaved?.(kind, id) ?? false
   }
 
   /**
