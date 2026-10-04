@@ -382,10 +382,7 @@ try {
     const titles = new Map<string, string>()
     if (issuePageAction) {
       for (const id of targets) {
-        const title = await page
-          .locator(`[data-issue-row="${id}"] .shell-work-row-title`)
-          .first()
-          .textContent()
+        const title: string | undefined = labels[id]?.title
         if (!title) throw new Error('Issue-page target has no title')
         titles.set(id, title.trim())
       }
