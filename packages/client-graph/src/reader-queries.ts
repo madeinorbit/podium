@@ -283,11 +283,10 @@ export class ReaderQueries {
     }
     return result.get() as Loaded<T[]>
   }
-  /** The row source's candidates alone, for an identity facet no pool-side
-   * edit can change: a session's server-assigned birth reference. The source
-   * files every row it emits, overlaid spawn placeholders included, so the
-   * resident union `ids` adds would only enumerate every resident session. */
-  indexed(question: Extract<ReaderQuestion, { kind: 'sessionReference' }>): string[] {
+  /** The row source's indexed candidates, including pending spawn rows. These
+   * questions use the source's birth-reference and repository buckets without
+   * enumerating every resident row. */
+  indexed(question: Extract<ReaderQuestion, { kind: 'sessionReference' | 'spawnIssues' }>): string[] {
     const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question))
     const ids = index.readerIds(question)
     this.counts.questions++

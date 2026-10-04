@@ -1,5 +1,5 @@
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
-import type { IssueProjection } from '@podium/model/browser'
+import type { IssueProjection } from '@podium/model'
 import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
@@ -684,9 +684,7 @@ describe('web pool navigation', () => {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = enabled
-        ? createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
-        : undefined
+      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
       try {
         if (handle) runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         const st = referenceState(runtime)

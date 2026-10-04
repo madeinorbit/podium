@@ -21,28 +21,14 @@ import type { SessionValues, SessionView } from '../session-values'
  * A create mints server-assigned ids, so — unlike the edit mutations already wired
  * into the optimistic path — the client can't pre-insert a row without an id. We
  * close that gap by generating the ids client-side and passing them to the server
- * verbatim; these builders produce the fully-valid rows the store's optimistic
- * overlay shows instantly, until the server's own broadcast (same ids) reconciles.
+ * verbatim; these builders produce the fully-valid rows PoolTransactions
+ * paints instantly, until the server's own broadcast (same ids) reconciles.
  *
  * They mirror the server's construction (`relay.spawn` / `issues.createDraftFor` →
  * `issues.create`) so the optimistic row and the eventual real row are the same
  * shape — no flicker on reconcile. The builders are unit-tested against the
  * protocol zod schemas so a new required field fails the test, not the UI.
  */
-
-/**
- * Overlay merge for the optimistic path: `base` (server truth) plus any `overlay`
- * rows whose id isn't already in `base`. Base always wins — so when the real row
- * (same id) arrives it replaces the optimistic one with no duplicate. Returns the
- * SAME `base` reference when nothing is added, so an empty/reconciled overlay
- * doesn't churn the live-query consumers into a re-render.
- */
-export function mergeOptimistic<T>(base: T[], overlay: T[], keyOf: (row: T) => string): T[] {
-  if (overlay.length === 0) return base
-  const baseKeys = new Set(base.map(keyOf))
-  const extra = overlay.filter((row) => !baseKeys.has(keyOf(row)))
-  return extra.length === 0 ? base : [...base, ...extra]
-}
 
 /** Browser-safe basename — the server titles a fresh session `basename(cwd)`. */
 function basename(path: string): string {
