@@ -22,6 +22,12 @@ function fixture(issues: readonly IssueViewModel[], workers: ReadonlyMap<string,
   pool.apply({
     type: 'replace',
     rows: [
+      // The canonical feed carries a logical repo as a worktree record without a path.
+      ...[...repos.values()].map((value) => ({
+        kind: 'worktree' as const,
+        id: value.id,
+        value: value as never,
+      })),
       ...issues.map((issue) => ({
         kind: 'issue' as const,
         id: issue.id,
@@ -48,11 +54,6 @@ function fixture(issues: readonly IssueViewModel[], workers: ReadonlyMap<string,
         }),
       ),
     ],
-  })
-  const repoById = new Map([...repos.values()].map((repo) => [repo.id, repo]))
-  pool.sources.register(['repo'], {
-    read: (_entity, id) => repoById.get(id) as never,
-    dispose() {},
   })
   return pool
 }
