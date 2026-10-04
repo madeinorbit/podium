@@ -1,7 +1,4 @@
-import {
-  type IssueReferenceSource,
-  issueReferenceModel,
-} from '@podium/client-core/values'
+import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { IssueReferences } from '@podium/client-graph/issue-reference'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -185,7 +182,7 @@ describe('per-issue pool references', () => {
     const cold = Array.from({ length: 50 }, (_, i) => issue(i + 1, { archived: true }))
     const load = vi.fn((_entity: string, id: string) => cold.find((row) => row.id === id))
     const due: Array<() => void> = []
-    const ids = new Map(cold.map(row => [`POD-${row.seq}`, row.id]))
+    const ids = new Map(cold.map((row) => [`POD-${row.seq}`, row.id]))
     const issueIdByRef = vi.fn((ref: string) => ids.get(ref))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
       load,
@@ -229,12 +226,18 @@ describe('per-issue pool references', () => {
     const load = vi.fn(() => localRow)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
       load,
-      issueIdByRef: ref => ref === 'POD-1' ? localRow?.id : undefined,
-      schedule: run => { due.push(run); return () => {} },
+      issueIdByRef: (ref) => (ref === 'POD-1' ? localRow?.id : undefined),
+      schedule: (run) => {
+        due.push(run)
+        return () => {}
+      },
     })
-    pool.apply({ type: 'replace', rows: [
-      { kind: 'worktree', id: 'r', value: { id: 'r', prefix: 'POD', repoPath: '/r' } as never },
-    ] })
+    pool.apply({
+      type: 'replace',
+      rows: [
+        { kind: 'worktree', id: 'r', value: { id: 'r', prefix: 'POD', repoPath: '/r' } as never },
+      ],
+    })
     const paint = vi.fn()
     const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
     due.shift()!()
@@ -254,7 +257,7 @@ describe('per-issue pool references', () => {
     const cold = issue(1, { archived: true })
     const due: Array<() => void> = []
     let localRow: typeof cold | undefined
-    const issueIdByRef = vi.fn((ref: string) => ref === 'POD-1' ? localRow?.id : undefined)
+    const issueIdByRef = vi.fn((ref: string) => (ref === 'POD-1' ? localRow?.id : undefined))
     const load = vi.fn(() => localRow)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
       load,

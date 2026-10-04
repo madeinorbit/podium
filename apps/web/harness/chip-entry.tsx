@@ -51,7 +51,7 @@ const ISSUES: Issue[] = [
 ]
 
 const rows = new Map(ISSUES.map((row) => [row.id, row]))
-const ids = new Map(ISSUES.map((row) => [row.displayRef!, row.id]))
+const ids = new Map(ISSUES.map((row) => [`POD-${row.seq}`, row.id]))
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
   load: (_entity, id) => rows.get(id as Issue['id']),
   issueIdByRef: (ref) => ids.get(ref),
@@ -113,7 +113,14 @@ const stop = bindIssueRefAnchors(after, {
     return view.subscribe(update)
   },
 })
-window.addEventListener('pagehide', () => { stop(); pool.dispose() }, { once: true })
+window.addEventListener(
+  'pagehide',
+  () => {
+    stop()
+    pool.dispose()
+  },
+  { once: true },
+)
 
 window.chips = {
   restage(seq, stage) {
@@ -127,7 +134,10 @@ window.chips = {
     if (!target) throw new Error(`no fixture issue POD-${seq}`)
     const changed = { ...target, stage }
     rows.set(target.id, changed)
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: target.id, value: changed as never }] })
+    pool.apply({
+      type: 'update',
+      rows: [{ kind: 'issue', id: target.id, value: changed as never }],
+    })
     const anchorNow = after.querySelector<HTMLAnchorElement>(selector)
     return { sameAnchor: anchorNow === anchorWas, sameText: anchorNow?.firstChild === textWas }
   },

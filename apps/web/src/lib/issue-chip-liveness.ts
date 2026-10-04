@@ -14,8 +14,18 @@ export function paintIssueRefAnchor(
   const loading = model === 'loading'
   const ready = loading ? null : model
   let changed = setOrRemove(anchor, 'data-issue-stage', ready?.stage ?? null)
-  changed = setOrRemove(anchor, 'data-issue-availability', loading ? 'loading' : ready?.availability ?? 'unavailable') || changed
-  changed = setOrRemove(anchor, 'aria-label', ready?.accessibleLabel ?? `Task ${ref} is ${loading ? 'loading' : 'unavailable'}`) || changed
+  changed =
+    setOrRemove(
+      anchor,
+      'data-issue-availability',
+      loading ? 'loading' : (ready?.availability ?? 'unavailable'),
+    ) || changed
+  changed =
+    setOrRemove(
+      anchor,
+      'aria-label',
+      ready?.accessibleLabel ?? `Task ${ref} is ${loading ? 'loading' : 'unavailable'}`,
+    ) || changed
   return changed
 }
 
@@ -28,9 +38,14 @@ export function bindIssueRefAnchors(root: HTMLElement, reader: IssueChipReader):
     const previous = bindings.get(anchor)
     if (previous?.ref === ref) return
     previous?.stop()
-    bindings.set(anchor, { ref, stop: reader.watch(ref, (model) => paintIssueRefAnchor(anchor, model)) })
+    bindings.set(anchor, {
+      ref,
+      stop: reader.watch(ref, (model) => paintIssueRefAnchor(anchor, model)),
+    })
   }
-  const add = (node: ParentNode): void => { for (const anchor of issueAnchorsWithin(node)) bind(anchor) }
+  const add = (node: ParentNode): void => {
+    for (const anchor of issueAnchorsWithin(node)) bind(anchor)
+  }
   add(root)
   const observer = new MutationObserver((records) => {
     for (const record of records) {
@@ -49,7 +64,12 @@ export function bindIssueRefAnchors(root: HTMLElement, reader: IssueChipReader):
       }
     }
   })
-  observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-ref'] })
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-ref'],
+  })
   return () => {
     observer.disconnect()
     for (const binding of bindings.values()) binding.stop()

@@ -74,7 +74,9 @@ describe('pool chip DOM boundary', () => {
           enumerations: 0,
           redraws: 1,
         })
-        expect(host.querySelector('a')?.getAttribute('aria-label')).toBe('Review task POD-1: Task 1')
+        expect(host.querySelector('a')?.getAttribute('aria-label')).toBe(
+          'Review task POD-1: Task 1',
+        )
         console.log(`CHIP_RENDER_COUNTS ${JSON.stringify(measurement)}`)
       } finally {
         act(() => react.unmount())

@@ -1,4 +1,4 @@
-import { issueReferenceModel, type IssueReferenceSource } from '@podium/client-core/values'
+import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
 import { describe, expect, it, vi } from 'vitest'
 import { bindIssueRefAnchors, paintIssueRefAnchor } from './issue-chip-liveness'
 

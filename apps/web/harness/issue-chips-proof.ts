@@ -209,14 +209,15 @@ try {
         trafficDom.retainedRows !== 120 ||
         !trafficDom.pinnedPresent ||
         !trafficDom.pinnedRetained ||
-        evidence.reads !== 0 || evidence.paints !== 0
+        evidence.reads !== 0 ||
+        evidence.paints !== 0
       )
         throw new Error(`Unchanged conversation DOM replaced: ${JSON.stringify(evidence)}`)
     }
     if (
       trafficMounts.changed !== 0 ||
-        traffic.redraws - before.redraws !== trafficMounts.added ||
-        traffic.reads - before.reads > trafficMounts.added * 4
+      traffic.redraws - before.redraws !== trafficMounts.added ||
+      traffic.reads - before.reads > trafficMounts.added * 4
     )
       throw new Error(
         `Session traffic woke unchanged pool chips: ${JSON.stringify({ before, traffic, trafficMounts })}`,
@@ -264,12 +265,12 @@ try {
     ).length
     if (changedChips < 2 || changedChips > 12) throw new Error(`Wrong chip fanout: ${changedChips}`)
     if (
-        after.redraws - traffic.redraws !== issueMounts.added + issueMounts.changed ||
-        after.reads - traffic.reads > issueMounts.added * 4 + issueMounts.changed * 2
+      after.redraws - traffic.redraws !== issueMounts.added + issueMounts.changed ||
+      after.reads - traffic.reads > issueMounts.added * 4 + issueMounts.changed * 2
+    )
+      throw new Error(
+        `Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`,
       )
-        throw new Error(
-          `Chip census exceeded the changed-chip fanout: ${JSON.stringify({ changedChips, issueMounts, traffic, after })}`,
-        )
     if (errors.length || (await page.evaluate(() => window.__issueChips.failures())).length)
       throw new Error(`Browser errors: ${errors.join('; ')}`)
     // The full conversation owns the existing Markdown click router. Drive
@@ -356,14 +357,7 @@ try {
     })
     await page.close()
   }
-  await writeFile(
-    `${out}/result.json`,
-    JSON.stringify(
-      { results },
-      null,
-      2,
-    ),
-  )
+  await writeFile(`${out}/result.json`, JSON.stringify({ results }, null, 2))
   console.log(JSON.stringify(results))
 } finally {
   await browser?.close()

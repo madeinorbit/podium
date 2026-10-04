@@ -1,10 +1,10 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** The full ChatView and chip components over a private runtime.
  * Operator-sized synthetic data, no network or operator cache. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
