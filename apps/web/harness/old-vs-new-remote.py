@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--arm', required=True)
@@ -29,6 +30,7 @@ if args.background_only:argv.append('--background-only')
 command=f'cd "$HOME/{checkout}" && export PATH="$PWD/.toolchain:$PATH" && export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && exec .toolchain/bun --conditions=@podium/source apps/web/harness/old-vs-new.mjs '+shlex.join(argv)
 child=subprocess.Popen(['ssh','-o','BatchMode=yes','flatblock',command],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
 held=False
+failure=None
 observations=0
 root=pathlib.Path('.artifacts/old-vs-new-remote')
 root.mkdir(parents=True,exist_ok=True)
@@ -40,11 +42,18 @@ try:
                 observations+=1
                 if observations%20==0:print(f'PROGRESS {pathlib.Path(relative).name}: {observations} action observations; latest {line.strip()}',flush=True)
             else:print(line,end='',flush=True)
+            if line.startswith('{"status":'):
+                failure=json.loads(line).get('failure')
             output.write(line);output.flush()
             if line.startswith('CAPTURE_READY '):
                 # OLD 4x can spend more than twenty minutes in its foreground
                 # action matrix. The lease still ends at CAPTURE_FINISHED.
-                acquired=subprocess.run(['podium','lock','acquire',name,'--ttl','45m','--wait','--json'],capture_output=True,text=True,check=True)
+                for attempt in range(5):
+                    acquired=subprocess.run(['podium','lock','acquire',name,'--ttl','45m','--wait','--json'],capture_output=True,text=True)
+                    if acquired.returncode==0:break
+                    print(f'Lease client attempt {attempt+1} failed: {acquired.stderr.strip()}',flush=True)
+                    time.sleep(2)
+                acquired.check_returncode()
                 grant=json.loads(acquired.stdout)
                 if not grant.get('data',{}).get('granted'):raise RuntimeError('Capture lease not granted')
                 held=True
@@ -56,9 +65,33 @@ try:
                 subprocess.run(['podium','lock','release',name],check=True)
                 held=False
     code=child.wait()
+except Exception:
+    # Closing SSH alone does not reap a remote process waiting for its lease.
+    # Use only the PIDs recorded by this invocation, and verify their checkout.
+    cleanup='''from pathlib import Path
+import datetime,json,os,signal,time
+checkout=Path.home()/CHECKOUT
+file=checkout/RELATIVE/'run.json'
+if file.is_file():
+ run=json.loads(file.read_text())
+ pids=run.get('pids',[])
+ for entry in sorted(pids,key=lambda p:p['role']=='collector'):
+  pid=entry['pid']
+  try:
+   if Path(os.readlink(f'/proc/{pid}/cwd'))!=checkout:raise RuntimeError('Recorded PID ownership changed')
+   os.kill(pid,signal.SIGTERM)
+  except FileNotFoundError:pass
+  time.sleep(1)
+ if not run.get('captureStartedAt') and not run.get('lease'):
+  run.update(originalPurpose=run['purpose'],purpose='preparation-failure',status='failed',excludedReason='Lease controller failed before capture; recorded processes were cleaned.',endedAt=datetime.datetime.now(datetime.timezone.utc).isoformat())
+  file.write_text(json.dumps(run,indent=2)+'\\n')
+ print('Cleaned recorded PIDs',pids)
+'''.replace('CHECKOUT',repr(checkout)).replace('RELATIVE',repr(relative))
+    subprocess.run(['ssh','-o','BatchMode=yes','flatblock','python3 -c '+shlex.quote(cleanup)],check=True)
+    raise
 finally:
     if held:subprocess.run(['podium','lock','release',name],check=True)
     if child.poll() is None:
         # This is our recorded foreground SSH process, never a pattern kill.
         child.terminate();child.wait(timeout=20)
-sys.exit(code)
+sys.exit(2 if code and args.arm=='old' and args.surface=='phone' and failure and '185' in failure else code)

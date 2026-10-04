@@ -29,6 +29,6 @@ for surface in surfaces:
                 result=subprocess.run(command)
                 # A failed OLD phone startup is retained as absence of evidence;
                 # its NEW neighbour still runs. Other failures stop the matrix.
-                if result.returncode and not (arm=='old' and surface=='phone'):
+                if result.returncode and not (result.returncode==2 and arm=='old' and surface=='phone'):
                     sys.exit(result.returncode)
 if not started:raise SystemExit('Requested start point is not in this matrix')

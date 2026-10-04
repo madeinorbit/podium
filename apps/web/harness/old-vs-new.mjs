@@ -53,7 +53,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
-  loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[], bootstraps:[], status:'running' }
+  loadStart:loadavg(), actions:[], unavailable:[], background:[], errors:[], pids:[{role:'collector',pid:process.pid}], bootstraps:[], status:'running' }
 const save = () => writeFileSync(resolve(out, 'run.json'), JSON.stringify(result, null, 2)+'\n')
 save()
 const port = surface === 'web' ? 19551 : 19552
@@ -955,5 +955,5 @@ try {
   if(declarationTracked)execFileSync('git',['restore','--source=HEAD','--','packages/api-types/src/index.d.ts'])
   save()
 }
-console.log(JSON.stringify({status:result.status,out,actions:result.actions.length,unavailable:result.unavailable.length}))
+  console.log(JSON.stringify({status:result.status,out,actions:result.actions.length,unavailable:result.unavailable.length,failure:result.failure}))
 if(result.status==='failed')process.exitCode=1
