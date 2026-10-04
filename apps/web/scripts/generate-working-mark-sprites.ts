@@ -1,16 +1,18 @@
 /**
- * Generate the three raster alpha-mask frame strips used by WorkingMark.
+ * Generate the three animated raster alpha masks used by WorkingMark.
  *
  * The old mark animated every SVG circle. Chromium laid out the page on most
  * animation frames, so two visible marks consumed a large fraction of one
  * renderer core. These strips sample the same per-dot opacity, scale, delays,
- * and 1.5 s cycle at 30 fps. Raster masks avoid WebKit repeatedly invalidating
- * the external SVG resource while the strip moves. Keep the SVG sources for
- * inspecting the generated dot geometry.
+ * and 1.5 s cycle at 30 fps. Each APNG frame occupies only one 66×100 cell:
+ * WebKit no longer updates an external SVG mask or traverses the compositing
+ * tree for a translated, 4500%-height layer. Keep the SVG strips as geometry
+ * sources. PNG's animation chunks are defined in https://www.w3.org/TR/png-3/.
  *
  * Usage: bun apps/web/scripts/generate-working-mark-sprites.ts
  */
 import sharp from 'sharp'
+import { deflateSync } from 'node:zlib'
 
 const FRAME_COUNT = 45
 const CYCLE_MS = 1_500
@@ -30,6 +32,61 @@ const RADII = {
   medium: 10.5,
   large: 9.5,
 } as const
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const name = Buffer.from(type)
+  let crc = 0xffffffff
+  for (const byte of Buffer.concat([name, data])) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+  }
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  const checksum = Buffer.alloc(4)
+  checksum.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
+  return Buffer.concat([length, name, data, checksum])
+}
+
+/** Full-cell, source-blended frames prevent alpha from accumulating on loops. */
+function animatedMask(pixels: Buffer, width: number): Buffer {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(100, 4)
+  header[8] = 8 // RGBA, eight bits per channel.
+  header[9] = 6
+  const animation = Buffer.alloc(8)
+  animation.writeUInt32BE(FRAME_COUNT, 0) // Zero plays means loop forever.
+  const chunks = [
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    pngChunk('IHDR', header),
+    pngChunk('acTL', animation),
+  ]
+  let sequence = 0
+  for (let frame = 0; frame < FRAME_COUNT; frame++) {
+    const control = Buffer.alloc(26)
+    control.writeUInt32BE(sequence++, 0)
+    control.writeUInt32BE(width, 4)
+    control.writeUInt32BE(100, 8)
+    control.writeUInt16BE(CYCLE_MS, 20)
+    control.writeUInt16BE(FRAME_COUNT * 1000, 22)
+    chunks.push(pngChunk('fcTL', control))
+    const stride = width * 4
+    const scanlines = Buffer.alloc((stride + 1) * 100)
+    for (let y = 0; y < 100; y++) {
+      const start = (frame * 100 + y) * stride
+      pixels.copy(scanlines, y * (stride + 1) + 1, start, start + stride)
+    }
+    const compressed = deflateSync(scanlines)
+    if (frame === 0) chunks.push(pngChunk('IDAT', compressed))
+    else {
+      const frameSequence = Buffer.alloc(4)
+      frameSequence.writeUInt32BE(sequence++)
+      chunks.push(pngChunk('fdAT', Buffer.concat([frameSequence, compressed])))
+    }
+  }
+  chunks.push(pngChunk('IEND', Buffer.alloc(0)))
+  return Buffer.concat(chunks)
+}
 
 function lerp(from: number, to: number, amount: number): number {
   return from + (to - from) * amount
@@ -83,9 +140,14 @@ await Promise.all(
     (async () => {
       const source = sprite(radius, label)
       await Bun.write(new URL(`../src/lib/motion/working-mark-${label}.svg`, import.meta.url), source)
-      await sharp(Buffer.from(source))
-        .png()
-        .toFile(new URL(`../src/lib/motion/working-mark-${label}.png`, import.meta.url).pathname)
+      const { data, info } = await sharp(Buffer.from(source))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      await Bun.write(
+        new URL(`../src/lib/motion/working-mark-${label}.png`, import.meta.url),
+        animatedMask(data, info.width),
+      )
     })(),
   ),
 )

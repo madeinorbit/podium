@@ -35,15 +35,11 @@
 
 /* THE WORKING MARK — the braille cell held still and lit in a travelling wave
    (see WorkingMark.tsx). The former eight SVG-circle animations forced Chromium
-   through style and layout on most frames. A generated alpha-mask strip now
-   holds sampled dot states from the same wave. Use a raster alpha mask: moving
-   an external SVG mask repeatedly invalidates its resource and compositing
-   hierarchy in WebKit (POD-5508). */
-@keyframes podium-mark-frames {
-  to {
-    transform: translate3d(0, -100%, 0);
-  }
-}
+   through style and layout on most frames. A generated animated PNG now holds
+   the same wave in one fixed-size alpha-mask cell. Moving a tall external SVG
+   mask repeatedly invalidates its resource and compositing hierarchy in
+   WebKit; image frames avoid both that resource and CSS transform animation
+   (POD-5508). */
 
 /* One-shot morphs. Every class below runs its animation exactly once when the
    element mounts with the class applied — none of them loop. Consumers gate
@@ -143,14 +139,12 @@
   left: 0;
   display: block;
   width: 100%;
-  height: 4500%;
+  height: 100%;
   background: var(--mark-color, var(--motion-working));
   -webkit-mask-repeat: no-repeat;
   -webkit-mask-size: 100% 100%;
   mask-repeat: no-repeat;
   mask-size: 100% 100%;
-  will-change: transform;
-  animation: podium-mark-frames 1.5s steps(45, end) infinite;
 }
 .pod-mark-small .pod-mark-frames {
   -webkit-mask-image: url("./working-mark-small.png");

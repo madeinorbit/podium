@@ -4,8 +4,8 @@
  * buttons, and the end of a transcript.
  *
  * It is the braille cell the status strip used to SPIN, held still and lit in a
- * travelling wave instead. Eight dots, two columns of four; one compositor
- * frame strip carries the staggered light down the cell. No rotation, no canvas,
+ * travelling wave instead. Eight dots, two columns of four; one animated raster
+ * mask carries the staggered light down a fixed-size cell. No rotation, no canvas,
  * no JavaScript frame loop — and no beat you could point at, which is what lets
  * the same mark sit inside a dense mono row AND be stared at for a minute at the
  * tail of a feed without reading as a terminal artefact. Before this there were
