@@ -1,8 +1,9 @@
-import { getObserverTree } from 'mobx'
+import { compareStructural, getObserverTree } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
+import { projectionComparisonMechanism } from '../diagnostics/projection-comparison-mechanism'
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -17,7 +18,7 @@ function fixture() {
   // input while preserving the projected result. The size atom also exposes
   // the projection's real observer lifetime through getObserverTree.
   const read = vi.fn((current: MobxPool) => ({ selected: current.selection.size > 0 && current.selection.has('target') }))
-  const view = createPoolProjection(pool, read)
+  const view = createPoolProjection(pool, read, { equals: compareStructural })
   const subscribe = (wake = vi.fn()) => {
     const stop = view.subscribe(wake)
     cleanups.push(stop)
@@ -28,6 +29,12 @@ function fixture() {
     observers: () => getObserverTree(pool.selection).observers?.length ?? 0,
   }
 }
+
+it('uses reference equality without reading collection fields at either scale', () => {
+  for (const scale of [1, 4] as const) {
+    expect(projectionComparisonMechanism(scale)).toEqual({ scale, derivations: 1, comparedFields: 0 })
+  }
+})
 
 it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
   const f = fixture()

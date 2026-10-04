@@ -145,13 +145,28 @@ export function createReplicatedLayoutController(init: {
   const ignoredAwaiting = new Set<MutationId>()
   const accepted = new Map<string, AcceptedLayoutValue>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
-  let notified: LayoutSnapshot = base
+  let notified: LayoutSnapshot = { ...base }
 
   const emit = (candidates?: Iterable<string>): void => {
-    const next = projection()
-    const keys = candidates ?? new Set([...Object.keys(notified), ...Object.keys(next)])
-    const changed = new Set([...keys].filter(key => !Object.is(notified[key], next[key])))
-    notified = next
+    const changed = new Set<string>()
+    if (candidates !== undefined) {
+      // A local operation/queue change identifies its keys. Neither reading
+      // nor signalling one key copies the full persisted layout namespace.
+      const operations = currentOperations()
+      for (const key of candidates) {
+        const next = valueAt(key, operations)
+        if (!Object.is(notified[key], next)) changed.add(key)
+        if (next === undefined) delete notified[key]
+        else notified[key] = next
+      }
+    } else {
+      // An authoritative replacement delivers the full namespace.
+      const next = projection()
+      for (const key of new Set([...Object.keys(notified), ...Object.keys(next)])) {
+        if (!Object.is(notified[key], next[key])) changed.add(key)
+      }
+      notified = next
+    }
     for (const listener of listeners) listener(changed)
   }
 
@@ -196,6 +211,20 @@ export function createReplicatedLayoutController(init: {
       ...durableOperations(),
       ...temporary.map((entry) => entry.operation),
     ])
+
+  const currentOperations = (): readonly LayoutOperation[] => [
+    ...durableOperations(), ...temporary.map(entry => entry.operation),
+  ]
+  const valueAt = (key: string, operations = currentOperations()): unknown => {
+    const held = accepted.get(key)
+    let value = held ? held.present ? held.value : undefined : base[key]
+    for (const operation of operations) {
+      if (operation.kind === 'set') {
+        if (Object.hasOwn(operation.values, key)) value = operation.values[key]
+      } else if (operation.keys.includes(key)) value = undefined
+    }
+    return value
+  }
 
   const snapshotMatches = (
     snapshot: LayoutSnapshot,
@@ -284,15 +313,15 @@ export function createReplicatedLayoutController(init: {
   }
 
   return {
-    get: (key) => projection()[canonicalLayoutKey(key)],
+    get: (key) => valueAt(canonicalLayoutKey(key)),
     set: (key, value) => {
       const canonical = canonicalLayoutKey(key)
-      if (Object.is(projection()[canonical], value)) return
+      if (Object.is(valueAt(canonical), value)) return
       enqueue({ kind: 'set', values: { [canonical]: value } })
     },
     clear: (key) => {
       const canonical = canonicalLayoutKey(key)
-      if (projection()[canonical] === undefined) return
+      if (valueAt(canonical) === undefined) return
       enqueue({ kind: 'clear', keys: [canonical] })
     },
     subscribe: (listener) => {

@@ -39,9 +39,10 @@ async function mount(inline: boolean, initiallyActive = true) {
   let reads = 0
   let renders = 0
   let snapshot: { selected: boolean } | null = null
+  const paints = { selected: { selected: true }, empty: { selected: false } }
   const read = (current: MobxPool) => {
     reads++
-    return { selected: current.selection.size > 0 && current.selection.has('projection-target') }
+    return current.selection.size > 0 && current.selection.has('projection-target') ? paints.selected : paints.empty
   }
   let reader = read
   let target = 'projection-target'
@@ -50,7 +51,7 @@ async function mount(inline: boolean, initiallyActive = true) {
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
     reads++
-    return { selected: current.selection.size > 0 && current.selection.has(captured) }
+    return current.selection.size > 0 && current.selection.has(captured) ? paints.selected : paints.empty
   }
   // This fixture counts ordinary hook-driven renders, including an unchanged
   // parent render. Keep it plain and give React its name without an observer

@@ -45,7 +45,7 @@ import {
   noticeMessages,
   noticeRecovery,
 } from '@podium/client-graph/notice-views'
-import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createPoolProjection, createRuntimeWorklistPool, samePoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
   SESSION_PANE_SUMMARIES,
@@ -94,7 +94,7 @@ import {
 import { type AsyncLedger, installAsyncLedger } from './async-ledger'
 import { FIXED_NOW } from './fixture/corpus'
 import { SCREEN_ACTIONS, type ScreenAction, type ScreenWorkCell } from './screen-work-ratios'
-import { countedStructuralEqual, insideReader, measureWork } from './work-meter'
+import { insideReader, measureWork } from './work-meter'
 
 const ROOT = 'guard-root',
   CHILD = 'guard-child',
@@ -572,7 +572,7 @@ async function measureScreenCells(
       const projection = createPoolProjection(pool, () => insideReader(reader.name, reader.read), {
         name: `consumer:${reader.name}`,
         equals: (before, next) =>
-          insideReader(`${reader.name}.compare`, () => countedStructuralEqual(before, next)),
+          insideReader(`${reader.name}.compare`, () => samePoolProjection(before, next)),
       })
       const paint = () => values.set(reader.name, projection.getSnapshot())
       paint()

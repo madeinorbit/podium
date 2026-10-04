@@ -176,10 +176,10 @@ export function createPoolHost({
     )
   }
 
-  /** Layout-only subscription that keeps one projection and subscription per hook.
-   * Mount and each observed change read once; structurally equal values keep their
-   * identity and do not wake React. A new reader closure is evaluated once in render
-   * to adopt changed captures. Large screens should pass a memoized reader.
+  /** Keeps one projection per hook. Mount and each observed change read once;
+   * readers borrow memoized identities, compared by reference. A new closure
+   * adopts changed captures in render. Hidden owners keep their last paint and
+   * release tracking until focus returns.
    * The MobX implementation arrives with the startup attachment. */
   function usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T, active = true): T {
     const runtime = useStoreHandle()

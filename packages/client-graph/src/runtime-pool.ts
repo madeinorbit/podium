@@ -1,7 +1,7 @@
 import type { SettingsOwner } from './settings-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { attachHeaderSource } from './header-source'
-import { compareStructural, Reaction } from 'mobx'
+import { Reaction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import type { MobxPool } from './pool'
@@ -16,11 +16,15 @@ import { createPoolTransactions, type PoolTransactions, type PoolTransactionsPor
 import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { PoolSummaryFields } from './source-registry'
 
+/** Readers return identities owned by their memoized row/band projections.
+ * Small scalar tuples may opt into an explicit equality function. */
+export const samePoolProjection = Object.is
+
 /** React's scalar/layout readers share MobX tracking without eagerly loading
  * the graph in legacy mode. Rows use observer directly; this seam is for the
  * palette and project controls, which need only a small section projection.
  * Optional diagnostics let the structural harness observe this real boundary;
- * the app keeps the existing reaction name and MobX equality by default. */
+ * the app uses reference equality by default. */
 export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) => T,
   options: { name?: string; equals?: (before: T, next: T) => boolean } = {}) {
   const state = projectionState(pool, read, options)
@@ -98,7 +102,7 @@ function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T,
   return {
     pool,
     name: options.name ?? 'pool projection',
-    equals: options.equals ?? compareStructural,
+    equals: options.equals ?? samePoolProjection,
     read,
     snapshot: null,
     error: null,
