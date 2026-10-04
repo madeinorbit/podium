@@ -192,6 +192,12 @@ export function createShellViews(pool: MobxPool) {
   function shipping() {
     return memo('shipping', () => { const value = dock(); return value && value !== LOADING ? value.shipping : LOADING })
   }
-  return { window, approvals, files, lanes, sessions, issues, issue, machines, repositories, chrome, dock, shipping, close }
+  function windowSnapshot() {
+    return memo('window', () => {
+      const state = window()
+      return state && state !== LOADING ? { ...state } : state
+    })
+  }
+  return { window: windowSnapshot, approvals, files, lanes, sessions, issues, issue, machines, repositories, chrome, dock, shipping, close }
 }
 export function shellViews(pool: MobxPool): ReturnType<typeof createShellViews> { return pool.sources.view('shell-views', () => createShellViews(pool)) }

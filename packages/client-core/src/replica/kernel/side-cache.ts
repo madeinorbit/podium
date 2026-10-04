@@ -294,7 +294,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
 
   // ---- ui-state ----------------------------------------------------------
   let ui = readJson<Record<string, string>>(storage, uiKey, {})
-  const uiListeners = new Set<() => void>()
+  const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
   migrateLegacyUiKeys()
 
   function migrateLegacyUiKeys(): void {
@@ -353,8 +353,10 @@ export function createSideCache(init: SideCacheInit): SideCache {
   // Exact namespaced-key equality is the principal isolation boundary.
   const onStorage = (event: StorageEvent): void => {
     if (event.key !== uiKey) return
-    ui = readJson<Record<string, string>>(storage, uiKey, {})
-    for (const cb of uiListeners) cb()
+    const next = readJson<Record<string, string>>(storage, uiKey, {})
+    const changed = new Set([...Object.keys(ui), ...Object.keys(next)].filter(key => ui[key] !== next[key]))
+    ui = next
+    for (const cb of uiListeners) cb(changed)
   }
   init.storageEventApi?.addEventListener('storage', onStorage)
   const uiState: UiState = {
@@ -368,7 +370,8 @@ export function createSideCache(init: SideCacheInit): SideCache {
         ui[key] = value
       }
       writeJson(storage, uiKey, ui)
-      for (const cb of uiListeners) cb()
+      const changed = new Set([key])
+      for (const cb of uiListeners) cb(changed)
     },
     subscribe: (cb) => {
       uiListeners.add(cb)

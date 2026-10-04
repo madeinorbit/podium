@@ -17,6 +17,7 @@ import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-sc
 import { navigationPoolScreen } from '@podium/client-graph/navigation-screen'
 import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { useProjectionFocus } from './projection-focus'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
@@ -139,7 +140,9 @@ export const attachMobilePool = mobilePool.host.attach
 /** null while the graph attaches. */
 export const useMobilePool = mobilePool.host.usePool
 /** Scalar screen reads share the host's tracking and attachment loading state. */
-export const useMobilePoolProjection = mobilePool.host.usePoolProjection
+export function useMobilePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
+  return mobilePool.host.usePoolProjection(read, empty, useProjectionFocus())
+}
 
 let launchViews: typeof commandLaunchViews | undefined
 const readLaunch = (pool: MobxPool): CommandLaunchData | null => {

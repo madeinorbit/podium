@@ -28,6 +28,7 @@ import {
   ingestOut,
   ingestRecord,
   put,
+  replaceRepoHolders,
   type StoredRow,
 } from './tables'
 
@@ -92,6 +93,7 @@ export function reseed(
     for (const id of gone) drop(target, entity, id, out)
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
+  replaceRepoHolders(incoming.repo, target.write.repo)
   // Only rows the index does not know need visiting beyond the candidates: an
   // index built from these very rows knows them all, and a feed with its own
   // index hands none over.

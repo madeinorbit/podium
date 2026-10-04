@@ -49,20 +49,9 @@ export function createCommandLaunchViews(pool: MobxPool) {
     addressedSessionReads: 0,
   }
   type Window = CommandLaunchRows['commandWindow']
-  const fields = new Map<keyof Window, IComputedValue<Loaded<Window[keyof Window]>>>()
   function windowField<K extends keyof Window>(key: K): Loaded<Window[K]> {
-    let field = fields.get(key)
-    if (!field) {
-      field = computed(
-        () => {
-          const window = read('commandWindow', 'window')
-          return window && window !== LOADING ? window[key] : window
-        },
-        { equals: compareStructural },
-      )
-      fields.set(key, field)
-    }
-    return field.get() as Loaded<Window[K]>
+    const window = read('commandWindow', 'window')
+    return window && window !== LOADING ? window[key] : window
   }
   // Session metadata (notably mark-read) changes one value, not the global
   // catalog or repository activity. Keep the ordered projection current from

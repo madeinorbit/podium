@@ -54,7 +54,8 @@
 
 import { type ObservableMap, observable } from 'mobx'
 import { debugName } from './debug-name'
-import { ingestWorktreeRecord } from './shared/repo-from-lane'
+import { ingestWorktreeRecord, repoFieldOf } from './shared/repo-from-lane'
+import { createFieldInputs } from './shared/field-inputs'
 import { type EntityName, SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 import type { RelationMaintenance } from './relations'
@@ -62,6 +63,18 @@ import type { Residency } from './residency'
 
 /** A stored row: the borrowed object the feed handed out, untouched. */
 export type StoredRow = object
+
+type RepoInputs = { id: unknown; prefix: unknown; repoPath: unknown }
+const repoInputs = new WeakMap<object, ReturnType<typeof createFieldInputs<RepoInputs>>>()
+// Lane ownership is ingest bookkeeping, never a reactive input or a cold index.
+// The shared composer keeps its latest-lane/takeover rule independently of the
+// three declared repo fields exposed by the product's single row reader.
+const repoHolders = new WeakMap<WritableTable, Map<string, StoredRow>>()
+
+/** Replace staging transfers only its resident repo ownership bookkeeping. */
+export function replaceRepoHolders(from: WritableTable, to: WritableTable): void {
+  repoHolders.set(to, new Map(repoHolders.get(from)))
+}
 
 /** The write surface ingest needs; a MobX map and a plain `Map` both have it. */
 export interface WritableTable {
@@ -158,6 +171,22 @@ export function put(
     if (entity === 'issue') target.volatile?.setIssueRead(id, row)
     return
   }
+  if (entity === 'repo') {
+    const next: RepoInputs = {
+      id: (row as { id?: unknown; repoId?: unknown }).id ?? (row as { repoId?: unknown }).repoId ?? id,
+      prefix: repoFieldOf(row, 'prefix'),
+      repoPath: repoFieldOf(row, 'path'),
+    }
+    let inputs = previous && repoInputs.get(previous)
+    if (inputs) {
+      for (const key of ['id', 'prefix', 'repoPath'] as const) inputs.set(key, next[key])
+    } else {
+      inputs = createFieldInputs<RepoInputs>(['id', 'prefix', 'repoPath'], next, `repo:${id}`)
+      repoInputs.set(inputs.row, inputs)
+      target.write.repo.set(id, inputs.row)
+    }
+    return
+  }
   if (
     entity === 'issue' &&
     previous !== undefined &&
@@ -173,6 +202,7 @@ export function put(
 /** Delete `id`, reporting the removal so its model is dropped. */
 export function drop(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
   if (!target.write[entity].delete(id)) return
+  if (entity === 'repo') repoHolders.get(target.write.repo)?.delete(id)
   out.removed.push([entity, id])
   if (entity === 'issue') target.volatile?.removeIssueRead(id)
 }
@@ -181,6 +211,8 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
   const value = record.value as StoredRow | undefined
   if (record.kind === 'worktree') {
+    let holders = repoHolders.get(target.write.repo)
+    if (!holders) { holders = new Map(); repoHolders.set(target.write.repo, holders) }
     // Repo-from-lane is the shared feed-layer composition (POD-4695): the
     // pool only adapts its slot writes. The takeover reads the maintained
     // `repo.worktrees` collection; with no relations (rebuild, replace
@@ -188,9 +220,9 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
     ingestWorktreeRecord(
       {
         getWorktree: (id) => target.read.worktree.get(id) as StoredRow | undefined,
-        getRepo: (id) => target.read.repo.get(id) as StoredRow | undefined,
+        getRepo: (id) => holders.get(id) ?? target.read.repo.get(id) as StoredRow | undefined,
         putWorktree: (id, row) => put(target, 'worktree', id, row, out),
-        putRepo: (id, row) => put(target, 'repo', id, row, out),
+        putRepo: (id, row) => { holders.set(id, row); put(target, 'repo', id, row, out) },
         dropWorktree: (id) => drop(target, 'worktree', id, out),
         dropRepo: (id) => drop(target, 'repo', id, out),
         repoWorktreeMembers: (repoId) => target.relations?.members('repo', repoId, 'worktrees'),

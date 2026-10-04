@@ -3,7 +3,8 @@ import { allResidentSessions } from './enumerate'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { MobxPool } from './pool'
-import type { HeaderEntity, HeaderRecord } from './header-schema'
+import { HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
+import { createFieldInputs } from './shared/field-inputs'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. The metric
  * channel never subscribes to snapshots. Polling has one owner per principal,
@@ -37,13 +38,12 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
       pool.header.order(entity, ids)
     })
   }
-  const windowKeys = ['view', 'paneA', 'fileTabs', 'outboxSize'] as const
-  let previousWindow: object | undefined
-  function locals(): void {
-    const window = Object.fromEntries(windowKeys.map((key) => [key, runtime.readLocal(key)]))
-    if (previousWindow && Object.entries(window).every(([key, value]) => Object.is((previousWindow as Record<string, unknown>)[key], value))) return
-    previousWindow = window
-    replace('window', [['window', window]])
+  const windowKeys = HEADER_SCHEMA.window.fields
+  const inputs = createFieldInputs<HeaderRows['window']>(windowKeys, {}, 'headerWindow')
+  function locals(changed?: ReadonlySet<string>): void {
+    runInAction(() => {
+      for (const key of windowKeys) if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
+    })
   }
   function metrics(): void {
     replace('hostMetric', runtime.hostMetrics.getSnapshot().map((metric) => [metric.machineId ?? metric.hostname, metric]))
@@ -73,6 +73,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(pool: MobxPool,
   keyed('machine', 'machines')
   keyed('repository', 'repos')
   locals()
+  replace('window', [['window', inputs.row]])
   metrics()
   shipping()
   replace('connection', [['server', runtime.hub.connectionHealth()]])

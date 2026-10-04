@@ -92,7 +92,7 @@ export interface ReplicatedLayoutPort {
   get(key: string): unknown
   set(key: string, value: unknown): void
   clear(key: string): void
-  subscribe(listener: () => void): () => void
+  subscribe(listener: (keys: ReadonlySet<string>) => void): () => void
   /** Fetch and install this principal's authoritative snapshot. Queued
    * optimism stays painted over it. */
   hydrate(): Promise<void>
@@ -144,10 +144,15 @@ export function createReplicatedLayoutController(init: {
   let temporary: TemporaryOperation[] = []
   const ignoredAwaiting = new Set<MutationId>()
   const accepted = new Map<string, AcceptedLayoutValue>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
+  let notified: LayoutSnapshot = base
 
-  const emit = (): void => {
-    for (const listener of listeners) listener()
+  const emit = (candidates?: Iterable<string>): void => {
+    const next = projection()
+    const keys = candidates ?? new Set([...Object.keys(notified), ...Object.keys(next)])
+    const changed = new Set([...keys].filter(key => !Object.is(notified[key], next[key])))
+    notified = next
+    for (const listener of listeners) listener(changed)
   }
 
   const installBase = (snapshot: LayoutSnapshot): void => {
@@ -157,6 +162,11 @@ export function createReplicatedLayoutController(init: {
 
   const layoutEntries = (): OutboxEntry[] =>
     [...outbox.awaiting(), ...outbox.pending()].filter((entry) => operationForEntry(entry) !== null)
+
+  const keysOf = (operation: LayoutOperation): readonly string[] =>
+    operation.kind === 'set' ? Object.keys(operation.values) : operation.keys
+  const outboxKeys = (): Set<string> => new Set(layoutEntries().flatMap(entry => keysOf(operationForEntry(entry)!)))
+  let previousOutboxKeys = outboxKeys()
 
   const durableOperations = (): LayoutOperation[] =>
     layoutEntries()
@@ -237,16 +247,17 @@ export function createReplicatedLayoutController(init: {
   }
 
   const removeTemporary = (token: number): void => {
+    const removed = temporary.find(entry => entry.token === token)
     const next = temporary.filter((entry) => entry.token !== token)
     if (next.length === temporary.length) return
     temporary = next
-    emit()
+    emit(removed ? keysOf(removed.operation) : [])
   }
 
   const enqueue = (operation: LayoutOperation): void => {
     const token = nextToken++
     temporary = [...temporary, { token, operation }]
-    emit()
+    emit(keysOf(operation))
 
     let queued: OutboxEntry | Promise<OutboxEntry>
     try {
@@ -311,11 +322,13 @@ export function createReplicatedLayoutController(init: {
       for (const mutationId of ignoredAwaiting) {
         if (!live.has(mutationId)) ignoredAwaiting.delete(mutationId)
       }
-      emit()
+      const nextKeys = outboxKeys()
+      emit(new Set([...previousOutboxKeys, ...nextKeys]))
+      previousOutboxKeys = nextKeys
     },
     commandApplied: (entry) => {
       const applied = rememberAccepted(entry)
-      if (applied) emit()
+      if (applied) emit(keysOf(operationForEntry(entry)!))
       return applied
     },
     commandDropped: (entry) => {
@@ -326,7 +339,7 @@ export function createReplicatedLayoutController(init: {
         if (accepted.get(key)?.mutationId !== entry.mutationId) continue
         accepted.delete(key)
       }
-      emit()
+      emit(keys)
     },
     reconcile: (snapshot, mutationIds) => {
       installBase(snapshot)

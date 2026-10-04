@@ -22,6 +22,7 @@ import { paneHasSessions, paneSession } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { createFieldInputs } from './shared/field-inputs'
 
 export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Loaded<IssueViewModel> {
   if (id === undefined) return undefined
@@ -101,46 +102,52 @@ export function createMobileSessionReader(pool: MobxPool) {
  * nor the legacy derived snapshot arrays are read here. */
 export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) {
   const reader = createMobileSessionReader(pool)
+  const inputs = createFieldInputs<MobileSessionRows['mobileSessionWindow']>(['cursor', 'pendingSpawnPrompts'], {}, 'mobileSessionWindow')
   const window = observable.box<MobileSessionRows['mobileSessionWindow'] | undefined>(undefined, {
     deep: false,
   })
   let demanded = false,
     scheduled = false,
     disposed = false
-  function schedule() {
+  const pending = new Set<keyof MobileSessionRows['mobileSessionWindow']>()
+  function schedule(key: keyof MobileSessionRows['mobileSessionWindow']) {
+    if (!demanded || disposed) return
+    pending.add(key)
     if (!demanded || scheduled || disposed) return
     scheduled = true
     queueMicrotask(() => {
       scheduled = false
       if (disposed) return
-      const pendingSpawnPrompts = owner.readLocal('pendingSpawnPrompts')
-      const cursor = owner.replica.getCursor()
-      const previous = window.get()
+      const keys = [...pending]
+      pending.clear()
       runInAction(() => {
-        if (
-          !previous ||
-          previous.cursor !== cursor ||
-          previous.pendingSpawnPrompts !== pendingSpawnPrompts
-        )
-          window.set({ cursor, pendingSpawnPrompts })
+        for (const key of keys) {
+          if (key === 'cursor') inputs.set(key, owner.replica.getCursor())
+          else inputs.set(key, owner.readLocal(key))
+        }
+        if (window.get() === undefined) window.set(inputs.row)
       })
     })
   }
   // Keyed (POD-5433): the spawn prompts local and the cursor signal.
   if (!owner.replica.subscribeCursor) throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.onLocals(['pendingSpawnPrompts'], schedule), owner.replica.subscribeCursor(schedule)]
+  const stops = [owner.onLocals(['pendingSpawnPrompts'], () => schedule('pendingSpawnPrompts')), owner.replica.subscribeCursor(() => schedule('cursor'))]
   return {
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING
       if (entity === 'mobileSessionReader') return reader
-      demanded = true
-      schedule()
+      if (!demanded) {
+        demanded = true
+        schedule('cursor')
+        schedule('pendingSpawnPrompts')
+      }
       return window.get() ?? LOADING
     },
     dispose() {
       if (disposed) return
       disposed = true
       for (const stop of stops) stop()
+      pending.clear()
       runInAction(() => window.set(undefined))
     },
   }

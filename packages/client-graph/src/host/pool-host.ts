@@ -2,7 +2,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import { useMemo, useRef, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
 import type { MobxPool } from '../pool'
 import type { createPoolProjection } from '../runtime-pool'
@@ -47,7 +47,7 @@ export interface PoolHost {
   /** null while the graph loads; a rebuild wakes existing readers. */
   usePool(): MobxPool | null
   /** A scalar reader over the pool for components outside observer trees. */
-  usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T
+  usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T, active?: boolean): T
   /** Force GC between turns first; names retired pool parts still reachable. */
   survivors(): string[]
 }
@@ -181,7 +181,7 @@ export function createPoolHost({
    * identity and do not wake React. A new reader closure is evaluated once in render
    * to adopt changed captures. Large screens should pass a memoized reader.
    * The MobX implementation arrives with the startup attachment. */
-  function usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
+  function usePoolProjection<T>(read: (pool: MobxPool) => T, empty: T, active = true): T {
     const runtime = useStoreHandle()
     const pool = usePool()
     const project = slotFor(runtime).project
@@ -193,12 +193,21 @@ export function createPoolHost({
       // below without replacing its observer or React subscription.
       [pool, project],
     )
-    view?.getSnapshot(reader.current)
+    // A principal/pool change discards any previous principal's last paint.
+    const last = useMemo(() => ({ value: empty }), [pool, project])
+    view?.setActive(active)
+    const snapshot = useCallback(() => {
+      if (!active || view === null) return last.value
+      last.value = view.getSnapshot(reader.current)
+      return last.value
+    }, [active, last, view])
     return useSyncExternalStore(
-      view?.subscribe ?? (() => () => {}),
-      view?.getSnapshot ?? (() => empty),
+      active && view ? view.subscribe : EMPTY_SUBSCRIPTION,
+      snapshot,
     )
   }
 
   return { attach, usePool, usePoolProjection, survivors }
 }
+
+const EMPTY_SUBSCRIPTION = () => () => {}

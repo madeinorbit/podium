@@ -1,6 +1,7 @@
 import type { ClientRuntime, KeyedListChange, KeyedListName } from '@podium/client-core/engine'
 import { compareStructural, observable, runInAction } from 'mobx'
-import { SHELL_RELATIONS, type ShellEntity, type ShellRows } from './shell-schema'
+import { SHELL_RELATIONS, SHELL_SCHEMA, type ShellEntity, type ShellRows } from './shell-schema'
+import { createFieldInputs } from './shared/field-inputs'
 import type { PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -18,11 +19,13 @@ export class ShellSource implements PoolSource<ShellEntity> {
   constructor(runtime: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow' | 'replica'>) {
     // Keyed (POD-5433): the window wakes on its own locals; each list hands
     // over only the rows that changed, by id.
-    const windowKeys = ['view', 'paneA', 'selectedIssueId', 'selectedWorktree', 'reposLoaded', 'superOpen', 'paletteOpen', 'autoContinuePromptSessionId', 'coarseNow'] as const
-    const window = () => {
+    const windowKeys = SHELL_SCHEMA.shellWindow.fields
+    const inputs = createFieldInputs<ShellRows['shellWindow']>(windowKeys, {}, 'shellWindow')
+    const window = (changed?: ReadonlySet<string>) => {
       if (this.disposed) return
       runInAction(() => {
-        this.change('shellWindow', 'window', Object.fromEntries(windowKeys.map(key => [key, runtime.readLocal(key)])))
+        for (const key of windowKeys) if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
+        this.change('shellWindow', 'window', inputs.row)
         this.counts.locals++
       })
     }

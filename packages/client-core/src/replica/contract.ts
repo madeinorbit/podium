@@ -209,8 +209,8 @@ export interface UiState {
   get(key: string): string | null
   /** `null` deletes the key. */
   set(key: string, value: string | null): void
-  /** Fires on any ui-state change (including cross-tab storage events). */
-  subscribe(cb: () => void): () => void
+  /** Changed keys, including cross-tab storage events. */
+  subscribe(cb: (keys: ReadonlySet<string>) => void): () => void
 }
 
 /** Committed invalidations, not row values. Replacement is explicit even for

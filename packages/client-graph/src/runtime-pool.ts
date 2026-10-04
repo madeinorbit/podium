@@ -25,10 +25,26 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
   options: { name?: string; equals?: (before: T, next: T) => boolean } = {}) {
   const state = projectionState(pool, read, options)
   const view = {
+    /** Hidden owners retain their last paint but release every dependency.
+     * The owner pulls one current snapshot when it becomes visible again. */
+    setActive(active: boolean): void {
+      if (state.active === active) return
+      state.active = active
+      state.dirty = true
+      if (!active) {
+        state.reaction?.dispose()
+        state.reaction = null
+        _observerFinalizationRegistry.unregister(state)
+      }
+    },
     getSnapshot(nextRead = state.read): T {
       if (state.read !== nextRead) {
         state.read = nextRead
         state.dirty = true
+      }
+      if (!state.active) {
+        if (state.snapshot === null) throw new Error('An inactive projection has no painted snapshot')
+        return state.snapshot.value
       }
       if (observeProjection(state) && !state.listeners.size) {
         // React can abandon a render before subscribing. Use the same cleanup
@@ -41,10 +57,10 @@ export function createPoolProjection<T>(pool: MobxPool, read: (pool: MobxPool) =
     },
     subscribe(wake: () => void): () => void {
       const before = state.snapshot, error = state.error, version = state.version
-      observeProjection(state)
+      if (state.active) observeProjection(state)
       // Lazy reader construction can publish observable initialization during
       // tracking. Settle those real changes before attaching an imperative watch.
-      while (state.dirty) refreshProjection(state)
+      while (state.active && state.dirty) refreshProjection(state)
       _observerFinalizationRegistry.unregister(state)
       const listener = () => wake()
       state.listeners.add(listener)
@@ -69,6 +85,7 @@ interface ProjectionState<T> {
   snapshot: { value: T } | null
   error: { cause: unknown } | null
   dirty: boolean
+  active: boolean
   version: number
   reaction: Reaction | null
   readonly listeners: Set<() => void>
@@ -86,6 +103,7 @@ function projectionState<T>(pool: MobxPool, read: (pool: MobxPool) => T,
     snapshot: null,
     error: null,
     dirty: true,
+    active: true,
     version: 0,
     reaction: null,
     listeners: new Set(),

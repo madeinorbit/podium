@@ -29,6 +29,29 @@ function fixture() {
   }
 }
 
+it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
+  const f = fixture()
+  const read = vi.fn((pool: MobxPool) => [...pool.selection])
+  const equals = vi.fn((before: string[], next: string[]) => before.join() === next.join())
+  const view = createPoolProjection(f.pool, read, { equals })
+  const first = view.getSnapshot()
+  const wake = vi.fn()
+  cleanups.push(view.subscribe(wake))
+  view.setActive(false)
+  expect(f.observers()).toBe(0)
+  read.mockClear(); equals.mockClear()
+  for (const id of ['one', 'two', 'three', 'target']) f.change(id)
+  expect(view.getSnapshot()).toBe(first)
+  expect(read).not.toHaveBeenCalled()
+  expect(equals).not.toHaveBeenCalled()
+  expect(wake).not.toHaveBeenCalled()
+  view.setActive(true)
+  expect(view.getSnapshot()).toEqual(['target'])
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(equals).toHaveBeenCalledTimes(1)
+  expect(f.observers()).toBe(1)
+})
+
 it('tracks the first snapshot once and shares one observer among all subscriptions', () => {
   const f = fixture()
   const first = f.view.getSnapshot()

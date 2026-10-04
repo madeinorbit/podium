@@ -19,7 +19,7 @@ afterEach(() => {
   for (const stop of cleanups.splice(0).reverse()) stop()
 })
 
-async function mount(inline: boolean) {
+async function mount(inline: boolean, initiallyActive = true) {
   const original = runtimePool.createPoolProjection
   const create = vi.spyOn(runtimePool, 'createPoolProjection')
   const subscriptions: (() => number)[] = []
@@ -45,6 +45,7 @@ async function mount(inline: boolean) {
   }
   let reader = read
   let target = 'projection-target'
+  let active = initiallyActive
   // The projection owns tracking. A fresh callback keeps the inline-reader
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
@@ -59,7 +60,7 @@ async function mount(inline: boolean) {
       renders++
       const captured = target
       pool = host.usePool()
-      snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null)
+      snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null, active)
       return null
     },
     { displayName: 'PoolProjectionProbe' },
@@ -114,7 +115,7 @@ async function mount(inline: boolean) {
     expect(pool).not.toBeNull()
   })
   expect(pool).not.toBeNull()
-  expect(snapshot).not.toBeNull()
+  if (initiallyActive) expect(snapshot).not.toBeNull()
   return {
     reads: () => reads,
     renders: () => renders,
@@ -122,6 +123,7 @@ async function mount(inline: boolean) {
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     render,
+    focus: (value: boolean) => { active = value; render() },
     replaceReader: () => {
       reader = (current) => read(current)
       render()
@@ -148,6 +150,32 @@ async function mount(inline: boolean) {
 }
 
 describe('real host projection read counts', () => {
+  it('keeps a mounted hidden tab quiet and catches up once on focus', async () => {
+    const fixture = await mount(false)
+    const first = fixture.snapshot()
+    fixture.focus(false)
+    const reads = fixture.reads(), renders = fixture.renders()
+    await fixture.select('projection-target')
+    await fixture.select('another-target')
+    await fixture.select('projection-target')
+    expect(fixture.reads()).toBe(reads)
+    expect(fixture.renders()).toBe(renders)
+    expect(fixture.snapshot()).toBe(first)
+    fixture.focus(true)
+    expect(fixture.reads() - reads).toBe(1)
+    expect(fixture.snapshot()).toEqual({ selected: true })
+  })
+
+  it('does not demand an initially hidden tab before its first focus', async () => {
+    const fixture = await mount(false, false)
+    expect(fixture.reads()).toBe(0)
+    await fixture.select('projection-target')
+    expect(fixture.reads()).toBe(0)
+    fixture.focus(true)
+    expect(fixture.reads()).toBe(1)
+    expect(fixture.snapshot()).toEqual({ selected: true })
+  })
+
   it.each([
     false,
     true,

@@ -4,7 +4,8 @@ import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import type { MobxPool } from './pool'
 import { allResidentSessions } from './enumerate'
-import { COMMAND_ENTITIES, COMMAND_RELATIONS, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
+import { COMMAND_ENTITIES, COMMAND_RELATIONS, COMMAND_LAUNCH_SCHEMA, type CommandEntity, type CommandLaunchRows } from './command-launch-schema'
+import { createFieldInputs } from './shared/field-inputs'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -35,14 +36,17 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     // Keyed (POD-5433): the window wakes on its own locals; machines and
     // repos arrive by id, and a repo change re-links only the sessions under
     // a path whose targets moved.
-    const windowKeys = ['paletteOpen', 'pins', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles', 'sidebarSettings'] as const
-    const locals = () => {
+    const windowKeys = COMMAND_LAUNCH_SCHEMA.commandWindow.fields
+    const inputs = createFieldInputs<CommandLaunchRows['commandWindow']>(windowKeys, {}, 'commandWindow')
+    const locals = (changed?: ReadonlySet<string>) => {
       if (this.disposed) return
       this.counts.publications++
       runInAction(() => {
-        const window = Object.fromEntries(windowKeys.map(key => [key, runtime.readLocal(key)])) as CommandLaunchRows['commandWindow']
-        if (!compareStructural(this.tables.commandWindow.get('window'), window)) this.counts.windowChanges++
-        this.replace('commandWindow', [['window', window]])
+        let moved = false
+        for (const key of windowKeys) if (!changed || changed.has(key)) moved = inputs.set(key, runtime.readLocal(key)) || moved
+        if (moved) this.counts.windowChanges++
+        if (!this.tables.commandWindow.has('window')) this.replace('commandWindow', [['window', inputs.row]])
+        else if (moved) this.change('commandWindow', 'window', inputs.row)
       })
     }
     const repos = () => {
