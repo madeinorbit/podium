@@ -11,13 +11,18 @@ parser.add_argument('--new-arm',default='new')
 parser.add_argument('--rounds',default='0,1')
 parser.add_argument('--samples',default='8')
 parser.add_argument('--background-only',action='store_true')
+parser.add_argument('--start-at',help='Resume at arm:surface:scale:round, retaining completed earlier captures')
 args=parser.parse_args()
+started=not args.start_at
 surfaces=['web','phone'] if args.surface=='both' else [args.surface]
 scales=['1','4'] if args.scale=='both' else [args.scale]
 for surface in surfaces:
     for scale in scales:
         for round in args.rounds.split(','):
             for arm in ['old',args.new_arm]:
+                if not started:
+                    started=f'{arm}:{surface}:{scale}:{round}'==args.start_at
+                    if not started:continue
                 command=[sys.executable,'apps/web/harness/old-vs-new-remote.py','--arm',arm,'--checkout-arm','old' if arm=='old' else 'new','--surface',surface,'--scale',scale,'--mode',args.mode,'--round',round,'--samples',args.samples,'--comparison-arm',args.new_arm]
                 if args.background_only:command.append('--background-only')
                 print('NEXT '+' '.join(command),flush=True)
@@ -26,3 +31,4 @@ for surface in surfaces:
                 # its NEW neighbour still runs. Other failures stop the matrix.
                 if result.returncode and not (arm=='old' and surface=='phone'):
                     sys.exit(result.returncode)
+if not started:raise SystemExit('Requested start point is not in this matrix')

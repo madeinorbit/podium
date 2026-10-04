@@ -251,14 +251,16 @@ async function makePage() {
   return {page,context,cdp}
 }
 const url=()=>surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
-async function ready(page) {
+async function ready(page,{controlById=false}={}) {
   if(surface==='phone') {
     await page.waitForFunction(()=>!!document.querySelector('[aria-label="Search work"]') || document.body.innerText.includes('CANNOT START'),undefined,{timeout:120000})
     const failure=await page.evaluate(()=>document.body.innerText.includes('CANNOT START')?document.body.innerText.slice(0,700):null)
     if(failure)throw Error('Phone startup refused: '+failure)
   }
   else await page.locator('aside').first().waitFor({timeout:120000})
-  await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
+  if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
+  else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
+  else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
 }
 async function inspect(page,label) {
@@ -861,10 +863,14 @@ try {
   if(mode==='timing') {
     if(!backgroundOnly) {
       await runActions(f)
+      result.actionPhaseComplete=true;save()
+      // Optimistic rename can finish before its final server publication. Reset
+      // after the whole action phase, and identify the control by its stable ID.
+      for(const [index,control] of controls.entries())await rpc('issues.update',{id:control.issue.id,patch:{title:`Comparison target ${index?'B':'A'}`}})
       // A failed/unavailable action must not leave one arm with extra resident
       // panes when comparing background updates. Match the initial UI state.
       await f.context.close();f=fixture=await makePage()
-      await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(f.page);await population(f.page)
+      await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(f.page,{controlById:true});await population(f.page)
     }
     result.backgroundContext='Fresh browser profile; same visible control terminal and corpus, no resident panes from preceding action cases';save()
     await background(f)

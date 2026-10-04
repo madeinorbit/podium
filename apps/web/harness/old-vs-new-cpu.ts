@@ -269,8 +269,8 @@ if(process.argv.includes('--all')) {
   for(const entry of await readdir(root,{withFileTypes:true})) {
     if(!entry.isDirectory() || !entry.name.startsWith('timing-'))continue
     const path=resolve(root,entry.name,'run.json')
-    const run=await read<{mode:string;purpose:string;status:string;surface:string;sha:string}>(path)
-    if(run.mode!=='timing' || run.purpose!=='measurement' || run.status!=='complete' || run.surface!==surface || run.sha!==sha)continue
+    const run=await read<{mode:string;purpose:string;status:string;surface:string;sha:string;actionPhaseComplete?:boolean}>(path)
+    if(run.mode!=='timing' || run.purpose!=='measurement' || (run.status!=='complete' && !run.actionPhaseComplete) || run.surface!==surface || run.sha!==sha)continue
     await analyze(path);analyzed++
   }
   if(!analyzed)throw Error('No completed measurement captures for current build and surface')
