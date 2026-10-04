@@ -108,7 +108,7 @@ function* valuesFrom<T>(root: Node<T> | undefined, index: number): Generator<T> 
  * A caller's array mutation detaches its snapshot from the shared tree. */
 const snapshotRoots = new WeakMap<object, Node<unknown> | undefined>()
 function snapshot<T>(root?: Node<T>): T[] {
-  const result = arraySnapshot(size(root), index => valuesFrom(root, index), () => snapshotRoots.delete(result))
+  const result: T[] = arraySnapshot(size(root), index => valuesFrom(root, index), () => snapshotRoots.delete(result))
   snapshotRoots.set(result, root)
   return result
 }

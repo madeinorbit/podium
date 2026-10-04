@@ -81,7 +81,7 @@ export function createIssuePageViews(pool: MobxPool) {
     }
     return result
   }
-  function relatedSessions(id: string, neighbours: ReadonlySet<string>): Loaded<SessionView[]> {
+  function relatedSessions(id: string, neighbours: ReadonlySet<string>): SessionView[] | typeof LOADING {
     const owners = [...neighbours].sort(byId)
     return memo(`sessions:${id}:${JSON.stringify(owners)}`, () => {
       const groups = [roster(id, 'bornSessions', owners).get(),
