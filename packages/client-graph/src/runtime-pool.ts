@@ -28,7 +28,7 @@ import {
 export const samePoolProjection = Object.is
 
 /** React's scalar/layout readers share MobX tracking without eagerly loading
- * the graph in legacy mode. Rows use observer directly; this seam is for the
+ * the graph before pool startup. Rows use observer directly; this seam is for the
  * palette and project controls, which need only a small section projection.
  * Optional diagnostics let the structural harness observe this real boundary;
  * the app uses reference equality by default. */
@@ -199,7 +199,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
   if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes ||
     !rt.attachPoolWriter || !subscribeAddressed) {
-    throw new Error('Pool transactions require the runtime outbox, outcome, enqueue, spawn and writer seams')
+    throw new Error('Pool transactions require the runtime principal, outbox, outcome and addressed writer seams')
   }
   return createPoolTransactions({
     userId: rt.principal.userId,

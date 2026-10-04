@@ -1,20 +1,12 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
- * POD-5431 — the pool's transaction log against the ledger, on one runtime.
- *
- * Two pools ride the same `ClientRuntime` over the scenario corpus, with the
- * production kernel outbox: one as today (the ledger paints, `overlaid` feed),
- * one with `owns` (the pool's log paints those kinds, `pooled` feed). Every
- * write reaches both: a pool change enqueues through the ledger's own enqueue
- * path, and a legacy or other-tab write is adopted from the outbox. After each
- * scripted step the two must show the same thing: every issue and session row,
- * the sidebar, the mission of each touched issue and its issue page. A planted
- * wrong reducer in the pool's log must fail that comparison.
- *
- * The meter at the end counts one pool click's keyed row reads and derivation
- * runs at 1x and 4x; the growth may not exceed the growth of the click's
- * visible neighbourhood (`neighbourhood.ts`).
+ * Pool transaction behavior over the production outbox, with an independent
+ * queue observer. The product log paints before durable enqueue; the observer
+ * adopts the resulting records without owning their retirement. Both must
+ * converge after each scripted command, refusal, reload and rescope. Frozen
+ * screen oracles separately preserve the pre-deletion presentation contract.
+ * The meter bounds keyed reads and derivations by the visible neighbourhood.
  */
 
 import { types } from 'node:util'
@@ -27,7 +19,6 @@ import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { createEngineLocals, localsOfEngine } from '@podium/client-graph/shared/engine-locals'
-import { type PoolOwnedKind } from '@podium/client-graph/shared/row-source'
 import { createRowSource } from '../../shared/src/row-source'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import {
@@ -38,7 +29,7 @@ import {
   sessionUserStateRowId,
 } from '@podium/model'
 import { autorun } from 'mobx'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   evict,
   remove,
@@ -52,17 +43,23 @@ import {
 } from '../../shared/src/scenarios'
 import { settlePoolLoads, snapshotPool, tracked, visibleOrderOf } from './adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
+import { FIXED_NOW } from './fixture/corpus'
 import { type NeighbourhoodState, neighbourhoodOf } from './neighbourhood'
 import { snapshotFromStore } from './oracle'
 import { measureWork } from './work-meter'
 
 installMobxWarnTrap()
 
+// The fixture's kernel queue uses its pinned clock. Pin the press wall clock
+// to the same initial instant; only decay-clock tests advance the coarse clock.
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(FIXED_NOW) })
+
 type Kind = keyof OutboxKinds & string
 
 const cleanups: (() => void | Promise<void>)[] = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+  vi.useRealTimers()
 })
 
 /** A connectivity switch the kernel outbox listens to. */
@@ -93,7 +90,7 @@ async function boot(scale: 1 | 4, opts: { online: boolean; server?: ScenarioServ
   return { ctx, net }
 }
 
-function pair(ctx: ScenarioEngine, _owns: readonly PoolOwnedKind[]) {
+function pair(ctx: ScenarioEngine) {
   // The independent observer follows the same queue without owning its
   // durable retirement. Only the product pool retires applied records.
   const transactions = createPoolTransactions({
@@ -108,10 +105,10 @@ function pair(ctx: ScenarioEngine, _owns: readonly PoolOwnedKind[]) {
   const observer = createWorklistPool(rows.source, locals.source)
   transactions.bind(rows)
   observer.pool.attachTransactions(transactions, true)
-  const ledger = { pool: observer.pool, transactions, dispose() { observer.dispose(); transactions.dispose(); locals.dispose(); rows.dispose() } }
+  const reference = { pool: observer.pool, transactions, dispose() { observer.dispose(); transactions.dispose(); locals.dispose(); rows.dispose() } }
   const pooled = createRuntimeWorklistPool(ctx.engine)
-  const handles = { ledger, pooled }
-  cleanups.push(() => { handles.pooled.dispose(); handles.ledger.dispose() })
+  const handles = { reference, pooled }
+  cleanups.push(() => { handles.pooled.dispose(); handles.reference.dispose() })
   return handles
 }
 
@@ -164,12 +161,12 @@ function differences(
     for (const id of ids) {
       const x = canon(tracked(() => a.row(kind, id, 'peek')))
       const y = canon(tracked(() => b.row(kind, id, 'peek')))
-      if (x !== y) out.push(`${kind}:${id}\n  ledger ${x}\n  pool   ${y}`)
+      if (x !== y) out.push(`${kind}:${id}\n  reference ${x}\n  pool   ${y}`)
     }
   }
   const sidebarA = canon(snapshotPool(a))
   const sidebarB = canon(snapshotPool(b))
-  if (sidebarA !== sidebarB) out.push(`sidebar\n  ledger ${sidebarA}\n  pool   ${sidebarB}`)
+  if (sidebarA !== sidebarB) out.push(`sidebar\n  reference ${sidebarA}\n  pool   ${sidebarB}`)
   for (const id of focus) {
     const mission = (pool: MobxPool) =>
       settled(pool, () => {
@@ -180,10 +177,10 @@ function differences(
       })
     const ma = canon(mission(a))
     const mb = canon(mission(b))
-    if (ma !== mb) out.push(`mission of ${id}\n  ledger ${ma}\n  pool   ${mb}`)
+    if (ma !== mb) out.push(`mission of ${id}\n  reference ${ma}\n  pool   ${mb}`)
     const pa = canon(settled(a, () => issuePages(a).data(id)))
     const pb = canon(settled(b, () => issuePages(b).data(id)))
-    if (pa !== pb) out.push(`issue page ${id}\n  ledger ${pa}\n  pool   ${pb}`)
+    if (pa !== pb) out.push(`issue page ${id}\n  reference ${pa}\n  pool   ${pb}`)
   }
   return out
 }
@@ -195,13 +192,12 @@ function sessionsOf(ctx: ScenarioEngine): string[] {
 }
 
 /**
- * POD-5432: the suite runs once per ownership step: issues owned (plan step 5;
- * the ledger still paints sessions) and both owned (step 6). Each step must
- * show exactly what the ledger shows, row by row and screen by screen.
+ * Both issue and session transactions belong to the pool. Compare their
+ * paintings with an independent outbox observer, row by row and screen by screen.
  */
 describe.each([
   ['issues and sessions owned', ['issue', 'session']],
-] as const)('pool transactions against the ledger (POD-5431), %s', (_step, owns) => {
+] as const)('pool transactions against the reference (POD-5431), %s', (_step, owns) => {
   it('keeps offline read cursors on the press clock when the sidebar clock advances', async () => {
     const wallNow = Date.parse('2026-09-20T12:00:00.000Z')
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -220,15 +216,15 @@ describe.each([
     } finally { vi.useRealTimers() }
   })
 
-  it('paints every painting command kind exactly as the ledger does, queued offline', async () => {
+  it('paints every painting command kind exactly as the reference does, queued offline', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     const [s1, s2] = sessionsOf(ctx)
     expect(s1 && s2).toBeTruthy()
     const session = asSessionId(s1!)
     const other = asSessionId(s2!)
-    expect(differences(ctx, ledger.pool, pooled.pool)).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool)).toEqual([])
     const steps: [Kind, unknown, string[]][] = [
       ['rename', { sessionId: session, name: '  Renamed session ' }, []],
       ['setArchived', { sessionId: other, archived: true }, []],
@@ -281,14 +277,14 @@ describe.each([
       pooled.pool.mutate(kind, input as OutboxKinds[typeof kind])
       painted.add(kind)
       await settle(ctx)
-      expect(differences(ctx, ledger.pool, pooled.pool, focus), kind).toEqual([])
+      expect(differences(ctx, reference.pool, pooled.pool, focus), kind).toEqual([])
     }
     // A model setter is the same write path (`issue.title = x` → `pool.mutate`).
     const model = tracked(() => pooled.pool.issue(t.markReadId))!
     model.title = 'Through the setter'
     expect(tracked(() => pooled.pool.issue(t.markReadId)?.title)).toBe('Through the setter')
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.markReadId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.markReadId])).toEqual([])
     // Every kind the shared reducers paint was driven through the pool.
     const silent = new Set([
       'pinSet',
@@ -336,9 +332,9 @@ describe.each([
         new Promise((resolve, reject) => answers.push({ input, resolve, reject })),
     }
     const { ctx } = await boot(1, { online: true, server })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const id = ctx.targets.visibleRootId
-    const check = () => expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
+    const check = () => expect(differences(ctx, reference.pool, pooled.pool, [id])).toEqual([])
     const refusals: { title: unknown; parked: boolean; shown: unknown }[] = []
     pooled.transactions!.onRejected((rejection) => {
       refusals.push({
@@ -388,10 +384,10 @@ describe.each([
 
   it('holds an applied change until truth covers it, and lets a competing write win', async () => {
     const { ctx } = await boot(1, { online: true, server: { issueUpdate: async () => ({}) } })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     const check = (id: string) =>
-      expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
+      expect(differences(ctx, reference.pool, pooled.pool, [id])).toEqual([])
     // Applied, echo not here yet: the paint holds (awaiting truth).
     pooled.pool.mutate('issueUpdate', { id: t.visibleRootId, patch: { title: 'Applied' } })
     await settle(ctx)
@@ -420,7 +416,7 @@ describe.each([
 
   it('paints a per-user row the server never wrote (absent means nothing set)', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
     const user = asUserId('u-bench')
@@ -428,12 +424,12 @@ describe.each([
     remove(ctx, 'issueUserState', issueUserStateRowId(user, asIssueId(t.markReadId)))
     remove(ctx, 'sessionUserState', sessionUserStateRowId(user, asSessionId(s1!)))
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.markReadId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.markReadId])).toEqual([])
     pooled.pool.mutate('issueMarkRead', { id: t.markReadId })
     pooled.pool.mutate('issueSetTucked', { id: t.markReadId, tucked: true })
     pooled.pool.mutate('sessionMarkRead', { sessionId: asSessionId(s1!) })
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.markReadId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.markReadId])).toEqual([])
     expect(
       tracked(
         () => (pooled.pool.row('issue', t.markReadId, 'peek') as { readAt?: unknown })?.readAt,
@@ -443,7 +439,7 @@ describe.each([
 
   it('repaints the durable queue after an offline reload', async () => {
     const { ctx } = await boot(1, { online: false })
-    let handles = pair(ctx, owns)
+    let handles = pair(ctx)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
     handles.pooled.pool.mutate('issueUpdate', {
@@ -454,16 +450,16 @@ describe.each([
     handles.pooled.pool.mutate('issueSetTucked', { id: t.stageMoveId, tucked: true })
     handles.pooled.pool.mutate('rename', { sessionId: asSessionId(s1!), name: 'Queued name' })
     await settle(ctx)
-    expect(differences(ctx, handles.ledger.pool, handles.pooled.pool, [t.visibleRootId])).toEqual(
+    expect(differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId])).toEqual(
       [],
     )
     handles.pooled.dispose()
-    handles.ledger.dispose()
+    handles.reference.dispose()
     await ctx.reload()
-    handles = pair(ctx, owns)
+    handles = pair(ctx)
     await settle(ctx)
     expect(
-      differences(ctx, handles.ledger.pool, handles.pooled.pool, [t.visibleRootId, t.markReadId]),
+      differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId, t.markReadId]),
     ).toEqual([])
     expect(tracked(() => handles.pooled.pool.issue(t.visibleRootId)?.title)).toBe('Before reload')
   }, 120_000)
@@ -476,7 +472,7 @@ describe.each([
         ),
     }
     const { ctx } = await boot(1, { online: true, server })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const repo = ctx.targets.newIssueRepo
     const spawned = referenceState(ctx.engine).spawnDraftAgent({
       target: { path: repo.repoPath, repoPath: repo.repoPath, repoId: repo.repoId as never },
@@ -495,7 +491,7 @@ describe.each([
     })
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
     // POD-5432 step 6: owning sessions, pool screens read the placeholders
-    // (adapters 4 and 12) from the log; the ledger's copy answers otherwise.
+    // (adapters 4 and 12) from the log; the reference's copy answers otherwise.
     const ownsSessions = owns.includes('session' as never)
     // Which map answers is fixed at attachment; only its entries are tracked.
     const placeholders = () => pooled.pool.spawnPlaceholders()
@@ -509,13 +505,13 @@ describe.each([
     await settle(ctx)
     expect(referenceState(ctx.engine).pendingSpawnIds.has(spawned.sessionId)).toBe(false)
     if (ownsSessions) expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(false)
-    expect(differences(ctx, ledger.pool, pooled.pool)).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool)).toEqual([])
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeUndefined()
   }, 120_000)
 
-  it("adopts another tab's and the legacy screens' writes from the outbox", async () => {
+  it("adopts another tab's and the runtime's queued writes from the outbox", async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     // Another tab: a record lands in the shared queue without this runtime's paint.
     await ctx.engine.outbox.enqueue('issueSetTucked', { id: t.stageMoveId, tucked: true })
@@ -524,42 +520,42 @@ describe.each([
       patch: { title: 'Other tab' },
     })
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
     expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Other tab')
-    // A legacy screen: the runtime's own actions.
+    // The runtime's actions enter the same product writer.
     await referenceState(ctx.engine).markIssueRead(asIssueId(t.markReadId))
     await ctx.engine.access.updateIssue(asIssueId(t.visibleRootId), { title: 'Runtime action' })
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId, t.markReadId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId, t.markReadId])).toEqual([])
   }, 120_000)
 
   it('keeps a change on an evicted row and repaints it on readmission, and across a rescope', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     pooled.pool.mutate('issueUpdate', { id: t.evictId, patch: { title: 'Survives eviction' } })
     pooled.pool.mutate('issueUpdate', { id: t.visibleRootId, patch: { title: 'Survives rescope' } })
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.evictId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.evictId])).toEqual([])
     const before = ctx.cache.read('issueProjection', t.evictId)!.value
     evict(ctx, 'issueProjection', t.evictId)
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool)).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool)).toEqual([])
     upsert(ctx, 'issueProjection', t.evictId, before, 3, true)
     await settle(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.evictId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.evictId])).toEqual([])
     expect(tracked(() => pooled.pool.issue(t.evictId)?.title)).toBe('Survives eviction')
     await writeRescopeGrow(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
     await writeRescopeBack(ctx)
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
     expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Survives rescope')
   }, 120_000)
 
   it('fails the comparison when the pool reduces a command wrongly (planted)', async () => {
     const { ctx } = await boot(1, { online: false })
-    const ledger = createRuntimeWorklistPool(ctx.engine)
-    cleanups.push(() => ledger.dispose())
+    const reference = createRuntimeWorklistPool(ctx.engine)
+    cleanups.push(() => reference.dispose())
     // The production wiring of `owns`, with one wrong reducer.
     const engine = ctx.engine
     const transactions = createPoolTransactions({
@@ -590,13 +586,13 @@ describe.each([
       locals.dispose()
       rows.dispose()
     })
-    expect(differences(ctx, ledger.pool, planted.pool)).toEqual([])
+    expect(differences(ctx, reference.pool, planted.pool)).toEqual([])
     planted.pool.mutate('issueUpdate', {
       id: ctx.targets.visibleRootId,
       patch: { title: 'Planted' },
     })
     await settle(ctx)
-    const found = differences(ctx, ledger.pool, planted.pool, [ctx.targets.visibleRootId])
+    const found = differences(ctx, reference.pool, planted.pool, [ctx.targets.visibleRootId])
     expect(found.some((d) => d.startsWith(`issue:${ctx.targets.visibleRootId}`))).toBe(true)
     expect(found.some((d) => d.startsWith('sidebar'))).toBe(true)
   }, 120_000)
@@ -672,15 +668,15 @@ describe.each([
 /**
  * POD-5432 — what owning a kind adds on top of the comparison above: the
  * runtime's actions (every screen's write) paint the pool's rows in the press's
- * tick through the log, an owned kind never asks the ledger, a refusal rewinds
+ * tick through the log, an owned kind never asks the reference, a refusal rewinds
  * once, and a row is one plain object, the same on every read.
  */
 describe.each([
   ['issues and sessions owned', ['issue', 'session']],
 ] as const)('pool-owned kinds on pool screens (POD-5432), %s', (_step, owns) => {
-  it('paints a runtime action in the press tick through the log; legacy screens still see it', async () => {
+  it('paints a runtime action in the press tick through the log; the independent observer sees it', async () => {
     const { ctx } = await boot(1, { online: false })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const t = ctx.targets
     const [s1] = sessionsOf(ctx)
     const store = referenceState(ctx.engine)
@@ -690,12 +686,12 @@ describe.each([
     expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Routed')
     expect(pooled.transactions!.size()).toBe(2)
     await settle(ctx)
-    // One record per press: the log enqueued through the ledger, never twice.
+    // One record per press: the log enqueued through the reference, never twice.
     expect(ctx.engine.outbox.pending().map((e) => e.kind)).toEqual(['issueUpdate', 'rename'])
-    const legacy = referenceState(ctx.engine)
-    expect(legacy.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe('Routed')
-    expect(legacy.sessions.find((row) => row.sessionId === s1)?.name).toBe('Routed session')
-    expect(differences(ctx, ledger.pool, pooled.pool, [t.visibleRootId])).toEqual([])
+    const referenceView = referenceState(ctx.engine)
+    expect(referenceView.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe('Routed')
+    expect(referenceView.sessions.find((row) => row.sessionId === s1)?.name).toBe('Routed session')
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
   }, 120_000)
 
   it('refuses a write until its pool transaction owner is attached', async () => {
@@ -737,7 +733,7 @@ describe.each([
       issueUpdate: () => new Promise((_resolve, reject) => answers.push({ reject })),
     }
     const { ctx } = await boot(1, { online: true, server })
-    const { ledger, pooled } = pair(ctx, owns)
+    const { reference, pooled } = pair(ctx)
     const id = ctx.targets.visibleRootId
     const original = tracked(() => pooled.pool.issue(id)?.title)
     const seen: unknown[] = []
@@ -760,9 +756,9 @@ describe.each([
     await settle(ctx)
     expect(tracked(() => pooled.pool.issue(id)?.title)).toBe(original)
     // Exactly one rewind: one new row object after the refusal, never a
-    // second fold of the same refusal from the ledger.
+    // second fold of the same refusal from the reference.
     expect(seen.length - runs).toBe(1)
-    expect(differences(ctx, ledger.pool, pooled.pool, [id])).toEqual([])
+    expect(differences(ctx, reference.pool, pooled.pool, [id])).toEqual([])
   }, 120_000)
 
   it('costs a runtime action the same keyed reads and derivations at 1x and 4x', async () => {
