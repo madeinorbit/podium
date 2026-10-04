@@ -3,8 +3,8 @@
 The phone now reads through its existing shared pool. Its legacy twins,
 WorkScreen arm, three-way dispatchers, diagnostics, mobile pilot setting,
 startup latch and URL switches are removed. Store actions and outbox remain
-with their existing owner. This candidate is still in progress: final production
-phone proof, timing and landing are pending.
+with their existing owner. The production phone proof is green. This candidate
+is still in progress: the strict structural gate, timing and landing are pending.
 
 Findings 24 and 26 were read in full before the first edit. The branch includes
 POD-5437's optional host declarations, POD-5081's final mobile readers and
@@ -159,7 +159,7 @@ OFF/warm-start helper remains untouched until POD-5407's landing notice.
 
 ## Zero legacy readers and private counts
 
-The final source audit at `e48f0afe35` scans 300 production files and finds zero
+The final source audit at `08a96bc17b` scans 300 production files and finds zero
 legacy reader references, including twins, selectors, slices, switches and
 removed board/screening builders. The store action mapping, screening command
 interface, decision function and tally are byte-identical to `b4d0134f17`.
@@ -268,6 +268,19 @@ passes the literal new-task controls and then rejects16 selector runs
 to exact clean bytes and the clean13-cell result retained. The stable
 structural gate and ON timing remain pending. This report makes no
 physical-device claim.
+
+The settled capture at source `08a96bc17b`, flatblock WIP
+`f021830cbf1e2148f0235978c61f51bb9730fcf9`, tree
+`0348bae3945a91df1c50e57c162e529fdb38e35e`, is green at
+UTC04:06:40.964–04:08:30.205Z, freshload7.30/end8.88. Exactly one Pixel7
+case executes across13 checkpoints after the real startup placeholder leaves;
+every selector/row-build/legacy-derivation count remains zero, with no page
+errors. Work, Mission and Settings stills are inspected after capture. The
+self-contained `phone-pool-only-review.html` issue artifact includes all13
+actual PNGs, per-screen counts and retained bank hashes; it does not replace
+the expected-output banks with screenshot expectations. The active timing
+owner POD-5421 receives the exact overlap bounds. No own timing is collected
+under its lease.
 
 The old670-fingerprint work bank's optimisticPress and seed3 pending mark-read
 hashes vary with wall-clock queuedAt. The original independent controls fail
