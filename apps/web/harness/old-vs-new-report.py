@@ -38,7 +38,13 @@ metrics=[]
 arm_labels={'new-current':'Current operator build','new-deleted':'After old-store deletion','new':'Before old-store deletion'}
 new_arms=sorted({run['arm'] for run in valid if run['arm']!='old'},key=lambda arm:({'new-current':0,'new-deleted':1,'new':2}.get(arm,3),arm)) or ['new']
 for new in new_arms:
-    keys=sorted({(surface,scale,action) for surface,scale,action,arm,pair in cells if arm in ['old',new] and pair==new})
+    keys={(surface,scale,action) for surface,scale,action,arm,pair in cells if arm in ['old',new] and pair==new}
+    for run in measured:
+        if run.get('comparisonArm')!=new:continue
+        for gap in run.get('unavailable',[]):
+            if gap['action'] in ['session-composer-typing','phone-inbox']:
+                keys.add((run['surface'],run['scale'],gap['action']))
+    keys=sorted(keys)
     for surface,scale,action in keys:
         old=cells[(surface,scale,action,'old',new)];candidate=cells[(surface,scale,action,new,new)]
         def stat(rows):
@@ -50,7 +56,7 @@ for new in new_arms:
         a,b=stat(old),stat(candidate)
         change=(b['median']/a['median']-1)*100 if a and b and a['median'] else None
         tail=(b['p95']/a['p95']-1)*100 if a and b and a['p95'] else None
-        verdict='not comparable' if change is None else ('faster' if change < -10 else 'slower' if change > 10 else 'no clear improvement')
+        verdict='not measured' if not a and not b else 'not comparable' if change is None else ('faster' if change < -10 else 'slower' if change > 10 else 'no clear improvement')
         if tail is not None and tail>10:
             if verdict=='faster':verdict='faster median, worse tail'
             elif verdict=='no clear improvement':verdict='similar median, worse tail'
