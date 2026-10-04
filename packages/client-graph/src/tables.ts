@@ -66,19 +66,26 @@ import type { RowRecord } from './shared/source'
 export type StoredRow = object
 
 type RepoInputs = { id: unknown; prefix: unknown; repoPath: unknown }
-const repoInputs = new WeakMap<object, ReturnType<typeof createFieldInputs<RepoInputs>>>()
 // Lane ownership is ingest bookkeeping, never a reactive input or a cold index.
 // The shared composer keeps its latest-lane/takeover rule independently of the
 // three declared repo fields exposed by the product's single row reader.
-const repoHolders = new WeakMap<WritableTable, Map<string, StoredRow>>()
+interface RepoState {
+  readonly inputs: Map<string, ReturnType<typeof createFieldInputs<RepoInputs>>>
+  holders: Map<string, StoredRow>
+}
+function repoState(table: WritableTable): RepoState {
+  return table.repoState ??= { inputs: new Map(), holders: new Map() }
+}
 
 /** Replace staging transfers only its resident repo ownership bookkeeping. */
 export function replaceRepoHolders(from: WritableTable, to: WritableTable): void {
-  repoHolders.set(to, new Map(repoHolders.get(from)))
+  repoState(to).holders = new Map(repoState(from).holders)
 }
 
 /** The write surface ingest needs; a MobX map and a plain `Map` both have it. */
 export interface WritableTable {
+  /** Owned resident repo fields and nonreactive ingest ownership. */
+  repoState?: RepoState
   get(id: string): StoredRow | undefined
   has(id: string): boolean
   set(id: string, row: StoredRow): unknown
@@ -179,7 +186,8 @@ export function put(
     const table = target.write.repo
     const read = (key: keyof RepoInputs) =>
       key === 'id' ? id : repoFieldOf(row, key === 'repoPath' ? 'path' : key)
-    let inputs = previous && repoInputs.get(previous)
+    const fields = repoState(table).inputs
+    let inputs = previous && fields.get(id)
     if (inputs) {
       inputs.replace(read)
     } else {
@@ -191,7 +199,7 @@ export function put(
         // serve the most common field without adding a tracking object.
         (key) => (key === 'prefix' && table.has(id) ? (getAtom(table, id) as IAtom) : undefined),
       )
-      repoInputs.set(inputs.row, inputs)
+      fields.set(id, inputs)
       target.write.repo.set(id, inputs.row)
     }
     return
@@ -211,7 +219,10 @@ export function put(
 /** Delete `id`, reporting the removal so its model is dropped. */
 export function drop(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
   if (!target.write[entity].delete(id)) return
-  if (entity === 'repo') repoHolders.get(target.write.repo)?.delete(id)
+  if (entity === 'repo') {
+    target.write.repo.repoState?.holders.delete(id)
+    target.write.repo.repoState?.inputs.delete(id)
+  }
   out.removed.push([entity, id])
   if (entity === 'issue') target.volatile?.removeIssueRead(id)
 }
@@ -220,11 +231,7 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
   const value = record.value as StoredRow | undefined
   if (record.kind === 'worktree') {
-    let holders = repoHolders.get(target.write.repo)
-    if (!holders) {
-      holders = new Map()
-      repoHolders.set(target.write.repo, holders)
-    }
+    const holders = repoState(target.write.repo).holders
     // Repo-from-lane is the shared feed-layer composition (POD-4695): the
     // pool only adapts its slot writes. The takeover reads the maintained
     // `repo.worktrees` collection; with no relations (rebuild, replace

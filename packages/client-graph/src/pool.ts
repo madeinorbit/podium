@@ -590,6 +590,7 @@ export class MobxPool {
       references: false,
       referenceReader: false,
       issueIdByRef: false,
+      formalParent: false,
       disposed: false,
       sidebarRosters: false,
       tables: false,

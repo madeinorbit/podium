@@ -205,10 +205,10 @@ export function createPoolHost({
       last.paint = { value }
       return value
     }, [active, empty, last, view])
-    return useSyncExternalStore(active && view ? view.subscribe : EMPTY_SUBSCRIPTION, snapshot)
+    return useSyncExternalStore(active && view ? view.subscribe : emptySubscription, snapshot)
   }
 
   return { attach, usePool, usePoolProjection, survivors }
 }
 
-const EMPTY_SUBSCRIPTION = () => () => {}
+const emptySubscription = () => () => {}
