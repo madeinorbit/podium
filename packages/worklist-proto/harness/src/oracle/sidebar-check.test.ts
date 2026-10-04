@@ -1,4 +1,5 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   compareSidebarSnapshots,
@@ -432,7 +433,11 @@ describe('sidebar differential replay', () => {
       it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
         const ctx = await startScenarioEngine(scale)
         const feeds = openFenceFeeds(ctx, mode)
-        const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
+        // The fixture attaches the app's navigation consumer, so it declares
+        // that consumer's cold facts before ingest, exactly as the app does.
+        const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
+          summaries: NAVIGATION_SUMMARIES,
+        })
         feeds.attachPool(handle.pool)
         const stop = reaction(
           () => poolSidebarSnapshot(handle.pool),
