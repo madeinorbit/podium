@@ -25,7 +25,7 @@ import { createWorklistPool, type WorklistPoolHandle } from '@podium/client-grap
 import { issuePages } from '@podium/client-graph/issue-page'
 import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { createRuntimeTransactions, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { createEngineLocals, localsOfEngine } from '@podium/client-graph/shared/engine-locals'
 import { type PoolOwnedKind } from '@podium/client-graph/shared/row-source'
 import { createRowSource } from '../../shared/src/row-source'
@@ -94,7 +94,16 @@ async function boot(scale: 1 | 4, opts: { online: boolean; server?: ScenarioServ
 }
 
 function pair(ctx: ScenarioEngine, _owns: readonly PoolOwnedKind[]) {
-  const transactions = createRuntimeTransactions(ctx.engine)
+  // The independent observer follows the same queue without owning its
+  // durable retirement. Only the product pool retires applied records.
+  const transactions = createPoolTransactions({
+    userId: ctx.engine.principal.userId,
+    now: ctx.engine.transactionNow,
+    outbox: ctx.engine.outbox,
+    outcomes: ctx.engine.subscribeOutboxOutcomes,
+    enqueue: async (kind, input, opts) => { await ctx.engine.outbox.enqueue(kind, input, opts) },
+    addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
+  })
   const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled', pending: transactions.pending })
   const locals = createEngineLocals(ctx.engine)
   const observer = createWorklistPool(rows.source, locals.source)
@@ -461,7 +470,10 @@ describe.each([
     expect(referenceState(ctx.engine).pendingSpawnIds.has(spawned.sessionId)).toBe(true)
     // Direct creation has one pool owner; the independent outbox observer
     // receives the server rows later. Assert the first paint at its owner.
-    expect(tracked(() => pooled.pool.issue(spawned.issueId))).toMatchObject({
+    expect(tracked(() => {
+      const issue = pooled.pool.issue(spawned.issueId)
+      return issue ? { id: issue.id, stage: issue.stage, seq: issue.seq } : undefined
+    })).toEqual({
       id: spawned.issueId, stage: 'backlog', seq: 0,
     })
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()

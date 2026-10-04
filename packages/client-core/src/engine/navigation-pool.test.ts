@@ -84,7 +84,8 @@ describe('addressed workspace pruning', () => {
   it('keeps the same membership, spawn and grace results without reading legacy lists', () => {
     vi.useFakeTimers()
     const foreign = { ...seat, sessionId: asSessionId('foreign'), issueId: asIssueId('other') }
-    const rows = [seat, foreign, { ...seat, sessionId: asSessionId('unreferenced') }]
+    const rows = [seat, foreign, { ...seat, sessionId: asSessionId('unreferenced') },
+      { ...seat, sessionId: asSessionId('pending'), status: 'starting' as const }]
     const reads = vi.fn((id: string) => rows.find((row) => row.sessionId === id))
     const make = (navigation?: NavigationProvider) => {
       let ws = emptyWorkspace('mission:root')
@@ -100,7 +101,6 @@ describe('addressed workspace pruning', () => {
       return {
         ...state(navigation ?? fixtureNavigation({ issues: () => [root, child], sessions: () => rows })),
         sessions: rows,
-        pendingSpawnIds: new Set([asSessionId('pending')]),
         selectedIssueId: child.id,
         workspaces: { 'mission:root': ws },
         fileTabs: [file('file:live', seat.sessionId), file('file:gone', 'missing')],

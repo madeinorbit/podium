@@ -490,7 +490,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       } as never)
       const rescope = handle.flush()
       expect(rescope?.type).toBe('replace')
-      expect(events).toHaveLength(3)
+      expect(events).toHaveLength(2)
       expect(handle.stats.enumerations).toBe(2)
     } finally {
       off()
