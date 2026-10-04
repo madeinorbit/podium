@@ -92,13 +92,18 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
     const counts = await legacyCounts(page)
+    cells.push({ screen, counts })
+    // Keep the measured counter even when a planted reader trips the assertion.
+    writeFileSync(
+      resolve(directory, 'reader-counts.json'),
+      `${JSON.stringify({ source: process.env.PODIUM_PROOF_SHA, cells, pageErrors: errors }, null, 2)}\n`,
+    )
     expect(counts.selectors, screen).toBe(0)
     expect(counts.rowBuilds, screen).toBe(0)
     expect(
       Object.values(counts.derivations).reduce((sum, count) => sum + count, 0),
       screen,
     ).toBe(0)
-    cells.push({ screen, counts })
     await page.screenshot({ path: resolve(directory, `${screen}.png`), fullPage: true })
   }
   await page.goto(`/mobile/new-issue?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
