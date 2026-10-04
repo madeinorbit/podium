@@ -25,6 +25,16 @@ export interface TranscriptSearchWorkerRequest {
   cursor: number
 }
 
+export interface TranscriptDeltaWorkerRequest {
+  id: number
+  kind: 'delta'
+  baseIndexKey: number
+  indexKey: number
+  changed: TranscriptComputeInput['items']
+  order: string[]
+  input: Omit<TranscriptComputeInput, 'items'>
+}
+
 export interface TranscriptMarkdownWorkerRequest {
   id: number
   kind: 'markdown'
@@ -34,6 +44,7 @@ export interface TranscriptMarkdownWorkerRequest {
 export type TranscriptComputeWorkerRequest =
   | TranscriptIndexWorkerRequest
   | TranscriptSearchWorkerRequest
+  | TranscriptDeltaWorkerRequest
   | TranscriptMarkdownWorkerRequest
 
 export interface TranscriptComputeWorkerResponse {
@@ -77,6 +88,7 @@ let indexed:
       indexKey: number
       verbosity: TranscriptComputeInput['verbosity']
       result: Pick<TranscriptComputeResult, 'blocks' | 'rows'>
+      items: Map<string, TranscriptComputeInput['items'][number]>
     }
   | undefined
 
@@ -128,18 +140,35 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
       return
     }
     const indexKey = request.indexKey
+    let input: TranscriptComputeInput | undefined
     if (request.kind === 'index') {
+      input = request.input
       indexed = {
         indexKey,
         verbosity: request.input.verbosity,
         result: computeTranscript({ ...request.input, query: '', cursor: 0 }),
+        items: new Map(request.input.items.map(item => [item.id, item])),
+      }
+    } else if (request.kind === 'delta') {
+      if (!indexed || indexed.indexKey !== request.baseIndexKey) throw new Error('transcript delta has no base')
+      for (const item of request.changed) indexed.items.set(item.id, item)
+      const items = request.order.map(id => {
+        const item = indexed?.items.get(id)
+        if (!item) throw new Error('transcript delta omitted an item')
+        return item
+      })
+      input = { ...request.input, items }
+      indexed = {
+        indexKey,
+        verbosity: input.verbosity,
+        items: new Map(items.map(item => [item.id, item])),
+        result: computeTranscript({ ...input, query: '', cursor: 0 }),
       }
     } else if (!indexed || indexed.indexKey !== indexKey) {
       throw new Error('transcript search requested before its index was ready')
     }
-    const input = request.kind === 'index' ? request.input : undefined
-    const query = request.kind === 'index' ? request.input.query : request.query
-    const cursor = request.kind === 'index' ? request.input.cursor : request.cursor
+    const query = request.kind === 'search' ? request.query : request.input.query
+    const cursor = request.kind === 'search' ? request.cursor : request.input.cursor
     const base = indexed?.indexKey === indexKey ? indexed.result : undefined
     if (!base) throw new Error('transcript index unavailable')
     const result: TranscriptComputeResult = {

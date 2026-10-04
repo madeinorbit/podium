@@ -101,6 +101,8 @@ export interface UseTranscriptWindowOptions {
   /** Search is part of the same worker/index request as block shaping. */
   query?: string
   cursor?: number
+  /** Keep the loaded search depth while the find panel is open. */
+  searchOpen?: boolean
   /** LIVE machine presence for this session (POD-4808 review): true = online,
    *  false = offline, undefined = unknown. A false->true transition re-reads
    *  the window so the "history will load when it reconnects" promise holds
@@ -180,19 +182,22 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     cursor = 0,
     machineOnline,
     followTail = true,
+    searchOpen = query.trim() !== '',
   } = opts
 
   const followTailRef = useRef(followTail)
+  const searchOpenRef = useRef(searchOpen)
   useLayoutEffect(() => {
     followTailRef.current = followTail
-  }, [followTail])
+    searchOpenRef.current = searchOpen
+  }, [followTail, searchOpen])
   const transcriptController = useMemo(
     () =>
       createTranscriptController({
         sessionId,
         initialLimit: INITIAL_LIMIT,
         pageLimit: PAGE_LIMIT,
-        retainHistory: () => !followTailRef.current,
+        retainHistory: () => !followTailRef.current || searchOpenRef.current,
         source: {
           async read(request) {
             const tracedNewest = request.anchor === undefined && request.limit === INITIAL_LIMIT
@@ -549,8 +554,11 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     [effectiveItems, verbosity, query, cursor],
   )
   const computeClient = transcriptComputeClient()
+  const computeOwner = useRef({})
   useEffect(() => {
+    if (!active) return
     let cancelled = false
+    const request = new AbortController()
     const input = computeInput
     if (!computeClient.usesWorker) {
       setComputed({ ...input, result: computeClient.computeOnMain(input) })
@@ -558,9 +566,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
         cancelled = true
       }
     }
-    void computeClient.compute(input).then(
+    void computeClient.compute(input, { owner: computeOwner.current, signal: request.signal }).then(
       (result) => {
-        if (cancelled) return
+        if (cancelled || request.signal.aborted) return
         setComputed({ ...input, result })
       },
       () => {
@@ -574,8 +582,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     )
     return () => {
       cancelled = true
+      request.abort()
     }
-  }, [computeClient, computeInput, sessionId])
+  }, [active, computeClient, computeInput, sessionId])
 
   const blocks = computed?.result.blocks ?? EMPTY_CHAT_BLOCKS
   const rows = computed?.result.rows ?? EMPTY_CHAT_ROWS

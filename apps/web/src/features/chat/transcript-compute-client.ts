@@ -20,6 +20,13 @@ interface TranscriptPending {
   input: TranscriptComputeInput
   resolve: (result: WebTranscriptComputeResult) => void
   reject: (error: Error) => void
+  release?: () => void
+}
+
+export interface TranscriptComputeOptions {
+  /** Each mounted pane owns its latest job, including panes of one session. */
+  owner?: object
+  signal?: AbortSignal
 }
 
 interface MarkdownPending {
@@ -56,6 +63,9 @@ export class TranscriptComputeClient {
   private nextId = 0
   private nextIndexKey = 0
   private readonly pending = new Map<number, Pending>()
+  private readonly queued = new Map<object, TranscriptPending>()
+  private readonly defaultOwner = {}
+  private transcriptFlight: number | undefined
   private readonly markdownHtml = new Map<string, string>()
   private stableGraph: StableGraph | undefined
   private indexedSource:
@@ -82,11 +92,17 @@ export class TranscriptComputeClient {
         event: MessageEvent<TranscriptWorkerResponse | TranscriptComputeWorkerError>,
       ) => {
         const message = event.data
+        if (message.ok && message.kind === 'transcript') {
+          for (const [text, html] of message.markdown) this.cacheMarkdown(text, html)
+        }
         const pending = this.pending.get(message.id)
-        if (!pending) return
+        if (this.transcriptFlight === message.id) this.transcriptFlight = undefined
+        if (!pending) { this.dispatchNext(); return }
         this.pending.delete(message.id)
+        if (pending.kind === 'transcript') pending.release?.()
         if (!message.ok) {
           pending.reject(new Error(message.error))
+          this.dispatchNext()
           return
         }
         if (message.kind === 'markdown') {
@@ -97,15 +113,20 @@ export class TranscriptComputeClient {
           return
         }
         if (pending.kind !== 'transcript') return
-        for (const [text, html] of message.markdown) {
-          this.cacheMarkdown(text, html)
-        }
         pending.resolve(this.stabilize(pending.input, message.result))
+        this.dispatchNext()
       }
       worker.onerror = (event) => {
         const error = new Error(event.message || 'transcript compute worker failed')
-        for (const pending of this.pending.values()) pending.reject(error)
+        for (const pending of this.pending.values()) {
+          if (pending.kind === 'transcript') pending.release?.()
+          pending.reject(error)
+        }
+        for (const job of this.queued.values()) { job.release?.(); job.reject(error) }
+        this.queued.clear()
         this.pending.clear()
+        this.transcriptFlight = undefined
+        this.indexedSource = undefined
         worker.terminate()
         this.worker = undefined
         this.workerUnavailable = true
@@ -185,30 +206,61 @@ export class TranscriptComputeClient {
     return { key, needsIndex: true }
   }
 
-  compute(input: TranscriptComputeInput): Promise<WebTranscriptComputeResult> {
+  compute(input: TranscriptComputeInput, options: TranscriptComputeOptions = {}): Promise<WebTranscriptComputeResult> {
+    if (options.signal?.aborted) return Promise.reject(new DOMException('Cancelled', 'AbortError'))
     const worker = this.ensureWorker()
     if (!worker) return Promise.resolve(this.computeOnMain(input))
-    const id = ++this.nextId
-    const index = this.indexRequestFor(input)
     return new Promise<WebTranscriptComputeResult>((resolve, reject) => {
-      this.pending.set(id, { kind: 'transcript', input, resolve, reject })
-      if (index.needsIndex) {
-        worker.postMessage({
-          id,
-          kind: 'index',
-          indexKey: index.key,
-          input,
-        } satisfies TranscriptComputeWorkerRequest)
-      } else {
-        worker.postMessage({
-          id,
-          kind: 'search',
-          indexKey: index.key,
-          query: input.query,
-          cursor: input.cursor,
-        } satisfies TranscriptComputeWorkerRequest)
+      const owner = options.owner ?? this.defaultOwner
+      const previous = this.queued.get(owner)
+      if (previous) { previous.release?.(); previous.reject(new DOMException('Superseded', 'AbortError')) }
+      const job: TranscriptPending = { kind: 'transcript', input, resolve, reject }
+      const abort = () => {
+        if (this.queued.get(owner) === job) this.queued.delete(owner)
+        for (const [id, pending] of this.pending) if (pending === job) this.pending.delete(id)
+        job.release?.()
+        reject(new DOMException('Cancelled', 'AbortError'))
       }
+      options.signal?.addEventListener('abort', abort, { once: true })
+      job.release = () => options.signal?.removeEventListener('abort', abort)
+      this.queued.set(owner, job)
+      this.dispatchNext()
     })
+  }
+
+  private dispatchNext(): void {
+    if (!this.worker || this.transcriptFlight !== undefined) return
+    const entry = this.queued.entries().next().value
+    if (!entry) return
+    const [owner, job] = entry
+    this.queued.delete(owner)
+    const id = ++this.nextId
+    const previous = this.indexedSource
+    const index = this.indexRequestFor(job.input)
+    this.transcriptFlight = id
+    this.pending.set(id, job)
+    try {
+      let request: TranscriptComputeWorkerRequest
+      if (!index.needsIndex) {
+        request = { id, kind: 'search', indexKey: index.key, query: job.input.query, cursor: job.input.cursor }
+      } else if (previous && previous.verbosity === job.input.verbosity) {
+        const held = new Map(previous.items.map(item => [item.id, item]))
+        const { items, ...input } = job.input
+        request = {
+          id, kind: 'delta', baseIndexKey: previous.key, indexKey: index.key,
+          changed: items.filter(item => held.get(item.id) !== item),
+          order: items.map(item => item.id), input,
+        }
+      } else request = { id, kind: 'index', indexKey: index.key, input: job.input }
+      this.worker.postMessage(request)
+    } catch (error) {
+      this.pending.delete(id)
+      this.transcriptFlight = undefined
+      this.indexedSource = undefined
+      job.release?.()
+      job.reject(error instanceof Error ? error : new Error(String(error)))
+      this.dispatchNext()
+    }
   }
 
   computeMarkdown(text: string, renderOnMain: (text: string) => string): Promise<string> {
@@ -222,8 +274,15 @@ export class TranscriptComputeClient {
   }
 
   dispose(): void {
-    for (const pending of this.pending.values()) pending.reject(new Error('disposed'))
+    for (const pending of this.pending.values()) {
+      if (pending.kind === 'transcript') pending.release?.()
+      pending.reject(new Error('disposed'))
+    }
+    for (const job of this.queued.values()) { job.release?.(); job.reject(new Error('disposed')) }
+    this.queued.clear()
     this.pending.clear()
+    this.transcriptFlight = undefined
+    this.indexedSource = undefined
     this.worker?.terminate()
     this.worker = undefined
     this.indexedSource = undefined

@@ -1,5 +1,5 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { insertInCursorOrder } from '../values/cursor-order'
+import { cursorInsertionIndex } from '../values/cursor-order'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
@@ -159,11 +159,20 @@ export function mergeTranscriptFrame(
   held: readonly TranscriptItem[],
   frame: readonly TranscriptItem[],
 ): TranscriptItem[] {
-  if (frame.length === 0) return held as TranscriptItem[]
   const positions = new Map<string, number>()
   held.forEach((item, index) => {
     positions.set(item.id, index)
   })
+  return mergeIndexedTranscriptFrame(held, frame, positions)
+}
+
+/** The controller keeps this index across deltas; authority reads rebuild it. */
+function mergeIndexedTranscriptFrame(
+  held: readonly TranscriptItem[],
+  frame: readonly TranscriptItem[],
+  positions: Map<string, number>,
+): TranscriptItem[] {
+  if (frame.length === 0) return held as TranscriptItem[]
   let next: TranscriptItem[] | null = null
   const additions = new Map<string, TranscriptItem>()
 
@@ -183,7 +192,19 @@ export function mergeTranscriptFrame(
 
   if (!next && additions.size === 0) return held as TranscriptItem[]
   const merged = next ?? [...held]
-  for (const item of additions.values()) insertInCursorOrder(merged, item)
+  for (const item of additions.values()) {
+    const insertion = cursorInsertionIndex(merged, item)
+    if (insertion < 0) {
+      positions.set(item.id, merged.length)
+      merged.push(item)
+    } else {
+      merged.splice(insertion, 0, item)
+      for (let index = insertion; index < merged.length; index++) {
+        const entry = merged[index]
+        if (entry) positions.set(entry.id, index)
+      }
+    }
+  }
   return merged
 }
 
@@ -265,6 +286,8 @@ export class TranscriptController {
   private settleTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private probing: Promise<boolean> | null = null
+  private indexedItems: readonly TranscriptItem[] = []
+  private readonly itemPositions = new Map<string, number>()
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
@@ -359,9 +382,10 @@ export class TranscriptController {
         : retainHistory
           ? mergeTranscriptFrame(this.state.items, page.items)
           : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
-      const items = sameTranscriptItems(this.state.items, reconciled)
+      const bounded = this.boundFollowingWindow(reconciled)
+      const items = sameTranscriptItems(this.state.items, bounded.items)
         ? this.state.items
-        : reconciled
+        : bounded.items
       this.patch({
         items,
         head: retainHistory ? (this.state.head ?? page.head) : page.head,
@@ -374,6 +398,7 @@ export class TranscriptController {
           this.state.freshness === null ? null : page.items.length > 0 ? 'rendering' : 'saved',
         offlineAsOf: null,
         offlineMachineName: page.offline?.machineName ?? null,
+        ...bounded.paging,
       })
       if (items.length > 0) this.options.cache?.write(this.options.sessionId, items)
       // Stream catch-up anchors on the newest NATIVE item cursor (POD-4300:
@@ -601,7 +626,8 @@ export class TranscriptController {
           this.windowEpoch += 1
           // A reset is authoritative even when the replacement is empty and
           // the follow-up paging read fails. It must remove held/cache rows now.
-          const items = mergeTranscriptFrame([], frame)
+          const bounded = this.boundFollowingWindow(mergeTranscriptFrame([], frame))
+          const items = bounded.items
           this.patch({
             items,
             head: undefined,
@@ -609,25 +635,52 @@ export class TranscriptController {
             hasMoreOlder: false,
             loadingOlder: false,
             subscriptionHealthy: false,
+            ...bounded.paging,
           })
           this.options.cache?.write(this.options.sessionId, items)
           void this.refresh({ disclose: true }).catch(() => {})
           return
         }
-        const items = mergeTranscriptFrame(this.state.items, frame)
-        if (items === this.state.items) return
+        const merged = mergeIndexedTranscriptFrame(this.state.items, frame, this.itemPositions)
+        this.indexedItems = merged
+        if (merged === this.state.items) return
+        const bounded = this.boundFollowingWindow(merged)
+        const items = bounded.items
         const tail = items.at(-1)?.cursor ?? this.state.tail
         this.patch({
           items,
           ...(tail === undefined ? {} : { tail }),
           freshness: this.state.freshness === null ? null : 'rendering',
+          ...bounded.paging,
         })
         this.options.cache?.write(this.options.sessionId, items)
       },
     )
   }
 
+  private boundFollowingWindow(items: TranscriptItem[]): {
+    items: TranscriptItem[]
+    paging?: Pick<TranscriptState, 'head' | 'hasMoreOlder'>
+  } {
+    const retainHistory = this.options.retainHistory
+      ? this.options.retainHistory()
+      : this.pagedBack
+    const limit = this.initialLimit * 2
+    if (retainHistory || this.state.loadingOlder || items.length <= limit) return { items }
+    const tail = items.slice(-limit)
+    // Store readers accept the native item cursor as their opaque anchor. Keep
+    // the authority's original page head until an actual trim, then page from
+    // the first retained item so the omitted prefix remains recoverable.
+    if (!tail[0]?.cursor) return { items }
+    return { items: tail, paging: { head: tail[0].cursor, hasMoreOlder: true } }
+  }
+
   private patch(patch: Partial<TranscriptState>): void {
+    if (patch.items && patch.items !== this.indexedItems) {
+      this.itemPositions.clear()
+      patch.items.forEach((item, index) => this.itemPositions.set(item.id, index))
+      this.indexedItems = patch.items
+    }
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener()
   }
