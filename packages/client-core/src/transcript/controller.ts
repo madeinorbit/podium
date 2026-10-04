@@ -662,9 +662,7 @@ export class TranscriptController {
     items: TranscriptItem[]
     paging?: Pick<TranscriptState, 'head' | 'hasMoreOlder'>
   } {
-    const retainHistory = this.options.retainHistory
-      ? this.options.retainHistory()
-      : this.pagedBack
+    const retainHistory = this.options.retainHistory ? this.options.retainHistory() : this.pagedBack
     const limit = this.initialLimit * 2
     if (retainHistory || this.state.loadingOlder || items.length <= limit) return { items }
     const tail = items.slice(-limit)
@@ -678,7 +676,9 @@ export class TranscriptController {
   private patch(patch: Partial<TranscriptState>): void {
     if (patch.items && patch.items !== this.indexedItems) {
       this.itemPositions.clear()
-      patch.items.forEach((item, index) => this.itemPositions.set(item.id, index))
+      patch.items.forEach((item, index) => {
+        this.itemPositions.set(item.id, index)
+      })
       this.indexedItems = patch.items
     }
     this.state = { ...this.state, ...patch }

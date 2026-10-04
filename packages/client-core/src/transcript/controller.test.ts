@@ -63,6 +63,58 @@ const clients = [
 ] as const
 
 describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }) => {
+  it('bounds a marathon live window, updates retained ids, and recovers trimmed history by its native anchor', async () => {
+    const io = source()
+    let reading = false
+    const write = vi.fn()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      initialLimit,
+      pageLimit,
+      retainHistory: () => reading,
+      cache: { read: () => undefined, write },
+    })
+    const all = Array.from({ length: 10_000 }, (_, index) =>
+      item(`row-${index}`, `cursor-${index}`),
+    )
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: all.slice(0, initialLimit),
+      head: 'authority-head',
+      hasMore: false,
+    })
+    await starting
+    io.emit(all.slice(initialLimit, initialLimit + 1))
+    expect(controller.getSnapshot().head).toBe('authority-head')
+    for (let offset = initialLimit + 1; offset < all.length; offset += 11) {
+      io.emit(all.slice(offset, offset + 11))
+      expect(controller.getSnapshot().items.length).toBeLessThanOrEqual(initialLimit * 2)
+    }
+    const first = 10_000 - initialLimit * 2
+    expect(controller.getSnapshot().items).toEqual(all.slice(first))
+    expect(controller.getSnapshot()).toMatchObject({ head: `cursor-${first}`, hasMoreOlder: true })
+    expect(write.mock.lastCall?.[1]).toHaveLength(initialLimit * 2)
+    io.emit([item(`row-${first}`, `cursor-${first}`, 'updated retained row')])
+    expect(controller.getSnapshot().items[0]?.text).toBe('updated retained row')
+    reading = true
+    const older = controller.loadOlder()
+    expect(io.reads[1]?.anchor).toBe(`cursor-${first}`)
+    io.pending[1]?.resolve({
+      items: all.slice(first - pageLimit, first),
+      head: `cursor-${first - pageLimit}`,
+      hasMore: true,
+    })
+    expect(await older).toBe(true)
+    const heldHead = controller.getSnapshot().items[0]
+    io.emit([item('newest', 'cursor-10000')])
+    expect(controller.getSnapshot().items[0]).toBe(heldHead)
+    reading = false
+    io.emit([item('newer', 'cursor-10001')])
+    expect(controller.getSnapshot().items).toHaveLength(initialLimit * 2)
+    expect(controller.getSnapshot().items.at(-1)?.id).toBe('newer')
+    controller.dispose()
+  })
   it('hydrates cache, reads, pages, replaces a same-id record, and writes through', async () => {
     const io = source()
     const write = vi.fn()

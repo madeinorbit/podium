@@ -28,6 +28,17 @@ out.mkdir(parents=True, exist_ok=True)
 start = time.monotonic()
 stop = threading.Event()
 libproc = ctypes.CDLL('/usr/lib/libproc.dylib')
+libsystem = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+
+
+class Timebase(ctypes.Structure):
+    _fields_ = [('numer', ctypes.c_uint32), ('denom', ctypes.c_uint32)]
+
+
+timebase = Timebase()
+libsystem.mach_timebase_info(ctypes.byref(timebase))
+cpu_time_to_ns = timebase.numer / timebase.denom
+latest_processes = []
 
 
 def request(method, path, value=None, timeout=30):
@@ -52,6 +63,8 @@ def append(name, value):
 def sample():
     # rusage_info_v2: UUID, then user/system time, two wakeup counts, pageins,
     # wired_size, resident_size, phys_footprint, start/exit time, child metrics.
+    global latest_processes
+    previous = {}
     while not stop.is_set():
         processes = []
         listing = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,rss=,command='], text=True)
@@ -66,10 +79,37 @@ def sample():
             usage = ctypes.create_string_buffer(512)
             status = libproc.proc_pid_rusage(int(pid), 2, usage)
             footprint = ctypes.c_uint64.from_buffer(usage, 16 + 7 * 8).value if status == 0 else None
+            # XNU supplies Mach absolute CPU time, including exited threads.
+            # Convert using this host's timebase; ps %cpu is a lifetime average.
+            cpu_ns = sum(ctypes.c_uint64.from_buffer(usage, offset).value
+                         for offset in (16, 24)) * cpu_time_to_ns if status == 0 else None
+            observed_ns = time.monotonic_ns()
+            before = previous.get(int(pid))
+            cpu_percent = (100 * (cpu_ns - before[1]) / (observed_ns - before[0])
+                           if cpu_ns is not None and before is not None else None)
+            if cpu_ns is not None:
+                previous[int(pid)] = (observed_ns, cpu_ns)
             processes.append({'pid': int(pid), 'ppid': int(parent), 'rssBytes': int(rss) * 1024,
-                              'footprintBytes': footprint, 'command': command})
+                              'footprintBytes': footprint, 'cpuNs': cpu_ns,
+                              'cpuPercent': cpu_percent, 'command': command})
+        latest_processes = processes
         append('memory.ndjson', {'processes': processes})
         stop.wait(1)
+
+
+def memory_categories():
+    # Capture at the end so vmmap does not contaminate the CPU timing interval.
+    # Simulator WebContent regions identify JS/JIT/native allocations; these
+    # are resident backing stores, not a GC snapshot's live-object byte count.
+    for process in latest_processes:
+        if 'WebContent' not in process['command']:
+            continue
+        with (out / f"vmmap-{process['pid']}.txt").open('w') as report:
+            try:
+                subprocess.run(['vmmap', '-summary', str(process['pid'])], stdout=report,
+                               stderr=subprocess.STDOUT, timeout=15)
+            except subprocess.TimeoutExpired:
+                append('page.ndjson', {'vmmapTimeout': process['pid']})
 
 
 thread = threading.Thread(target=sample, daemon=True)
@@ -79,6 +119,9 @@ try:
     if args.openurl:
         subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True)
         stop.wait(args.seconds)
+        stop.set()
+        thread.join(3)
+        memory_categories()
         subprocess.run(['xcrun', 'simctl', 'io', args.udid, 'screenshot', str(out / 'phone.png')], check=True,
                        stdout=subprocess.DEVNULL)
     else:
@@ -104,6 +147,8 @@ try:
         rows:document.querySelectorAll('[data-block]').length,
         scroll:Array.from(document.querySelectorAll('[data-testid="transcript-scroller"]')).map(s=>({top:s.scrollTop,height:s.scrollHeight,viewport:s.clientHeight})),
         marks:document.querySelectorAll('.pod-mark').length,
+        retained:window.__fixtureTranscriptCounts || null,
+        worker:window.__fixtureWorkerCounts || null,
         canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
         images:document.images.length, errors:window.__fixtureErrors || [],
         text:document.body.innerText.slice(-700)};
@@ -116,6 +161,9 @@ try:
             append('page.ndjson', {'error': str(error)})
         stop.wait(2)
     screenshot = request('GET', base + '/screenshot', timeout=20)
+    stop.set()
+    thread.join(3)
+    memory_categories()
     import base64
     (out / 'phone.png').write_bytes(base64.b64decode(screenshot))
 except Exception as error:

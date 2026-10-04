@@ -1,13 +1,13 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   createTranscriptController,
-  transcriptActivitySignal,
   type TranscriptFreshness,
+  transcriptActivitySignal,
 } from '@podium/client-core/transcript'
+import type { TranscriptSearchState } from '@podium/client-core/values'
 import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
-import type { TranscriptSearchState } from '@podium/client-core/values'
 import type { Dispatch, SetStateAction } from 'react'
 import {
   useCallback,
@@ -19,7 +19,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { Store } from '@/app/store'
-import { type ChatBlock, type ChatRow } from './chat'
+import type { ChatBlock, ChatRow } from './chat'
 import {
   transcriptComputeClient,
   type WebTranscriptComputeResult,
@@ -554,7 +554,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     [effectiveItems, verbosity, query, cursor],
   )
   const computeClient = transcriptComputeClient()
-  const computeOwner = useRef({})
+  const computeOwner = useMemo(() => ({ sessionId }), [sessionId])
   useEffect(() => {
     if (!active) return
     let cancelled = false
@@ -566,7 +566,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
         cancelled = true
       }
     }
-    void computeClient.compute(input, { owner: computeOwner.current, signal: request.signal }).then(
+    void computeClient.compute(input, { owner: computeOwner, signal: request.signal }).then(
       (result) => {
         if (cancelled || request.signal.aborted) return
         setComputed({ ...input, result })
@@ -584,7 +584,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
       cancelled = true
       request.abort()
     }
-  }, [active, computeClient, computeInput, sessionId])
+  }, [active, computeClient, computeInput, computeOwner])
 
   const blocks = computed?.result.blocks ?? EMPTY_CHAT_BLOCKS
   const rows = computed?.result.rows ?? EMPTY_CHAT_ROWS

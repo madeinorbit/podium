@@ -240,7 +240,7 @@ describe('useTranscriptWindow optimistic session boundary', () => {
 
 describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
   it('(a) a warm activation with a healthy window skips the re-read and marks a cache hit', async () => {
-    act(() => root.render(<Probe active={false} />))
+    act(() => root.render(<Probe active={true} />))
     expect(reads).toHaveLength(1)
     await act(async () => {
       reads[0]?.resolve({
@@ -252,6 +252,8 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
     })
     await flush()
     const rowsBefore = captured?.rows
+    act(() => root.render(<Probe active={false} />))
+    await flush()
 
     // Gesture: begin the trace, then re-activate the still-mounted panel.
     beginSwitch({ sessionId: asSessionId('s1') })
@@ -359,7 +361,7 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
   })
 
   it('(e) a delta arriving while hidden advances the window; the next activation still skips and shows it', async () => {
-    act(() => root.render(<Probe active={false} />))
+    act(() => root.render(<Probe active={true} />))
     await act(async () => {
       reads[0]?.resolve({
         items: [item('a', 'c1', 'first'), item('b', 'c2', 'second')],
@@ -369,12 +371,17 @@ describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
       })
     })
     await flush()
+    const rowsBefore = captured?.rows
+    act(() => root.render(<Probe active={false} />))
+    await flush()
     // A live delta lands while the panel is hidden (still subscribed).
     await act(async () => {
       fakeHub.subscribes[0]?.cb([item('c', 'c3', 'third')], { reset: false })
     })
     await flush()
-    expect(captured?.blocks.some((b) => b.item.text === 'third')).toBe(true)
+    // Ingestion continues; presentation work waits until the pane is visible.
+    expect(captured?.rows).toBe(rowsBefore)
+    expect(captured?.blocks.some((b) => b.item.text === 'third')).toBe(false)
 
     beginSwitch({ sessionId: asSessionId('s1') })
     act(() => root.render(<Probe active={true} />))
@@ -876,7 +883,7 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
   /** Load one older page: the pane now holds history a tail re-read would drop.
    *  `active` so the reconcile and heartbeat are otherwise eligible to run. */
   async function pageHistoryIn(active = true): Promise<void> {
-    act(() => root.render(<Probe active={active} />))
+    act(() => root.render(<Probe active={true} />))
     await act(async () => {
       // hasMore: there IS history on disk to page back into.
       reads[0]?.resolve({
@@ -894,6 +901,10 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     })
     await flush()
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['z', 'a'])
+    if (!active) {
+      act(() => root.render(<Probe active={false} />))
+      await flush()
+    }
   }
 
   it('stands down once the reader has paged HISTORY in — a tail re-read would drop it', async () => {

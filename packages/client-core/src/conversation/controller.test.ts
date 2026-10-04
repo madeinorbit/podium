@@ -79,6 +79,46 @@ const states = (controller: {
  * screen. No ledger poll, and no transcript text is ever compared.
  */
 describe('conversation controller over synced records', () => {
+  it('does not publish transcript freshness or assistant text changes as conversation changes', () => {
+    const feed = transcript()
+    feed.set([user('u1', 'prompt'), { id: 'a1', role: 'assistant', text: 'partial' }])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'local',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    const notify = vi.fn()
+    controller.subscribe(notify)
+    const items = [user('u1', 'prompt'), { id: 'a1', role: 'assistant' as const, text: 'complete' }]
+    feed.set(items)
+    feed.set(items)
+    expect(notify).not.toHaveBeenCalled()
+    controller.dispose()
+  })
+  it('acknowledges a confirmation that arrives after the native entry was windowed out', () => {
+    const feed = transcript()
+    const synced = records([
+      record('sent', { status: 'typed', transcriptItem: { id: 'native', cursor: 'c1' } }),
+    ])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'local',
+      deliver: vi.fn(),
+    })
+    controller.start()
+    feed.set([user('native', 'delivered')])
+    feed.set([user('later', 'later')])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    synced.set([
+      record('sent', { status: 'confirmed', transcriptItem: { id: 'native', cursor: 'c1' } }),
+    ])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    controller.dispose()
+  })
   it('hands a send over to its record, and drops it when the named history entry arrives', async () => {
     const feed = transcript()
     const synced = records()
@@ -106,6 +146,10 @@ describe('conversation controller over synced records', () => {
     // The history carries it under DIFFERENT text — the harness rewrote it —
     // and the id alone retires the bubble: the message shows once.
     feed.set([user('entry-7', '<user_query>please ship it</user_query>')])
+    expect(controller.getSnapshot().bubbles).toEqual([])
+    expect(controller.getSnapshot().pending).toEqual([])
+    // A rolling live window must not resurrect a completed send's bubble.
+    feed.set([user('entry-8', 'later prompt')])
     expect(controller.getSnapshot().bubbles).toEqual([])
     controller.dispose()
   })

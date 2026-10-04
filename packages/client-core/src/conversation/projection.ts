@@ -1,5 +1,5 @@
-import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { MessageRecordWire, TranscriptItem, TranscriptTag } from '@podium/model'
+import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
 /**
@@ -90,6 +90,8 @@ export interface ConversationProjectionInput {
   /** Records this view saw before they were confirmed: only those may show a
    *  bubble once confirmed (an older confirmed record is history). */
   readonly seenOpen: ReadonlySet<string>
+  /** Entries this view already rendered remain acknowledged after windowing. */
+  readonly seenHistory?: ReadonlySet<string>
   /** Message ids being dismissed right now: hidden meanwhile. */
   readonly hidden: ReadonlySet<string>
   /** This device's retracts still waiting for their answer to reach the record,
@@ -152,10 +154,15 @@ function recordShows(
   record: MessageRecordWire,
   onScreen: ReadonlySet<string>,
   seenOpen: ReadonlySet<string>,
+  seenHistory?: ReadonlySet<string>,
 ): boolean {
   // Only a read by id carries a dismissal (POD-4811): the feed lets one go.
   if (record.noticeDismissedAt !== undefined) return false
-  if (record.transcriptItem && onScreen.has(record.transcriptItem.id)) return false
+  if (
+    record.transcriptItem &&
+    (onScreen.has(record.transcriptItem.id) || seenHistory?.has(record.transcriptItem.id))
+  )
+    return false
   if (record.status !== 'confirmed') return true
   return record.transcriptItem !== undefined && seenOpen.has(record.id)
 }
@@ -227,7 +234,7 @@ export function projectConversation(input: ConversationProjectionInput): Convers
       bubbles.push(withLocalRetract({ ...turn, retractable: LOCAL_RETRACTABLE.has(turn.state) }))
       continue
     }
-    if (!recordShows(record, onScreen, input.seenOpen)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
     const fromServer = withLocalRetract(fromRecord(record))
     bubbles.push(
       turn.state === 'interrupted'
@@ -250,7 +257,7 @@ export function projectConversation(input: ConversationProjectionInput): Convers
   }
   for (const record of input.records) {
     if (covered.has(record.id) || input.hidden.has(record.id)) continue
-    if (!recordShows(record, onScreen, input.seenOpen)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
     bubbles.push(withLocalRetract(fromRecord(record)))
   }
   return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))

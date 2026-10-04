@@ -1,8 +1,8 @@
 import {
   computeTranscript,
-  transcriptSearchState,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
+  transcriptSearchState,
 } from '@podium/client-core/values'
 import type {
   TranscriptComputeWorkerError,
@@ -96,8 +96,14 @@ export class TranscriptComputeClient {
           for (const [text, html] of message.markdown) this.cacheMarkdown(text, html)
         }
         const pending = this.pending.get(message.id)
-        if (this.transcriptFlight === message.id) this.transcriptFlight = undefined
-        if (!pending) { this.dispatchNext(); return }
+        if (this.transcriptFlight === message.id) {
+          this.transcriptFlight = undefined
+          if (!message.ok) this.indexedSource = undefined
+        }
+        if (!pending) {
+          this.dispatchNext()
+          return
+        }
         this.pending.delete(message.id)
         if (pending.kind === 'transcript') pending.release?.()
         if (!message.ok) {
@@ -122,7 +128,10 @@ export class TranscriptComputeClient {
           if (pending.kind === 'transcript') pending.release?.()
           pending.reject(error)
         }
-        for (const job of this.queued.values()) { job.release?.(); job.reject(error) }
+        for (const job of this.queued.values()) {
+          job.release?.()
+          job.reject(error)
+        }
         this.queued.clear()
         this.pending.clear()
         this.transcriptFlight = undefined
@@ -140,10 +149,7 @@ export class TranscriptComputeClient {
   }
 
   computeOnMain(input: TranscriptComputeInput): WebTranscriptComputeResult {
-    if (
-      this.stableGraph?.items === input.items &&
-      this.stableGraph.verbosity === input.verbosity
-    ) {
+    if (this.stableGraph?.items === input.items && this.stableGraph.verbosity === input.verbosity) {
       const { blocks, rows } = this.stableGraph
       return {
         blocks,
@@ -206,14 +212,20 @@ export class TranscriptComputeClient {
     return { key, needsIndex: true }
   }
 
-  compute(input: TranscriptComputeInput, options: TranscriptComputeOptions = {}): Promise<WebTranscriptComputeResult> {
+  compute(
+    input: TranscriptComputeInput,
+    options: TranscriptComputeOptions = {},
+  ): Promise<WebTranscriptComputeResult> {
     if (options.signal?.aborted) return Promise.reject(new DOMException('Cancelled', 'AbortError'))
     const worker = this.ensureWorker()
     if (!worker) return Promise.resolve(this.computeOnMain(input))
     return new Promise<WebTranscriptComputeResult>((resolve, reject) => {
       const owner = options.owner ?? this.defaultOwner
       const previous = this.queued.get(owner)
-      if (previous) { previous.release?.(); previous.reject(new DOMException('Superseded', 'AbortError')) }
+      if (previous) {
+        previous.release?.()
+        previous.reject(new DOMException('Superseded', 'AbortError'))
+      }
       const job: TranscriptPending = { kind: 'transcript', input, resolve, reject }
       const abort = () => {
         if (this.queued.get(owner) === job) this.queued.delete(owner)
@@ -242,14 +254,24 @@ export class TranscriptComputeClient {
     try {
       let request: TranscriptComputeWorkerRequest
       if (!index.needsIndex) {
-        request = { id, kind: 'search', indexKey: index.key, query: job.input.query, cursor: job.input.cursor }
+        request = {
+          id,
+          kind: 'search',
+          indexKey: index.key,
+          query: job.input.query,
+          cursor: job.input.cursor,
+        }
       } else if (previous && previous.verbosity === job.input.verbosity) {
-        const held = new Map(previous.items.map(item => [item.id, item]))
+        const held = new Map(previous.items.map((item) => [item.id, item]))
         const { items, ...input } = job.input
         request = {
-          id, kind: 'delta', baseIndexKey: previous.key, indexKey: index.key,
-          changed: items.filter(item => held.get(item.id) !== item),
-          order: items.map(item => item.id), input,
+          id,
+          kind: 'delta',
+          baseIndexKey: previous.key,
+          indexKey: index.key,
+          changed: items.filter((item) => held.get(item.id) !== item),
+          order: items.map((item) => item.id),
+          input,
         }
       } else request = { id, kind: 'index', indexKey: index.key, input: job.input }
       this.worker.postMessage(request)
@@ -278,14 +300,16 @@ export class TranscriptComputeClient {
       if (pending.kind === 'transcript') pending.release?.()
       pending.reject(new Error('disposed'))
     }
-    for (const job of this.queued.values()) { job.release?.(); job.reject(new Error('disposed')) }
+    for (const job of this.queued.values()) {
+      job.release?.()
+      job.reject(new Error('disposed'))
+    }
     this.queued.clear()
     this.pending.clear()
     this.transcriptFlight = undefined
     this.indexedSource = undefined
     this.worker?.terminate()
     this.worker = undefined
-    this.indexedSource = undefined
     this.stableGraph = undefined
   }
 }

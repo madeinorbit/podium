@@ -1,12 +1,12 @@
+import { highlightCode } from '@podium/client-core/code-highlight'
 import {
   computeTranscript,
   parseEnvelopeBatch,
-  transcriptSearchState,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
+  transcriptSearchState,
 } from '@podium/client-core/values'
 import { createMarkdownRenderer } from '@/lib/markdown-renderer'
-import { highlightCode } from '@podium/client-core/code-highlight'
 
 const renderMarkdownUnsafe = createMarkdownRenderer(highlightCode)
 
@@ -147,12 +147,13 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
         indexKey,
         verbosity: request.input.verbosity,
         result: computeTranscript({ ...request.input, query: '', cursor: 0 }),
-        items: new Map(request.input.items.map(item => [item.id, item])),
+        items: new Map(request.input.items.map((item) => [item.id, item])),
       }
     } else if (request.kind === 'delta') {
-      if (!indexed || indexed.indexKey !== request.baseIndexKey) throw new Error('transcript delta has no base')
+      if (!indexed || indexed.indexKey !== request.baseIndexKey)
+        throw new Error('transcript delta has no base')
       for (const item of request.changed) indexed.items.set(item.id, item)
-      const items = request.order.map(id => {
+      const items = request.order.map((id) => {
         const item = indexed?.items.get(id)
         if (!item) throw new Error('transcript delta omitted an item')
         return item
@@ -161,7 +162,7 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
       indexed = {
         indexKey,
         verbosity: input.verbosity,
-        items: new Map(items.map(item => [item.id, item])),
+        items: new Map(items.map((item) => [item.id, item])),
         result: computeTranscript({ ...input, query: '', cursor: 0 }),
       }
     } else if (!indexed || indexed.indexKey !== indexKey) {

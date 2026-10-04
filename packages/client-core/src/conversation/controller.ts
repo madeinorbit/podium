@@ -180,6 +180,8 @@ export class ConversationController {
   private seenUserIds = new Set<string>()
   private seenUserTailId: string | null = null
   private userBaselineReady = false
+  private observedTranscript: readonly TranscriptItem[] | undefined
+  private transcriptIds = new Set<string>()
   private readonly unsubscribes: (() => void)[] = []
   private sendTimer: unknown = null
   /** Turns whose delivery is being awaited, so a restart does not wait twice. */
@@ -833,13 +835,15 @@ export class ConversationController {
         this.retracting.delete(id)
       }
     }
+    const completed = this.consumeConfirmedTranscript(this.transcriptIds)
     const pending = this.state.pending.filter(
       (turn) =>
-        turn.reconcile === 'next-user-item' ||
-        turn.state === 'interrupted' ||
-        turn.state === 'retracted' ||
-        present.has(turn.deliveryId) ||
-        !this.seenRecord.has(turn.deliveryId),
+        (turn.state === 'retracted' || !completed.has(turn.deliveryId)) &&
+        (turn.reconcile === 'next-user-item' ||
+          turn.state === 'interrupted' ||
+          turn.state === 'retracted' ||
+          present.has(turn.deliveryId) ||
+          !this.seenRecord.has(turn.deliveryId)),
     )
     // Forget what can no longer matter: an id neither carried nor held here.
     const held = new Set(pending.map((turn) => turn.deliveryId))
@@ -895,12 +899,25 @@ export class ConversationController {
 
   private observeTranscript(baseline = false): void {
     const items = this.options.transcript.getSnapshot().items
+    if (!baseline && items === this.observedTranscript) return
+    this.observedTranscript = items
+    const previousIds = this.transcriptIds
+    const ids = new Set(items.map((item) => item.id))
+    const visibilityChanged = this.currentRecords().some((record) => {
+      const id = record.transcriptItem?.id
+      return id !== undefined && previousIds.has(id) !== ids.has(id)
+    })
+    this.transcriptIds = ids
+    const completed = this.consumeConfirmedTranscript(ids)
+    const retained = this.state.pending.filter(
+      (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
+    )
     const users = items.filter((item) => item.role === 'user')
     if (baseline || !this.userBaselineReady) {
       this.seenUserIds = new Set(users.map((item) => item.id))
       this.seenUserTailId = users.at(-1)?.id ?? null
       this.userBaselineReady = true
-      this.patch({})
+      this.patch(retained.length === this.state.pending.length ? {} : { pending: retained })
       return
     }
     const previousTail = this.seenUserTailId
@@ -911,7 +928,8 @@ export class ConversationController {
     for (const item of users) this.seenUserIds.add(item.id)
     this.seenUserTailId = users.at(-1)?.id ?? null
     if (fresh.length === 0) {
-      this.patch({})
+      if (retained.length !== this.state.pending.length) this.patch({ pending: retained })
+      else if (visibilityChanged) this.patch({})
       return
     }
     const interruptItem = fresh.findLast((item) => item.event === 'interrupt')
@@ -922,13 +940,29 @@ export class ConversationController {
     // A send with no record leaves when the agent's next user entries arrive,
     // one per entry, oldest first — by arrival, never by comparing text.
     let arrivals = fresh.filter((item) => item.event !== 'interrupt').length
-    const pending = this.state.pending.filter((turn) => {
+    const pending = retained.filter((turn) => {
       if (turn.reconcile !== 'next-user-item' || turn.state === 'interrupted') return true
       if (arrivals === 0) return true
       arrivals -= 1
       return false
     })
     this.patch(pending.length === this.state.pending.length ? {} : { pending })
+  }
+
+  private consumeConfirmedTranscript(ids: ReadonlySet<string>): Set<string> {
+    const completed = new Set<string>()
+    for (const record of this.currentRecords()) {
+      if (
+        record.status !== 'confirmed' ||
+        !record.transcriptItem ||
+        (!ids.has(record.transcriptItem.id) && !this.seenUserIds.has(record.transcriptItem.id))
+      )
+        continue
+      completed.add(record.id)
+      this.seenOpen.delete(record.id)
+      this.looked.delete(record.id)
+    }
+    return completed
   }
 
   private markSent(): number {
@@ -1016,6 +1050,7 @@ export class ConversationController {
       records: this.currentRecords(pending),
       transcript: this.options.transcript.getSnapshot().items,
       seenOpen: this.seenOpen,
+      seenHistory: this.seenUserIds,
       hidden: new Set(this.hidden.keys()),
       retracting: this.retracting,
     })
