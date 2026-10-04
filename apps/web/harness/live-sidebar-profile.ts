@@ -261,6 +261,7 @@ try {
       shell: (window as any).__liveShellCensus?.(),
       launch: (window as any).__liveLaunchCensus?.(),
       chat: (window as any).__liveChatCensus?.(),
+      pool: (window as any).__livePoolCensus?.(),
     }))
     const stopIdle = await startCpu(cdp)
     await page.waitForTimeout(idleMs)
@@ -270,6 +271,7 @@ try {
       shell: (window as any).__liveShellCensus?.(),
       launch: (window as any).__liveLaunchCensus?.(),
       chat: (window as any).__liveChatCensus?.(),
+      pool: (window as any).__livePoolCensus?.(),
     }))
     if (profile) await writeFile(resolve(root, 'idle.cpuprofile'), JSON.stringify(profile))
     await writeFile(resolve(root, 'idle.json'), JSON.stringify({ idleMs, before, after }))
@@ -451,6 +453,7 @@ try {
           state.launchInitializedBefore = !!(window as any).__liveLaunchCensus
           state.chatBefore = (window as any).__liveChatCensus?.() ?? {}
           state.shellBefore = (window as any).__liveShellCensus?.() ?? {}
+          state.poolBefore = (window as any).__livePoolCensus?.() ?? {}
           window.__speedReact.commits = []
           performance.clearMarks()
         },
@@ -564,6 +567,7 @@ try {
       const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
       const chatAfter = await page.evaluate(() => (window as any).__liveChatCensus?.() ?? {})
       const shellAfter = await page.evaluate(() => (window as any).__liveShellCensus?.() ?? {})
+      const poolAfter = await page.evaluate(() => (window as any).__livePoolCensus?.() ?? {})
       const input = events.find((e) => e.name === 'speed:input')
       const dom = events.find((e) => e.name === 'speed:dom')
       const paint = events
@@ -633,6 +637,7 @@ try {
           launch: state.boundary.launchInitializedBefore,
           chat: Object.keys(state.boundary.chatBefore).length > 0,
           shell: Object.keys(state.boundary.shellBefore).length > 0,
+          pool: Object.keys(state.boundary.poolBefore).length > 0,
         },
       }
       Object.assign(numbers, {
@@ -662,6 +667,12 @@ try {
           ['issue', 'session', 'issues', 'sessions', 'chrome', 'dock'].map((key) => [
             key,
             Number(shellAfter[key] ?? 0) - Number(state.boundary.shellBefore?.[key] ?? 0),
+          ]),
+        ),
+        poolReadsDuringCapture: Object.fromEntries(
+          Object.keys(poolAfter).map((key) => [
+            key,
+            Number(poolAfter[key]) - Number(state.boundary.poolBefore[key] ?? 0),
           ]),
         ),
       })

@@ -16,6 +16,20 @@ await build({
       name: 'live-sidebar-census',
       enforce: 'pre',
       transform(code, id) {
+        if (id.endsWith('/packages/client-graph/src/pool.ts')) {
+          const boundary = "    absent: AbsentRead = 'load',\n  ): Loaded<object> {"
+          if (!code.includes(boundary)) throw new Error('Pool row census boundary changed')
+          return (
+            `const livePoolCounts: Record<string, number> = {}
+;(globalThis as any).__livePoolCensus = () => ({ ...livePoolCounts })
+` +
+            code.replace(
+              boundary,
+              boundary +
+                '\n    const censusKey = `${entity}:${absent}`\n    livePoolCounts[censusKey] = (livePoolCounts[censusKey] ?? 0) + 1',
+            )
+          )
+        }
         if (id.endsWith('/packages/client-graph/src/shell-views.ts')) {
           if (!code.includes('  const cache =')) throw new Error('Shell census boundary changed')
           code = code.replace(
@@ -51,10 +65,21 @@ await build({
             '  function issues(): Loaded<IssueViewModel[]> {',
             '  function issues(): Loaded<IssueViewModel[]> {\n    return []',
           )
-        if (off === 'motion' && id.endsWith('/worklist-motion-layout.tsx'))
+        if (off === 'motion' && id.endsWith('/worklist-motion-layout.tsx')) {
+          if (
+            !code.includes('projection.root?.didUpdate()') ||
+            !code.includes('projection.willUpdate()')
+          )
+            throw new Error('Motion control boundary changed')
           return code
             .replaceAll('projection.root?.didUpdate()', 'void 0')
             .replaceAll('projection.willUpdate()', 'void 0')
+        }
+        if (off === 'sidebar-containment' && id.endsWith('/features/worklist/pool-sidebar.tsx')) {
+          const boundary = 'data-testid="work-scroll"'
+          if (!code.includes(boundary)) throw new Error('Sidebar containment boundary changed')
+          return code.replace(boundary, boundary + '\n        style={{ contain: "layout paint" }}')
+        }
         if (off === 'deck' && id.endsWith('/apps/web/src/app/FlightDeck.tsx')) {
           const start = code.indexOf('export function FlightDeckContent(')
           const boundary = code.indexOf('}): JSX.Element {', start)
