@@ -11,24 +11,13 @@ import { fixtureGitStates, fixtureMarkers } from '../fixture/normalized-issues'
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { Replica } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-core/replica'
-import {
-  groupUnifiedWorkRows,
-  indexMissionSessions,
-  issueDisplayTitle,
-  missionRollup,
-  rowHasWorkingSession,
-  rowInClosedFold,
-  rowMotionPhase,
-  rowWaitingCount,
-  splitPinnedWork,
-  type UnifiedIssueRow,
-  type UnifiedWorkRow,
-  unifiedRowBand,
-  worklistSlice,
-} from '@podium/client-core/values'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { groupUnifiedWorkRows, indexMissionSessions, issueDisplayTitle, missionRollup, rowHasWorkingSession, rowInClosedFold, rowMotionPhase, rowWaitingCount, splitPinnedWork, type UnifiedIssueRow, type UnifiedWorkRow, unifiedRowBand } from '@podium/client-core/values'
+import { worklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
 import {
   type LegacyDerivation,
   legacyDerivationFromStore,

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
 import {
   type ClientRuntime,
@@ -61,8 +62,7 @@ function Fixture() {
     runtime = owner
     pool = graph
     const stop = owner.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
-    void owner
-      .getSnapshot()
+    void referenceState(owner)
       .refreshRepos()
       .then(() => {
         ready = graph !== null
@@ -81,7 +81,7 @@ function Fixture() {
 const fixture = {
   ready: () => ready,
   state: () => {
-    const store = runtime!.getSnapshot()
+    const store = referenceState(runtime!)
     const sections = pool!.sidebar.sections()
     return {
       selected: store.selectedIssueId,
@@ -95,7 +95,7 @@ const fixture = {
     }
   },
   compare: () => {
-    const store = runtime!.getSnapshot()
+    const store = referenceState(runtime!)
     return checkSidebar(pool!, store, {
       pinnedRepos: store.pins.repos,
       pinnedWorktrees: store.pins.worktrees,

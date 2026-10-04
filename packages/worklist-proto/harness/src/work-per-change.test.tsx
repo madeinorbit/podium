@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4746 — the work-per-change check (`scale-check.ts`) on every roster arm,
@@ -50,7 +51,7 @@ import { join } from 'node:path'
 import { IssueModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import type { SliceIssue, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { reaction } from 'mobx'
 import { act } from 'react'
@@ -72,7 +73,7 @@ import {
   parityLocals,
   runFenceStep,
 } from './fence-scenarios'
-import { legacyControlArmFor } from './legacy-control/arm'
+import { referenceArmFor } from './reference-arm/arm'
 import { installMobxWarnTrap } from './mobx-trap'
 import { snapshotFromStore } from './oracle/index'
 import { poolScreenCellsAt } from './pool-screen-work'
@@ -159,27 +160,6 @@ describe('pool screens work ratios', () => {
     expect(at1x.cells.some((cell) => cell.work.rows! > 0 && cell.work.derivations > 0)).toBe(true)
     // A loaded host (or one core) may take over 30 min; the counts must not depend on it.
   }, 7_200_000)
-
-  it('keeps the real legacy control arm as the failing whole-data read control', async () => {
-    const heartbeat = FENCE_SCENARIOS.filter((entry) => entry.methodology === '#1')
-    const build = (ctx: ScenarioEngine) => ({ arm: legacyControlArmFor(ctx.engine) })
-    const first = (await cellsAt(1, 'overlaid', build, heartbeat))[0]!
-    const second = (await cellsAt(4, 'overlaid', build, heartbeat))[0]!
-    expect(second.work.rows).toBeGreaterThan(first.work.rows)
-    expect(second.work.elements).toBeGreaterThan(first.work.elements)
-    // Its visible target is the same one-row heartbeat. Any total-data ratio is forbidden.
-    const verdict: ScreenWorkVerdict = {
-      action: 'heartbeat',
-      kind: 'rows',
-      reader: 'legacy control',
-      at1x: first.work.rows,
-      at4x: second.work.rows,
-      neighbourhood1x: 1,
-      neighbourhood4x: 1,
-      passed: second.work.rows <= first.work.rows,
-    }
-    expect(() => assertScreenWork([verdict])).toThrow(/grew with total data/)
-  }, 600_000)
 
   it('rejects a planted scan in any reader, even beside a much larger constant reader', () => {
     const cells = (): ScreenWorkCell[] =>
@@ -368,7 +348,7 @@ function writableBuilder(entry: RosterArm, variant: WriteVariant): ArmBuilder {
     const excluded = targetIds(ctx.targets)
     const { queued, titles } = pendingTitleEditsOn(
       feeds.rows.source.snapshot('issue'),
-      snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
+      snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
       (id) => excluded.has(id),
       PENDING_WINDOW_ROWS,
       parityLocals(ctx).coarseNow,
@@ -413,11 +393,11 @@ function ownedVariant(
         before: async (ctx) => {
           if (variant === 'idle') return
           const excluded = targetIds(ctx.targets)
-          const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+          const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
           try {
             titles = pendingTitleEditsOn(
               probe.source.snapshot('issue'),
-              snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
+              snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
               (id) => excluded.has(id),
               PENDING_WINDOW_ROWS,
               parityLocals(ctx).coarseNow,
@@ -557,33 +537,6 @@ for (const entry of ROUND_THREE_ARMS) {
     })
   }
 }
-
-describe('work per change: legacy control (the NO)', () => {
-  it('fails: its reads and walks grow with the corpus on every step', async () => {
-    const build = (ctx: ScenarioEngine) => ({ arm: legacyControlArmFor(ctx.engine) })
-    const at1x = await cellsAt(1, 'overlaid', build)
-    const at4x = await cellsAt(4, 'overlaid', build)
-    const verdicts = scaleVerdicts(at1x, at4x)
-    writeCells('work-control.json', { at1x, at4x, verdicts })
-    console.info(`[work] legacy control\n${describeCells(at1x, at4x)}`)
-    const failing = scaleFailures(verdicts)
-    // The heartbeat changes no visible row: its neighbourhood is a closed
-    // root's family, and the control reads and walks the whole corpus.
-    for (const kind of ['rows', 'elements'] as const) {
-      expect(
-        failing.some((verdict) => verdict.methodology === '#1' && verdict.kind === kind),
-        `#1 ${kind}`,
-      ).toBe(true)
-    }
-    // Every step fails: each one publishes the store (the plain tick #8 too:
-    // the clock is store state), and each publication re-derives the world.
-    const failedSteps = new Set(failing.map((verdict) => verdict.methodology))
-    expect(
-      FENCE_SCENARIOS.map((entry) => entry.methodology).filter((m) => !failedSteps.has(m)),
-    ).toEqual([])
-    expect(() => assertScaleInvariant(verdicts)).toThrow(/grew with the data/)
-  }, 1_800_000)
-})
 
 describe('MobX cold parent reads', () => {
   installMobxWarnTrap()

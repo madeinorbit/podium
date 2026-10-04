@@ -1,9 +1,11 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Explicit diagnostic job only. Private values are compared in memory; the
  * report contains counts, opaque row IDs, positions and fixed field names. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSidebarCheck } from '@podium/client-core/perf'
-import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
+import { type IssueViewModel } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations } from '@podium/client-core/values'
 import { runInAction } from 'mobx'
@@ -157,7 +159,7 @@ export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, poo
     if (disposed) return
     const finish = beginSidebarCheck(runtime)
     try {
-      const store = runtime.access
+      const store = referenceState(runtime)
       const result = runInAction(() => checkIssuePages(pool,
         allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       report({ ...result, state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks: ++checks })

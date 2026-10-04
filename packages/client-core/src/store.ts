@@ -1,31 +1,3 @@
-export { sessionById } from './session-index'
-import { recordStorePublish, recordStoreSubscriber } from './perf/store-stats'
-
-/**
- * Minimal external subscription store (Phase 4 client-core unification, #15):
- * a snapshot holder with subscribe/getSnapshot semantics, designed for React's
- * `useSyncExternalStore` but with zero React (or DOM) dependency so native
- * clients can share it. The web store publishes its derived value object here
- * once per commit; consumers subscribe to slices via selectors instead of
- * re-rendering on every provider render.
- */
-
-export type StoreListener = () => void
-
-export interface SubscriptionStore<T> {
-  /** The current snapshot. Stable identity until `publish` accepts a change. */
-  getSnapshot(): T
-  /**
-   * Replace the snapshot and notify subscribers — unless the next value is
-   * shallow-equal to the current one, in which case the OLD snapshot (and its
-   * identity) is kept and nobody is notified. This is what stops a provider
-   * re-render from fanning out when nothing actually changed.
-   */
-  publish(next: T, changedKeys?: ReadonlySet<string>, nested?: boolean): void
-  /** Subscribe to snapshot changes. Returns the unsubscribe function. */
-  subscribe(listener: StoreListener): () => void
-}
-
 /** Shallow equality over own enumerable keys (Object.is per value). */
 export function shallowEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
@@ -43,30 +15,3 @@ export function shallowEqual(a: unknown, b: unknown): boolean {
   return true
 }
 
-export function createSubscriptionStore<T>(
-  initial: T,
-  isEqual: (a: T, b: T) => boolean = shallowEqual,
-  statsOwner: object = {},
-): SubscriptionStore<T> {
-  let snapshot = initial
-  const listeners = new Set<StoreListener>()
-  return {
-    getSnapshot: () => snapshot,
-    publish(next: T, changedKeys?: ReadonlySet<string>, nested?: boolean): void {
-      if (isEqual(snapshot, next)) return
-      snapshot = next
-      const publication = recordStorePublish(statsOwner, changedKeys, nested)
-      // Copy before iterating: a listener may unsubscribe (or subscribe) others.
-      for (const l of [...listeners]) {
-        recordStoreSubscriber(statsOwner, publication)
-        l()
-      }
-    },
-    subscribe(listener: StoreListener): () => void {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-  }
-}

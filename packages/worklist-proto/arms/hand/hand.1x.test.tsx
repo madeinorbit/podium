@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4446 — hand-rolled arm at live corpus (1x): scenarios #1–#3 through
@@ -12,7 +13,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
@@ -36,10 +37,10 @@ describe('hand-rolled arm at 1x', () => {
   it.fails('scenarios #1-#3 with parity, rebuild oracle, and budgets', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -59,7 +60,7 @@ describe('hand-rolled arm at 1x', () => {
     try {
       const atMount = mounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
-      expect(atMount).toEqual(snapshotFromStore(ctx.engine.access, locals))
+      expect(atMount).toEqual(snapshotFromStore(referenceState(ctx.engine), locals))
       checkOracle()
 
       const heartbeat = await runCountScenario(mounted, {
@@ -69,7 +70,7 @@ describe('hand-rolled arm at 1x', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand-1x] heartbeat visible=${heartbeat.visibleRows} committed=${heartbeat.rowsCommitted} ` +
@@ -95,7 +96,7 @@ describe('hand-rolled arm at 1x', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand-1x] phase visible=${phase.visibleRows} committed=${phase.rowsCommitted} ` +
@@ -113,7 +114,7 @@ describe('hand-rolled arm at 1x', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand-1x] click visible=${click.visibleRows} committed=${click.rowsCommitted} ` +

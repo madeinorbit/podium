@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4453 — write-path spike (NOT the production path): one optimistic title
@@ -14,7 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
@@ -66,10 +67,10 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
   // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -123,7 +124,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
           source.flush()
           pending.noteEcho(id)
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       expect(echo.parity).toBe(true)
       expect(pending.has(id)).toBe(false)
@@ -151,7 +152,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
         apply: async () => {
           pending.reject(id)
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       expect(store.rows.rows.get(id)?.title).toBe(echoTitle)
       expect(pending.has(id)).toBe(false)

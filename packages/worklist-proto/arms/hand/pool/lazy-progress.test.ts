@@ -34,7 +34,7 @@ const PARENTS = ['i1093', 'i1182', 'i1691', 'i2141', 'i4615'] as const
 
 describe('lazy progress over hidden formal subtrees (H3 seed 1 snapshot 1)', () => {
   it('hidden parents outside the bootstrap closure compose like the rebuild once read', async () => {
-    const run = await startGenRun({ feedMode: 'overlaid' })
+    const run = await startGenRun({ feedMode: 'pooled' })
     const feed = run.feed()
     const locals = createEngineLocals(run.ctx.engine)
     const handle = harnessHandPoolArm.create(feed.source, locals.source) as HarnessHandPoolHandle

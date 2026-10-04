@@ -3,15 +3,11 @@ import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import {
-  deriveIssueRollups,
-  deriveIssueViews,
-  type IssueViewInput,
-  type IssueViewModel,
-} from '@podium/client-core/replica'
+import { type IssueViewInput, type IssueViewModel } from '@podium/client-core/replica'
+import { deriveIssueRollups, deriveIssueViews } from '@podium/client-graph/diagnostics/reference/issue-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'

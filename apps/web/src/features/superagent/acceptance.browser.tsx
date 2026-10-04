@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -62,8 +63,8 @@ root.render(
         issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
       })
       const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-      void owner.access.refreshSuperThreads()
-      void owner.access.refreshRepos()
+      void referenceState(owner).refreshSuperThreads()
+      void referenceState(owner).refreshRepos()
       return stop
     }}
   >
@@ -115,11 +116,11 @@ const driver = {
       commits,
       failures: errors.length,
       actions: data.actions,
-      focused: runtime.access.paneA,
+      focused: referenceState(runtime).paneA,
     }
   },
   check() {
-    const result = pool ? checkSuperagent(pool, runtime.access) : null
+    const result = pool ? checkSuperagent(pool, referenceState(runtime)) : null
     return result
   },
   close: () => root.unmount(),

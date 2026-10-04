@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 // @vitest-environment happy-dom
 /**
  * POD-4583 (Hb2) — groups, closed folds and the windowed list on the live
@@ -118,7 +120,7 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * and since Hb3 wires the waiting conjunct, the set must be empty.
  */
 function waitingKept(ctx: ScenarioEngine, pool: HandPool, expected: SliceOrder): Set<string> {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
   const kept = new Set<string>()
@@ -151,7 +153,7 @@ interface GroupParity {
 function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, pool, oracle)
@@ -217,7 +219,7 @@ function changedGroups(
 describe('groups and closed folds (Hb2)', () => {
   it('parity at 1x through #1-#7; commits, reads, layout runs and header notices follow the change', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
@@ -315,7 +317,7 @@ describe('groups and closed folds (Hb2)', () => {
 
   it('the fold latch holds a selected grace-folded row open; a dismissal or a folded click does not', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
     const { pool } = handle
     try {
@@ -339,7 +341,7 @@ describe('groups and closed folds (Hb2)', () => {
       expect(dismissed, 'a dismissed row in the fixture').toBeDefined()
       const snapshotOrder = () => sliceOrderOf(pool.groups.snapshot())
       const baseline = snapshotOrder()
-      const coarseNow = ctx.engine.access.coarseNow
+      const coarseNow = referenceState(ctx.engine).coarseNow
       const select = (id: string, wasFolded?: boolean) =>
         pool.applyLocals(
           {
@@ -382,7 +384,7 @@ describe('groups and closed folds (Hb2)', () => {
 
   it('layout elements follow the visible count at 4x', async () => {
     const ctx = await startScenarioEngine(4)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // Bootstrap counts on an unmounted arm: the mount resets the stats, so
     // the replace's own settle is only visible before one.
     {
@@ -473,7 +475,7 @@ describe('the windowed web list (Hb2)', () => {
       return this.hasAttribute('data-pool-list') ? 1600 : 0
     })
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // Distinct rows read through the feed's per-row read, per phase.
     let phase: 'bootstrap' | 'firstWindow' | 'later' = 'bootstrap'
     const feedReads = {
@@ -598,7 +600,7 @@ describe('the windowed web list (Hb2)', () => {
 describe('plants that must fail (Hb2)', () => {
   it('a header reading its rows fails the reads fence', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
@@ -647,7 +649,7 @@ describe('plants that must fail (Hb2)', () => {
 
   it('an ungated layout runs on a heartbeat; lanes without identity notify on one', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
@@ -718,7 +720,7 @@ describe('plants that must fail (Hb2)', () => {
 
   it('a whole-list layout touches the known count, not the visible count; a reversed fold fails parity', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle

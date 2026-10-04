@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -55,7 +56,7 @@ function Surface() {
   const currentPool = useWorklistPool()
   owner = runtime
   pool = currentPool
-  const ui = runtime.access.uiState
+  const ui = referenceState(runtime).uiState
   useEffect(() => {
     ready = currentPool !== null
     return () => {

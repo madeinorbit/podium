@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4563 (L6a) — the one scenario list every arm's fences run over.
  *
@@ -59,11 +60,8 @@ import { POOL_OWNED_KINDS } from '@podium/client-graph/host'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { attachRuntimeWriter, createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
-import {
-  createRowSource,
-  type RowSourceHandle,
-  type RowSourceMode,
-} from '@podium/client-graph/shared/row-source'
+import { type RowSourceHandle, type RowSourceMode } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 import { act } from 'react'
@@ -272,12 +270,12 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
 
 /** The parity snapshot's locals: the engine clock, no selection (spec §7). */
 export function parityLocals(ctx: ScenarioEngine): SliceLocals {
-  return { selectedIssueId: null, coarseNow: ctx.engine.access.coarseNow }
+  return { selectedIssueId: null, coarseNow: referenceState(ctx.engine).coarseNow }
 }
 
 function parentOf(ctx: ScenarioEngine): (id: string) => string | null | undefined {
   return (id) =>
-    ctx.engine.access.issueProjections.find((issue) => issue.id === id)?.parentId
+    referenceState(ctx.engine).issueProjections.find((issue) => issue.id === id)?.parentId
 }
 
 /** #8: one coarse period (`writeClockTick`'s default). */
@@ -289,7 +287,7 @@ export const CLOCK_TICK_MS = 60_000
  * store. Crossed = view changed, entered or left. Sorted ids.
  */
 export function tickCrossings(ctx: ScenarioEngine, ms: number): string[] {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const now = engineLocals(ctx)
   const before = rowViewsFromStore(store, now)
   const after = rowViewsFromStore(store, { ...now, coarseNow: now.coarseNow + ms })
@@ -425,7 +423,7 @@ export interface FenceStep {
 
 /** One side of a step for the neighbourhood: the store and the oracle's order. */
 function neighbourhoodState(ctx: ScenarioEngine): NeighbourhoodState {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   return {
     issues: store.issueProjections,
     sessions: store.sessions,
@@ -544,7 +542,7 @@ export async function runFenceStep(
       ? undefined
       : () => {
           const locals = engineLocals(ctx)
-          const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+          const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
           return Object.fromEntries(
             visibleIssueRows(derivation, locals).map((row) => [
               row.issue.id,
@@ -577,10 +575,10 @@ export async function runFenceStep(
       }
     },
     expected: () => {
-      const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+      const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
       return options.expected === undefined ? oracle : options.expected(oracle)
     },
-    views: () => rowViewsFromStore(ctx.engine.access, engineLocals(ctx)),
+    views: () => rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx)),
     content,
     contentDuring: () => publications,
   })

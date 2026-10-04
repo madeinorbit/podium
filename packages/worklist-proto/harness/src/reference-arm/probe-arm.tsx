@@ -1,3 +1,5 @@
+import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4564 (L6b) — the PROBE reference arm: the arm every planted-mistake
  * probe (`shared/src/probes/`) is proven ARMED on.
@@ -86,7 +88,7 @@ import type {
   SliceSnapshot,
 } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../../shared/src/stats'
-import type { LegacyControlEngine } from '../legacy-control/arm'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import {
   legacyDerivationFromStore,
   projectRowViews,
@@ -228,14 +230,14 @@ interface ProbeState {
 type Trigger = 'boot' | 'rows' | 'locals'
 
 function nextState(
-  engine: LegacyControlEngine,
+  engine: ClientRuntime,
   locals: SliceLocals,
   previous: ProbeState | null,
   trigger: Trigger,
   plant: ProbePlant | null,
   guard: Set<string>,
 ): ProbeState {
-  const derivation = legacyDerivationFromStore(engine.access)
+  const derivation = legacyDerivationFromStore(referenceState(engine))
   const fresh = projectRowViews(derivation, locals)
   // PLANTED (P4): a locals notification is where the author thought a pass starts.
   if (plant === 'guardSet' && trigger === 'locals') guard.clear()
@@ -354,7 +356,7 @@ export interface ProbeArmHandle extends CheckableArmHandle {
 }
 
 export function probeReferenceArmFor(
-  engine: LegacyControlEngine,
+  engine: ClientRuntime,
   plant: ProbePlant | null = null,
 ): CheckableArm {
   return {
@@ -381,7 +383,7 @@ export function probeReferenceArmFor(
         if (event.type === 'replace') graph.replace(event.rows)
         else for (const row of event.rows) graph.apply(row)
       })
-      const offRows = engine.subscribe(() => refresh('rows'))
+      const offRows = watchReference(engine, () => refresh('rows'))
       const offLocals = channel.subscribe(() => refresh('locals'))
       const subscribe = (listener: () => void): (() => void) => {
         listeners.add(listener)
@@ -403,7 +405,7 @@ export function probeReferenceArmFor(
           return { order: state.parity.order, rowsById }
         },
         rebuildFromScratch(): SliceSnapshot {
-          return snapshotFromStore(engine.access, {
+          return snapshotFromStore(referenceState(engine), {
             selectedIssueId: null,
             coarseNow: channel.get().coarseNow,
           })

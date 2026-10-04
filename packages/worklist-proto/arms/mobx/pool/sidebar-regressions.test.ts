@@ -1,6 +1,7 @@
 /** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { createClientRuntime, dedupeSessions } from '@podium/client-core/engine'
+import { createClientRuntime } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
@@ -21,7 +22,7 @@ import {
 import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/diagnostics/oracle'
 import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { IssueModel } from '@podium/client-graph/models'
 import { LOADING, NO_UNITS, unitsOf, type UnitOwn, type Units } from '@podium/client-graph/worklist/rollup'
 import { directVisibility, type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
@@ -192,7 +193,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
   const publish = () => {
     for (const listener of subscribers) listener()
   }
-  const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
+  const rows = createRowSource(runtime, replica, { mode: 'pooled' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)
   const stop = reaction(

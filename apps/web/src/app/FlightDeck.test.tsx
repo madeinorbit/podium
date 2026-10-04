@@ -1,12 +1,8 @@
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
-import { dedupeSessions } from '@podium/client-core/engine'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-} from '@podium/client-core/replica'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,

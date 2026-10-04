@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4576 (Mc4) — the MobX pool runs beside the legacy control on one
@@ -35,7 +36,7 @@ import {
   parityLocals,
   runFenceStep,
 } from '../../../../harness/src/fence-scenarios'
-import { legacyControlArmFor } from '../../../../harness/src/legacy-control/arm'
+import { referenceArmFor } from '../../../../harness/src/reference-arm/arm'
 import { snapshotFromStore } from '../../../../harness/src/oracle/index'
 import { writeResult } from '../../../../harness/src/results'
 import { diffSnapshots } from '../../../../shared/src/gen/check'
@@ -65,7 +66,7 @@ function countStats(stats: CountStats): CountStats {
 async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Promise<SoloCounts> {
   const methodology = scenario === 'heartbeat' ? '#1' : '#3'
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
   try {
     const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
@@ -92,9 +93,9 @@ async function soloControl(
 ): Promise<SoloCounts> {
   const ctx = await startScenarioEngine(scale)
   // Match coRun's row and engine-locals feeds, including their drain.
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(
-    legacyControlArmFor(ctx.engine),
+    referenceArmFor(ctx.engine),
     feeds.rows.source,
     feeds.locals,
   )
@@ -114,7 +115,7 @@ async function soloControl(
         else await writeSelectionClick(ctx)
         feeds.flush()
       },
-      expected: () => snapshotFromStore(ctx.engine.access, parityLocals(ctx)),
+      expected: () => snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)),
     })
     expect(result.parity, `solo control ${scenario}: parity`).toBe(true)
     expect(result.readsPerChange).not.toBeNull()
@@ -132,7 +133,7 @@ async function soloControl(
 describe('coexistence: arm and control on one runtime (POD-4576)', () => {
   it('cached firstSessionId follows a new roster head and stays within the click budget', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
     try {
       const handle = mounted.handle as HarnessMobxPoolHandle
@@ -158,7 +159,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
           })
           feeds.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, parityLocals(ctx)),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)),
       })
       expect(moved.parity).toBe(true)
       assertReads(moved, { readsPerChange: 3 })
@@ -201,10 +202,10 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       const ctx = await startScenarioEngine(scale)
       // Engine-backed locals (POD-4608): the click's selection reaches both
       // arms through the same channel the solo runs use.
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const armMounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
       const controlMounted = mountArmForCounts(
-        legacyControlArmFor(ctx.engine),
+        referenceArmFor(ctx.engine),
         feeds.rows.source,
         feeds.locals,
       )
@@ -245,7 +246,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         console.info(
           `[control-counts] ${scenario} ${scale}x co-mounted: ${JSON.stringify({ rows: controlRows, stats: controlMounted.handle.stats, reads: controlReads.rows, locals: feeds.locals.stats })}`,
         )
-        const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+        const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
         expect(
           diffSnapshots(armMounted.handle.snapshot(), oracle),
           `${scenario}: arm parity beside the control`,

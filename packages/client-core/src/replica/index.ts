@@ -16,12 +16,10 @@ export * from './bootstrap'
  */
 export * from './feed'
 export * from './feed/index'
-export * from './issue-view-cache'
-export * from './issue-view-models'
-export * from './issue-views'
 export * from './kernel'
 export * from './legacy-wire-v1-binding'
 
 export * from './legacy-wire-v1-feed'
 export * from './principal-storage'
 export * from './replica'
+export type { IssueViewModel, IssueView, IssueSessionRollups } from '../values/issue-type'

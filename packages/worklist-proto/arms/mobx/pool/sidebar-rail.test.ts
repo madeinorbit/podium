@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { rowWaitingCount } from '@podium/client-core/values'
 import { describe, expect, it } from 'vitest'
 import { harnessMobxPoolArm, snapshotPool, tracked } from '../../../harness/src/adapters/mobx-pool'
@@ -9,7 +10,7 @@ describe('composed sidebar rail counts', () => {
   for (const scale of [1, 4] as const)
     it(`matches every legacy badge count at ${scale}x without walking the subtree`, async () => {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
       try {
         for (let batch = 0; batch < 64; batch += 1) {
@@ -17,7 +18,7 @@ describe('composed sidebar rail counts', () => {
           if (handle.pool.hydrate() === 0) break
         }
         const locals = engineLocals(ctx)
-        const legacy = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+        const legacy = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
         for (const row of visibleIssueRows(legacy, locals)) {
           const count = tracked(() => {
             const model = handle.pool.issue(row.issue.id)!

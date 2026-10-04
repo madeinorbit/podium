@@ -2,7 +2,8 @@
 
 import type { Store } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/engine'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { reposToViews } from '@podium/client-core/values'
 import type { RowSourceEvent } from '@podium/client-graph'

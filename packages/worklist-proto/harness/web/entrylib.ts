@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../shared/src/scenarios'
 /**
  * POD-4445 — shared web-entry wiring. Every arm/control page mounts the same
@@ -121,12 +122,8 @@ import { upsertIssue } from '../../shared/src/scenarios'
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/values'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
-import {
-  createRowSource,
-  type RowSourceHandle,
-  type RowSourceOptions,
-  type RowSourceRepaint,
-} from '@podium/client-graph/shared/row-source'
+import { type RowSourceHandle, type RowSourceOptions, type RowSourceRepaint } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
@@ -640,7 +637,7 @@ export function mountPage(options: MountPageOptions): void {
    */
   function build(over: ScenarioEngine): LiveArm {
     const feed = owned?.(over) ?? null
-    const source = createRowSource(over.engine, over.replica, feed?.options ?? { mode: 'overlaid' })
+    const source = createRowSource(over.engine, over.replica, feed?.options ?? { mode: 'pooled' })
     feed?.bind(source)
     const release = (): void => feed?.release()
     // The locals channel is the ENGINE's (POD-4608): a click and a tick are
@@ -709,7 +706,7 @@ export function mountPage(options: MountPageOptions): void {
    *  the control nests formal children inside their parent's row (no row of
    *  their own to draw), so a child is never a target. */
   function firstWindow(): string[] {
-    const { order } = oracleSnapshot(engine.access)
+    const { order } = oracleSnapshot(referenceState(engine))
     return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
       .slice(0, windowRows)
       .filter(rules.root)
@@ -792,7 +789,7 @@ export function mountPage(options: MountPageOptions): void {
    *  workload (the control commits nothing for it); every sample clicks an
    *  unread one. */
   function unread(id: string): boolean {
-    const store = engine.access
+    const store = referenceState(engine)
     const issue = store.issueProjections.find((candidate) => candidate.id === id)
     if (issue === undefined) return false
     return activityAfterRead(
@@ -934,7 +931,7 @@ export function mountPage(options: MountPageOptions): void {
           row: true,
           dispatch: () => {
             clicked.add(id)
-            engine.access.setSelectedIssueId(asIssueId(id))
+            referenceState(engine).setSelectedIssueId(asIssueId(id))
           },
         }
       }
@@ -964,7 +961,7 @@ export function mountPage(options: MountPageOptions): void {
       name,
       before: checkMode
         ? {
-            views: rowViewsFromStore(engine.access, localsOfEngine(engine)),
+            views: rowViewsFromStore(referenceState(engine), localsOfEngine(engine)),
             mounted: mountedIds(),
           }
         : null,
@@ -1091,7 +1088,7 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const oracleNow = oracleSnapshot(live().boot.engine.access)
+    const oracleNow = oracleSnapshot(live().boot.referenceState(engine))
     const raw = expected === undefined ? oracleNow : expected(oracleNow)
     const patched = parityAllowance?.accept(
       installedCorpus ?? live().boot.corpus,
@@ -1210,7 +1207,7 @@ export function mountPage(options: MountPageOptions): void {
       // Watched, never held: after the driver's forced GC none may be alive.
       oldRefs = {
         runtime: new WeakRef(old.boot.engine),
-        store: new WeakRef(old.boot.engine.access),
+        store: new WeakRef(old.boot.referenceState(engine)),
         replica: new WeakRef(old.boot.replica),
         cache: new WeakRef(old.boot.cache),
         armHandle: new WeakRef(old.handle),
@@ -1284,7 +1281,7 @@ export function mountPage(options: MountPageOptions): void {
    * control never makes.
    */
   async function healGrownDerivation(): Promise<void> {
-    await live().boot.engine.access.refreshRepos()
+    await live().boot.referenceState(engine).refreshRepos()
     await settleQuiet()
   }
 
@@ -1370,7 +1367,7 @@ export function mountPage(options: MountPageOptions): void {
     const run = lastRun
     if (!checkMode || run === null || run.before === null) return null
     lastRun = null
-    const after = rowViewsFromStore(engine.access, localsOfEngine(engine))
+    const after = rowViewsFromStore(referenceState(engine), localsOfEngine(engine))
     const mountedAfter = mountedIds()
     const both = (id: string): boolean =>
       run.before !== null &&
@@ -1408,7 +1405,7 @@ export function mountPage(options: MountPageOptions): void {
     verify,
     firstWindow,
     describeTop: (n: number) => {
-      const { order } = oracleSnapshot(engine.access)
+      const { order } = oracleSnapshot(referenceState(engine))
       const pinned = new Set(order.pinnedIds)
       return [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
         .slice(0, n)

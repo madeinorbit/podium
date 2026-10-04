@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { bindSidebarPerf, createSidebarPerf, requestSidebarCheck } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -166,10 +167,10 @@ describe('on-demand sidebar diagnostic', () => {
     let stop = () => {}, close = () => {}
     try {
       for (let round = 0; round < 64; round += 1) {
-        tracked(() => actual.checkSidebar(handle.pool, ctx.engine.access, state(ctx.engine.access)))
+        tracked(() => actual.checkSidebar(handle.pool, referenceState(ctx.engine), state(referenceState(ctx.engine))))
         if (handle.pool.hydrate() === 0) break
       }
-      expect(tracked(() => actual.checkSidebar(handle.pool, ctx.engine.access, state(ctx.engine.access)))).toMatchObject({ differences: 0, pending: 0 })
+      expect(tracked(() => actual.checkSidebar(handle.pool, referenceState(ctx.engine), state(referenceState(ctx.engine))))).toMatchObject({ differences: 0, pending: 0 })
       const sections = handle.pool.sidebar.sections.bind(handle.pool.sidebar)
       vi.spyOn(handle.pool.sidebar, 'sections').mockImplementation(layout => ({ ...sections(layout), pinnedCollapsed: !sections(layout).pinnedCollapsed }))
       const perf = createSidebarPerf()

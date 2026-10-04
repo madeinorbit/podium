@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4444 — row-source tests: one event per runtime publication, folded
@@ -23,12 +24,8 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import {
-  createRowSource,
-  type RowSourceMode,
-  type RowSourceReplica,
-  type RowSourceRuntime,
-} from '@podium/client-graph/shared/row-source'
+import { type RowSourceMode, type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from './row-source'
 import {
   asIssueId,
   asSessionId,
@@ -245,7 +242,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('refuses a replica without row() or the addressed seam', () => {
     const runtime = fakeRuntime()
     const bare = { rows: () => [] } as unknown as RowSourceReplica
-    expect(() => createRowSource(runtime, bare, { mode: 'overlaid' })).toThrow(/replica\.row\(\)/)
+    expect(() => createRowSource(runtime, bare, { mode: 'pooled' })).toThrow(/replica\.row\(\)/)
   })
 
   it('refuses a mode that is not overlaid or truth', () => {
@@ -258,8 +255,8 @@ describe('row-source over the real facade (fake runtime)', () => {
   // Coordinator ruling (after L1c): both directions, per mode. A pending local
   // edit on `title`, then a remote value for the SAME field while it is still
   // pending.
-  for (const mode of ['overlaid', 'truth'] as const) {
-    it(`${mode}: a press ${mode === 'overlaid' ? 'paints' : 'does not paint'}; a remote value for the pending field ${mode === 'overlaid' ? 'stays masked' : 'arrives unmasked'}`, () => {
+  for (const mode of ['pooled', 'truth'] as const) {
+    it(`${mode}: a press ${mode === 'pooled' ? 'paints' : 'does not paint'}; a remote value for the pending field ${mode === 'pooled' ? 'stays masked' : 'arrives unmasked'}`, () => {
       const { cache, replica } = fixture()
       const server = issueValue('i1', { title: 'Server' })
       cache.put('issueProjection', 'i1', server)
@@ -273,7 +270,7 @@ describe('row-source over the real facade (fake runtime)', () => {
         ])
         runtime.publish()
         const press = handle.flush()
-        if (mode === 'overlaid') {
+        if (mode === 'pooled') {
           expect(press?.rows).toHaveLength(1)
           expect((press?.rows[0]?.value as { title: string }).title).toBe('Local')
         } else {
@@ -286,12 +283,12 @@ describe('row-source over the real facade (fake runtime)', () => {
         runtime.publish()
         const arrived = handle.flush()
         expect(arrived?.rows).toHaveLength(1)
-        if (mode === 'overlaid') {
+        if (mode === 'pooled') {
           expect((arrived?.rows[0]?.value as { title: string }).title).toBe('Local')
         } else {
           expect(arrived?.rows[0]?.value).toMatchObject(remote)
         }
-        expect(events).toHaveLength(mode === 'overlaid' ? 2 : 1)
+        expect(events).toHaveLength(mode === 'pooled' ? 2 : 1)
       } finally {
         off()
         handle.dispose()
@@ -303,7 +300,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const { cache, replica } = fixture()
     const value = sessionWithCompanions(cache, 's1')
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -330,7 +327,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const value = sessionValue('s1')
     cache.put('session', 's1', value)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -349,7 +346,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('a replica.batch() of 50 upserts yields exactly one update with 50 rows', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -375,7 +372,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('nested batches still yield one event', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -401,7 +398,7 @@ describe('row-source over the real facade (fake runtime)', () => {
 
   it('projection, markers, git and repo in one batch produce one normalized issue row', () => {
     const { cache, replica } = fixture()
-    const handle = createRowSource(fakeRuntime(), replica, { mode: 'overlaid' })
+    const handle = createRowSource(fakeRuntime(), replica, { mode: 'pooled' })
     try {
       replica.batch(() => {
         for (const [kind, key, value] of [
@@ -471,7 +468,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 's1', sessionValue('s1'))
     cache.put('issueProjection', 'i1', issueValue('i1'))
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -505,7 +502,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('out-of-slice kinds and locals-only publications emit nothing', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -527,7 +524,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('a disposed source never emits again', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const events: RowSourceEvent[] = []
     handle.source.subscribe((e) => events.push(e))
     handle.dispose()
@@ -549,7 +546,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       readAt: null,
     })
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     const before = handle.source.row?.('issue', 'i1')
     handle.stats.reset()
     const events: RowSourceEvent[] = []
@@ -593,7 +590,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const placeholder = sessionWithCompanions(cache, 's2', { title: 'Starting' })
     cache.put('session', 's1', existing)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     try {
       const before = handle.source.row?.('session', 's1')
       runtime.setPending('sessions', 's1', [patch('sessions', 's1', { title: 'same' })])
@@ -628,7 +625,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   })
 
   it('row() serves one row as snapshot() would, per mode, enumerating nothing (POD-4567)', () => {
-    for (const mode of ['overlaid', 'truth'] as const) {
+    for (const mode of ['pooled', 'truth'] as const) {
       const { cache, replica } = fixture()
       const projection = issueValue('i1')
       cache.put('issueProjection', 'i1', projection)
@@ -652,7 +649,7 @@ describe('row-source over the real facade (fake runtime)', () => {
         const all = handle.source.snapshot('issue').find((record) => record.id === 'i1')?.value
         // Overlaid folds that row's overlay; truth never reads the ledger.
         expect((one as { readAt: unknown }).readAt).toBe(
-          mode === 'overlaid' ? '2026-09-20T12:00:01Z' : null,
+          mode === 'pooled' ? '2026-09-20T12:00:01Z' : null,
         )
         expect(one).toEqual(all)
         if (mode === 'truth') expect(one).toBe(truth)
@@ -680,7 +677,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 's1', s)
     cache.put('issueProjection', 'i1', i)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const handle = createRowSource(runtime, replica, { mode: 'pooled' })
     try {
       const sessions = handle.source.snapshot('session')
       expect(sessions).toEqual([
@@ -700,7 +697,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       const { cache, replica } = fixture()
       for (let i = 0; i < n; i += 1) cache.put('session', `s${i}`, sessionValue(`s${i}`))
       const runtime = fakeRuntime()
-      const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
+      const handle = createRowSource(runtime, replica, { mode: 'pooled' })
       try {
         const next = sessionValue('s0', { lastActiveAt: '2026-09-20T13:00:00Z' })
         cache.put('session', 's0', next)
@@ -877,7 +874,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
       } as never)
       await settle(40)
 
-      const handle = createRowSource(engine, replica, { mode: 'overlaid' })
+      const handle = createRowSource(engine, replica, { mode: 'pooled' })
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
@@ -885,7 +882,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         expect(before?.readAt).toBeNull()
 
         // Press: optimistic paint, no kernel address yet.
-        const pressPromise = engine.access.markIssueRead(asIssueId('iss_1'))
+        const pressPromise = referenceState(engine).markIssueRead(asIssueId('iss_1'))
         const press = handle.flush()
         expect(press?.type).toBe('update')
         expect(press?.rows).toHaveLength(1)
@@ -930,7 +927,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
         // case: the pending promise resolves, the paint rolls back after.)
         rejectNextMarkRead()
         const restoreCount = events.length
-        const press2Promise = engine.access.markIssueRead(asIssueId('iss_1'))
+        const press2Promise = referenceState(engine).markIssueRead(asIssueId('iss_1'))
         const press2 = handle.flush()
         expect(press2?.rows).toHaveLength(1)
         expect(press2?.rows[0]?.value).not.toBe(covered)
@@ -1007,10 +1004,10 @@ describe('row-source truth mode over the real runtime', () => {
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
-        const pressPromise = engine.access.markIssueRead(asIssueId('iss_1'))
+        const pressPromise = referenceState(engine).markIssueRead(asIssueId('iss_1'))
         // The runtime painted the press; the truth feed did not.
         expect(
-          engine.access.issueUserStates.find((i) => i.entityId === 'iss_1')?.readAt,
+          referenceState(engine).issueUserStates.find((i) => i.entityId === 'iss_1')?.readAt,
         ).not.toBeNull()
         expect(handle.flush()).toBeNull()
         await pressPromise
@@ -1064,7 +1061,7 @@ describe('row-source truth mode over the real runtime', () => {
 type LaneFacts = { repoPath: string; repoId: string | null }
 
 function legacyLanes(engine: ReturnType<typeof createClientRuntime>): Record<string, LaneFacts> {
-  const { slice } = legacyDerivationFromStore(engine.access as never)
+  const { slice } = legacyDerivationFromStore(referenceState(engine) as never)
   const out: Record<string, LaneFacts> = {}
   for (const repo of [...slice.sections.pinnedRepos, ...slice.sections.repos])
     for (const wt of repo.worktrees)
@@ -1073,7 +1070,7 @@ function legacyLanes(engine: ReturnType<typeof createClientRuntime>): Record<str
 }
 
 describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)', () => {
-  for (const mode of ['overlaid', 'truth'] as const) {
+  for (const mode of ['pooled', 'truth'] as const) {
     it(`${mode}: a discovered repo root, then a worktree, emit lane rows matching the legacy lanes`, async () => {
       const cache = new FakeCache()
       const replica = createKernelReplica({
@@ -1138,7 +1135,7 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
           handle.flush()
           // Discovery alone: not one kernel row moved.
           expect(cache.records).toBe(kernelRows)
-          expect(engine.access.repos).toBe(repos)
+          expect(referenceState(engine).repos).toBe(repos)
           return events.flatMap((e) => e.rows)
         }
         const heldLanes = () => Object.fromEntries([...held].sort(([a], [b]) => a.localeCompare(b)))
@@ -1465,7 +1462,7 @@ async function runFence(
   // The scale is real: the replica and the runtime hold the whole corpus.
   expect(replica.rows('issueProjections')).toHaveLength(spec.issues)
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
-  expect(engine.access.issueProjections).toHaveLength(spec.issues)
+  expect(referenceState(engine).issueProjections).toHaveLength(spec.issues)
   const wrapped = countingWrappers(engine, replica)
   const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0
@@ -1531,7 +1528,7 @@ async function runFence(
       }),
     )
     await step('optimistic press', async () => {
-      await engine.access.markIssueRead(asIssueId('i0'))
+      await referenceState(engine).markIssueRead(asIssueId('i0'))
       await waitFor(
         () =>
           engine.outbox.pending().length === 0 &&
@@ -1560,7 +1557,7 @@ async function runFence(
     const discover = async (repos: unknown[]): Promise<void> => {
       discovery.repos = repos
       hub.emit('worktreesChanged')
-      await waitFor(() => engine.access.repos === repos, 'discovery to publish')
+      await waitFor(() => referenceState(engine).repos === repos, 'discovery to publish')
     }
     await step('discovery', () => discover(FENCE_DISCOVERY()))
     await step('discovery, nothing visible moved', () => discover(FENCE_DISCOVERY()))
@@ -1588,7 +1585,7 @@ describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
       Object.entries(table).map(([name, c]) => [name, c.flushes === 0 ? 0 : c.visited / c.flushes]),
     )
 
-  for (const mode of ['overlaid', 'truth'] as const) {
+  for (const mode of ['pooled', 'truth'] as const) {
     it(`${mode}: visits exactly the addressed rows plus the pending-overlay rows, equal at both scales`, async () => {
       const tables: Record<string, Record<string, StepCost>> = {}
       for (const [scale, spec] of Object.entries(FENCE_SCALES)) {
@@ -1622,7 +1619,7 @@ describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
             expect(cost.visited, `${where}: visited == addressed rows`).toBe(expected)
             expect(cost.rowsEmitted, `${where}: emitted == addressed rows`).toBe(expected)
           } else if (name === 'optimistic press') {
-            if (mode === 'overlaid') {
+            if (mode === 'pooled') {
               // One pending row, visited once per flush, painted once.
               expect(cost.flushes, `${where}: flushed`).toBeGreaterThan(0)
               expect(cost.visited, `${where}: visited == flushes x 1 pending row`).toBe(

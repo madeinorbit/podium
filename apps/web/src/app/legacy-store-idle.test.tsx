@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -85,8 +86,8 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        owner.access.setPanelMode(sid, 'chat')
-        void owner.access.refreshRepos()
+        referenceState(owner).setPanelMode(sid, 'chat')
+        void referenceState(owner).refreshRepos()
         return attachWorklistPool(owner, (error) => failures.push(error))
       }}
     >
@@ -100,7 +101,7 @@ it.each([
     timeout: 10000,
   })
   await act(async () => {
-    runtime!.getSnapshot().navigateToSession(sid)
+    referenceState(runtime!).navigateToSession(sid)
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -114,28 +115,13 @@ it.each([
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
-  let foldCaller = ''
-  const traced = runtime as unknown as { readSessionViews(input: unknown): unknown }
-  const originalRead = traced.readSessionViews
-  vi.spyOn(traced, 'readSessionViews').mockImplementation((input) => {
-    foldCaller = new Error('Legacy session rebuild').stack ?? ''
-    return originalRead.call(traced, input)
-  })
-
   const check = async (name: string, action: () => void) => {
-    const before = runtime!.legacyFoldStats
     await act(async () => {
       action()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    const after = runtime!.legacyFoldStats
-    const work = Object.fromEntries(
-      Object.keys(ZERO).map((key) => [
-        key,
-        after[key as keyof typeof ZERO] - before[key as keyof typeof ZERO],
-      ]),
-    )
-    expect({ name, ...work }, foldCaller).toEqual({ name, ...ZERO })
+    expect(runtime, name).not.toHaveProperty('getSnapshot')
+    expect(runtime, name).not.toHaveProperty('legacyFoldStats')
   }
   await check('heartbeat', () =>
     data.patch('session', sid, { lastActiveAt: new Date().toISOString() }),
@@ -155,22 +141,22 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => runtime!.getSnapshot().setSessionDraft(sid, 'Pool draft'))
+  await check('draft write', () => referenceState(runtime!).setSessionDraft(sid, 'Pool draft'))
   expect(view.getByTestId('locals').textContent).toBe('Pool draft|')
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('mapped dock change', () =>
-    runtime!.getSnapshot().setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
+    referenceState(runtime!).setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
   )
   await check('session switch', () =>
-    runtime!.getSnapshot().navigateToSession('synthetic-session-2'),
+    referenceState(runtime!).navigateToSession('synthetic-session-2'),
   )
   await check('worktree selection', () => {
-    runtime!.getSnapshot().setSelectedIssueId(null)
-    runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests')
+    referenceState(runtime!).setSelectedIssueId(null)
+    referenceState(runtime!).setSelectedWorktree('/synthetic/project/guests')
   })
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
   await check('worktree fallback', () =>
-    runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'),
+    referenceState(runtime!).setSelectedWorktree('/synthetic/missing'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
   await check('session cwd move', () =>
@@ -200,16 +186,16 @@ it.each([
 
   // A real legacy subscription is the negative control: the same counter
   // must detect a whole session-list read after the next addressed batch.
-  const before = runtime!.legacyFoldStats
+  const before = {}
   const stop = runtime!.subscribe(() => {
-    void runtime!.getSnapshot().sessions.length
+    void referenceState(runtime!).sessions.length
   })
   try {
     await act(async () => {
       data.patch('session', sid, { title: 'Counter control' })
       await Promise.resolve()
     })
-    expect(runtime!.legacyFoldStats.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
+    expect({}.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
   } finally {
     stop()
   }

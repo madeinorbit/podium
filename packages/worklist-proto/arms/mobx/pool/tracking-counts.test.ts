@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4748 — the tracking objects the MobX pool builds, counted from outside
  * and held to a committed baseline.
@@ -115,7 +116,7 @@ import {
   WRITE_VARIANTS,
   type WriteVariant,
 } from '../../../harness/src/writable-arm'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { createReadFence } from '../../../shared/src/instrument/reads'
 import { ROW_DISPLAYED_FIELDS } from '@podium/client-graph/shared/row-view'
 import { type FixtureScale, startScenarioEngine } from '../../../shared/src/scenarios'
@@ -190,7 +191,7 @@ function rowFacts(
     coldIssues: cold('issue', issues),
     coldSessions: cold('session', sessions),
     visibleRows: visibleIssueRows(
-      legacyDerivationFromStore(ctx.engine.access, now),
+      legacyDerivationFromStore(referenceState(ctx.engine), now),
       parityLocals(ctx),
     ).length,
   }
@@ -405,11 +406,11 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
   // feeds open: the log rebuilds it there, as a reload does.
   let titles: ReadonlyMap<string, string> = new Map()
   if (variant === 'pending' && held !== null) {
-    const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     try {
       titles = pendingTitleEditsOn(
         probe.source.snapshot('issue'),
-        snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
+        snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
         () => false,
         WINDOW_ROWS,
         parityLocals(ctx).coarseNow,
@@ -420,7 +421,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     held.hold(titles.keys())
     await queuePendingTitles(ctx.engine, titles)
   }
-  const feeds = openFenceFeeds(ctx, variant === 'pool' ? 'overlaid' : 'owned')
+  const feeds = openFenceFeeds(ctx, variant === 'pool' ? 'pooled' : 'owned')
   const facts = rowFacts(ctx, feeds)
   const reads = createReadFence({ enabled: true })
   const census = startCensus({

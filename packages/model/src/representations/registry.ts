@@ -579,7 +579,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'OptimisticSpawnArgs',
     entity: 'session',
-    site: 'packages/client-core/src/viewmodels/optimistic-spawn.ts',
+    site: 'packages/client-core/src/values/optimistic-spawn.ts',
     role: 'command-input',
     purpose:
       'The arguments a client-side optimistic spawn needs to render a session before the server ' +
@@ -602,7 +602,7 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
   {
     symbol: 'SessionCardModel',
     entity: 'session',
-    site: 'packages/client-core/src/viewmodels/session-card.ts',
+    site: 'packages/client-core/src/values/session-card.ts',
     role: 'R4',
     purpose: 'The presentation model one session card renders, shared by web and mobile.',
     distinctSemantics:

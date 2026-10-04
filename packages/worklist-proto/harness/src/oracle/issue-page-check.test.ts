@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { poolIssuePageSnapshot } from '@podium/client-graph/diagnostics/issue-page-check'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
@@ -34,8 +35,8 @@ describe('issue page differential replay', () => {
     it(`corpus and every methodology change at ${scale}x`, async () => {
       const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
       const ctx = await startScenarioEngine(scale)
-      clock.mockImplementation(() => ctx.engine.access.coarseNow)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      clock.mockImplementation(() => referenceState(ctx.engine).coarseNow)
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
         summaries: ISSUE_PAGE_SUMMARIES,
       })
@@ -81,8 +82,8 @@ describe('issue page differential replay', () => {
       const clock = vi.spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
       const corpus = genCorpus(),
         changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
-      const run = await startGenRun({ corpus, feedMode: 'overlaid' })
-      clock.mockImplementation(() => run.ctx.engine.access.coarseNow)
+      const run = await startGenRun({ corpus, feedMode: 'pooled' })
+      clock.mockImplementation(() => run.referenceState(ctx.engine).coarseNow)
       let feed = run.feed(),
         locals = createEngineLocals(run.ctx.engine)
       let handle = createWorklistPool(feed.source, locals.source, {

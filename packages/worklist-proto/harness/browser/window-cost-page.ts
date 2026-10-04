@@ -38,7 +38,7 @@ async function run(): Promise<object> {
   const countsOnly = params.has('counts-only')
   require(scale === 1 || scale === 4, 'scale must be 1 or 4')
   const ctx = await startScenarioEngine(scale, pageEngineOptions())
-  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
   const locals = createEngineLocals(ctx.engine)
   const handle = harnessMobxPoolArm.create(source.source, locals.source, undefined, { schedule: () => () => {} })
   try {

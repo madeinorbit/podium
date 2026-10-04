@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -163,7 +164,7 @@ async function mount() {
     () => {
       expect(rowValue(view.container, 'Tasks')).toBe('8')
       expect(rowValue(view.container, 'Sessions')).toBe(
-        String(runtime.access.sessions.length),
+        String(referenceState(runtime).sessions.length),
       )
     },
     { timeout: 5000 },
@@ -200,7 +201,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     enabled.data.activity(1)
     enabled.data.publishMachines()
     enabled.data.publishMetrics(2)
-    const machines = enabled.runtime.access.machines
+    const machines = enabled.referenceState(runtime).machines
     const hub = enabled.runtime.hub as unknown as { emit: (kind: string, rows: unknown) => void }
     hub.emit(
       'machines',

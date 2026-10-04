@@ -3,12 +3,8 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { dedupeSessions, type Store } from '@podium/client-core/engine'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { sessionViews } from '@podium/client-core/session-values'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { inBoardCheck } from '@podium/client-graph/diagnostics/issue-board-check'

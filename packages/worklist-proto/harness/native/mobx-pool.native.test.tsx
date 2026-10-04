@@ -63,7 +63,7 @@ describe('the MobX trap in the native lane (armed)', () => {
 describe('mobx pool on the native renderer', () => {
   it('draws a window of the grouped rows; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // No load window closes on its own mid-step.
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
@@ -144,7 +144,7 @@ describe('mobx pool on the native renderer', () => {
 /** The real SectionList mount, with the same work meter and scenarios as web. */
 async function nativeCellsAt(scale: 1 | 4): Promise<ScaleCell[]> {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const reads = createReadFence({ enabled: true })
   const handle = harnessMobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
     schedule: () => () => {},

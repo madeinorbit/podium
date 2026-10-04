@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4708 — each issue's explicit seat list is maintained SORTED at the
@@ -64,7 +65,7 @@ function settle(pool: HandPool): number {
 /** The settled snapshot against the oracle and the rebuild (no exception). */
 function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: string): void {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+  const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
 }
@@ -86,7 +87,7 @@ async function withMountedScale<T>(
   ) => Promise<T>,
 ): Promise<T> {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
     const handle = mounted.handle as HarnessHandPoolHandle

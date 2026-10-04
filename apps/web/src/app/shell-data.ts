@@ -71,8 +71,8 @@ export function useShellApprovals() {
 }
 const EMPTY_APPROVALS: Store['approvals'] = []
 
-const EMPTY_SESSIONS: Store['sessions'] = []
-const EMPTY_ISSUES: Store['issueProjections'] = []
+const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
+const EMPTY_ISSUES: IssueViewModel[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellViews(pool) : null

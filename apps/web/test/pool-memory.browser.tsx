@@ -8,13 +8,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  replicaNamespaceKey,
-  retainReplicaEntity,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, replicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -132,8 +126,7 @@ function Fixture() {
   graph = pool
   useEffect(() => {
     ready = false
-    void runtime
-      .getSnapshot()
+    void runtime.access
       .refreshRepos()
       .then(() => {
         ready = pool !== null
@@ -204,9 +197,9 @@ const memory = {
   mode: () => 'pool' as const,
   errors: () => [...errors],
   state: () => ({
-    issues: owner?.getSnapshot().issueProjections.length,
-    sessions: owner?.getSnapshot().sessions.length,
-    projections: owner?.getSnapshot().issueProjections.length,
+    issues: assembly.replica.rowCount!('issueProjections'),
+    sessions: assembly.replica.rowCount!('sessions'),
+    projections: assembly.replica.rowCount!('issueProjections'),
     unknownEntityRows: assembly.view.cache
       .readEntities()
       .filter((row) => !retainReplicaEntity(row.entity)).length,
@@ -226,7 +219,7 @@ const memory = {
         .join('')
     }
     return {
-      models: await hash(allIssueViewModels(assembly.replica)),
+      models: await hash(graph?.queries.ids({ kind: 'commandIssues' }).map(id => graph!.row('issue', id, 'peek'))),
       sidebar: await hash(document.querySelector('[data-sidebar-shell]')?.textContent),
       visible: await hash(
         [...document.querySelectorAll('[data-issue-row]')].map((row) =>
@@ -237,14 +230,13 @@ const memory = {
   },
   /** Ids of the synthetic issue and session rows, read once before capture. */
   ids: () => ({
-    issue: (owner!.getSnapshot().issueProjections as { id: string }[]).map((row) => row.id),
-    session: owner!.getSnapshot().sessions.map((row) => row.sessionId as string),
+    issue: assembly.replica.rows('issueProjections').map((row) => row.id),
+    session: assembly.replica.rows('sessions').map((row) => row.sessionId as string),
   }),
   /** Ownership barriers; flat name -> object. */
   owners(): Record<string, object> {
     const into: Record<string, object> = {}
     fields('runtime', owner!, into)
-    fields('snapshot', owner!.getSnapshot(), into)
     fields('replica', assembly.replica, into)
     fields('cache', assembly.view.cache, into)
     fields('outbox', assembly.view.outbox, into)

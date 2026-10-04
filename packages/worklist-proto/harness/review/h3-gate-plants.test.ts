@@ -144,7 +144,7 @@ async function recordViews(
   sequence: readonly Change[],
   plant: Plant | null,
 ): Promise<Map<string, RowView>[]> {
-  const run = await startGenRun({ feedMode: 'overlaid' })
+  const run = await startGenRun({ feedMode: 'pooled' })
   let feed = run.feed()
   let locals = createEngineLocals(run.ctx.engine)
   const create = (): HarnessHandPoolHandle => {

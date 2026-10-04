@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4556 (L4b) — the checker can say NO: a planted incremental mistake turns
  * it red on a random run and shrinks to its cause, and the correct arm passes
@@ -18,7 +19,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
+import { referenceArmFor } from '../../../harness/src/reference-arm/arm'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, CheckableArmHandle, RowSource } from '../arm'
@@ -277,13 +278,13 @@ describe('checkArm on the tiny reference arm', () => {
  *  the oracle can see it. */
 function staleClockControl(rebuildToo: boolean): (ctx: ScenarioEngine) => CheckableArm {
   return (ctx) => {
-    const arm = legacyControlArmFor(ctx.engine)
+    const arm = referenceArmFor(ctx.engine)
     return {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads)
         const frozen = locals.get()
         const stale = (): SliceSnapshot =>
-          snapshotFromStore(ctx.engine.access, {
+          snapshotFromStore(referenceState(ctx.engine), {
             selectedIssueId: null,
             coarseNow: frozen.coarseNow,
           })
@@ -301,7 +302,7 @@ describe('checkArm on the legacy control', () => {
   const sampled = { rebuildEvery: 10, oracleEvery: 10 }
 
   it('passes the control; the stale-clock control fails and shrinks to at most 5 steps', async () => {
-    const correct = await checkArm((ctx) => legacyControlArmFor(ctx.engine), sequence, sampled)
+    const correct = await checkArm((ctx) => referenceArmFor(ctx.engine), sequence, sampled)
     expect(
       correct.ok,
       correct.ok ? '' : `${correct.diff}\n${describeSequence(correct.shrunk)}`,
@@ -319,7 +320,7 @@ describe('checkArm on the legacy control', () => {
     expect(planted.shrunkDivergence).not.toBeNull()
     writeResult('check-control', { correct, planted })
     const control = await checkArm(
-      (ctx) => legacyControlArmFor(ctx.engine),
+      (ctx) => referenceArmFor(ctx.engine),
       planted.shrunk,
       sampled,
     )

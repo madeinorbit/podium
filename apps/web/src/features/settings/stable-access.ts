@@ -6,7 +6,7 @@ interface SettingsClient extends Pick<Store,
   'trpc' | 'uiState' | 'navigateToSession' | 'refreshRepos' | 'setSettingsTab' |
   'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'setSelectedIssueId' |
   'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView'> {
-  readonly owner: { getSnapshot(): Store }
+  readonly owner: { readonly access: Store }
 }
 
 /** Acquire the existing transport and mutation owner without subscribing to

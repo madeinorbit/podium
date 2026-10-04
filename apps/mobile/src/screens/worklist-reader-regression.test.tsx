@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Cumulative derivations, not a subscription guard: enable before bootstrap
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */
@@ -342,7 +343,7 @@ describe('mobile pool-only worklist regressions', () => {
     let action!: Promise<void>
     await act(async () => {
       action = state
-        .runtime!.getSnapshot()
+        .referenceState(runtime!)
         .updateIssue(root.id, { title: 'Mobile optimistic title' })
       await Promise.resolve()
     })
@@ -360,13 +361,13 @@ describe('mobile pool-only worklist regressions', () => {
     })
     checkpoint('server echo')
 
-    const clockBefore = state.runtime!.getSnapshot().coarseNow
+    const clockBefore = state.referenceState(runtime!).coarseNow
     expect(ticks.length).toBeGreaterThan(0)
     now.mockReturnValue(corpus.fixedNow + 60_000)
     await act(async () => {
       for (const tick of ticks) tick()
     })
-    expect(state.runtime!.getSnapshot().coarseNow).toBeGreaterThan(clockBefore)
+    expect(state.referenceState(runtime!).coarseNow).toBeGreaterThan(clockBefore)
     checkpoint('real idle clock callback')
 
     const before = state.runtime

@@ -1,10 +1,12 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Optional differential, following sidebar-check's privacy contract. Only
  * counts, positions, field names and opaque ids leave the comparison. */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import { reportChipCheck } from '@podium/client-core/perf'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import {
   canonicalIssueRef,
   type IssueReferenceModel,
@@ -64,7 +66,7 @@ export function checkIssueChips(
 /** Startup opt-in only. Comparison runs outside mount/render and retains no
  * values; it is separate from the normal per-chip read and redraw census. */
 export function startChipCheck(
-  runtime: { getSnapshot(): Store<PodiumClientApi> },
+  runtime: { readonly access: Store<PodiumClientApi> },
   reader: IssueReferenceReader,
   tokens: () => readonly string[],
   intervalMs = 5000,
@@ -76,7 +78,7 @@ export function startChipCheck(
   const tick = (): void => {
     if (disposed) return
     try {
-      const store = runtime.access
+      const store = referenceState(runtime)
       const result = checkIssueChips(
         reader,
         allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates),

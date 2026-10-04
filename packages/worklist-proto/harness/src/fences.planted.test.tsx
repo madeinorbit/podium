@@ -40,7 +40,7 @@ async function plantedStep(
   methodology: string,
 ): Promise<{ result: CountResult; visibleRootId: string }> {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(
     referenceArmFor(ctx.engine, plant === null ? null : plant(ctx.targets)),
     feeds.rows.source,

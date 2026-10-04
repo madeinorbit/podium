@@ -3,7 +3,8 @@
  * Dynamic discovery/reachability is not reconstructed from persisted rows. */
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { machineViewsFromWire } from '@podium/client-core/values'
 import { AutomationWire, AutomationRunWire, GitRepositoryWire, type MachineWire } from '@podium/model/browser'

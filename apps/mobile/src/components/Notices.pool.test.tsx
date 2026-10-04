@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
@@ -307,7 +308,7 @@ it('keeps chat, settings, dismiss and typed-answer actions on the existing owner
 
 it('updates recovery and continuity through the original outbox retry, edit and discard actions', async () => {
   const enabled = await mount(),
-    recovery = enabled.runtime.access.recoverOutbox
+    recovery = enabled.referenceState(runtime).recoverOutbox
   const retry = vi.spyOn(recovery, 'retry'),
     edit = vi.spyOn(recovery, 'edit'),
     discard = vi.spyOn(recovery, 'discard')
@@ -352,7 +353,7 @@ it('removes empty notices and retains the live offline status without snapshot s
     for (const row of enabled.data.messages) enabled.evict('message', row.id)
     for (const row of enabled.data.interactions) enabled.evict('pendingInteraction', row.id)
     for (const row of enabled.data.deadLetters)
-      enabled.runtime.access.recoverOutbox.discard(row.entry.mutationId)
+      enabled.referenceState(runtime).recoverOutbox.discard(row.entry.mutationId)
     enabled.connect(true)
   })
   expect(enabled.view.container.textContent).toBe('')

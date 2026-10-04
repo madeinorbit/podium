@@ -3,18 +3,19 @@
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import type { MissionIssueTopology } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { runInAction } from 'mobx'
-import { allIssueViewModels, createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkMissions, poolMissionSnapshot, type MissionDifference } from '@podium/client-graph/diagnostics/mission-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { readLive } from '../fixture/export-snapshot'
 import { corpusFromLive } from '../fixture/live-snapshot'
@@ -97,7 +98,7 @@ async function main() {
   const store = sidebarReplayStore(corpus, replica)
   const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
   step = 'pool'
-  const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
+  const rows = createRowSource(runtime, replica, { mode: 'pooled' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })
   try {
     step = 'load'

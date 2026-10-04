@@ -1,5 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { MobxPool } from '@podium/client-graph'
 import {
   boardSnapshot,

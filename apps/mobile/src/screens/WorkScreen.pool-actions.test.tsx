@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
 
@@ -323,7 +324,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
     </StoreProvider>,
   )
   await act(async () => {
-    await runtime.access.refreshRepos()
+    await referenceState(runtime).refreshRepos()
   })
   await waitFor(
     () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
@@ -766,7 +767,7 @@ describe('mobile pool work-list actions', () => {
         expect(patches.length).toBeGreaterThan(0)
         await act(async () => {
           await Promise.all(
-            patches.map(({ id, ...fields }) => runtime.access.updateIssue(id, fields)),
+            patches.map(({ id, ...fields }) => referenceState(runtime).updateIssue(id, fields)),
           )
         })
         expect(

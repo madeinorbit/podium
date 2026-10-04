@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { reaction, runInAction } from 'mobx'
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { missionIssueIds, missionRootFor, missionIndexStats, type MissionIssueTopology } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'

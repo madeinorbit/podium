@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4582 (Hb1) — a draft's display title at 4x, the hand equivalent of the
@@ -19,11 +20,11 @@ import { harnessHandPoolArm } from '../../../../harness/src/adapters/hand-pool'
 describe('a draft wears its first nameable member (4x)', () => {
   it('every visible draft title equals the oracle, shell-first drafts included', async () => {
     const ctx = await startScenarioEngine(4)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const got = handle.snapshot()
-      const want = oracleSnapshot(ctx.engine.access)
+      const want = oracleSnapshot(referenceState(ctx.engine))
       const { pool } = handle
       const drafts = Object.keys(want.rowsById).filter(
         (id) => pool.visibleInputs.issueRow(id)?.isDraftVessel === true,

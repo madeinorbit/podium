@@ -1,9 +1,10 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { renderHook } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 const current = vi.hoisted(() => ({ owner: null as unknown as { getSnapshot(): Record<string, unknown> }, legacy: vi.fn() }))
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => current.owner,
-  useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => { current.legacy(); return select(current.owner.access) },
+  useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => { current.legacy(); return select(current.referenceState(owner)) },
 }))
 vi.mock('../client/demoData', () => ({ demoEnabled: () => false }))
 import { useHttpOrigin, useHub, useReplica, useStoreActions, useTrpc, useUiState } from '../client/hooks'

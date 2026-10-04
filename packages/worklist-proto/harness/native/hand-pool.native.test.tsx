@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4578 (Ha1) — the round-three hand-rolled pool on the native renderer:
@@ -37,7 +38,7 @@ import { snapshotFromStore } from '../src/oracle/index'
 describe('hand pool on the native renderer', () => {
   it('draws the window\u2019s first rows in oracle order; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row only among drawn rows', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // No load window closes on its own mid-step.
     const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
@@ -60,7 +61,7 @@ describe('hand pool on the native renderer', () => {
       )
       // Windowed: a strict prefix of the visible set, in oracle grouped
       // order (pinned, then each group's open lane and closed fold).
-      const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order
+      const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order
       const oracleIds = [
         ...oracle.pinnedIds,
         ...oracle.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),

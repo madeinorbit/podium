@@ -184,6 +184,11 @@
       "@podium/source": "./src/live-connection/index.ts",
       "types": "./src/live-connection/index.ts",
       "import": "./src/live-connection/index.ts"
+    },
+    "./test-support/local-store": {
+      "@podium/source": "./test-support/local-store.ts",
+      "types": "./test-support/local-store.ts",
+      "import": "./test-support/local-store.ts"
     }
   },
   "scripts": {

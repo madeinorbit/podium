@@ -20,7 +20,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       row.resume && (row.status === 'hibernated' || row.status === 'exited')
         ? [row.resume, row.lastActiveAt] : undefined])
   }
-  for (const id of pool.queries.indexed({ kind: 'shellSessions' })) {
+  for (const id of pool.queries.ids({ kind: 'shellSessions' })) {
     const value = signature(id)
     if (value !== undefined) signatures.set(id, value)
   }
@@ -41,7 +41,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     issueSessions(id) {
       const rows: SessionView[] = []
-      for (const key of pool.queries.indexed({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
+      for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
         const row = pool.row('session', key)
         if (row === LOADING) return NAVIGATION_LOADING
         if (row) rows.push(row as SessionView)

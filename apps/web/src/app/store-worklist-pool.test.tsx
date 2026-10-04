@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { bindSidebarPerf, createSidebarPerf } from '@podium/client-core/perf'
@@ -116,7 +117,7 @@ describe('StoreProvider owns the sidebar pool', () => {
       ...screenOptions(poolBackedScreens, runtime!),
     })
     expect(replicaFactory).toHaveBeenCalledTimes(1)
-    expect(runtime!.replica).toBe(runtime!.getSnapshot().replica)
+    expect(runtime!.replica).toBe(referenceState(runtime!).replica)
     render()
     expect(await ready()).toBe(pool)
     expect(create).toHaveBeenCalledTimes(1)

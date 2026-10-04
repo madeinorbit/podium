@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 
 // @vitest-environment happy-dom
 /**
@@ -100,7 +102,7 @@ function orderDiff(actual: SliceOrder, expected: SliceOrder): string | null {
  * waiting ignored, open in the oracle's order, and asking in its views.
  */
 function waitingKept(ctx: ScenarioEngine, expected: SliceOrder): Set<string> {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const coarseNow = parityLocals(ctx).coarseNow
   const views = rowViewsFromStore(store, { ...engineLocals(ctx), selectedIssueId: null })
   const open = new Set(expected.groups.flatMap((group) => group.rowIds))
@@ -133,7 +135,7 @@ interface GroupParity {
 function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: string): GroupParity {
   const { pool } = handle
   const locals = parityLocals(ctx)
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, oracle)
@@ -212,7 +214,7 @@ async function countHeaderRenders(run: () => Promise<void>): Promise<number> {
 describe('groups and closed folds (Mb2)', () => {
   it('parity at 1x through #1-#7; commits, reads, layout runs and header redraws follow the change', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessMobxPoolHandle
     const { pool } = handle
@@ -281,7 +283,7 @@ describe('groups and closed folds (Mb2)', () => {
 
   it('the fold latch holds a selected grace-folded row open; a dismissal or a folded click does not', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessMobxPoolHandle
     const { pool } = handle
     // Observed, as the mounted list observes them: an unobserved computed
@@ -321,7 +323,7 @@ describe('groups and closed folds (Mb2)', () => {
       expect(dismissed, 'a dismissed row in the fixture').toBeDefined()
       const snapshotOrder = () => tracked(() => sliceOrderOf(pool.groups.layout))
       const baseline = snapshotOrder()
-      const coarseNow = ctx.engine.access.coarseNow
+      const coarseNow = referenceState(ctx.engine).coarseNow
       const select = (id: string, wasFolded?: boolean) =>
         pool.applyLocals(
           {
@@ -387,7 +389,7 @@ describe('the windowed web list (Mb2)', () => {
       return this.hasAttribute('data-pool-list') ? 1600 : 0
     })
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // Distinct rows read through the feed's per-row read, per phase.
     let phase: 'bootstrap' | 'firstWindow' | 'later' = 'bootstrap'
     const feedReads = {

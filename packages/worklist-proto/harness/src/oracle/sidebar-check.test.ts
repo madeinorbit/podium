@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   compareSidebarSnapshots,
@@ -7,7 +8,7 @@ import {
 } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { reaction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -389,11 +390,11 @@ describe('sidebar readiness', () => {
   for (const scale of [1, 4] as const)
     it(`reports cold ${scale}x rows separately without draining their batched loads`, async () => {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
       const hydrate = vi.spyOn(handle.pool, 'hydrate')
       try {
-        const store = ctx.engine.access
+        const store = referenceState(ctx.engine)
         const state: SidebarState = {
           pinnedRepos: store.pins.repos,
           pinnedWorktrees: store.pins.worktrees,
@@ -426,7 +427,7 @@ const OWNED = ' (pool owns optimism)'
 describe('sidebar differential replay', () => {
   // POD-5432: 'owned' is the pool owning optimism (its log paints, the
   // runtime's actions route through it), against the same legacy oracle.
-  for (const mode of ['overlaid', 'owned'] as const)
+  for (const mode of ['pooled', 'owned'] as const)
     for (const scale of [1, 4] as const)
       it(`corpus and every methodology change at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
         const ctx = await startScenarioEngine(scale)
@@ -442,7 +443,7 @@ describe('sidebar differential replay', () => {
         const check = (scenario: string): void => {
           feeds.flush()
           settle(handle.pool)
-          const store = ctx.engine.access
+          const store = referenceState(ctx.engine)
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,
             pinnedWorktrees: store.pins.worktrees,
@@ -487,7 +488,7 @@ describe('sidebar differential replay', () => {
   it('cold bootstrap and a fresh principal compare after batched loading', async () => {
     for (const principal of ['checker-one', 'checker-two']) {
       const ctx = await startScenarioEngine(1, { principal, start: false })
-      const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+      const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
       const locals = createEngineLocals(ctx.engine)
       const handle = createWorklistPool(rows.source, locals.source)
       try {
@@ -514,7 +515,7 @@ describe('sidebar differential replay', () => {
     it(`every random change, seed ${seed}`, async () => {
       const corpus = genCorpus()
       const changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
-      const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+      const run = await startGenRun({ corpus, feedMode: 'pooled' })
       let feed = run.feed(),
         locals = createEngineLocals(run.ctx.engine)
       let handle = createWorklistPool(feed.source, locals.source)
@@ -539,7 +540,7 @@ describe('sidebar differential replay', () => {
           }
           locals.flush()
           settle(handle.pool)
-          const store = run.ctx.engine.access
+          const store = run.referenceState(ctx.engine)
           const keys = tracked(() => handle.pool.groups.keys)
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,

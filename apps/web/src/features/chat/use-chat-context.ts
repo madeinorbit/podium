@@ -121,7 +121,6 @@ const EMPTY_INPUT = {
 }
 export function useChatConversationPorts(
   id: SessionId,
-  _store: UseChatSendOptions['store'],
 ): Ports {
   const initial = useRef<{ id: string; draft: string } | undefined>(undefined)
   const read = useCallback(

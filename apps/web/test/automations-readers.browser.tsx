@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -34,8 +35,7 @@ function Surface() {
       __openAutomationDialog: () => setDialog(true),
       __closeAutomationDialog: () => setDialog(false),
     })
-    void owner!
-      .getSnapshot()
+    void referenceState(owner!)
       .refreshRepos()
       .catch(() => failures.push('fixture-discovery-failure'))
   }, [])
@@ -56,7 +56,7 @@ function Surface() {
         </div>
         {dialog && (
           <NewAutomationDialog
-            trpc={owner!.getSnapshot().trpc}
+            trpc={referenceState(owner!).trpc}
             automation={null}
             onClose={() => setDialog(false)}
             onSaved={() => setDialog(false)}
@@ -118,7 +118,7 @@ const driver = {
   },
   check() {
     if (!pool || !owner) return null
-    const state = owner.access as unknown as Store
+    const state = referenceState(owner) as unknown as Store
     return checkAutomations(
       pool,
       state,

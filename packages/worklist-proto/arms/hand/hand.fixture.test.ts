@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4446 — hand-rolled arm against the G2 fixture corpus at 1x, booted
  * through a real engine: full-snapshot parity with the legacy oracle plus
@@ -9,7 +10,7 @@
 import { expect, it } from 'vitest'
 import { buildCorpus } from '../../harness/src/fixture/index'
 import { startEngineOnCorpus } from '../../shared/src/scenarios'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
@@ -21,15 +22,15 @@ it.fails('fixture corpus at 1x: parity with the legacy oracle, rebuild oracle gr
   const corpus = buildCorpus(1, 4443)
   const boot = await startEngineOnCorpus(corpus)
   try {
-    const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
+    const source = createRowSource(boot.engine, boot.replica, { mode: 'pooled' })
     const locals = {
       selectedIssueId: null as string | null,
-      coarseNow: boot.engine.access.coarseNow,
+      coarseNow: boot.referenceState(engine).coarseNow,
     }
     const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
     const mine = handle.snapshot()
-    const expected = snapshotFromStore(boot.engine.access, locals)
+    const expected = snapshotFromStore(boot.referenceState(engine), locals)
     expect(Object.keys(mine.rowsById).length).toBeGreaterThan(0)
     expect(mine).toEqual(expected)
     const rebuilt = rebuildFromScratch({

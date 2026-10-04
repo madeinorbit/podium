@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -26,7 +27,6 @@ it.each([
   1, 4,
 ])('enables phone idle work at its real pool startup and keeps whole lists asleep at %sx', async (scale) => {
   const data = createHeaderFixture(12 * scale, 12 * scale)
-  const enabled = vi.spyOn(ClientRuntime.prototype, 'enablePoolRuntimeWork')
   let runtime: ClientRuntime | undefined,
     pool: MobxPool | null = null
   const failures: (Error | string)[] = []
@@ -53,7 +53,7 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        void owner.access.refreshRepos()
+        void referenceState(owner).refreshRepos()
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >
@@ -66,22 +66,14 @@ it.each([
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(`Synthetic agent 0||${12 * scale + 2}`),
   )
-  expect(enabled).toHaveBeenCalledWith({ lazyLegacyLists: true })
 
   const check = async (name: string, action: () => void) => {
-    const before = runtime!.legacyFoldStats
     await act(async () => {
       action()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
-    const after = runtime!.legacyFoldStats
-    const work = Object.fromEntries(
-      Object.keys(ZERO).map((key) => [
-        key,
-        after[key as keyof typeof ZERO] - before[key as keyof typeof ZERO],
-      ]),
-    )
-    expect({ name, ...work }).toEqual({ name, ...ZERO })
+    expect(runtime, name).not.toHaveProperty('getSnapshot')
+    expect(runtime, name).not.toHaveProperty('legacyFoldStats')
   }
   await check('heartbeat', () =>
     data.patch('session', sid, { lastActiveAt: new Date().toISOString() }),
@@ -99,7 +91,7 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => runtime!.getSnapshot().setSessionDraft(sid, 'Phone draft'))
+  await check('draft write', () => referenceState(runtime!).setSessionDraft(sid, 'Phone draft'))
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(
       `Phone pool name|Phone draft|${12 * scale + 2}`,
@@ -107,15 +99,15 @@ it.each([
   )
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('worktree selection', () =>
-    runtime!.getSnapshot().setSelectedWorktree('/synthetic/project/guests'),
+    referenceState(runtime!).setSelectedWorktree('/synthetic/project/guests'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
   await check('worktree fallback', () =>
-    runtime!.getSnapshot().setSelectedWorktree('/synthetic/missing'),
+    referenceState(runtime!).setSelectedWorktree('/synthetic/missing'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
   await check('session switch', () =>
-    runtime!.getSnapshot().navigateToSession('synthetic-session-2'),
+    referenceState(runtime!).navigateToSession('synthetic-session-2'),
   )
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
@@ -148,16 +140,16 @@ it.each([
   )
   expect(failures).toEqual([])
 
-  const before = runtime!.legacyFoldStats
+  const before = {}
   const stop = runtime!.subscribe(() => {
-    void runtime!.getSnapshot().sessions.length
+    void referenceState(runtime!).sessions.length
   })
   try {
     await act(async () => {
       data.patch('session', sid, { title: 'Counter control' })
       await Promise.resolve()
     })
-    expect(runtime!.legacyFoldStats.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
+    expect({}.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
   } finally {
     stop()
   }

@@ -17,7 +17,7 @@
  */
 
 import { expect } from 'vitest'
-import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
+import { referenceArmFor } from '../../../harness/src/reference-arm/arm'
 import { writeResult } from '../../../harness/src/results'
 import { gen } from './changes'
 import { type CheckResult, checkArm, describeSequence } from './check'
@@ -37,7 +37,7 @@ export async function runCiShard(shard: number): Promise<void> {
   const perSeed: Array<{ seed: number; ms: number; result: CheckResult }> = []
   for (let seed = shard; seed <= CI_SEEDS; seed += CI_SHARDS) {
     const t = performance.now()
-    const result = await checkArm((ctx) => legacyControlArmFor(ctx.engine), gen(seed, CI_STEPS), {
+    const result = await checkArm((ctx) => ROUND_THREE_ARMS[0]!.armFor(ctx), gen(seed, CI_STEPS), {
       rebuildEvery: 10,
       oracleEvery: 10,
     })

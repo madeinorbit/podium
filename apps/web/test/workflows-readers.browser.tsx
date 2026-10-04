@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -58,8 +59,7 @@ root.render(
     attachRuntime={(runtime) => {
       runtimeOwners.add(runtime)
       fixture.bindHub(runtime.hub)
-      void runtime
-        .getSnapshot()
+      void referenceState(runtime)
         .refreshRepos()
         .catch(() => failures.push('fixture-discovery-failure'))
       return attachWorklistPool(runtime, () => failures.push('pool-failure'))
@@ -99,10 +99,10 @@ const driver = {
     fixture.remove('issueProjection', 'synthetic-0')
     fixture.remove('session', 'synthetic-session-0')
     fixture.machines[0] = { ...fixture.machines[0]!, online: false }
-    await owner!.getSnapshot().refreshRepos()
+    await referenceState(owner!).refreshRepos()
     await frame()
   },
-  check: () => (pool && owner ? checkWorkflows(pool, owner.access, fixture) : null),
+  check: () => (pool && owner ? checkWorkflows(pool, referenceState(owner), fixture) : null),
   stats() {
     // The global ring evicts old owners as legacy sessionById records each
     // immutable array. A capture window retains the actual publishing runtime.

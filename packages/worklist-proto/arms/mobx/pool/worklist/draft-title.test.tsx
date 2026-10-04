@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4572 (Mb4) — a draft's display title at 4x, where the fixture first
@@ -22,11 +23,11 @@ installMobxWarnTrap()
 describe('a draft wears its first non-shell member (4x)', () => {
   it('every visible draft title equals the oracle, shell-first drafts included', async () => {
     const ctx = await startScenarioEngine(4)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const got = handle.snapshot()
-      const want = oracleSnapshot(ctx.engine.access)
+      const want = oracleSnapshot(referenceState(ctx.engine))
       const { pool } = handle
       const drafts = tracked(() =>
         Object.keys(want.rowsById).filter((id) => pool.visibleInputs.issueRow(id)?.isDraftVessel === true),

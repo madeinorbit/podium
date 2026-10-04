@@ -170,37 +170,6 @@ export const asIssueIdOrNull = (v: string | null | undefined): IssueId | null =>
 export const tabIsVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'
 
-/** The stamp issue-unread compares against read_at: this issue's updatedAt, any
- *  descendant's updatedAt, and every session in the subtree. Mirrors the
- *  sidebar/collapsed rollup so remake-on-view sees the same activity the row
- *  does (POD-912). */
-export function issueActivityAt(
-  issue: Pick<IssueProjection, 'id' | 'updatedAt'>,
-  issues: readonly Pick<IssueProjection, 'id' | 'parentId' | 'updatedAt'>[] = [],
-): string {
-  const subtree = new Set<string>([issue.id])
-  let grew = true
-  while (grew) {
-    grew = false
-    for (const other of issues) {
-      if (other.parentId && subtree.has(other.parentId) && !subtree.has(other.id)) {
-        subtree.add(other.id)
-        grew = true
-      }
-    }
-  }
-  let latest = issue.updatedAt
-  for (const other of issues) {
-    if (subtree.has(other.id) && other.updatedAt > latest) latest = other.updatedAt
-  }
-  for (const session of sessions) {
-    if (session.issueId && subtree.has(session.issueId) && session.lastActiveAt > latest) {
-      latest = session.lastActiveAt
-    }
-  }
-  return latest
-}
-
 /**
  * The panes the operator can actually SEE, in strip order.
  *

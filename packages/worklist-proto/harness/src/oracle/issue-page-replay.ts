@@ -2,13 +2,14 @@
  * output contains counts, field positions and opaque issue IDs only. */
 import { hostname } from 'node:os'
 import { runInAction } from 'mobx'
-import { dedupeSessions } from '@podium/client-core/engine'
-import { allIssueViewModels, createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkIssuePages, ISSUE_PAGE_CHECK_FIELDS, SESSION_FIELDS, poolIssuePageSnapshot, type IssuePageDifference } from '@podium/client-graph/diagnostics/issue-page-check'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { sessionUserStateRowId } from '@podium/model'
 import type { FixtureCorpus } from '../fixture'
@@ -44,7 +45,7 @@ export function replayIssuePages(corpus: FixtureCorpus) {
   store.sessions = dedupeSessions(ordered)
   const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
   phase(3)
-  const rows = createRowSource(runtime, replica, { mode: 'overlaid' }), locals = createEngineLocals(runtime)
+  const rows = createRowSource(runtime, replica, { mode: 'pooled' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
   try {
     for (let round = 0; round < 64; round++) {

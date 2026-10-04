@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 /**
  * POD-4559 — the store helpers run on ONE clock: the caller's.
@@ -60,11 +61,11 @@ describe('store helpers run on the caller clock alone', () => {
 
   beforeAll(async () => {
     ctx = await startScenarioEngine(1)
-    early = ctx.engine.access
+    early = referenceState(ctx.engine)
     for (const ahead of AHEAD_MS) {
       const coarseNow = early.coarseNow + ahead
-      ctx.advanceClock(coarseNow - ctx.engine.access.coarseNow)
-      const advanced = ctx.engine.access
+      ctx.advanceClock(coarseNow - referenceState(ctx.engine).coarseNow)
+      const advanced = referenceState(ctx.engine)
       expect(advanced.coarseNow).toBe(coarseNow)
       const locals = { selectedIssueId: null, coarseNow }
       truths.push({
@@ -124,8 +125,8 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
 
   beforeAll(async () => {
     ctx = await startScenarioEngine(1)
-    const now = ctx.engine.access.coarseNow
-    const visible = oracleIds(ctx.engine.access)
+    const now = referenceState(ctx.engine).coarseNow
+    const visible = oracleIds(referenceState(ctx.engine))
     // By rule: the first visible human child, made finished and unread one
     // hour inside the window, its sessions archived (so none keeps it listed).
     const candidate = ctx.corpus.issues.find(
@@ -155,10 +156,10 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
       }
     })
     await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
-    early = ctx.engine.access
+    early = referenceState(ctx.engine)
     later = { selectedIssueId: null, coarseNow: early.coarseNow + 2 * HOUR }
     ctx.advanceClock(2 * HOUR)
-    truth = snapshotFromStore(ctx.engine.access, later)
+    truth = snapshotFromStore(referenceState(ctx.engine), later)
   }, 60_000)
 
   afterAll(() => ctx.engine.destroy())

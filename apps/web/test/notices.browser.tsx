@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { storeStats } from '@podium/client-core/perf'
@@ -189,11 +190,11 @@ const driver = {
       failures: failures.length,
       actions,
       parked: owner.outbox.deadLetters().length,
-      opened: owner.access.paneA,
+      opened: referenceState(owner).paneA,
     }
   },
   check() {
-    return pool ? checkNotices(pool, owner.access, ['synthetic-session-0']) : null
+    return pool ? checkNotices(pool, referenceState(owner), ['synthetic-session-0']) : null
   },
   close: () => root.unmount(),
 }

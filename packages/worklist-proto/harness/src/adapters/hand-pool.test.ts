@@ -75,7 +75,7 @@ function titleOf(handle: HarnessWritableHandPoolHandle, id: string): string | un
 describe('the hand harness adapter wraps the product entry points (POD-4944)', () => {
   it("the harness handle's pool is the product handle's pool", async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     try {
       const create = vi.spyOn(handPoolArm, 'create')
       const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source)
@@ -97,7 +97,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
 
   it("the harness writable handle's pool is the product write arm's pool", async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const transport = fakeTransport()
     try {
       // The product write arm builds its pool through the product arm, so
@@ -155,7 +155,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
 
   it('dispose releases the feed and transport subscriptions', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     try {
       let rowSubs = 0
       const countedSource: RowSource = {

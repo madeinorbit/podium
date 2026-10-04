@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 // @vitest-environment happy-dom
@@ -143,7 +144,7 @@ function checkParity(
   at: string,
 ): string | null {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+  const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return null
@@ -159,7 +160,7 @@ async function withMounted<T>(
   ) => Promise<T>,
 ): Promise<T> {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
     const handle = mounted.handle as HarnessHandPoolHandle
@@ -347,7 +348,7 @@ function summary(run: ColdProgressRun) {
  */
 async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
   const { pool } = handle
   const residency = pool.residency!
@@ -392,7 +393,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
     const unsub = pool.subscribe(parent, () => {})
     try {
       const oracleOf = () =>
-        rowViewsFromStore(ctx.engine.access, {
+        rowViewsFromStore(referenceState(ctx.engine), {
           ...parityLocals(ctx),
           selectedIssueId: null,
         })[parent] as RowView
@@ -452,7 +453,7 @@ describe('row roll-ups (Hb3)', () => {
       expect(
         diffViews(
           (id) => handle.pool.view(id),
-          new Map(Object.entries(rowViewsFromStore(ctx.engine.access, engineLocals(ctx)))),
+          new Map(Object.entries(rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx)))),
         ),
         'bootstrap: whole views vs oracle',
       ).toEqual([])
@@ -476,7 +477,7 @@ describe('row roll-ups (Hb3)', () => {
         // Per-step oracle check on whole views: `activityAt` lives outside
         // the slice, so only a view-to-view comparison holds it to the
         // oracle after every change.
-        const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+        const views = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
         const want = new Map(Object.entries(views))
         expect(
           diffViews((id) => handle.pool.view(id), want),
@@ -511,7 +512,7 @@ describe('row roll-ups (Hb3)', () => {
       const askers = ctx.corpus.edgedAskers
       expect(askers.length, 'hidden askers in the 1x fixture').toBeGreaterThan(0)
       const snapshot = handle.snapshot()
-      const oracle = rowViewsFromStore(ctx.engine.access, {
+      const oracle = rowViewsFromStore(referenceState(ctx.engine), {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })
@@ -560,7 +561,7 @@ describe('row roll-ups (Hb3)', () => {
     const cells = []
     for (const scale of [1, 4] as const) {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const readsAtOpen = feeds.rowReads()
       // Progress's cold reads, counted at the pool's input (each call on a
       // cold row is one read by id through the feed).
@@ -681,7 +682,7 @@ describe('row roll-ups (Hb3)', () => {
 
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessHandPoolHandle
     const { pool } = handle
     const residency = pool.residency!
@@ -740,7 +741,7 @@ describe('row roll-ups (Hb3)', () => {
         windows += 1
       }
       const landed = pool.view(id)!
-      const oracle = rowViewsFromStore(ctx.engine.access, {
+      const oracle = rowViewsFromStore(referenceState(ctx.engine), {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })[id] as RowView

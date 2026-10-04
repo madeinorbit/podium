@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 // @vitest-environment happy-dom
@@ -104,7 +106,7 @@ function settle(pool: MobxPool): number {
 /** The oracle's flat order: the rows the app would show, in R-ORDER. */
 function oracleOrder(ctx: ScenarioEngine): string[] {
   const locals = parityLocals(ctx)
-  const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+  const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
   return visibleIssueRows(derivation, locals).map((row) => row.issue.id)
 }
 
@@ -127,7 +129,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
   expect(Object.keys(snapshot.rowsById), `${at}: snapshot rows`).toEqual(expected)
   const rebuildDiff = diffSnapshots(snapshot, handle.rebuildFromScratch())
   expect(rebuildDiff, `${at}: rebuild`).toBeNull()
-  const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+  const views = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
   const diffs: string[] = []
   tracked(() => {
     for (const id of order) {
@@ -156,7 +158,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
 describe('visible collection and order (Mb1)', () => {
   it('parity at 1x through #1-#5; the commit and reads fences hold', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessMobxPoolHandle
     const { pool } = handle
@@ -213,7 +215,7 @@ describe('visible collection and order (Mb1)', () => {
 
   it('a rank change moves the one row, sorts nothing and redraws only the moved row', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const { pool } = mounted.handle as HarnessMobxPoolHandle
     try {
@@ -256,7 +258,7 @@ describe('visible collection and order (Mb1)', () => {
 
   it('a rename of an origin with a hidden open spin-off commits only visible rows (#4 shape)', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
       settle((mounted.handle as HarnessMobxPoolHandle).pool)
@@ -321,7 +323,7 @@ describe('visible collection and order (Mb1)', () => {
     for (const candidate of [arm, planted]) {
       const drawsHidden = candidate === planted
       const ctx = await startScenarioEngine(1)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const mounted = mountArmForCounts(candidate, feeds.rows.source, feeds.locals)
       try {
         settle((mounted.handle as HarnessMobxPoolHandle).pool)
@@ -387,7 +389,7 @@ async function runHiddenSpinOffRename(
   ctx: ScenarioEngine,
   flush: () => void,
 ) {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined

@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 // @vitest-environment happy-dom
 /**
  * POD-4444 / POD-4550 — scenario tests on the ONE corpus: every methodology
@@ -196,8 +198,8 @@ describe('#2 target family is larger than one level of the reads budget (POD-463
       expect(
         allIssueViewModels(
           ctx.replica,
-          ctx.engine.access.issueProjections,
-          ctx.engine.access.issueUserStates,
+          referenceState(ctx.engine).issueProjections,
+          referenceState(ctx.engine).issueUserStates,
         ),
       ).toHaveLength(ctx.corpus.issues.length)
     } finally {
@@ -474,12 +476,12 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
     try {
       const id = ctx.targets.stageMoveId
       const serverTitle = (ctx.cache.read('issueProjection', id)?.value as { title: string }).title
-      void ctx.engine.access.updateIssue(asIssueId(id), { title: 'Pending title' } as never)
+      void referenceState(ctx.engine).updateIssue(asIssueId(id), { title: 'Pending title' } as never)
       await new Promise((r) => setTimeout(r, ctx.settleMs))
       const painted = allIssueViewModels(
         ctx.replica,
-        ctx.engine.access.issueProjections,
-        ctx.engine.access.issueUserStates,
+        referenceState(ctx.engine).issueProjections,
+        referenceState(ctx.engine).issueUserStates,
       ).find((i) => i.id === id) as { title: string }
       expect(painted.title, 'the edit is pending and painted').toBe('Pending title')
 
@@ -530,7 +532,7 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
     const ctx = await startScenarioEngine(scale)
     try {
       const rules = targetRules(ctx.corpus)
-      const { order } = oracleSnapshot(ctx.engine.access)
+      const { order } = oracleSnapshot(referenceState(ctx.engine))
       const window = [...order.pinnedIds, ...order.groups.flatMap((group) => group.rowIds)]
         .slice(0, FIRST_WINDOW_ROWS)
         .filter(rules.root)
@@ -538,7 +540,7 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
       expect(pick, 'a drawn root with a bound session').toBeDefined()
       const { issueId, sessionId } = pick!
       console.info(`[scenarios] ${scale}x visible heartbeat: ${sessionId} on ${issueId}`)
-      const views = () => rowViewsFromStore(ctx.engine.access, localsOfEngine(ctx.engine))
+      const views = () => rowViewsFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine))
       const changes = async (write: () => void): Promise<string[]> => {
         const before = views()
         write()
@@ -555,14 +557,14 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
             .map((field) => `${id}.${field}`),
         )
       }
-      const orderBefore = JSON.stringify(oracleSnapshot(ctx.engine.access).order)
+      const orderBefore = JSON.stringify(oracleSnapshot(referenceState(ctx.engine)).order)
       for (let sample = 0; sample < 3; sample += 1) {
         expect(await changes(() => applyHeartbeat(ctx)), `unrelated #${sample}`).toEqual([])
         expect(await changes(() => applyHeartbeat(ctx, sessionId)), `visible #${sample}`).toEqual([
           `${issueId}.activityAt`,
         ])
       }
-      expect(JSON.stringify(oracleSnapshot(ctx.engine.access).order), 'order').toBe(
+      expect(JSON.stringify(oracleSnapshot(referenceState(ctx.engine)).order), 'order').toBe(
         orderBefore,
       )
     } finally {

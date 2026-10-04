@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-5405 — the row source's cold index (`client-graph/src/shared/cold-index.ts`)
  * equals the rule over whole rows, at 1x and 4x and along generated change
@@ -26,7 +27,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ColdQueries } from '@podium/client-graph/shared/cold-index'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import type { RowSource } from '@podium/client-graph/shared/source'
 import { gen, genCorpus } from '../../shared/src/gen/changes'
 import { startGenRun } from '../../shared/src/gen/run'
@@ -74,11 +75,11 @@ function differences(source: RowSource, cold: ColdQueries, now: number, label: s
 describe('cold index equals the rule over whole rows (POD-5405)', () => {
   it.each([1, 4] as const)('fence corpus at %ix, across clocks and a rewind', async (scale) => {
     const ctx = await startScenarioEngine(scale)
-    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     try {
       const raw = feed.source
       const cold = raw.cold!()
-      const start = ctx.engine.access.coarseNow
+      const start = referenceState(ctx.engine).coarseNow
       const cells: Record<string, unknown>[] = []
       for (const [label, now] of [
         ['now', start],
@@ -107,10 +108,10 @@ describe('cold index equals the rule over whole rows (POD-5405)', () => {
   }, 900_000)
 
   it.each(Array.from({ length: SEEDS }, (_, i) => i + 1))('generated sequence, seed %i, every step', async (seed) => {
-    const run = await startGenRun({ corpus: genCorpus(1), feedMode: 'overlaid' })
+    const run = await startGenRun({ corpus: genCorpus(1), feedMode: 'pooled' })
     try {
       const sequence = gen(seed, STEPS)
-      const now = () => run.ctx.engine.access.coarseNow
+      const now = () => run.referenceState(ctx.engine).coarseNow
       expect(differences(run.feed().source, run.feed().source.cold!(), now(), `seed ${seed} bootstrap`)).toEqual([])
       let compared = 0
       for (const change of sequence) {

@@ -57,7 +57,7 @@ function HiddenRows({ pool }: { pool: HandPool }): ReactElement {
 
 describe('first render of hidden rows notifies and files nothing', () => {
   it('seed-1 snapshot: no listener call, no filing, no console.error while rendering', async () => {
-    const run = await startGenRun({ feedMode: 'overlaid' })
+    const run = await startGenRun({ feedMode: 'pooled' })
     const feed = run.feed()
     const locals = createEngineLocals(run.ctx.engine)
     locals.flush()

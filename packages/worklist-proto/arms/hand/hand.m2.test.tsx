@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4450 — hand-rolled arm milestone 2: structural scenarios #4–#10 through
@@ -19,7 +20,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
@@ -76,10 +77,10 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
   it.fails('scenarios #4-#10 with parity, rebuild oracle, and budgets', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     let locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
@@ -110,7 +111,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       apply: () => unknown,
       expectedLocals: SliceLocals = locals,
     ): Promise<CountResult> => {
-      const before = snapshotFromStore(ctx.engine.access, expectedLocalsFor(scenario))
+      const before = snapshotFromStore(referenceState(ctx.engine), expectedLocalsFor(scenario))
       const result = await runCountScenario(mounted, {
         scenario,
         methodology,
@@ -118,10 +119,10 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
           await apply()
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, expectedLocals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), expectedLocals),
       })
       const oracle = checkOracle()
-      const changed = changedRows(before, snapshotFromStore(ctx.engine.access, expectedLocals))
+      const changed = changedRows(before, snapshotFromStore(referenceState(ctx.engine), expectedLocals))
       const committed = Object.keys(result.commitsByRow).sort()
       const over = committed.filter((id) => !changed.includes(id))
       const scans = store.scanCounts()
@@ -146,7 +147,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
     try {
       const atMount = mounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
-      expect(atMount).toEqual(snapshotFromStore(ctx.engine.access, locals))
+      expect(atMount).toEqual(snapshotFromStore(referenceState(ctx.engine), locals))
       expect(checkOracle()).toBe(true)
 
       const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))

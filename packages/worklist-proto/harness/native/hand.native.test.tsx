@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4446 — hand-rolled arm on the native renderer: mountNative() through
@@ -6,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { mountNativeForCounts, runCountScenario } from '../../harness/src/count-harness'
@@ -26,10 +27,10 @@ describe('hand-rolled arm on the native renderer', () => {
   it.fails('runs count scenarios #1-#3 with parity; #1 commits zero', async () => {
     await preloadHandNative()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
@@ -61,7 +62,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       expect(heartbeat.visibleRows).toBeGreaterThan(0)
       expect(heartbeat.parity).toBe(true)
@@ -79,7 +80,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       expect(phase.parity).toBe(true)
       console.info(
@@ -95,7 +96,7 @@ describe('hand-rolled arm on the native renderer', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       expect(click.parity).toBe(true)
       expect(click.rowsCommitted).toBe(0)

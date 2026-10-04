@@ -216,11 +216,11 @@ export function ownedEngineOptions(server: ScenarioServer): EngineOptions {
  * durable. The `server` must hold these rows first (`holdingServer`).
  */
 export async function queuePendingTitles(
-  engine: Pick<ScenarioEngine['engine'], 'enqueueOverlayed'>,
+  engine: Pick<ScenarioEngine['engine'], 'outbox'>,
   titles: ReadonlyMap<string, string>,
 ): Promise<void> {
   for (const [id, title] of titles) {
-    await engine.enqueueOverlayed('issueUpdate', { id: asIssueId(id), patch: { title } })
+    await engine.outbox.enqueue('issueUpdate', { id: asIssueId(id), patch: { title } })
   }
 }
 

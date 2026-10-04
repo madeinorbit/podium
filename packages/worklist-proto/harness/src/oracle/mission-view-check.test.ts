@@ -1,6 +1,8 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import {
   missionIndexStats,
   missionRootFor,
@@ -125,7 +127,7 @@ function compare(
 
 describe('mission pane value differential', () => {
   // POD-5432: 'owned' is the pool owning optimism, against the same oracle.
-  for (const mode of ['overlaid', 'owned'] as const)
+  for (const mode of ['pooled', 'owned'] as const)
     for (const scale of [1, 4] as const)
       it(`${scale === 1 ? 'all' : 'representative'} synthetic missions and focused change gates at ${scale}x${mode === 'owned' ? OWNED : ''}`, async () => {
         const ctx = await startScenarioEngine(scale)
@@ -135,13 +137,13 @@ describe('mission pane value differential', () => {
         })
         feeds.attachPool(handle.pool)
         try {
-          compare(handle.pool, ctx.engine.access, 'corpus', scale === 1, mode === 'owned')
+          compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1, mode === 'owned')
           for (const scenario of FENCE_SCENARIOS) {
             await scenario.write(ctx)
             feeds.flush()
             compare(
               handle.pool,
-              ctx.engine.access,
+              referenceState(ctx.engine),
               scenario.scenario,
               false,
               mode === 'owned',
@@ -149,10 +151,10 @@ describe('mission pane value differential', () => {
           }
           await writeRescopeGrow(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.access, 'rescopeGrowth', false, mode === 'owned')
+          compare(handle.pool, referenceState(ctx.engine), 'rescopeGrowth', false, mode === 'owned')
           await writeRescopeBack(ctx)
           feeds.flush()
-          compare(handle.pool, ctx.engine.access, 'rescopeBack', false, mode === 'owned')
+          compare(handle.pool, referenceState(ctx.engine), 'rescopeBack', false, mode === 'owned')
         } finally {
           handle.dispose()
           feeds.dispose()
@@ -164,7 +166,7 @@ describe('mission pane value differential', () => {
     it(`generated publications including overlays, scope and reload, seed ${seed}`, async () => {
       const corpus = genCorpus(),
         changes = gen(seed, 200, {}, { corpus, forceSidebarValues: true })
-      const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+      const run = await startGenRun({ corpus, feedMode: 'pooled' })
       let feed = run.feed(),
         locals = createEngineLocals(run.ctx.engine)
       let handle = createWorklistPool(feed.source, locals.source, {
@@ -185,7 +187,7 @@ describe('mission pane value differential', () => {
           locals.flush()
           compare(
             handle.pool,
-            run.ctx.engine.access,
+            run.referenceState(ctx.engine),
             `seed ${seed} step ${index} ${change.kind}`,
             false,
           )
@@ -199,12 +201,12 @@ describe('mission pane value differential', () => {
 
   it('observes only addressed mission rows and counts zero legacy ownership work', async () => {
     const ctx = await startScenarioEngine(1),
-      feeds = openFenceFeeds(ctx, 'overlaid')
+      feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
       summaries: MISSION_VIEW_SUMMARIES,
     })
     const reader = missionView(handle.pool)
-    const ids = roots(ctx.engine.access),
+    const ids = roots(referenceState(ctx.engine)),
       selected = ids[0]!
     settle(handle.pool, [selected])
     const row = vi.spyOn(handle.pool, 'row')
@@ -228,7 +230,7 @@ describe('mission pane value differential', () => {
       )
       expect(reader.stats).toEqual(before)
       expect(paneReads.filter(([kind]) => kind === 'session').length).toBeLessThan(
-        ctx.engine.access.sessions.length,
+        referenceState(ctx.engine).sessions.length,
       )
       expect(paneReads.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
       expect(missionIndexStats()).toEqual(legacyMission)

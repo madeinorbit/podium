@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -70,8 +71,7 @@ function Fixture() {
   useEffect(() => {
     toggleRail = setRail
     runtime = owner
-    void owner
-      .getSnapshot()
+    void referenceState(owner)
       .refreshRepos()
       .then(() => {
         ready = pool !== null

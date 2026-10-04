@@ -113,7 +113,7 @@ interface ArmResult {
 async function runArm(name: string, schedule: Schedule, planted: boolean): Promise<ArmResult> {
   const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(plantedArm(schedule, plant), feeds.rows.source, feeds.locals)
   try {
     const { pool } = mounted.handle as HarnessMobxPoolHandle
@@ -248,7 +248,7 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
       ['microtask', MICROTASK],
     ] as const) {
       const ctx = await startScenarioEngine(1)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
       const mounted = mountArmForCounts(
         plantedArm(schedule, plant),

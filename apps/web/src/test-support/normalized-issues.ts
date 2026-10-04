@@ -1,6 +1,7 @@
 /** Convert older test inputs at the fixture boundary, then exercise real joins. */
 
-import { allIssueViewModels, createReplica, memoryStorage } from '@podium/client-core/replica'
+import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type {
   IssueGitStateProjection,
   IssueProjection,

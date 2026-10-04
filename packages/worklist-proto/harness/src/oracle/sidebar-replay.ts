@@ -7,14 +7,11 @@
 
 import { hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { dedupeSessions, type Store, withKeyedInputs } from '@podium/client-core/engine'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-  type Replica,
-} from '@podium/client-core/replica'
+import { withKeyedInputs } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   checkSidebar,
@@ -23,7 +20,7 @@ import {
 } from '@podium/client-graph/diagnostics/sidebar-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { runInAction } from 'mobx'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { readLive, readSnapshot } from '../fixture/export-snapshot'
@@ -65,7 +62,7 @@ function replay(corpus: FixtureCorpus) {
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
   })
-  const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
+  const rows = createRowSource(runtime, replica, { mode: 'pooled' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })
   store.sessions = dedupeSessions(

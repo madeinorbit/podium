@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4572 (Mb4, coordinator ruling 2026-09-24) — the rescope staging
@@ -64,7 +65,7 @@ interface ScopeCheck {
 
 async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: ScopeCheck }> {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
   let seq = 1
   const install = async (scope: StagedScope): Promise<void> => {
@@ -86,7 +87,7 @@ async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: Sc
       .map((issue) => issue.id)
       .sort()
     const actual = handle.snapshot()
-    const oracle = oracleSnapshot(ctx.engine.access)
+    const oracle = oracleSnapshot(referenceState(ctx.engine))
     // POD-4671 plant tables: the grown/installed rows as whole tables (repo
     // has no feed kind; an empty table keeps the scan honest for R3, which
     // never targets repo).

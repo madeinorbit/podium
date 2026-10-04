@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -6,15 +7,10 @@ import {
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
-import {
-  missionIssueIds,
-  missionRootFor,
-  pickPaneSession,
-  planReorderKeys,
-  sessionsForIssueNav,
-  worklistSlice,
-} from '@podium/client-core/values'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { missionIssueIds, missionRootFor, pickPaneSession, planReorderKeys, sessionsForIssueNav } from '@podium/client-core/values'
+import { worklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
@@ -187,7 +183,7 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?:
     </StoreProvider>,
   )
   await act(async () => {
-    await runtime.access.refreshRepos()
+    await referenceState(runtime).refreshRepos()
   })
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(pool!.sidebar.sections().bands.length).toBeGreaterThan(0))
@@ -299,7 +295,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     )
     const calls: string[] = []
     const store = {
-      ...runtime.access,
+      ...referenceState(runtime),
       batchGesture: vi.fn((fn: () => void) => {
         calls.push('batch')
         fn()
@@ -434,7 +430,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         })
       }
     })
-    const store = runtime.access
+    const store = referenceState(runtime)
     const models = allIssueViewModels(
       runtime.replica,
       store.issueProjections,
@@ -484,9 +480,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
       actions.selectIssue('synthetic-3')
     })
     expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: expected, issueId: 'synthetic-3' })
-    expect(runtime.access.selectedIssueId).toBe(root.id)
+    expect(referenceState(runtime).selectedIssueId).toBe(root.id)
     expect(
-      runtime.access.paneA,
+      referenceState(runtime).paneA,
       JSON.stringify({
         mission: [...mission],
         issueKeys: [...pool!.tables.issue.keys()],
@@ -521,7 +517,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await mount((fixture) => fixture.patch('session', 'synthetic-session-3', { archived: true }))
     const file = asSessionId('file:synthetic')
     const store = {
-      ...runtime.access,
+      ...referenceState(runtime),
       paneA: file,
       fileTabs: [
         {
@@ -560,7 +556,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => {
       actions.selectWorktree(`${ROOT}/guests`)
     })
-    expect(runtime.access).toMatchObject({
+    expect(referenceState(runtime)).toMatchObject({
       selectedIssueId: null,
       selectedWorktree: `${ROOT}/guests`,
       paneA: 'synthetic-guest-1',
@@ -575,7 +571,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => {
       actions.selectPanel(`${ROOT}/guests`, asSessionId('synthetic-guest-0'))
     })
-    expect(runtime.access.paneA).toBe('synthetic-guest-0')
+    expect(referenceState(runtime).paneA).toBe('synthetic-guest-0')
     expect(beginSwitch).toHaveBeenLastCalledWith({ sessionId: 'synthetic-guest-0', issueId: null })
     await refuse(await request('sessions.markRead', 'synthetic-guest-0'))
     await parity()
@@ -608,7 +604,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         for (const id of [...ids, ...ids]) actions.selectIssue(id)
         expect(ids.map((id) => owner.sidebar.row(id))).toEqual([LOADING, LOADING])
         expect(requests).toHaveLength(0)
-        expect(runtime.access.selectedIssueId).toBeNull()
+        expect(referenceState(runtime).selectedIssueId).toBeNull()
         expect(focused).toBeNull()
         expect(fetch).not.toHaveBeenCalled()
         expect(owner.hydrate()).toBe(2)
@@ -646,12 +642,12 @@ describe('pool navigation uses the existing gesture semantics', () => {
         for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
         expect(owner.sidebar.row('synthetic-3')).toBe(LOADING)
         expect(requests).toHaveLength(0)
-        expect(runtime.access.selectedIssueId).toBeNull()
+        expect(referenceState(runtime).selectedIssueId).toBeNull()
         expect(focused).toBeNull()
         expect(owner.hydrate()).toBe(1)
       })
       await act(async () => actions.selectIssue(TARGET))
-      expect(runtime.access.selectedIssueId).toBe('synthetic-1')
+      expect(referenceState(runtime).selectedIssueId).toBe('synthetic-1')
       expect(focused).toBe(TARGET)
     } finally {
       residency.coldRule = coldRule
@@ -737,7 +733,7 @@ describe('real pool row mutations and receipts', () => {
     await refuse(write)
     expect(value().title).toBe('Only responsive target')
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
-    expect(runtime.access.outboxDeadLetters).toHaveLength(1)
+    expect(referenceState(runtime).outboxDeadLetters).toHaveLength(1)
   })
 
   it('retains an accepted rename until the echo, composes a later edit and rewinds only that edit', async () => {
@@ -885,10 +881,10 @@ describe('real pool row mutations and receipts', () => {
 
   it('opens the task page without changing the workspace pane', async () => {
     await mount()
-    const pane = runtime.access.paneA
+    const pane = referenceState(runtime).paneA
     await menu()
     fireEvent.click(await item('Open in tasks'))
-    expect(runtime.access).toMatchObject({
+    expect(referenceState(runtime)).toMatchObject({
       openIssueId: TARGET,
       view: 'issues',
       paneA: pane,
@@ -1134,9 +1130,9 @@ describe('real pool row mutations and receipts', () => {
   it('treats eviction as absence, never requests the evicted row, and accepts readmission', async () => {
     const fixture = await mount()
     await act(async () => {
-      runtime.access.setSelectedIssueId(asIssueId(TARGET))
+      referenceState(runtime).setSelectedIssueId(asIssueId(TARGET))
     })
-    expect(runtime.access.selectedIssueId).toBe(TARGET)
+    expect(referenceState(runtime).selectedIssueId).toBe(TARGET)
     const records = ['issueProjection'].map((entity) => fixture.records.get(`${entity}:${TARGET}`)!)
     await act(async () => {
       for (const entity of ['issueProjection']) {
@@ -1144,7 +1140,7 @@ describe('real pool row mutations and receipts', () => {
         fixture.replica.onKernelEvent({ type: 'evicted', entity, entityId: TARGET })
       }
     })
-    await waitFor(() => expect(runtime.access.selectedIssueId).toBeNull())
+    await waitFor(() => expect(referenceState(runtime).selectedIssueId).toBeNull())
     expect(pool!.sidebar.row(TARGET)).toBeUndefined()
     expect(requests).toHaveLength(0)
     await parity()
@@ -1184,7 +1180,7 @@ describe('pool command-hold row shortcuts', () => {
     ])
     for (let digit = 1; digit <= 9; digit += 1) {
       fireEvent.keyDown(window, { key: String(digit), code: `Digit${digit}`, metaKey: true })
-      expect(runtime.access.selectedIssueId).toBe(ids[digit - 1])
+      expect(referenceState(runtime).selectedIssueId).toBe(ids[digit - 1])
       expect(focused).toBe(ids[digit - 1])
       await parity()
     }
@@ -1192,9 +1188,9 @@ describe('pool command-hold row shortcuts', () => {
     expect(document.querySelectorAll('[data-shortcut-digit]')).toHaveLength(0)
     fireEvent.click(screen.getByTestId('pinned-section-label'))
     fireEvent.keyDown(window, { key: '1', code: 'Digit1', metaKey: true })
-    expect(runtime.access.selectedIssueId).toBe(ids[1])
+    expect(referenceState(runtime).selectedIssueId).toBe(ids[1])
     fireEvent.keyDown(window, { key: '2', code: 'Digit2', metaKey: true, shiftKey: true })
-    expect(runtime.access.selectedIssueId).toBe(ids[1])
+    expect(referenceState(runtime).selectedIssueId).toBe(ids[1])
     fireEvent.blur(window)
     expect(document.querySelectorAll('[data-shortcut-digit]')).toHaveLength(0)
     await parity()

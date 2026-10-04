@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4556 (L4b) — the correctness gate: incremental versus rebuild versus
  * oracle, after every generated change.
@@ -65,7 +66,7 @@ export type CheckedArm = CheckableArm | ((ctx: ScenarioEngine) => CheckableArm)
 export interface CheckOptions {
   /** The corpus the sequence was generated for. Default: `genCorpus()` (1x). */
   corpus?: FixtureCorpus
-  /** The feed the arm consumes. Default `'overlaid'` (a phase a/b pool);
+  /** The feed the arm consumes. Default `'pooled'` (a phase a/b pool);
    *  a pool that owns its optimism reads `'truth'` (roster `mode`). */
   mode?: RowSourceMode
   /** Compare with `rebuildFromScratch()` every N steps, and after the last.
@@ -205,7 +206,7 @@ async function runCheck(
   const timing: CheckTiming = { applyMs: 0, snapshotMs: 0, rebuildMs: 0, oracleMs: 0 }
   const run = await startGenRun({
     ...(opts.corpus ? { corpus: opts.corpus } : {}),
-    feedMode: opts.mode ?? 'overlaid',
+    feedMode: opts.mode ?? 'pooled',
     ...(opts.editViaArm ? { editViaArm: opts.editViaArm } : {}),
   })
   const armOf = (ctx: ScenarioEngine): CheckableArm => (typeof arm === 'function' ? arm(ctx) : arm)
@@ -239,7 +240,7 @@ async function runCheck(
     }
     if (withOracle) {
       t = performance.now()
-      const expected = oracleSnapshot(run.ctx.engine.access)
+      const expected = oracleSnapshot(run.referenceState(ctx.engine))
       timing.oracleMs += performance.now() - t
       counts.oracleChecks += 1
       const diff = diffSnapshots(actual, expected)

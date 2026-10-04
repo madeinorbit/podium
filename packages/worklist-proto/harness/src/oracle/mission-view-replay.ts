@@ -4,8 +4,9 @@
 import { createRequire } from 'node:module'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { dedupeSessions } from '@podium/client-core/engine'
-import { deriveIssueRollups, deriveIssueViews } from '@podium/client-core/replica'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+
+import { deriveIssueRollups, deriveIssueViews } from '@podium/client-graph/diagnostics/reference/issue-views'
 import { missionProgress, missionRootFor, type IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'

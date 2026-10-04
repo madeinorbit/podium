@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4558 (L5b) — the no-op arm: the instrument floor.
  *
@@ -153,7 +154,7 @@ export interface NoopFrozen {
 
 /** POD-4747: the floor's rows, from the oracle over `boot`'s store (at page boot, untimed). */
 export function noopFrozenRows(boot: ScenarioEngine): NoopFrozen {
-  const store = boot.engine.access
+  const store = boot.referenceState(engine)
   const snapshot: SliceSnapshot = oracleSnapshot(store)
   const views = rowViewsFromStore(store, localsOfEngine(boot.engine))
   const ordered = [...snapshot.order.pinnedIds, ...snapshot.order.groups.flatMap((g) => g.rowIds)]

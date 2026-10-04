@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4578 (Ha1) — the fence steps on the live 1x engine: #1 (an unrelated
@@ -73,7 +74,7 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
 describe('fence steps #1-#4, #8, #8b', () => {
   it('meets the shared reads budget and holds no copy; the commit fence where a1 can', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
       // POD-4580: drawn rows reach cold ones (open issues with closed origins
@@ -93,7 +94,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
         if (step.commits) assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
-        const visible = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+        const visible = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
         if (!step.commits) {
           const changed = new Set(result.oracleChangedRows ?? [])
           const shownExtra = (result.drawnRows ?? []).filter(
@@ -148,7 +149,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
       },
     }
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
     try {
       for (const methodology of ['#1', '#2']) {

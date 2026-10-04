@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { issueViewModelsFromReplica, type Replica } from '@podium/client-core/replica'
+import { type Replica } from '@podium/client-core/replica'
+import { issueViewModelsFromReplica } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 /** Synthetic/old-export fixture upgrade. Product readers never use this adapter.
  * Real exports carrying the new kinds keep those rows verbatim. */
 import {

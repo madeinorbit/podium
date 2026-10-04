@@ -4,13 +4,8 @@
  */
 import { hostname } from 'node:os'
 import { withKeyedInputs } from '../packages/client-core/src/engine/keyed-inputs'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-  type Replica,
-} from '../packages/client-core/src/replica/index'
+import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '../packages/client-core/src/replica/index'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { canonicalIssueRef } from '../packages/client-core/src/viewmodels/issue-reference'
 import { checkIssueChips } from '../packages/client-graph/diagnostics/chip-check'
 import { createWorklistPool } from '../packages/client-graph/src/create'

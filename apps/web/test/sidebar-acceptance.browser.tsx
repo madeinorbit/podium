@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
@@ -17,7 +18,8 @@ import type { EntityRecord } from '@podium/sync/replica'
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { allIssueViewModels } from '../../../packages/client-core/src/replica/issue-view-cache'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { buildFlightDeckRows } from '../../../packages/client-core/src/values/mission'
 import {
   buildCorpus,
@@ -221,8 +223,7 @@ function Fixture() {
   graph = pool
   useEffect(() => {
     ready = false
-    void runtime
-      .getSnapshot()
+    void referenceState(runtime)
       .refreshRepos()
       .then(() => {
         ready = pool !== null
@@ -407,7 +408,7 @@ const fixture = {
     runtimeDestroyed: (owner as unknown as { destroyed?: boolean })?.destroyed,
   }),
   shape(ids: string[]) {
-    const snapshot = owner!.getSnapshot()
+    const snapshot = referenceState(owner!)
     const issues = allIssueViewModels(
       assembly.replica,
       snapshot.issueProjections,
@@ -447,15 +448,14 @@ const fixture = {
         lastActiveAt: stamp,
       })
     else if (kind === 'draft')
-      owner!
-        .getSnapshot()
+      referenceState(owner!)
         .setSessionDraft(targets.phaseSessionId as never, `Acceptance draft ${iteration}`)
     else throw new Error(`Unknown event ${kind}`)
   },
   async compare() {
     if (!graph) throw new Error('No pool for side-by-side comparison')
     const { checkSidebar } = await import('@podium/client-graph/diagnostics/sidebar-check')
-    const s = owner!.getSnapshot()
+    const s = referenceState(owner!)
     const keys = [
       'podium:sidebar:pinned-fold',
       ...graph.sidebar
@@ -479,7 +479,7 @@ const fixture = {
   survivors: () => retired.filter(({ ref }) => ref.deref() !== undefined).map(({ name }) => name),
   rowCount: () =>
     graph ? Object.values(graph.tables).reduce((count, table) => count + table.size, 0) : null,
-  select: (id: string) => owner!.getSnapshot().setSelectedIssueId(asIssueId(id)),
+  select: (id: string) => referenceState(owner!).setSelectedIssueId(asIssueId(id)),
   preparePageTargets: (ids: string[]) => flushSync(() => configurePageTargets(ids)),
 }
 Object.assign(window, { __acceptance: fixture })

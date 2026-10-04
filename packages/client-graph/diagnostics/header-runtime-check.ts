@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSidebarCheck } from '@podium/client-core/perf'
@@ -17,7 +18,7 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
     if (disposed) return
     const finish = beginSidebarCheck(runtime)
     try {
-      const result = runInAction(() => checkHeader(pool, runtime.access, {
+      const result = runInAction(() => checkHeader(pool, referenceState(runtime), {
         metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.header.received.quotas,
         history: pool.header.received.history, lifecycle: pool.header.received.lifecycle,
         connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
@@ -19,14 +20,14 @@ import { snapshotFromStore } from './oracle/index'
 describe('Hand merge verdict on an unrelated heartbeat', () => {
   it('has parity before the heartbeat and redraws only changed row views', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(harnessHandPoolArm, feeds.rows.source, feeds.locals)
     try {
       const merging = feeds.rows.source.snapshot('issue').filter((row) =>
         row.value !== undefined && awaitingMergeOf(row.value as SliceIssue),
       )
       expect(merging.length, 'the fixture exercises the merge verdict').toBeGreaterThan(0)
-      const expected = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+      const expected = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
       let actual!: SliceSnapshot
       await act(async () => {
         actual = mounted.handle.snapshot()

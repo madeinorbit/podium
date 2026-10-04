@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4942 — probes for the post-rework review of the MobX pool
  * (`docs/decisions/pod-4545-round-three-mobx-post-rework-review.md`).
@@ -91,7 +92,7 @@ function paintWindow(pool: MobxPool): () => void {
 
 async function openCell(cell: CorpusCell, schedule?: Schedule) {
   const ctx = await startEngineOnCorpus(buildCorpusCell(cell))
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const handle = harnessMobxPoolArm.create(
     feeds.rows.source,
     feeds.locals.source,
@@ -158,7 +159,7 @@ describe('POD-4942 post-rework probes', () => {
         )
         const sessionRows = sessions.map((r) => r.value as unknown as Record<string, unknown>)
         const oracleRows = visibleIssueRows(
-          legacyDerivationFromStore(ctx.engine.access, feeds.locals.source.get().coarseNow),
+          legacyDerivationFromStore(referenceState(ctx.engine), feeds.locals.source.get().coarseNow),
           feeds.locals.source.get(),
         )
         const shownIssues = new Set<string>(oracleRows.map((row) => row.issue.id))

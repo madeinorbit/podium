@@ -24,7 +24,7 @@
  *   proves the comparison can fail.
  */
 
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'

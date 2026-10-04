@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 // @vitest-environment happy-dom
 /**
  * POD-4563 (L6a) — every fence, on every scenario, for every arm.
@@ -85,7 +87,7 @@ function summary(
 describe('exact-commit fence: reference arm (can say YES)', () => {
   it('redraws exactly the oracle-changed rows on every scenario', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(referenceArmFor(ctx.engine), feeds.rows.source, feeds.locals)
     try {
       const steps = await runFenceScenarios(mounted, ctx, feeds.flush, ({ result }) => {
@@ -159,7 +161,7 @@ for (const entry of ROUND_THREE_ARMS) {
       try {
         const steps: FenceStep[] = []
         for (const scenario of FENCE_SCENARIOS) {
-          const viewsBefore = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+          const viewsBefore = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
           const step = await runFenceStep(mounted, ctx, feeds.flush, scenario)
           const { result } = step
           const at = `${result.methodology} ${result.scenario}`
@@ -169,7 +171,7 @@ for (const entry of ROUND_THREE_ARMS) {
               expect(result.parity, `${at}: ${result.parityDiff ?? ''}`).toBe(true)
             }
             const actual = mounted.handle.snapshot()
-            const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+            const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
             const patched = allow.parity!.accept(ctx.corpus, mounted.handle, oracle, actual)
             expect(
               diffSnapshots(actual, patched.snapshot),
@@ -181,7 +183,7 @@ for (const entry of ROUND_THREE_ARMS) {
             assertCommits(result)
           } catch (error) {
             if (allow.undrawn === undefined) throw error
-            const viewsAfter = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+            const viewsAfter = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
             cell.undrawn = allow.undrawn.accept(result, viewsBefore, viewsAfter)
           }
           mounted.reads.assertNoCopies(mounted.handle)
@@ -225,7 +227,7 @@ describe('wall-clock independence of the #9 steps', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(systemTime))
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(referenceArmFor(ctx.engine), feeds.rows.source, feeds.locals)
     try {
       const cells = []
@@ -243,12 +245,12 @@ describe('wall-clock independence of the #9 steps', () => {
           visible: result.visibleRows,
           parity: result.parity,
         })
-        views.push(rowViewsFromStore(ctx.engine.access, engineLocals(ctx)))
+        views.push(rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx)))
         readAts.push(
           allIssueViewModels(
             ctx.replica,
-            ctx.engine.access.issueProjections,
-            ctx.engine.access.issueUserStates,
+            referenceState(ctx.engine).issueProjections,
+            referenceState(ctx.engine).issueUserStates,
           ).find((issue) => issue.id === ctx.targets.markReadId)?.readAt,
         )
       }

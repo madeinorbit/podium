@@ -10,7 +10,7 @@ export interface ShellRows {
   shellApproval: Store['approvals'][number]
   shellFile: Store['fileTabs'][number]
   shellWorkspace: Store['workspaces'][string]
-  shellShipLane: Store['shipLanes'][number]
+  shellShipLane: import('@podium/model').ShipLaneProjection
 }
 declare module './source-registry' { interface PoolSourceRows extends ShellRows {} }
 export type ShellEntity = keyof ShellRows

@@ -1,11 +1,4 @@
-/**
- * Pure (React-free) issue view models [ADR 4 D7.3].
- *
- * `use-issue-views.ts` is the React binding over this file. The published
- * worklist also reads these models — it cannot import the hook without pulling
- * React into a platform-neutral slice, and it must not restate unread
- * derivation (POD-843).
- */
+/** Independent, stateless fixture oracle for pool parity. */
 import {
   asIssueId,
   type IssueGitState,
@@ -27,17 +20,14 @@ import {
   readViewInputs,
   type SessionViewInput,
 } from './issue-views'
-import type { Replica } from './replica'
+import type { Replica } from '@podium/client-core/replica'
 
 export interface IssueViewsSnapshot {
   views: Map<string, IssueView>
   tree: IssueTreeNode[]
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
-  /** The same sessions, indexed. Carried on the snapshot rather than rebuilt per
-   *  model pass because the per-issue builder below needs it for ONE issue
-   *  (POD-1053): re-indexing 530 sessions to rebuild a single row would put an
-   *  O(world) step back in front of the incremental path. */
+  
   sessionById: Map<SessionId, SessionViewInput>
   issueInputById: Map<string, IssueViewInput>
   issueUserStates: readonly IssueUserStateWire[]
@@ -52,9 +42,6 @@ const EMPTY_ROLLUPS: IssueSessionRollups = {
   sessionSummary: { total: 0, byPhase: {} },
 }
 
-/** Replica-side render model. Durable facts retain the normalized spellings;
- * personal markers, git observations and repo facts come from their own kinds.
- * Description is materialized for rendering, and unset checkout paths are null. */
 export type IssueViewModel = Omit<
   IssueProjection,
   'description' | 'notes' | 'worktreePath' | 'branch'
@@ -74,15 +61,6 @@ export type IssueViewModel = Omit<
     deps: Array<{ id: IssueId; type: string }>
   }
 
-/**
- * Replica-derived issue world. One pass; the React binding caches this.
- *
- * `previous` is the last snapshot derived from this same replica, and it buys
- * per-issue view IDENTITY, not a skipped pass — see `deriveIssueViews`'s note on
- * why the derivation stays whole and why handing it back is safe under evict and
- * rescope. Passing nothing derives a snapshot whose every view is new, which is
- * the correct answer for a caller with no previous generation to speak of.
- */
 export function deriveIssueViewsSnapshot(
   replica: Replica,
   previous?: IssueViewsSnapshot,
@@ -119,9 +97,6 @@ export function deriveIssueViewsSnapshot(
   }
 }
 
-/** One flat render model, including a projection whose other kinds have not
- * arrived yet. Missing personal state means untouched; missing git is unknown;
- * a missing repo has an empty path and no prefix. */
 export function buildIssueViewModel(
   snapshot: IssueViewsSnapshot,
   projection: IssueProjection,
@@ -159,8 +134,6 @@ export function buildIssueViewModel(
   }
 }
 
-/** Flat render models keyed by id; the optional markers are the runtime's
- * optimistic fold over the principal-bound issueUserState kind. */
 export function buildIssueViewModels(
   snapshot: IssueViewsSnapshot,
   projectionRows: readonly IssueProjection[],
@@ -186,3 +159,6 @@ export function issueViewModelsFromReplica(
     userStateRows,
   )
 }
+
+export const allIssueViewModels = (replica: Replica, projections = replica.rows('issueProjections'), markers = replica.rows('issueUserStates')) => [...issueViewModelsFromReplica(replica, projections, markers).values()]
+export const issueViewModelById = (replica: Replica, id: string) => issueViewModelsFromReplica(replica).get(id)

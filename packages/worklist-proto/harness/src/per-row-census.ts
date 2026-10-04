@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { autorun } from 'mobx'
 import { handPoolArm } from '../../arms/hand/pool/arm'
 import { PART_RULES } from '../../arms/hand/pool/views'
@@ -29,7 +29,7 @@ for (const cell of ['1x', '4x', 'h10a1'])
         ? buildCorpusCell({ history: 10, active: 1 }, 4443)
         : buildCorpus(cell === '4x' ? 4 : 1, 4443)
     const ctx = await startEngineOnCorpus(corpus)
-    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals = createEngineLocals(ctx.engine)
     const reads = createReadFence({ enabled: true })
     let plainRuleRuns = 0

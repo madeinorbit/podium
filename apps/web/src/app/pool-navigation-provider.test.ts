@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
   type EngineState,
   issueActivityAt,
@@ -255,10 +256,10 @@ describe('web pool navigation', () => {
         : undefined
       try {
         if (handle) {
-          runtime.enablePoolRuntimeWork()
+
           runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         }
-        const before = runtime.access
+        const before = referenceState(runtime)
         const seats = before.sessions.filter(
           (row) =>
             !row.archived &&
@@ -272,18 +273,18 @@ describe('web pool navigation', () => {
         const next = seats.find(
           (row) => workspaceKeyForState({ ...before, selectedIssueId: row.issueId! }) !== firstKey,
         )!
-        runtime.access.navigateToSession(first.sessionId)
-        await vi.waitFor(() => expect(runtime.access.paneA).toBe(first.sessionId))
+        referenceState(runtime).navigateToSession(first.sessionId)
+        await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(first.sessionId))
         prune.mockClear()
         missionLegacyStats.enable()
         missionLegacyStats.reset()
-        runtime.access.navigateToSession(next.sessionId)
-        await vi.waitFor(() => expect(runtime.access.paneA).toBe(next.sessionId))
+        referenceState(runtime).navigateToSession(next.sessionId)
+        await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(next.sessionId))
         expect(prune).toHaveBeenCalled()
         if (enabled)
           expect(missionLegacyStats.read()).toEqual({ missionIssueIds: 0, indexMissionSessions: 0 })
         else expect(missionLegacyStats.read().missionIssueIds).toBeGreaterThan(0)
-        const st = runtime.access
+        const st = referenceState(runtime)
         results.push({
           selectedIssueId: st.selectedIssueId,
           key: st.workspaceKey(),
@@ -525,7 +526,7 @@ describe('web pool navigation', () => {
   it('installs the loading port before import and resumes navigation without any legacy read', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
-    const before = runtime.access
+    const before = referenceState(runtime)
     const seat = before.sessions.find(
       (session) =>
         !session.archived &&
@@ -541,29 +542,29 @@ describe('web pool navigation', () => {
     navigationStats.reset()
     const detach = attachWorklistPool(runtime, errors)
     try {
-      expect(resolvedWorkspaceKey({ ...runtime.access, selectedIssueId: target.id })).toBe(
+      expect(resolvedWorkspaceKey({ ...referenceState(runtime), selectedIssueId: target.id })).toBe(
         NAVIGATION_LOADING,
       )
-      expect(runtime.access.navigateWorkspace({ selectedIssueId: target.id })).toBe(false)
-      expect(runtime.access.selectedIssueId).toBe(before.selectedIssueId)
+      expect(referenceState(runtime).navigateWorkspace({ selectedIssueId: target.id })).toBe(false)
+      expect(referenceState(runtime).selectedIssueId).toBe(before.selectedIssueId)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
-      runtime.access.navigateToSession(seat.sessionId)
-      expect(runtime.access.selectedIssueId).toBe(before.selectedIssueId)
+      referenceState(runtime).navigateToSession(seat.sessionId)
+      expect(referenceState(runtime).selectedIssueId).toBe(before.selectedIssueId)
       await vi.waitFor(() => {
         expect(errors).not.toHaveBeenCalled()
-        expect(runtime.access.selectedIssueId).toBe(target.id)
+        expect(referenceState(runtime).selectedIssueId).toBe(target.id)
       })
-      expect(runtime.access.paneA).toBe(seat.sessionId)
-      expect(runtime.access.workspaceKey()).toBe(expectedKey)
+      expect(referenceState(runtime).paneA).toBe(seat.sessionId)
+      expect(referenceState(runtime).workspaceKey()).toBe(expectedKey)
       if (seat.displayRef) {
-        runtime.access.navigateToSession(seat.displayRef)
-        expect(runtime.access.paneA).toBe(seat.sessionId)
+        referenceState(runtime).navigateToSession(seat.displayRef)
+        expect(referenceState(runtime).paneA).toBe(seat.sessionId)
       }
       // The notice's Open chat action and eager read reaction use the same port.
-      runtime.access.navigateToSession(seat.sessionId)
-      await vi.waitFor(() => expect(runtime.access.paneA).toBe(seat.sessionId))
+      referenceState(runtime).navigateToSession(seat.sessionId)
+      await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(seat.sessionId))
       expect(runtime.router.current().pane).toBe(seat.sessionId)
-      expect(runtime.access.workspaceKey()).toBe(expectedKey)
+      expect(referenceState(runtime).workspaceKey()).toBe(expectedKey)
       expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       expect(errors).not.toHaveBeenCalled()
     } finally {
@@ -650,17 +651,17 @@ describe('web pool navigation', () => {
   it('a newer navigation cancels the selection waiting for the pool import', async () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
-    const target = runtime.access.issueProjections[0]!.id
+    const target = referenceState(runtime).issueProjections[0]!.id
     const detach = preparePoolScreens([panePoolScreen], runtime)
     try {
-      runtime.access.navigateWorkspace({ selectedIssueId: target })
-      runtime.access.setView('settings')
+      referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
+      referenceState(runtime).setView('settings')
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
       const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
       try {
         runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
-        expect(runtime.access.view).toBe('settings')
-        expect(runtime.access.selectedIssueId).not.toBe(target)
+        expect(referenceState(runtime).view).toBe('settings')
+        expect(referenceState(runtime).selectedIssueId).not.toBe(target)
       } finally {
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle.dispose()
@@ -675,16 +676,16 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
-    runtime.access.setView('workspace')
-    runtime.access.setSelectedIssueId(target)
-    expect(runtime.access.issueVisitBaseline?.issueId).toBe(target)
+    referenceState(runtime).setView('workspace')
+    referenceState(runtime).setSelectedIssueId(target)
+    expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
     const detach = preparePoolScreens([panePoolScreen], runtime)
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
     const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     try {
-      expect(runtime.access.issueVisitBaseline).toBeNull()
+      expect(referenceState(runtime).issueVisitBaseline).toBeNull()
       runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
-      expect(runtime.access.issueVisitBaseline?.issueId).toBe(target)
+      expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
     } finally {
       detach()
       handle.dispose()
@@ -702,7 +703,7 @@ describe('web pool navigation', () => {
         : undefined
       try {
         if (handle) runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
-        const st = runtime.access
+        const st = referenceState(runtime)
         const seat = st.sessions.find(
           (row) =>
             !row.archived &&
@@ -718,17 +719,17 @@ describe('web pool navigation', () => {
             !issue.deletedAt &&
             workspaceKeyForState({ ...st, selectedIssueId: issue.id }) !== sourceKey,
         )!
-        runtime.access.navigateToSession(seat.sessionId)
-        await vi.waitFor(() => expect(runtime.access.paneA).toBe(seat.sessionId))
+        referenceState(runtime).navigateToSession(seat.sessionId)
+        await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(seat.sessionId))
         navigationStats.enable()
         navigationStats.reset()
         const raw = ctx.cache.read('session', seat.sessionId)!.value as object
         upsert(ctx, 'session', seat.sessionId, { ...raw, issueId: target.id })
-        await vi.waitFor(() => expect(runtime.access.selectedIssueId).toBe(target.id))
-        expect(runtime.access.paneA).toBe(seat.sessionId)
+        await vi.waitFor(() => expect(referenceState(runtime).selectedIssueId).toBe(target.id))
+        expect(referenceState(runtime).paneA).toBe(seat.sessionId)
         expect(runtime.router.current().pane).toBe(seat.sessionId)
         expect(
-          Object.values(runtime.access.workspaces[sourceKey]?.panes ?? {}).flatMap(
+          Object.values(referenceState(runtime).workspaces[sourceKey]?.panes ?? {}).flatMap(
             (pane) => pane.tabs,
           ),
         ).not.toContain(seat.sessionId)
@@ -750,7 +751,7 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
-    runtime.access.navigateWorkspace({ selectedIssueId: target })
+    referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
     const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
     runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
@@ -800,7 +801,7 @@ describe('web pool navigation', () => {
     const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
     const provider = createPoolNavigationProvider(handle.pool)
     try {
-      const st: EngineState = runtime.access
+      const st: EngineState = referenceState(runtime)
       const check = (id: string) =>
         tracked(() =>
           planNavigation(

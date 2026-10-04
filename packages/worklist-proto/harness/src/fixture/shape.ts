@@ -11,7 +11,7 @@
  * legacy longest-prefix rule (`worktreeForCwdIndexed` over those lanes).
  */
 
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import {
   issueFinishedAt,
   reposVisibleOnMachines,

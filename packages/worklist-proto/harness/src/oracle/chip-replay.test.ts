@@ -1,12 +1,8 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { canonicalIssueRef, issueReferenceModel } from '@podium/client-core/values'

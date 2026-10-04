@@ -56,7 +56,7 @@ describe('G2 load hooks (outside)', () => {
           strip(arm.create(source, locals, reads) as HarnessMobxPoolHandle),
       }
       const ctx = await startScenarioEngine(1)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const mounted = mountArmForCounts(stripped, feeds.rows.source, feeds.locals)
       try {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#1')!

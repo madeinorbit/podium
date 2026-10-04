@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4825 (item 1) — the MobX pages for the arm that owns optimism, built by
  * the page through `createArm` like every arm (`entrylib.ts`). Two pages,
@@ -21,7 +22,7 @@
 import { POOL_OWNED_KINDS } from '@podium/client-graph/host'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { attachRuntimeWriter, createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { harnessMobxPoolArm } from '../../src/adapters/mobx-pool'
 import {
   type ScenarioEngine,
@@ -84,11 +85,11 @@ export function bootWritablePage(variant: WriteVariant, scriptAt: number): void 
     const prepareEngine = async (over: ScenarioEngine): Promise<void> => {
       if (variant === 'idle') return
       const rules = targetRules(over.corpus)
-      const probe = createRowSource(over.engine, over.replica, { mode: 'overlaid' })
+      const probe = createRowSource(over.engine, over.replica, { mode: 'pooled' })
       try {
         titles = pendingTitleEditsOn(
           probe.source.snapshot('issue'),
-          oracleSnapshot(over.engine.access).order,
+          oracleSnapshot(referenceState(over.engine)).order,
           (id) => rules.openRootWithChildren(id),
           firstWindowRows(),
           Date.now(),

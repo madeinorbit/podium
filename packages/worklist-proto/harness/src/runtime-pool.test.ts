@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import { LOADING } from '@podium/client-graph'
@@ -30,13 +31,13 @@ describe('the pool over the app-owned runtime', () => {
     try {
       const parity = () =>
         expect(snapshotPool(handle.pool)).toEqual(
-          snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
+          snapshotFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine)),
         )
       parity()
       await writeTitleRename(ctx)
       parity()
       await writeClockTick(ctx)
-      expect(handle.pool.clock.current).toBe(ctx.engine.access.coarseNow)
+      expect(handle.pool.clock.current).toBe(referenceState(ctx.engine).coarseNow)
       parity()
       const selected = await writeSelectionClick(ctx)
       await Promise.resolve()
@@ -58,7 +59,7 @@ describe('the pool over the app-owned runtime', () => {
       await writeRescopeGrow(ctx)
       const grown = snapshotPool(handle.pool)
       expect(Object.keys(grown.rowsById)).toHaveLength(Object.keys(before.rowsById).length + 10)
-      expect(grown).toEqual(snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)))
+      expect(grown).toEqual(snapshotFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine)))
       await writeRescopeBack(ctx)
       expect(snapshotPool(handle.pool)).toEqual(before)
     } finally {
@@ -85,7 +86,7 @@ describe('the pool over the app-owned runtime', () => {
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(tracked(() => pool.row('issue', id))).toBe(joined)
       expect(snapshotPool(pool)).toEqual(
-        snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
+        snapshotFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine)),
       )
       ctx.engine.start()
       ctx.replica.onKernelEvent({
@@ -98,7 +99,7 @@ describe('the pool over the app-owned runtime', () => {
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       expect(handle.pool).toBe(pool)
       expect(snapshotPool(pool)).toEqual(
-        snapshotFromStore(ctx.engine.access, localsOfEngine(ctx.engine)),
+        snapshotFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine)),
       )
     } finally {
       handle.dispose()
@@ -144,7 +145,7 @@ describe('the pool over the app-owned runtime', () => {
     const offLocals = vi.spyOn(localsHandle, 'dispose')
     const offPool = vi.spyOn(handle.pool, 'dispose')
     try {
-      expect(rows).toHaveBeenCalledWith(ctx.engine, ctx.engine.replica, { mode: 'overlaid' })
+      expect(rows).toHaveBeenCalledWith(ctx.engine, ctx.engine.replica, { mode: 'pooled' })
       expect(locals).toHaveBeenCalledWith(ctx.engine)
       handle.dispose()
       handle.dispose()

@@ -20,7 +20,7 @@
  *   purpose), compared with the scan after every step.
  */
 
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'

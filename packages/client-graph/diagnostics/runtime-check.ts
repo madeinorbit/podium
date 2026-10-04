@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Only a pool-backed app attachment imports this module. Comparisons run once
  * per request, outside input handling; the opt-in switch requests one at startup.
  */
@@ -20,7 +21,7 @@ const inputEvents = ['pointerdown', 'pointerup', 'pointercancel', 'pointermove',
   'beforeinput', 'input', 'click', 'wheel', 'scroll', 'compositionstart', 'compositionend', 'blur'] as const
 
 export function startSidebarCheck(
-  runtime: { getSnapshot(): Store<PodiumClientApi> },
+  runtime: { readonly access: Store<PodiumClientApi> },
   pool: MobxPool,
   options: { startup?: boolean; startupDelayMs?: number; state?: (store: Store<PodiumClientApi>) => SidebarState; report?: (result: SidebarCheckResult) => void } = {},
 ): () => void {
@@ -54,7 +55,7 @@ export function startSidebarCheck(
     let result: SidebarCheckResult | undefined
     try {
       result = runInAction(() => {
-        const store = runtime.access
+        const store = referenceState(runtime)
         return checkSidebar(pool, store, options.state?.(store))
       })
       checks += 1

@@ -84,7 +84,7 @@ function drawnIds(list: Element): string[] {
 describe('mobx pool on the native renderer, fence steps #1-#3', () => {
   it('meets the shared fences with counts from outside plus parity', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const reads = createReadFence({ enabled: true })
     const clean = harnessMobxPoolArm.create(
       reads.wrapSource(feeds.rows.source),
@@ -164,7 +164,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
 
   it('a whole-list re-render per change fails the count on the native renderer', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const reads = createReadFence({ enabled: true })
     const clean = harnessMobxPoolArm.create(
       reads.wrapSource(feeds.rows.source),
@@ -227,7 +227,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
       built[name] = (built[name] ?? 0) + 1
     })
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
     })

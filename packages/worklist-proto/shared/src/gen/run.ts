@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
@@ -36,7 +37,8 @@ import { upsertIssue } from '../scenarios'
  */
 
 import type { OnlineEvents } from '@podium/client-core/outbox'
-import { createRowSource, type RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import { type RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../row-source'
 import type { TxId } from '@podium/client-graph/shared/write-contract'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import { evict, remove, type ScenarioEngine, startEngineOnCorpus, upsert } from '../scenarios'
@@ -155,8 +157,8 @@ export interface GenRunOptions {
   corpus?: FixtureCorpus
   /** The per-row feed's mode (POD-4553). Default `'truth'`: server rows with
    *  no ledger overlay, what a phase-c arm reads (write contract W12).
-   *  `'overlaid'` is the legacy fold's view. */
-  feedMode?: 'truth' | 'overlaid'
+   *  `'pooled'` is the legacy fold's view. */
+  feedMode?: 'truth' | 'pooled'
   /** Replace the feed outright (overrides `feedMode`). */
   feed?: (ctx: ScenarioEngine) => RowSourceHandle
   /** Called after every step settled, before the next (the L4b checker). */
@@ -520,7 +522,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           },
         })
       case 'issueFacts': {
-        const now = ctx.engine.access.coarseNow
+        const now = referenceState(ctx.engine).coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
           {
@@ -554,7 +556,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return patchIssue(c.id, patches[c.variant % patches.length]!)
       }
       case 'sessionFacts': {
-        const now = ctx.engine.access.coarseNow
+        const now = referenceState(ctx.engine).coarseNow
         const stamp = new Date(now).toISOString()
         const patches: Record<string, unknown>[] = [
           {
@@ -662,13 +664,13 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
    * sides (zero-gap agreement on recency verdicts), and reruns are
    * byte-identical. Never compared directly (SliceSnapshot drops readAt).
    */
-  const markStamp = (): string => new Date(ctx.engine.access.coarseNow).toISOString()
+  const markStamp = (): string => new Date(referenceState(ctx.engine).coarseNow).toISOString()
 
   const applyWrite = async (c: Change, detail: Record<string, unknown>): Promise<string | null> => {
     switch (c.kind) {
       case 'edit': {
         if (!readRow('issueProjection', c.id)) return `issue ${c.id} not in scope`
-        const actions = ctx.engine.access
+        const actions = referenceState(ctx.engine)
         const field = 'title' in c.patch ? 'title' : 'stage' in c.patch ? 'stage' : 'readAt'
         if (opts.editViaArm) {
           // A mark-read press carries the run-clock stamp (markStamp): the
@@ -717,7 +719,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             } catch {
               continue
             }
-          } else void ctx.engine.access.markIssueRead(c.id)
+          } else void referenceState(ctx.engine).markIssueRead(c.id)
           await quiesce()
           const mutationId = claimNewMutation()
           if (!mutationId) continue

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 /**
@@ -43,7 +44,7 @@ const HOUR_MS = 60 * 60 * 1000
 
 /** A finished agent child with an unlanded private branch, cloned off a live wire row. */
 function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsAgo: number) {
-  const now = ctx.engine.access.coarseNow
+  const now = referenceState(ctx.engine).coarseNow
   const wire = {
     ...(ctx.cache.read('issueProjection', parentId)?.value as Record<string, unknown>),
   }
@@ -93,8 +94,8 @@ function mergeChild(ctx: ScenarioEngine, parentId: string, id: string, closedMsA
 
 /** A recently finished, read session on `issueId`, cloned off a live session row. */
 function recentFinishedSession(ctx: ScenarioEngine, sessionId: string, issueId: string) {
-  const now = ctx.engine.access.coarseNow
-  const anySession = ctx.engine.access.sessions[0] as unknown as Record<string, unknown>
+  const now = referenceState(ctx.engine).coarseNow
+  const anySession = referenceState(ctx.engine).sessions[0] as unknown as Record<string, unknown>
   expect(anySession, 'a template session').toBeDefined()
   const stoppedAt = new Date(now - HOUR_MS).toISOString()
   const { resume: _resume, ...rest } = { ...anySession }
@@ -119,13 +120,13 @@ function recentFinishedSession(ctx: ScenarioEngine, sessionId: string, issueId: 
 function expectParity(ctx: ScenarioEngine, handle: ReturnType<typeof harnessMobxPoolArm.create>) {
   const snapshot = snapshotPool(handle.pool)
   const locals = parityLocals(ctx)
-  const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+  const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
   const expected = visibleIssueRows(derivation, locals).map((row) => row.issue.id)
   expect(
     tracked(() => visibleOrderOf(handle.pool)),
     'visible order',
   ).toEqual(expected)
-  const diff = diffSnapshots(snapshot, snapshotFromStore(ctx.engine.access, locals))
+  const diff = diffSnapshots(snapshot, snapshotFromStore(referenceState(ctx.engine), locals))
   expect(diff, 'snapshot rows').toBeNull()
 }
 
@@ -134,7 +135,7 @@ function expectViews(
   handle: ReturnType<typeof harnessMobxPoolArm.create>,
   ids: string[],
 ) {
-  const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+  const views = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
   tracked(() => {
     for (const id of ids) {
       const oracle = views[id]
@@ -150,7 +151,7 @@ function expectViews(
 /** A visible open issue to hang the synthetic children under (formal parent edge). */
 function openParent(ctx: ScenarioEngine): string {
   const locals = parityLocals(ctx)
-  const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+  const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
   const parent = visibleIssueRows(derivation, locals).find((row) =>
     ['planning', 'in_progress', 'review'].includes(row.issue.stage),
   )
@@ -161,7 +162,7 @@ function openParent(ctx: ScenarioEngine): string {
 describe('awaiting merge keeps a finished row (POD-4940)', () => {
   it('a finished agent child with an unlanded branch stays visible after its sessions decay', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const parent = openParent(ctx)
@@ -178,7 +179,7 @@ describe('awaiting merge keeps a finished row (POD-4940)', () => {
 
   it('while its session still retains it, the merge verdict reads waiting/asking', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const parent = openParent(ctx)

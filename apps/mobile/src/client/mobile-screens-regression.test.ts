@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Exact pool-only phone outputs frozen after the accepted parity controls.
  * Synthetic fixture roots select the same questions and publication gates. */
 
@@ -129,18 +130,18 @@ for (const scale of [1, 4] as const)
     })
     await attachMobileScreens(handle.pool)
     try {
-      let positions = compare(handle.pool, ctx.engine.access, 'corpus', scale === 1)
+      let positions = compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
       for (const scenario of FENCE_SCENARIOS) {
         await scenario.write(ctx)
         feeds.flush()
-        positions += compare(handle.pool, ctx.engine.access, scenario.scenario, false)
+        positions += compare(handle.pool, referenceState(ctx.engine), scenario.scenario, false)
       }
       await writeRescopeGrow(ctx)
       feeds.flush()
-      positions += compare(handle.pool, ctx.engine.access, 'scope growth', false)
+      positions += compare(handle.pool, referenceState(ctx.engine), 'scope growth', false)
       await writeRescopeBack(ctx)
       feeds.flush()
-      positions += compare(handle.pool, ctx.engine.access, 'scope back', false)
+      positions += compare(handle.pool, referenceState(ctx.engine), 'scope back', false)
       expect(positions).toBeGreaterThan(0)
       console.info(
         '[phone screen regression]',

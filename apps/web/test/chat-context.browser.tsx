@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -5,7 +6,8 @@ import { DRAFTS_UI_KEY } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, StrictMode, useEffect, useRef } from 'react'
@@ -129,7 +131,7 @@ function Surface() {
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }),
     ports = useChatConversationPorts(id, runtime)
   // Keep the controller implementation and all mutations on the real owner.
-  const actions = runtime.access
+  const actions = referenceState(runtime)
   const send = useChatSend({
     sessionId: id,
     store: runtime,
@@ -288,11 +290,11 @@ const driver = {
   update(step: number) {
     fixture.patch('messageRecord', 'notice-message-0', { body: `Synthetic update ${step}` })
     fixture.patch('session', 'synthetic-session-0', { title: `Synthetic agent ${step}` })
-    owner!.getSnapshot().setSessionDraft(id, `Saved synthetic draft ${step}`)
+    referenceState(owner!).setSessionDraft(id, `Saved synthetic draft ${step}`)
   },
   check() {
     if (!owner || !graph) return null
-    return checkChatContext(graph, owner.access, allIssueViewModels(owner.replica), [
+    return checkChatContext(graph, referenceState(owner), allIssueViewModels(owner.replica), [
       id,
       asSessionId('synthetic-session-1'),
     ])

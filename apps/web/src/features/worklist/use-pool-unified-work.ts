@@ -125,7 +125,7 @@ function sessionMembership(
 /** Pool reads are gesture-local. Writes and batching remain the app's actions. */
 export function createPoolWorkActions(
   pool: MobxPool,
-  runtime: Pick<ReturnType<typeof useStoreHandle>, 'getSnapshot'>,
+  runtime: Pick<ReturnType<typeof useStoreHandle>, 'access'>,
   focus: (id: string) => void,
 ) {
   let lastIssueNavigation: string | null = null

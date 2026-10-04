@@ -27,7 +27,7 @@
 import { createWorklistPool, type MobxPool } from '@podium/client-graph'
 import { rowViewOf } from '@podium/client-graph/models'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { startEngineOnCorpus } from '../../shared/src/scenarios'
@@ -127,7 +127,7 @@ async function census(
 ): Promise<Census> {
   const corpus = buildCorpusCell(cell)
   const ctx = await startEngineOnCorpus(corpus)
-  const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
   const locals = createEngineLocals(ctx.engine)
   const handle = createWorklistPool(feed.source, locals.source, { schedule: () => () => {} })
   const { pool } = handle
@@ -216,7 +216,7 @@ describe('per-cold-row structures outside the cold index (POD-5417 finding 14)',
   it('a disposed pool keeps no reference to the cold index', async () => {
     const corpus = buildCorpusCell(GROWTH_CELLS.base)
     const ctx = await startEngineOnCorpus(corpus)
-    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const feed = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals = createEngineLocals(ctx.engine)
     const handle = createWorklistPool(feed.source, locals.source, { schedule: () => () => {} })
     const { pool } = handle

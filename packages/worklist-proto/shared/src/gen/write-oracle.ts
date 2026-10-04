@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 
 /**
  * POD-4574 (Mc2, coordinator ruling F4) — the oracle for a writable arm:
@@ -474,7 +476,7 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
   const source = run.feed().source
   // The runner's stamp for this step (markStamp there): identical values on
   // both sides, deterministic per seed and step.
-  const stamp = new Date(run.ctx.engine.access.coarseNow).toISOString()
+  const stamp = new Date(run.referenceState(ctx.engine).coarseNow).toISOString()
   if (change.kind === 'edit' && step.skipped === undefined) {
     const kernelId = detail['mutationId']
     if (typeof kernelId === 'string') {

@@ -45,7 +45,7 @@ const FIRST_WINDOW = 96
 
 async function measure(scale: 1 | 4) {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   let phase: 'bootstrap' | 'settle' = 'bootstrap'
   const feedReads = { bootstrap: new Set<string>(), settle: new Set<string>() }
   const counting = (source: RowSource): RowSource =>

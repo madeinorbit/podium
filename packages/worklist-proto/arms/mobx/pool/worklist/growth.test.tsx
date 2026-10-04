@@ -68,7 +68,7 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
     const byScenario = new Map<string, GrowthCell[]>()
     for (const scale of SCALES) {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const mounted = mountArmForCounts(harnessMobxPoolArm, feeds.rows.source, feeds.locals)
       try {
         for (const methodology of METHODOLOGIES) {

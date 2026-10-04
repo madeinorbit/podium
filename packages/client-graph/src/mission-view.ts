@@ -1,5 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { issueDisplayRef as joinedIssueRef } from '@podium/client-core/replica'
+
+import { issueDisplayRef as joinedIssueRef } from '@podium/client-graph/diagnostics/reference/issue-views'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
   motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,

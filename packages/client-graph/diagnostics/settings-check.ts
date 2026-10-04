@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Fixture and private-replay comparison using the sidebar contract. Expected
  * values exist only in this process; reports retain counts and positions. */
 import type { Store } from '@podium/client-core/engine'
@@ -10,12 +11,12 @@ import { checkPreferences } from './preference-check'
 import { type CheckRow, type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 export interface SettingsCheckOwner {
-  getSnapshot(): Pick<Store, 'machines' | 'repos' | 'sessions' | 'settingsTab'>
+  readReference(): Pick<Store, 'machines' | 'repos' | 'sessions' | 'settingsTab'>
   readonly ui: RoutedUiState
 }
 
 export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
-  const state = owner.access
+  const state = referenceState(owner)
   const catalog = pool.row('settingsCatalog', 'catalog')
   const window = pool.row('settingsWindow', 'window')
   const setup = pool.settingsViews.setup()

@@ -28,7 +28,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
       },
     },
   })
-  ctx.engine.enablePoolRuntimeWork()
+
   const handle = createRuntimeWorklistPool(ctx.engine, { owns: ['issue', 'session'] })
   const { pool } = handle
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(ctx.engine))

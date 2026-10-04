@@ -4,7 +4,8 @@ import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import {
   archivedSessionsForIssue, buildFlightDeckRows, deckIssueState, deriveHandoffNext,
   deriveHandoffNow, issueContinuation, issueDisplayTitle, issueNote, missionDepartures,

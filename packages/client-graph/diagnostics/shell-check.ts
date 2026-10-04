@@ -1,6 +1,7 @@
 /** Synthetic fixture and private count-only replay comparisons. */
 import type { Store } from '@podium/client-core/engine'
-import { allIssueViewModels, type IssueViewModel } from '@podium/client-core/replica'
+import { type IssueViewModel } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import {
   allTabIds,
   cwdInWorktree,

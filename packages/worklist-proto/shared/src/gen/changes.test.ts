@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4555 (L4a) — the generator is deterministic, covers the whole
  * vocabulary through the real engine, and emits the audit §3.3 shapes.
@@ -235,7 +236,7 @@ describe('gen through the engine', () => {
         // emits its lane by path all the same (POD-4606), and the engine's own
         // repos prove the change landed.
         const lanes = new Set(
-          run.ctx.engine.access.repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
+          run.referenceState(ctx.engine).repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
         )
         const reach = (m: RowChange, ids: Set<string>, where: string): void => {
           if (m.kind === 'newWorktree') {

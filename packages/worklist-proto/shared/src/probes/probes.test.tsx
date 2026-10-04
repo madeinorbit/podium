@@ -23,7 +23,7 @@
 
 import { afterAll, describe, expect, it } from 'vitest'
 import { harnessMobxPoolArm } from '../../../harness/src/adapters/mobx-pool'
-import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
+import { referenceArmFor } from '../../../harness/src/reference-arm/arm'
 import { type ProbePlant, probeReferenceArmFor } from '../../../harness/src/reference-arm/probe-arm'
 import { writeResult } from '../../../harness/src/results'
 import {
@@ -47,7 +47,7 @@ const TIMEOUT = 10 * 60_000
 function reference(plant: ProbePlant | null): ProbeSubject {
   return {
     name: plant === null ? 'reference (clean)' : `reference + ${plant}`,
-    mode: 'overlaid',
+    mode: 'pooled',
     armFor: (ctx) => probeReferenceArmFor(ctx.engine, plant),
     relations: [{ from: 'issue', relation: 'parent' }],
   }
@@ -55,8 +55,8 @@ function reference(plant: ProbePlant | null): ProbeSubject {
 
 const CONTROL: ProbeSubject = {
   name: 'legacy control',
-  mode: 'overlaid',
-  armFor: (ctx) => legacyControlArmFor(ctx.engine),
+  mode: 'pooled',
+  armFor: (ctx) => referenceArmFor(ctx.engine),
 }
 
 type Cell = ReferenceExpectation | ControlExpectation
@@ -190,7 +190,7 @@ describe('the relation check on a real round-three arm (the MobX pool, clean)', 
   // or roll-ups yet).
   const MOBX_POOL: ProbeSubject = {
     name: 'mobx pool (clean)',
-    mode: 'overlaid',
+    mode: 'pooled',
     armFor: () => harnessMobxPoolArm,
     oracle: false,
   }

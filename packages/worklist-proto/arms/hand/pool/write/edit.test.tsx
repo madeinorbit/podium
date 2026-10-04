@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4586 (Hc1) — optimistic edits on the hand-rolled pool's in-memory objects.
@@ -78,7 +79,7 @@ describe('Hc1 hand edits on the model', () => {
         apply: () => {
           write.edit('issue', id, { title: 'Renamed visible row' })
         },
-        expected: () => snapshotFromStore(ctx.engine.access, engineLocals(ctx)),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx)),
       })
       expect((handle.pool.inputs.issue(id) as SliceIssue)?.title).toBe('Renamed visible row')
       expect(transport.sent).toHaveLength(1)
@@ -170,7 +171,7 @@ describe('Hc1 hand edits on the model', () => {
 
       const orderOf = (): string[] => Object.keys(mounted.handle.snapshot().rowsById).sort()
       const oracleOrderOf = (): string[] =>
-        Object.keys(snapshotFromStore(ctx.engine.access, engineLocals(ctx)).rowsById).sort()
+        Object.keys(snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx)).rowsById).sort()
       const relationsOf = (): string[] =>
         diffRelations(handle.pool.engine, knownTables(feeds.rows.source))
 
@@ -218,7 +219,7 @@ describe('Hc1 hand edits on the model', () => {
       // whatever the server holds (null or an older stamp).
       const id = ctx.targets.visibleRootId
 
-      const stamp = new Date(ctx.engine.access.coarseNow).toISOString()
+      const stamp = new Date(referenceState(ctx.engine).coarseNow).toISOString()
       let tx: TxId = '' as TxId
       await act(async () => {
         tx = write.edit('issue', id, { readAt: stamp })

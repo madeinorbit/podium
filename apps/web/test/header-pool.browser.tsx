@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { headerStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -41,7 +42,7 @@ function Surfaces() {
   useEffect(() => {
     runtime = owner
     pool = graph
-    owner.access.setSelectedIssueId(asIssueId('synthetic-1'))
+    referenceState(owner).setSelectedIssueId(asIssueId('synthetic-1'))
     ready = graph !== null
     return () => {
       ready = false
@@ -125,7 +126,7 @@ const driver = {
       poolHeaderSnapshot(pool, fixture.inputs() as never)
       if (pool.hydrate() === 0) break
     }
-    const result = checkHeader(pool, runtime.access, fixture.inputs() as never)
+    const result = checkHeader(pool, referenceState(runtime), fixture.inputs() as never)
     return {
       differences: result.differences,
       pending: result.pending,

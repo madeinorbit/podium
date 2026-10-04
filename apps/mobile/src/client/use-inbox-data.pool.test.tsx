@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -492,11 +493,11 @@ it('shows the original outbox pending count and optimistically renamed card', as
       }),
   )
   await act(async () => {
-    void app.runtime.access.updateIssue('synthetic-2', { title: 'Pending inbox rename' })
+    void app.referenceState(runtime).updateIssue('synthetic-2', { title: 'Pending inbox rename' })
   })
   await waitFor(() => expect(app.view.container.textContent).toContain('1 queued'))
   expect(app.view.getByTestId('screening-card').textContent).toContain('Pending inbox rename')
-  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.runtime.access.outboxSize)
+  expect(mobileInboxViews(app.pool)!.inbox().outboxSize).toBe(app.referenceState(runtime).outboxSize)
   await act(async () => {
     finish()
   })

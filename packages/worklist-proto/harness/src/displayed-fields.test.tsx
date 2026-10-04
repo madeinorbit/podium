@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../shared/src/scenarios'
 
 // @vitest-environment happy-dom
@@ -101,7 +102,7 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
       }
       try {
         const id = ctx.targets.visibleRootId
-        const views = () => rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+        const views = () => rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
         const before = views()[id]
         const placed = await runFenceStep(
           mounted,

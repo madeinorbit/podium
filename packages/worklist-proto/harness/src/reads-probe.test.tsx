@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4557 — the reads fence, end to end, in BOTH directions, through the
@@ -23,7 +24,7 @@ import { createElement, type ReactElement } from 'react'
 import { describe, expect, it } from 'vitest'
 import type { Arm, ArmHandle } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine, writeHeartbeat } from '../../shared/src/scenarios'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats, RowRecord } from '../../shared/src/stats'
@@ -99,8 +100,8 @@ function probeArm(mode: ProbeMode): Arm {
 
 async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountResult>; sessions: number; done: () => void }> {
   const ctx = await startScenarioEngine(1)
-  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-  const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.access.coarseNow }
+  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
+  const locals: SliceLocals = { selectedIssueId: null, coarseNow: referenceState(ctx.engine).coarseNow }
   const mounted = mountArmForCounts(probeArm(mode), source.source, fixedLocals(locals))
   return {
     // The session table the scan walks: the replica's rows, which keep every
@@ -114,7 +115,7 @@ async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountRes
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       }),
     done: () => {
       mounted.unmount()

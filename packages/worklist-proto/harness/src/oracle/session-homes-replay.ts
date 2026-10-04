@@ -9,7 +9,7 @@ import { sessionValues, sessionViews } from '@podium/client-core/session-values'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionUserStateRowId, type GitRepositoryWire, type MachineWire } from '@podium/model'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { runInAction } from 'mobx'
@@ -133,7 +133,7 @@ async function main() {
       subscribe: () => () => {},
       pendingOverlaysByRow: () => new Map(),
     })
-    const feed = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const feed = createRowSource(runtime, replica, { mode: 'pooled' })
     const locals = createEngineLocals(runtime)
     const handle = createWorklistPool(feed.source, locals.source)
     try {

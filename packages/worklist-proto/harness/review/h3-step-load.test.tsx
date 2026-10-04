@@ -112,7 +112,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
   const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
   const loads: LoadCount = { rows: 0 }
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(
     plantedArm(schedule, plant, loads),
     feeds.rows.source,
@@ -206,7 +206,7 @@ describe('a fence step counts the load its own change triggers (hand pool, M3 G2
       const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
       const loads: LoadCount = { rows: 0 }
       const ctx = await startScenarioEngine(1)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const mounted = mountArmForCounts(
         plantedArm(schedule, plant, loads),
         feeds.rows.source,
@@ -247,7 +247,7 @@ describe('a fence step counts the load its own change triggers (hand pool, M3 G2
 
   it('a wrapped flush is refused (M3 N9)', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(
       plantedArm(NEVER, { target: null, runs: 0, loadedRuns: 0 }, { rows: 0 }),
       feeds.rows.source,

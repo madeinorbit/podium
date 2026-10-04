@@ -1,3 +1,5 @@
+import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4563 (L6a) — the REFERENCE arm: the fence suite's "can say YES" arm.
  *
@@ -37,7 +39,7 @@ import {
 import type { RowView } from '@podium/client-graph/shared/row-view'
 import type { SliceLocals, SliceOrder, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
-import type { LegacyControlEngine } from '../legacy-control/arm'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 
 /**
@@ -77,12 +79,12 @@ interface ReferenceState {
 }
 
 function stateOf(
-  engine: LegacyControlEngine,
+  engine: ClientRuntime,
   locals: SliceLocals,
   previous: ReferenceState | null,
   plant: ReferencePlant | null,
 ): ReferenceState {
-  const store = engine.access
+  const store = referenceState(engine)
   const fresh = rowViewsFromStore(store, locals)
   const views: RowViews = {}
   for (const [id, drawn] of Object.entries(fresh)) {
@@ -179,7 +181,7 @@ function zeroStats(): ArmStats {
 }
 
 export function referenceArmFor(
-  engine: LegacyControlEngine,
+  engine: ClientRuntime,
   plant: ReferencePlant | null = null,
 ): Arm {
   return {
@@ -194,7 +196,7 @@ export function referenceArmFor(
         state = stateOf(engine, localsNow(), state, plant)
         for (const listener of [...listeners]) listener()
       }
-      const offRows = engine.subscribe(refresh)
+      const offRows = watchReference(engine, refresh)
       const offLocals = deafTo === null ? channel.subscribe(refresh) : () => {}
       const subscribe = (listener: () => void): (() => void) => {
         listeners.add(listener)
@@ -206,7 +208,7 @@ export function referenceArmFor(
       let webRoot: { unmount(): void } | null = null
       return {
         snapshot(): SliceSnapshot {
-          const snapshot = snapshotFromStore(engine.access, {
+          const snapshot = snapshotFromStore(referenceState(engine), {
             ...localsNow(),
             selectedIssueId: null,
           })

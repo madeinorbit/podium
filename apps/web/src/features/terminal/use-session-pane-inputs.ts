@@ -11,7 +11,6 @@ const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   panelMode: {},
   dockShells: {},
   reposLoaded: false,
-  pendingSpawnIds: new Set(),
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
   const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])

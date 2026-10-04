@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { IssueProjection as IssueProjectionSchema } from '@podium/model'
 import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
 
@@ -96,7 +98,7 @@ import {
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from './row-source'
 import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -886,7 +888,7 @@ export interface ScenarioSnapshot {
 }
 
 export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
-  const snap = engine.access
+  const snap = referenceState(engine)
   return {
     issues: allIssueViewModels(engine.replica, snap.issueProjections, snap.issueUserStates).map(
       (i) => ({
@@ -947,7 +949,7 @@ async function runWithSource(
   action: () => unknown,
   opts: { before?: ScenarioSnapshot } = {},
 ): Promise<ScenarioResult> {
-  const handle = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const handle = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
   const events: RowSourceEvent[] = []
   const off = handle.source.subscribe((e) => events.push(e))
   try {
@@ -1307,7 +1309,7 @@ export async function writeSelectionClick(
   ctx: ScenarioEngine,
   id = ctx.targets.visibleRootId,
 ): Promise<string> {
-  ctx.engine.access.setSelectedIssueId(asIssueId(id))
+  referenceState(ctx.engine).setSelectedIssueId(asIssueId(id))
   await settled(ctx)
   return id
 }
@@ -1417,7 +1419,7 @@ export async function writeParentReassignment(
 export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<number> {
   ctx.advanceClock(ms)
   await settled(ctx)
-  return ctx.engine.access.coarseNow
+  return referenceState(ctx.engine).coarseNow
 }
 
 /** #9 press — optimistic mark-read through the engine. Resolves after the
@@ -1426,7 +1428,7 @@ export async function writeOptimisticPress(
   ctx: ScenarioEngine,
   id = ctx.targets.markReadId,
 ): Promise<void> {
-  await ctx.engine.access.markIssueRead(asIssueId(id))
+  await referenceState(ctx.engine).markIssueRead(asIssueId(id))
   // Not `settled`: the press stays awaiting truth; #9b is its echo.
   await settle(ctx.settleMs)
   takeMarkReadReceipts(ctx)
@@ -1599,7 +1601,7 @@ export function burst50(scale: FixtureScale = 1): Promise<ScenarioResult> {
 /** #11 — principal switch: dispose everything, new runtime over a FRESH replica. */
 export async function principalSwitch(scale: FixtureScale = 1): Promise<ScenarioResult> {
   const old = await startScenarioEngine(scale, { principal: 'operator' })
-  const oldHandle = createRowSource(old.engine, old.replica, { mode: 'overlaid' })
+  const oldHandle = createRowSource(old.engine, old.replica, { mode: 'pooled' })
   const oldEvents: RowSourceEvent[] = []
   const oldOff = oldHandle.source.subscribe((e) => oldEvents.push(e))
   const before = captureSnapshot(old.engine)

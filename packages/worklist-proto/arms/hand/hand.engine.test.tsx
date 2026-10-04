@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4446 — hand-rolled arm against the live engine (SMALL corpus):
@@ -7,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import {
@@ -24,10 +25,10 @@ import { fixedLocals } from '@podium/client-graph/shared/locals-source'
 
 async function bootArm() {
   const ctx = await startScenarioEngine(1)
-  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
   const locals: SliceLocals = {
     selectedIssueId: null,
-    coarseNow: ctx.engine.access.coarseNow,
+    coarseNow: referenceState(ctx.engine).coarseNow,
   }
   const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
   return { ctx, source, locals, mounted }
@@ -56,7 +57,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
     try {
       // Parity on mount: the arm shows what the app shows.
       const atMount = mounted.handle.snapshot()
-      const expectedAtMount = snapshotFromStore(ctx.engine.access, locals)
+      const expectedAtMount = snapshotFromStore(referenceState(ctx.engine), locals)
       expect(Object.keys((atMount as { rowsById: object }).rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(expectedAtMount)
 
@@ -67,7 +68,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writeHeartbeat(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand] heartbeat committed=${heartbeat.rowsCommitted}/${heartbeat.visibleRows} ` +
@@ -92,7 +93,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writePhaseChange(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand] phase committed=${phase.rowsCommitted}/${phase.visibleRows} ` +
@@ -109,7 +110,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
           await writeSelectionClick(ctx)
           source.flush()
         },
-        expected: () => snapshotFromStore(ctx.engine.access, locals),
+        expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
       })
       console.info(
         `[hand] click committed=${click.rowsCommitted}/${click.visibleRows} ` +

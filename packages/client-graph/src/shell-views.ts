@@ -17,8 +17,8 @@ export interface ShellDockData {
   gitIssue: IssueViewModel | undefined
   mailIssueId: SessionView['issueId']
   issues: IssueViewModel[]
-  shipOrders: Store['shipOrders']
-  shipLanes: Store['shipLanes']
+  shipOrders: import('@podium/model').ShipOrderProjection[]
+  shipLanes: import('@podium/model').ShipLaneProjection[]
   coarseNow: number
   shipping: { unfinishedCount: number; decisionCount: number }
 }

@@ -537,7 +537,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
 
   const send = useChatSend({
     sessionId,
-    store: storeHandle,
     trpc,
     hub,
     sendChat,

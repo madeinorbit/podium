@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -137,10 +138,10 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     { wrapper: Wrapper },
   )
   await act(async () => {
-    await result.current.owner.access.refreshRepos()
+    await result.current.referenceState(owner).refreshRepos()
   })
   await waitFor(() => expect(result.current.targets.pending).toBe(0))
-  const state = result.current.owner.access
+  const state = result.current.referenceState(owner)
   expect(result.current.targets.choices).toEqual(
     automationTargetChoices(
       state.repos,
@@ -220,7 +221,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   ).result
   await act(async () => {
     fixture.publishMachines()
-    await result.current.owner.access.refreshRepos()
+    await result.current.referenceState(owner).refreshRepos()
   })
   await waitFor(() =>
     expect(
@@ -243,7 +244,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   })
   expect(storeStats.snapshot().runtimes[0]?.selectorRuns ?? 0).toBe(0)
   expect(fatal).not.toHaveBeenCalled()
-  const state = owner.access
+  const state = referenceState(owner)
   expect(result.current.repos.repos).toEqual(state.repos)
   expect(result.current.list.automationRuns).toEqual(state.automationRuns)
   expect(result.current.targets.choices).toEqual(
@@ -272,7 +273,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
     await Promise.resolve()
   })
   expect(result.current.list.automations).toHaveLength(5)
-  const updated = owner.access
+  const updated = referenceState(owner)
   expect(
     checkAutomations(pool!, updated, (path) =>
       automationTargetChoices(

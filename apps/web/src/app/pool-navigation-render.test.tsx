@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'
@@ -89,7 +90,7 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   binding.pool = handle.pool
   const provider = createPoolNavigationProvider(handle.pool)
   try {
-    const initial = runtime.access
+    const initial = referenceState(runtime)
     const target = asIssueId(ctx.targets.visibleRootId)
     const child = initial.issueProjections.find(
       (row) => row.parentId === target && !row.archived && !row.deletedAt,

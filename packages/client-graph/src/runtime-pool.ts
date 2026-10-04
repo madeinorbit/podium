@@ -252,7 +252,7 @@ export function createRuntimeWorklistPool(
     owns?: readonly PoolOwnedKind[]
   } = {},
 ): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
-  const owned = new Set(options.owns ?? [])
+  const owned = new Set<PoolOwnedKind>(options.owns ?? ['issue', 'session'])
   const transactions = owned.size > 0 ? createRuntimeTransactions(runtime) : null
   let rows: ReturnType<typeof createRowSource>
   try {

@@ -55,11 +55,6 @@ function refusalReason(result: unknown): string | null {
 
 export interface UseChatSendOptions {
   sessionId: SessionId
-  /** The store, for the synced message records and the outbox's held sends. */
-  store: {
-    getSnapshot(): Pick<Store, 'messageRecords' | 'outboxDeadLetters' | 'chatSendsFor'>
-    subscribe(listener: () => void): () => void
-  }
   trpc: Store['trpc']
   /** The socket hub, when the surface has one: back online is when the chat
    *  catches up on its own messages by id (POD-4811). */
@@ -139,7 +134,6 @@ export interface UseChatSendResult {
 export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   const {
     sessionId,
-    store,
     trpc,
     hub,
     sendChat,
@@ -166,7 +160,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     initialPendingText,
     onInitialPendingSettled,
   } = opts
-  const ports = useChatConversationPorts(sessionId, store)
+  const ports = useChatConversationPorts(sessionId)
   const heldSends = ports.held
 
   const transcriptItems = useMemo(() => blocks.map((block) => block.item), [blocks])

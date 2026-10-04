@@ -1,8 +1,10 @@
 /** Diagnostic-only legacy derivation. Never imported by pool rows or app readers. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import { allIssueViewModels } from '@podium/client-core/replica'
-import { worklistSlice, sortUnifiedWorkRows, type WorklistSlice, type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/values'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { sortUnifiedWorkRows, type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/values'
+import { worklistSlice, type WorklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SliceLocals } from '../src/shared/slice-types'
 

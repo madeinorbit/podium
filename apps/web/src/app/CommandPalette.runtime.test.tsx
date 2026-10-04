@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -52,7 +53,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
     </StoreProvider>,
   )
   await act(async () => {
-    runtime.access.setPaletteOpen(true)
+    referenceState(runtime).setPaletteOpen(true)
   })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   const rows = screen.getAllByRole('option')

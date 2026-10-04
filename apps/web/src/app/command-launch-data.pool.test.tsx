@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -72,7 +73,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   await act(async () => {
     attach()
     fixture.publishMachines()
-    await result.current.owner.access.refreshRepos()
+    await result.current.referenceState(owner).refreshRepos()
   })
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)
@@ -93,8 +94,8 @@ it('declares launch and palette demand after attachment, follows window updates 
       'synthetic-guest-1',
     ].sort(),
   )
-  expect(actions.setPaletteOpen).toBe(owner.access.setPaletteOpen)
-  expect(actions.updateIssue).toBe(owner.access.updateIssue)
+  expect(actions.setPaletteOpen).toBe(referenceState(owner).setPaletteOpen)
+  expect(actions.updateIssue).toBe(referenceState(owner).updateIssue)
 
   storeStats.enable()
   storeStats.reset()

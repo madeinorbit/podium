@@ -34,7 +34,7 @@ function settle(pool: MobxPool, state: MobileWorkState = {}): void {
 describe('mobile pool values', () => {
   for (const scale of [1, 4] as const) it(`corpus and methodology changes at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     const nativeState: MobileWorkState = {}
     const checks: unknown[] = []
@@ -94,7 +94,7 @@ describe('mobile pool values', () => {
   }, 600_000)
 
   it('pinned asks keep both keys, complete counts and their original reorder scope', async () => {
-    const run = await startGenRun({ feedMode: 'overlaid' })
+    const run = await startGenRun({ feedMode: 'pooled' })
     const locals = createEngineLocals(run.ctx.engine)
     const handle = createWorklistPool(run.feed().source, locals.source)
     const id = 'mobile-pinned-ask'
@@ -117,7 +117,7 @@ describe('mobile pool values', () => {
   }, 120_000)
 
   it('draft quietness suppresses unread until the first runtime state and opens its session', async () => {
-    const run = await startGenRun({ feedMode: 'overlaid' })
+    const run = await startGenRun({ feedMode: 'pooled' })
     const locals = createEngineLocals(run.ctx.engine)
     const handle = createWorklistPool(run.feed().source, locals.source)
     const id = 'mobile-quiet-draft', sessionId = 'mobile-draft-seat'
@@ -174,7 +174,7 @@ describe('mobile pool values', () => {
   const steps = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
   for (let seed = firstSeed; seed <= seeds; seed += 1) it(`observed random-change gate, seed ${seed}`, async () => {
     const corpus = genCorpus(), changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
-    const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+    const run = await startGenRun({ corpus, feedMode: 'pooled' })
     let feed = run.feed(), locals = createEngineLocals(run.ctx.engine)
     let handle = createWorklistPool(feed.source, locals.source)
     const observe = () => reaction(() => poolMobileSnapshot(handle.pool), () => {}, { fireImmediately: true })

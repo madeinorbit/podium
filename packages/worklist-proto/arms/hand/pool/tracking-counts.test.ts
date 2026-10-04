@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4934 — the tracking objects the hand-rolled pool builds, counted from
  * outside and held to a committed baseline (the hand mirror of
@@ -162,7 +163,7 @@ function rowFacts(
     coldIssues: cold('issue', issues),
     coldSessions: cold('session', sessions),
     visibleRows: visibleIssueRows(
-      legacyDerivationFromStore(ctx.engine.access, now),
+      legacyDerivationFromStore(referenceState(ctx.engine), now),
       parityLocals(ctx),
     ).length,
   }
@@ -299,7 +300,7 @@ const NEVER_LOAD = { schedule: () => () => {} } as const
 
 async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCounts> {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const facts = rowFacts(ctx, feeds)
   const reads = createReadFence({ enabled: true })
   const census = startHandCensus()
@@ -309,7 +310,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     variant === 'pending'
       ? pendingTitleEditsOn(
           feeds.rows.source.snapshot('issue'),
-          snapshotFromStore(ctx.engine.access, parityLocals(ctx)).order,
+          snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
           () => false,
           WINDOW_ROWS,
           parityLocals(ctx).coarseNow,

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4665 — the cold rule against the rows the list draws, at 1x and 4x.
  *
@@ -88,12 +89,12 @@ function score(
 
 async function measure(scale: 1 | 4) {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   try {
     const locals = parityLocals(ctx)
     const now = locals.coarseNow
     const order = visibleIssueRows(
-      legacyDerivationFromStore(ctx.engine.access, now),
+      legacyDerivationFromStore(referenceState(ctx.engine), now),
       locals,
     ).map((row) => row.issue.id)
     const table = (kind: 'issue' | 'session' | 'worktree') =>

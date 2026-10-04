@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { type OverlayTarget, type PendingOverlay, withKeyedInputs } from '@podium/client-core/engine'
-import { createRowSource, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import { type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from './row-source'
 import { asUserId, asSessionId, sessionUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { ScenarioCache } from './scenarios'
@@ -28,7 +29,7 @@ const row = {
   handoffTarget: 'Old target',
 }
 
-function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
+function boot(mode: 'truth' | 'pooled' = 'pooled') {
   const cache = new ScenarioCache()
   cache.put('session', 's1', row)
   cache.put('session', 's2', {
@@ -90,7 +91,7 @@ function boot(mode: 'truth' | 'overlaid' = 'overlaid') {
 }
 
 describe('session homes in the graph row source', () => {
-  it.each(['truth', 'overlaid'] as const)('keeps missing personal homes pending until bootstrap in %s mode', mode => {
+  it.each(['truth', 'pooled'] as const)('keeps missing personal homes pending until bootstrap in %s mode', mode => {
     const { handle, replica } = boot(mode)
     try {
       expect(handle.source.row!('session', 's1')).toHaveProperty('unread', false)
@@ -104,7 +105,7 @@ describe('session homes in the graph row source', () => {
     }
   })
   it('joins all values from their rows by id in both source modes', () => {
-    for (const mode of ['truth', 'overlaid'] as const) {
+    for (const mode of ['truth', 'pooled'] as const) {
       const { handle } = boot(mode)
       try {
         expect(handle.source.row!('session', 's1')).toMatchObject({
@@ -264,7 +265,7 @@ describe('session homes in the graph row source', () => {
     { name: 'clear snooze', before: { readAt: at, snoozedUntil: null }, patch: { snoozedUntil: undefined }, shown: { readAt: at, unread: false, snoozedUntil: undefined } },
   ]
   for (const edit of personalEdits) {
-    for (const mode of ['truth', 'overlaid'] as const) {
+    for (const mode of ['truth', 'pooled'] as const) {
       it(`${edit.name}: per-user paint and rollback in ${mode} mode`, () => {
         const { handle, push, pendingUsers, notify } = boot(mode)
         try {
@@ -282,7 +283,7 @@ describe('session homes in the graph row source', () => {
           }])
           notify()
           const painted = handle.flush()
-          if (mode === 'overlaid') {
+          if (mode === 'pooled') {
             expect(painted?.rows.map((row) => row.id)).toEqual(['s1'])
             expect(handle.source.row!('session', 's1')).toMatchObject(edit.shown)
           } else {
@@ -293,7 +294,7 @@ describe('session homes in the graph row source', () => {
           pendingUsers.clear()
           notify()
           const rollback = handle.flush()
-          expect(rollback?.rows.map((row) => row.id) ?? []).toEqual(mode === 'overlaid' ? ['s1'] : [])
+          expect(rollback?.rows.map((row) => row.id) ?? []).toEqual(mode === 'pooled' ? ['s1'] : [])
           expect(handle.source.row!('session', 's1')).toBe(truth)
         } finally {
           handle.dispose()

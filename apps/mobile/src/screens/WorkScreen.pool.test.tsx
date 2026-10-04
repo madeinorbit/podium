@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
 
@@ -849,7 +850,7 @@ describe('mobile WorkScreen pool consumer', () => {
     fireEvent.click(screen.getByLabelText('Search work'))
     const ref = before[0]!.data[0]!
     const issue = state
-      .runtime!.getSnapshot()
+      .referenceState(runtime!)
       .replica.rows('issueProjections')
       .find((row) => row.id === ref.id)!
     fireEvent.change(screen.getByLabelText('Search work', { selector: 'input' }), {

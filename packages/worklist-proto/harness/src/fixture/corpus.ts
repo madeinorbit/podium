@@ -35,7 +35,8 @@ import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalize
  * active work leaves every history row as it was (`cells.test.ts`).
  */
 
-import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
+
+import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-graph/diagnostics/reference/issue-views'
 import type { PinState } from '@podium/client-core/values'
 import type {
   SliceIssue,

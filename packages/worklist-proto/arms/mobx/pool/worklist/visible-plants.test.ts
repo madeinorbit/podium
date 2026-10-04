@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4681 — the three R-VIS plants as PERMANENT tests on the MobX arm. Each
  * planted mistake runs a default 3x200 against the shared oracle and must
@@ -96,7 +97,7 @@ function orderChecked(): ((ctx: ScenarioEngine) => CheckableArm) & { compared: n
         snapshot() {
           const settled = handle.snapshot()
           const coarseNow = parityLocals(ctx).coarseNow
-          const derivation = legacyDerivationFromStore(ctx.engine.access, coarseNow)
+          const derivation = legacyDerivationFromStore(referenceState(ctx.engine), coarseNow)
           const expected: string[] = visibleIssueRows(derivation, parityLocals(ctx)).map(
             (row) => row.issue.id,
           )
@@ -162,7 +163,7 @@ async function expectPlant(
 async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> {
   const log: string[] = []
   let compared = 0
-  const run = await startGenRun({ feedMode: 'overlaid' })
+  const run = await startGenRun({ feedMode: 'pooled' })
   try {
     let feed = run.feed()
     let locals = createEngineLocals(run.ctx.engine)
@@ -172,7 +173,7 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
         rowsById: Record<string, unknown>
       }
       const coarseNow = parityLocals(run.ctx).coarseNow
-      const derivation = legacyDerivationFromStore(run.ctx.engine.access, coarseNow)
+      const derivation = legacyDerivationFromStore(run.referenceState(ctx.engine), coarseNow)
       const expected: string[] = visibleIssueRows(derivation, parityLocals(run.ctx)).map(
         (row) => row.issue.id,
       )

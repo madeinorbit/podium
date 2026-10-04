@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4572 (Mb4, coordinator ruling 2026-09-24) — staging a rescope the way a
  * real one arrives: the new scope's kernel ROWS and its worktree SCANS.
@@ -67,7 +68,7 @@ export async function stageScans(
   boot.discovery.repos = answer
   boot.hub.emit('worktreesChanged')
   const began = Date.now()
-  while (boot.engine.access.repos !== answer) {
+  while (boot.referenceState(engine).repos !== answer) {
     if (Date.now() - began > timeoutMs) {
       throw new Error(`[rescope] discovery did not publish the staged scans in ${timeoutMs} ms`)
     }

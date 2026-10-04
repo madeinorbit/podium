@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 // @vitest-environment happy-dom
@@ -114,7 +115,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       const edited = await runCountScenario(mounted, {
@@ -183,7 +184,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const id = ctx.targets.visibleRootId
       const serverStage = stageOf(handle, id) as string
       const pendingStage = (serverStage === 'review' ? 'in_progress' : 'review') as EditableStage
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -260,7 +261,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -345,9 +346,9 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
-      const first = new Date(ctx.engine.access.coarseNow).toISOString()
+      const first = new Date(referenceState(ctx.engine).coarseNow).toISOString()
       let t1: TxId = '' as TxId
       await runCountScenario(mounted, {
         scenario: 'handOptimisticSupersedeFirst',
@@ -357,7 +358,7 @@ describe('Hc2 hand receipts and remote updates', () => {
         },
         expected: baseline,
       })
-      const second = new Date(ctx.engine.access.coarseNow + 1).toISOString()
+      const second = new Date(referenceState(ctx.engine).coarseNow + 1).toISOString()
       let t2: TxId = '' as TxId
       await runCountScenario(mounted, {
         scenario: 'handOptimisticSupersedeSecond',
@@ -413,7 +414,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
       let tx: TxId = '' as TxId
       await runCountScenario(mounted, {
@@ -464,7 +465,7 @@ describe('Hc2 hand receipts and remote updates', () => {
       const handle = mounted.handle as HarnessWritableHandPoolHandle
       const write = handle.write
       const id = ctx.targets.visibleRootId
-      const baseline = () => snapshotFromStore(ctx.engine.access, engineLocals(ctx))
+      const baseline = () => snapshotFromStore(referenceState(ctx.engine), engineLocals(ctx))
 
       await runCountScenario(mounted, {
         scenario: 'handOptimisticRebuildPendingEdit',

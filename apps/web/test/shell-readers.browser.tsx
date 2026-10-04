@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real production consumers and one offline runtime. Every row is synthetic. */
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
@@ -169,9 +170,9 @@ function Surfaces() {
     pool = graph
     if (!started && graph) {
       started = true
-      owner.access.setSelectedIssueId(asIssueId('synthetic-3'))
-      owner.access.openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
-      owner.access.setSuperOpen(true)
+      referenceState(owner).setSelectedIssueId(asIssueId('synthetic-3'))
+      referenceState(owner).openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
+      referenceState(owner).setSuperOpen(true)
     }
     ready = started && Boolean(graph) && Boolean(graph?.row('shellWindow', 'window'))
   }, [owner, graph])
@@ -185,7 +186,7 @@ function Surfaces() {
         <button
           type="button"
           data-testid="ordinary-shell-click"
-          onClick={() => owner.access.setPane('A', asSessionId('synthetic-session-3'))}
+          onClick={() => referenceState(owner).setPane('A', asSessionId('synthetic-session-3'))}
         >
           Select existing session
         </button>
@@ -247,7 +248,7 @@ root.render(
           effects.callbacks++
         },
       })
-      void owner.access.refreshRepos()
+      void referenceState(owner).refreshRepos()
       return attachWorklistPool(owner, (error) => failures.push(error.message))
     }}
   >
@@ -318,7 +319,7 @@ const driver = {
         poolShellSnapshot(pool)
         if (!pool.hydrate()) break
       }
-      return checkShell(pool, runtime.access)
+      return checkShell(pool, referenceState(runtime))
     } finally {
       finish()
     }
@@ -351,7 +352,7 @@ const driver = {
     return { pending: 0, sections }
   },
   select(id: string | null) {
-    runtime!.getSnapshot().setSelectedIssueId(id ? asIssueId(id) : null)
+    referenceState(runtime!).setSelectedIssueId(id ? asIssueId(id) : null)
   },
   approvals() {
     emit(
@@ -391,12 +392,12 @@ const driver = {
     )
   },
   state: () => ({
-    files: runtime!.getSnapshot().fileTabs.length,
-    selected: runtime!.getSnapshot().selectedIssueId,
-    pane: runtime!.getSnapshot().paneA,
+    files: referenceState(runtime!).fileTabs.length,
+    selected: referenceState(runtime!).selectedIssueId,
+    pane: referenceState(runtime!).paneA,
   }),
   artifacts: () =>
-    runtime!.getSnapshot().fileTabs.filter((file) => file.scope.kind === 'artifact').length,
+    referenceState(runtime!).fileTabs.filter((file) => file.scope.kind === 'artifact').length,
   artifactCold: () => pool?.residency?.isCold('issue', artifactIssueId) ?? null,
 }
 Object.assign(window, { __shellReaders: driver })

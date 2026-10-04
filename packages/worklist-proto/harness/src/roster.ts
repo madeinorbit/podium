@@ -123,7 +123,7 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     name: 'MobX pool',
     windowLayout: { height: 5800, width: 1600 },
     folder: 'mobx',
-    mode: 'overlaid',
+    mode: 'pooled',
     armFor: () => harnessMobxPoolArm,
     ownsOptimism: true,
   },
@@ -135,7 +135,7 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     // rework removes the flag.
     name: 'Hand pool',
     folder: 'hand',
-    mode: 'overlaid',
+    mode: 'pooled',
     armFor: () => harnessHandPoolArm,
     writable: (transport) => harnessWritableHandPoolArm(transport),
     measuredOnly: true,

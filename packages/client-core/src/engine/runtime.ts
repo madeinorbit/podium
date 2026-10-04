@@ -190,6 +190,7 @@ export interface PoolWriter {
   spawnIssueAgent?: Store['spawnIssueAgent']
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
   holds?: (id: MutationId) => boolean
+  dispose?: () => void
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
 
@@ -835,6 +836,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // offline reload keeps showing (and re-persisting) a tab for a session that
     // is long gone. Idempotent: it re-arms its own timer.
     this.reactions.pruneWorkspaces()
+    offs.push(this.onLocals(['fileTabs', 'workspaces'], () => this.reactions.pruneWorkspaces()))
 
     if (this.networkEnabled) {
       this.connectTimer = setTimeout(() => {
@@ -942,6 +944,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingNavigationTopology = false
     this.pendingWorktreeFallback = false
     this.destroyed = true
+    this.poolWriter?.dispose?.()
+    this.poolWriter = null
     this.inputs.dispose()
     this.hostMetricsStore.destroy()
   }
@@ -1372,11 +1376,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       route.worktree !== st.selectedWorktree
     ) {
       const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
+      const crew = st.navigation.worktreeSessions?.()
       const canShow =
         !st.reposLoaded ||
         worktrees.some((w) => w.path === route.worktree) ||
-        (st.navigation.worktreeSessions?.() === NAVIGATION_LOADING ||
-          (st.navigation.worktreeSessions?.() ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`)))
+        (crew === NAVIGATION_LOADING ||
+          (crew ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`)))
       if (canShow) patch.selectedWorktree = route.worktree
     }
     // A pane the state is not already showing is a LINK (deep link, back/forward),

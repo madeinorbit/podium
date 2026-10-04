@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -62,7 +63,7 @@ function setup(delayed = false) {
             detach = attachWorklistPool(runtime, fatal)
           }
           if (!delayed) start()
-          void runtime.access.refreshRepos()
+          void referenceState(runtime).refreshRepos()
           return () => detach?.()
         }}
       >
@@ -142,7 +143,7 @@ it('matches scoped placement and cold issue/session targets through the one read
   const pool = result.current.pool!,
     row = vi.spyOn(pool, 'row')
   expect(pool.tables.issue.has('synthetic-5')).toBe(false)
-  const check = checkWorkflows(pool, result.current.owner.access, fixture)
+  const check = checkWorkflows(pool, result.current.referenceState(owner), fixture)
   expect(check).toMatchObject({ differences: 0, pending: 0, positions: 14, first: null })
   expect(result.current.issue).toMatchObject({ state: 'present' })
   expect(result.current.session).toMatchObject({ state: 'present' })
@@ -198,7 +199,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
   expect(result.current.suppressed).toMatchObject({ state: 'pending' })
   expect(result.current.kept).toMatchObject({ state: 'present' })
   expect(
-    checkWorkflows(result.current.pool!, result.current.owner.access, inputs),
+    checkWorkflows(result.current.pool!, result.current.referenceState(owner), inputs),
   ).toMatchObject({ differences: 0, pending: 0 })
   await act(async () => {
     fixture.remove('session', 'synthetic-session-7')
@@ -211,7 +212,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
     fixture.replace()
   })
   expect(
-    checkWorkflows(result.current.pool!, result.current.owner.access, inputs),
+    checkWorkflows(result.current.pool!, result.current.referenceState(owner), inputs),
   ).toMatchObject({ differences: 0, pending: 0 })
 })
 
@@ -256,7 +257,7 @@ it('bounds diagnostic summary reads and releases its tracking scope even inside 
   }
   const probe = probeWorkflowCheckScope(
     pool,
-    result.current.owner.access,
+    result.current.referenceState(owner),
     inputs,
     'synthetic-session-0',
   )

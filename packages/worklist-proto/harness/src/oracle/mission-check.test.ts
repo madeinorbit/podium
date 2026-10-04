@@ -1,6 +1,8 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { reaction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkMissions, poolMissionSnapshot } from '@podium/client-graph/diagnostics/mission-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
@@ -26,13 +28,13 @@ function settle(pool: MobxPool) {
 describe('mission differential replay', () => {
   for (const scale of [1, 4] as const) it(`corpus and every methodology change at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MISSION_SUMMARIES })
     const stop = reaction(() => poolMissionSnapshot(handle.pool), () => {}, { fireImmediately: true })
     const checks: unknown[] = []
     const check = (scenario: string) => {
       feeds.flush(); settle(handle.pool)
-      const store = ctx.engine.access
+      const store = referenceState(ctx.engine)
       const result = tracked(() => checkMissions(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       expect(result, scenario).toMatchObject({ differences: 0, first: null, pending: 0 })
       checks.push({ scenario, ...result })
@@ -51,7 +53,7 @@ describe('mission differential replay', () => {
   const steps = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
   for (let seed = firstSeed; seed < firstSeed + seeds; seed++) it(`every generated change, seed ${seed}`, async () => {
     const corpus = genCorpus(), changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
-    const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+    const run = await startGenRun({ corpus, feedMode: 'pooled' })
     let feed = run.feed(), locals = createEngineLocals(run.ctx.engine)
     let handle = createWorklistPool(feed.source, locals.source, { summaries: MISSION_SUMMARIES })
     const observe = () => reaction(() => poolMissionSnapshot(handle.pool), () => {}, { fireImmediately: true })
@@ -65,7 +67,7 @@ describe('mission differential replay', () => {
           handle = createWorklistPool(feed.source, locals.source, { summaries: MISSION_SUMMARIES }); stop = observe()
         }
         locals.flush(); settle(handle.pool)
-        const store = run.ctx.engine.access
+        const store = run.referenceState(ctx.engine)
         expect(tracked(() => checkMissions(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions)),
           `seed ${seed} step ${index} ${change.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
       }

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -120,7 +121,7 @@ async function mount() {
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
         const stop = state.host!.host.attach(owner, (error) => errors.push(error.message))
-        void owner.access.refreshSuperThreads()
+        void referenceState(owner).refreshSuperThreads()
         return stop
       }}
     >

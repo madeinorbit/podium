@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 // @vitest-environment happy-dom
@@ -139,7 +140,7 @@ function checkParity(
   at: string,
 ): string | null {
   const snapshot = handle.snapshot()
-  const oracle = snapshotFromStore(ctx.engine.access, parityLocals(ctx))
+  const oracle = snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx))
   expect(diffSnapshots(snapshot, oracle), `${at}: oracle`).toBeNull()
   expect(diffSnapshots(snapshot, handle.rebuildFromScratch()), `${at}: rebuild`).toBeNull()
   return null
@@ -155,7 +156,7 @@ async function withMounted<T>(
   ) => Promise<T>,
 ): Promise<T> {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
     const handle = mounted.handle as HarnessMobxPoolHandle
@@ -187,7 +188,7 @@ async function withMountedScale<T>(
   ) => Promise<T>,
 ): Promise<T> {
   const ctx = await startScenarioEngine(scale)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const mounted = mountArmForCounts(create, feeds.rows.source, feeds.locals)
   try {
     const handle = mounted.handle as HarnessMobxPoolHandle
@@ -309,7 +310,7 @@ const PROGRESS = ['progressDone', 'progressTotal'] as const
  */
 async function familyRig(eagerRollups = false) {
   const ctx = await startScenarioEngine(1)
-  const feeds = openFenceFeeds(ctx, 'overlaid')
+  const feeds = openFenceFeeds(ctx, 'pooled')
   const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
     schedule: () => () => {},
   }) as HarnessMobxPoolHandle
@@ -345,7 +346,7 @@ async function familyRig(eagerRollups = false) {
   /** The formal children (inside a tracked read). */
   const children = (id: string): string[] => [...pool.relations.many('issue', id, 'children')]
   const oracle = (id: string): RowView =>
-    rowViewsFromStore(ctx.engine.access, { ...parityLocals(ctx), selectedIssueId: null })[
+    rowViewsFromStore(referenceState(ctx.engine), { ...parityLocals(ctx), selectedIssueId: null })[
       id
     ] as RowView
   /** Draw a row: keep its view observed, as a mounted row does. */
@@ -499,7 +500,7 @@ describe('row roll-ups (Mb3)', () => {
     const cells = []
     for (const scale of [1, 4] as const) {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const readsAtOpen = feeds.rowReads()
       const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
       const handle = mounted.handle as HarnessMobxPoolHandle
@@ -752,7 +753,7 @@ describe('row roll-ups (Mb3)', () => {
 
   it('attention keeps the pending marker: a review ask waits on a cold spin-off, then withdraws (Ma3 addendum)', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = arm.create(feeds.rows.source, feeds.locals.source) as HarnessMobxPoolHandle
     const { pool } = handle
     const residency = pool.residency!
@@ -807,7 +808,7 @@ describe('row roll-ups (Mb3)', () => {
         windows += 1
       }
       const landed = tracked(() => rowViewOf(pool.issue(id))!)
-      const oracle = rowViewsFromStore(ctx.engine.access, {
+      const oracle = rowViewsFromStore(referenceState(ctx.engine), {
         ...parityLocals(ctx),
         selectedIssueId: null,
       })[id] as RowView

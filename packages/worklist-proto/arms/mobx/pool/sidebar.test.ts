@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { issueInput } from '@podium/client-graph/shared/issue-input'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
@@ -76,12 +77,12 @@ describe('real sidebar oracle (POD-4953)', () => {
   for (const scale of [1, 4] as const)
     it(`every row, roster and section equals the legacy derivation at ${scale}x`, async () => {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
       try {
         settleSidebar(handle.pool)
         const locals = engineLocals(ctx)
-        const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+        const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
         const rows = visibleIssueRows(derivation, locals)
         const rowErrors = tracked(() =>
           sidebarDiff(handle.pool, derivation, rows, locals.coarseNow),
@@ -93,7 +94,7 @@ describe('real sidebar oracle (POD-4953)', () => {
         for (const variant of [0, 1]) {
           const state = stateFor(
             derivation.slice.groups.map((g) => g.key),
-            ctx.engine.access.pins,
+            referenceState(ctx.engine).pins,
             variant,
           )
           const gotSections = tracked(() => handle.pool.sidebar.sections(state))
@@ -230,7 +231,7 @@ describe('real sidebar oracle (POD-4953)', () => {
   })
 
   it('keeps the selection fold latch and draft-vessel pane selection', async () => {
-    const run = await startGenRun({ feedMode: 'overlaid' })
+    const run = await startGenRun({ feedMode: 'pooled' })
     const locals = settableLocals(engineLocals(run.ctx))
     const handle = harnessMobxPoolArm.create(run.feed().source, locals.source)
     const id = 'sidebar-selection'
@@ -279,7 +280,7 @@ describe('real sidebar oracle (POD-4953)', () => {
 
   it('keeps missing-owner guests in a worktree roster, including the stale partition', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
       const lane = ctx.corpus.sliceWorktrees[0]!
@@ -343,7 +344,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       })
       feeds.flush()
       snapshotPool(handle.pool)
-      const derivation = legacyDerivationFromStore(ctx.engine.access, now)
+      const derivation = legacyDerivationFromStore(referenceState(ctx.engine), now)
       const value = tracked(() => handle.pool.sidebar.worktree(lane.path))
       expect(value?.sessions.filter((s) => s.sessionId.startsWith('roster-guest-'))).toHaveLength(8)
       expect(value?.issues.map((issue) => issue.id)).toContain('roster-owner')
@@ -460,7 +461,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
     it(`every sidebar field after every change, observed, seed ${seed}`, async () => {
       const corpus = genCorpus()
       const changes = gen(seed, 200, {}, { corpus, forceSidebarValues: true })
-      const run = await startGenRun({ corpus, feedMode: 'overlaid' })
+      const run = await startGenRun({ corpus, feedMode: 'pooled' })
       let feed = run.feed()
       let locals = createEngineLocals(run.ctx.engine)
       let handle = harnessMobxPoolArm.create(feed.source, locals.source)
@@ -496,7 +497,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
           if (!step.skipped && step.change.kind === 'sessionFacts')
             appliedSession.add(step.change.variant)
           const local = engineLocals(run.ctx)
-          const store = run.ctx.engine.access
+          const store = run.referenceState(ctx.engine)
           const derivation = legacyDerivationFromStore(store, local.coarseNow)
           const rows = visibleIssueRows(derivation, local)
           state = stateFor(

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4453 — hand-rolled arm milestone 3: lifecycle (11–13), growth (14),
@@ -15,7 +16,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../shared/src/row-source'
 import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 import { describe, expect, it } from 'vitest'
 import {
@@ -23,7 +24,7 @@ import {
   mountArmForCounts,
   runCountScenario,
 } from '../../harness/src/count-harness'
-import { legacyControlArmFor } from '../../harness/src/legacy-control/arm'
+import { referenceArmFor } from '../../harness/src/reference-arm/arm'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import {
   type FixtureScale,
@@ -68,17 +69,17 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
     const cold = await startScenarioEngine(1)
-    const coldSource = createRowSource(cold.engine, cold.replica, { mode: 'overlaid' })
+    const coldSource = createRowSource(cold.engine, cold.replica, { mode: 'pooled' })
     const coldLocals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: cold.engine.access.coarseNow,
+      coarseNow: cold.referenceState(engine).coarseNow,
     }
     const coldMounted = mountArmForCounts(handArm, coldSource.source, fixedLocals(coldLocals))
     try {
       const atMount = coldMounted.handle.snapshot()
       // The fixture's 1x visible set (POD-4550; the retired corpus showed 3,000+).
       expect(Object.keys(atMount.rowsById).length).toBe(211)
-      expect(atMount).toEqual(snapshotFromStore(cold.engine.access, coldLocals))
+      expect(atMount).toEqual(snapshotFromStore(cold.referenceState(engine), coldLocals))
       checkOracle(coldMounted)
       console.info(
         `[hand-m3] coldBootstrap 1x: visible=${Object.keys(atMount.rowsById).length} ` +
@@ -102,10 +103,10 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
 
     // Principal switch: dispose everything, rebuild over a FRESH replica.
     const first = await startScenarioEngine(1, { principal: 'operator' })
-    const firstSource = createRowSource(first.engine, first.replica, { mode: 'overlaid' })
+    const firstSource = createRowSource(first.engine, first.replica, { mode: 'pooled' })
     const firstLocals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: first.engine.access.coarseNow,
+      coarseNow: referenceState(first.engine).coarseNow,
     }
     const firstMounted = mountArmForCounts(handArm, firstSource.source, fixedLocals(firstLocals))
     const firstStore = storeOf(firstMounted)
@@ -118,16 +119,16 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     expect(firstStore.listenerCount()).toBe(0)
 
     const second = await startScenarioEngine(1, { principal: 'operator-2' })
-    const secondSource = createRowSource(second.engine, second.replica, { mode: 'overlaid' })
+    const secondSource = createRowSource(second.engine, second.replica, { mode: 'pooled' })
     const secondLocals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: second.engine.access.coarseNow,
+      coarseNow: referenceState(second.engine).coarseNow,
     }
     const secondMounted = mountArmForCounts(handArm, secondSource.source, fixedLocals(secondLocals))
     try {
       const atMount = secondMounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBe(firstVisible)
-      expect(atMount).toEqual(snapshotFromStore(second.engine.access, secondLocals))
+      expect(atMount).toEqual(snapshotFromStore(referenceState(second.engine), secondLocals))
       checkOracle(secondMounted)
       console.info(
         `[hand-m3] principalSwitch fresh replica: visible=${Object.keys(atMount.rowsById).length} ` +
@@ -148,10 +149,10 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     // Rescope growth then back at 1x: two full replaces, tables back to
     // baseline (the happy-dom proxy for the withheld heap ±5% check).
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     try {
@@ -195,7 +196,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       const grownVisible = Object.keys(mounted.handle.snapshot().rowsById).length
       const issuesGrown = store.issues.rows.size
       const sessionsGrown = store.sessions.rows.size
-      expect(mounted.handle.snapshot()).toEqual(snapshotFromStore(ctx.engine.access, locals))
+      expect(mounted.handle.snapshot()).toEqual(snapshotFromStore(referenceState(ctx.engine), locals))
       checkOracle(mounted)
       ctx.replica.batch(() => {
         for (let n = 0; n < 10; n += 1) {
@@ -213,7 +214,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       await new Promise<void>((resolve) => setTimeout(resolve, ctx.settleMs))
       source.flush()
       const after = mounted.handle.snapshot()
-      expect(after).toEqual(snapshotFromStore(ctx.engine.access, locals))
+      expect(after).toEqual(snapshotFromStore(referenceState(ctx.engine), locals))
       checkOracle(mounted)
       console.info(
         `[hand-m3] rescope 1x: before=${visibleBefore} grown=${grownVisible} ` +
@@ -278,17 +279,17 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     const byScale = new Map<string, Record<string, { rows: number; deriv: string }>>()
     for (const { name, scale } of scales) {
       const ctx = await startScenarioEngine(scale)
-      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
       const locals: SliceLocals = {
         selectedIssueId: null,
-        coarseNow: ctx.engine.access.coarseNow,
+        coarseNow: referenceState(ctx.engine).coarseNow,
       }
       const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
       const store = storeOf(mounted)
       const perStep: Record<string, { rows: number; deriv: string }> = {}
       try {
         expect(mounted.handle.snapshot()).toEqual(
-          snapshotFromStore(ctx.engine.access, locals),
+          snapshotFromStore(referenceState(ctx.engine), locals),
         )
         const run = async (
           step: string,
@@ -302,7 +303,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
               await apply()
               source.flush()
             },
-            expected: () => snapshotFromStore(ctx.engine.access, locals),
+            expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
           })
           checkOracle(mounted)
           const scans = store.scanCounts()
@@ -383,12 +384,12 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       }
     }> => {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
       const locals: SliceLocals = {
         selectedIssueId: null,
-        coarseNow: ctx.engine.access.coarseNow,
+        coarseNow: referenceState(ctx.engine).coarseNow,
       }
-      const arm = kind === 'arm' ? handArm : legacyControlArmFor(ctx.engine)
+      const arm = kind === 'arm' ? handArm : referenceArmFor(ctx.engine)
       const mounted = mountArmForCounts(arm, source.source, fixedLocals(locals))
       try {
         const result = await runCountScenario(mounted, {
@@ -398,7 +399,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
             await writeHeartbeat(ctx)
             source.flush()
           },
-          expected: () => snapshotFromStore(ctx.engine.access, locals),
+          expected: () => snapshotFromStore(referenceState(ctx.engine), locals),
         })
         return { rows: result.rowsCommitted, stats: result.stats }
       } finally {
@@ -411,14 +412,14 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     const soloControl = await soloHeartbeat('control')
 
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     const locals: SliceLocals = {
       selectedIssueId: null,
-      coarseNow: ctx.engine.access.coarseNow,
+      coarseNow: referenceState(ctx.engine).coarseNow,
     }
     const armMounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const controlMounted = mountArmForCounts(
-      legacyControlArmFor(ctx.engine),
+      referenceArmFor(ctx.engine),
       source.source,
       fixedLocals(locals),
     )
@@ -435,7 +436,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
         source.flush()
         await new Promise<void>((resolve) => setTimeout(resolve, 0))
       })
-      const expected = snapshotFromStore(ctx.engine.access, locals)
+      const expected = snapshotFromStore(referenceState(ctx.engine), locals)
       const armParity = JSON.stringify(armMounted.handle.snapshot()) === JSON.stringify(expected)
       const controlParity =
         JSON.stringify(controlMounted.handle.snapshot()) === JSON.stringify(expected)

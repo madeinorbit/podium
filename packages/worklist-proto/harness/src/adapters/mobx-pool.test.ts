@@ -33,7 +33,7 @@ afterEach(() => {
 describe('the harness adapter wraps the product entry points (POD-4944)', () => {
   it("the harness handle's pool is the product handle's pool", async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     try {
       const create = vi.spyOn(productPool, 'createWorklistPool')
       const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
@@ -55,7 +55,7 @@ describe('the harness adapter wraps the product entry points (POD-4944)', () => 
 
   it('dispose releases the feed subscriptions', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     try {
       let rowSubs = 0
       const countedSource: RowSource = {

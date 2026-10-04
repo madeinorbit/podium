@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -96,8 +97,7 @@ function Surface() {
     [opened, setOpened] = useState('')
   useEffect(() => {
     let active = true
-    void runtime
-      .getSnapshot()
+    void referenceState(runtime)
       .refreshRepos()
       .then(() => {
         if (active) booted = true
@@ -111,7 +111,7 @@ function Surface() {
     <main style={{ margin: '80px auto', maxWidth: 720 }}>
       <h1>Command and launch choices</h1>
       <p>5,600 synthetic tasks · 5,014 sessions</p>
-      <button type="button" onClick={() => owner.access.setPaletteOpen(true)}>
+      <button type="button" onClick={() => referenceState(owner).setPaletteOpen(true)}>
         Open commands
       </button>
       <button type="button" onClick={() => setNewIssue(true)}>
@@ -187,7 +187,7 @@ const driver = {
     }
   },
   calls: () => calls,
-  selection: () => ({ issueId: owner.access.openIssueId, view: owner.access.view }),
+  selection: () => ({ issueId: referenceState(owner).openIssueId, view: referenceState(owner).view }),
   async check() {
     if (!pool) return null
     const { checkCommandLaunch, poolCommandLaunchSnapshot } = await import(
@@ -197,7 +197,7 @@ const driver = {
       poolCommandLaunchSnapshot(pool)
       if (!pool.hydrate()) break
     }
-    const result = checkCommandLaunch(pool, owner.access)
+    const result = checkCommandLaunch(pool, referenceState(owner))
     return {
       differences: result.differences,
       pending: result.pending,

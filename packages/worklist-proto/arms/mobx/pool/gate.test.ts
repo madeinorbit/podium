@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4565 (Ma1) — the correctness gate (L4b, `shared/src/gen/check.ts`) on
  * the pool, and the pool's own-row fields against the legacy oracle.
@@ -680,10 +681,10 @@ describe('row fields against the oracle', () => {
 
   it('matches the oracle on every visible row', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     try {
-      const expected = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+      const expected = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
       const ids = Object.keys(expected)
       expect(ids.length).toBeGreaterThan(100)
       // Visible closed rows (the grace window, the fold) are cold: a reader

@@ -1,6 +1,7 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 /**
  * ATTRIBUTION, OWNERSHIP AND THE NEEDS-HUMAN ASKER, RENDERED THROUGH THE REAL
  * PAGE (POD-646).

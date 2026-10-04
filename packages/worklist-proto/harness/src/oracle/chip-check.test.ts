@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { canonicalIssueRef } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
@@ -15,9 +17,9 @@ describe('chip differential replay', () => {
   for (const scale of [1, 4] as const)
     it(`all chip values across corpus and methodology changes at ${scale}x`, async () => {
       const ctx = await startScenarioEngine(scale)
-      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const feeds = openFenceFeeds(ctx, 'pooled')
       const fixtureIssues = () => {
-        const state = ctx.engine.access
+        const state = referenceState(ctx.engine)
         return allIssueViewModels(ctx.replica, state.issueProjections, state.issueUserStates)
       }
       const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)

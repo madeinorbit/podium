@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type Store, withKeyedInputs } from '@podium/client-core/engine'
+import { withKeyedInputs } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,

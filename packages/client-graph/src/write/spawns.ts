@@ -126,14 +126,16 @@ export class PoolSpawns {
           }
           if (args.recognizePartialIssue === true && issueArrived()) {
             this.ports.paint({ type: 'removed', ids: [sessionId, issueId] })
-                    this.ports.notices.error(
+          this.confirmed()
+            this.ports.notices.error(
               `The task was saved, but its agent couldn't start — ${error instanceof Error ? error.message : 'unknown error'}`,
             )
             settle('issue-only')
             return
           }
           this.ports.paint({ type: 'removed', ids: [sessionId, issueId] })
-                this.ports.notices.error(
+          this.confirmed()
+          this.ports.notices.error(
             `Couldn't start the ${args.failureSubject} — ${error instanceof Error ? error.message : 'unknown error'}`,
           )
           settle('failed')

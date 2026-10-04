@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -74,9 +75,9 @@ function Surface() {
       if (!active) return
       // Provider start installs the real hub listeners in its passive effect.
       fixture.publishMachines()
-      await runtime.access.refreshRepos()
+      await referenceState(runtime).refreshRepos()
       if (!active) return
-      runtime.access.setSettingsTab('accounts')
+      referenceState(runtime).setSettingsTab('accounts')
       ready = currentPool !== null
     })
     return () => {
@@ -147,7 +148,7 @@ const driver = {
   async preferences() {
     for (let step = 0; step < 20; step++) {
       owner.ui.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
-      owner.access.setSettingsTab(step % 2 ? 'accounts' : 'notifications')
+      referenceState(owner).setSettingsTab(step % 2 ? 'accounts' : 'notifications')
       await nextFrame()
     }
   },

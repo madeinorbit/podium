@@ -2,7 +2,8 @@
  * credentials or authored text; output contains counts and positions only. */
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { dedupeSessions, type Store } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { asAccountId, asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'

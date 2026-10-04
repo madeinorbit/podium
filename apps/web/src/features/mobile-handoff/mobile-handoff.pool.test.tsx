@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -214,7 +215,7 @@ describe('first-task startup switch', () => {
     for (const name of ['card', 'chip'])
       expect(screen.getByTestId(name).textContent).toBe(String(expected))
     await act(async () => {
-      runtime!.getSnapshot().setSelectedIssueId('synthetic-0' as never)
+      referenceState(runtime!).setSelectedIssueId('synthetic-0' as never)
       fixture.patch('session', 'synthetic-session-0', {
         lastActiveAt: new Date(NOW + 1000).toISOString(),
       })

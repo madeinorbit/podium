@@ -1,11 +1,8 @@
 // @vitest-environment happy-dom
-import { dedupeSessions, withKeyedInputs } from '@podium/client-core/engine'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-} from '@podium/client-core/replica'
+import { withKeyedInputs } from '@podium/client-core/engine'
+import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'

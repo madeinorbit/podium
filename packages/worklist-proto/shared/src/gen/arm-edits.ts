@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4574 (Mc2) — arm-initiated edits for the correctness gate.
  *
@@ -117,7 +118,7 @@ export class ArmEditAdapter {
     const adapter = this
     return {
       send(_armTx, command) {
-        const actions = ctx.engine.access
+        const actions = referenceState(ctx.engine)
         if (command.kind === 'issueUpdate') {
           void actions.updateIssue(command.input.id, command.input.patch as never)
         } else {

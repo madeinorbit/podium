@@ -1,14 +1,10 @@
 import { withKeyedInputs } from '@podium/client-core/engine'
-import {
-  allIssueViewModels,
-  createKernelReplica,
-  createSideCache,
-  memoryStorage,
-} from '@podium/client-core/replica'
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { createRowSource } from '@podium/client-graph/shared/row-source'
+import { createRowSource } from '../../../shared/src/row-source'
 import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'
@@ -55,7 +51,7 @@ describe('normalized-only corpus acceptance', () => {
       subscribe: () => () => {},
       pendingOverlaysByRow: () => new Map(),
     })
-    const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
+    const rows = createRowSource(runtime, replica, { mode: 'pooled' })
     const locals = createEngineLocals(runtime)
     const handle = createWorklistPool(rows.source, locals.source)
     try {

@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment node
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -33,7 +34,7 @@ describe('client issue reference network fence', () => {
     const path = 'apps/web/src/app/pool-screens.ts'
     const source = readFileSync(join(root, path), 'utf8')
     for (const planted of [
-      'runtime.access.trpc.issues.resolveRefs.query({ refs })',
+      'referenceState(runtime).trpc.issues.resolveRefs.query({ refs })',
       'const lookup = api.issues.resolveRefs.query; lookup({ refs })',
       'api.issues.resolveRefs["query"]({ refs })',
     ]) expect(() => requireLocalReferences(`${source}\n${planted}`, path))

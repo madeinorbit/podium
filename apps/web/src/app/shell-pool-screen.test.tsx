@@ -1,3 +1,4 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { observer } from '@podium/client-graph/react'
 import { asUserId } from '@podium/model/browser'
@@ -73,7 +74,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       onFatalError={(message) => failures.push(message)}
       attachRuntime={(runtime) => {
         fixture.bindHub(runtime.hub)
-        void runtime.access.refreshRepos()
+        void referenceState(runtime).refreshRepos()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >

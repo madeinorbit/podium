@@ -1,10 +1,12 @@
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** The full ChatView and chip components over a private runtime.
  * Operator-sized synthetic data, no network or operator cache. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { allIssueViewModels } from '@podium/client-core/replica'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -74,8 +76,7 @@ function Fixture() {
     runtime = owner
     pool = attached
     open = setShown
-    void owner
-      .getSnapshot()
+    void referenceState(owner)
       .refreshRepos()
       .catch((error) => failures.push(String(error)))
     return () => {
@@ -133,7 +134,7 @@ root.render(
 )
 
 const proof = {
-  ready: () => !!runtime && runtime.access.repos.length > 0 && pool !== null,
+  ready: () => !!runtime && referenceState(runtime).repos.length > 0 && pool !== null,
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,
@@ -170,7 +171,7 @@ const proof = {
   async check() {
     if (!runtime || !pool) throw new Error('Pool absent')
     const { checkIssueChips } = await import('@podium/client-graph/diagnostics/chip-check')
-    const state = runtime.access
+    const state = referenceState(runtime)
     const legacy = allIssueViewModels(
       runtime.replica,
       state.issueProjections,

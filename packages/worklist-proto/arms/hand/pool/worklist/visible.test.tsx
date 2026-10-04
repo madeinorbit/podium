@@ -1,4 +1,6 @@
-import { allIssueViewModels } from '@podium/client-core/replica'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 // @vitest-environment happy-dom
 /**
@@ -94,7 +96,7 @@ function settle(handle: HarnessHandPoolHandle): number {
 /** The oracle's flat order: the rows the app would show, in R-ORDER. */
 function oracleOrder(ctx: ScenarioEngine): string[] {
   const locals = parityLocals(ctx)
-  const derivation = legacyDerivationFromStore(ctx.engine.access, locals.coarseNow)
+  const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
   return visibleIssueRows(derivation, locals).map((row) => row.issue.id)
 }
 
@@ -115,7 +117,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessHandPoolHandle, at: str
   expect(Object.keys(snapshot.rowsById), `${at}: snapshot rows`).toEqual(expected)
   const rebuildDiff = diffSnapshots(snapshot, handle.rebuildFromScratch())
   expect(rebuildDiff, `${at}: rebuild`).toBeNull()
-  const views = rowViewsFromStore(ctx.engine.access, engineLocals(ctx))
+  const views = rowViewsFromStore(referenceState(ctx.engine), engineLocals(ctx))
   const diffs: string[] = []
   for (const id of order) {
     const live = pool.view(id)
@@ -147,7 +149,7 @@ function orderCounters(pool: HandPool) {
 describe('visible collection and order (Hb1)', () => {
   it('parity at 1x through #1-#5; the commit and reads fences hold', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
@@ -225,7 +227,7 @@ describe('visible collection and order (Hb1)', () => {
 
   it('bootstrap: deciding visibility loads no row; it reads the cold rows it walks through by id', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     // No list mounted: only the pool's own `visible` cells have run.
     const handle = harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
       schedule: () => () => {},
@@ -258,7 +260,7 @@ describe('visible collection and order (Hb1)', () => {
 
   it('a rank change places one row, shifting at most the visible count, and commits only it', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     const handle = mounted.handle as HarnessHandPoolHandle
     const { pool } = handle
@@ -299,7 +301,7 @@ describe('visible collection and order (Hb1)', () => {
 
   it('a rename of an origin with a hidden open spin-off commits only visible rows (#4 shape)', async () => {
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
       settle(mounted.handle as HarnessHandPoolHandle)
@@ -363,7 +365,7 @@ describe('visible collection and order (Hb1)', () => {
       },
     }
     const ctx = await startScenarioEngine(1)
-    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const feeds = openFenceFeeds(ctx, 'pooled')
     const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
     try {
       settle(mounted.handle as HarnessHandPoolHandle)
@@ -414,7 +416,7 @@ async function runHiddenSpinOffRename(
   ctx: ScenarioEngine,
   flush: () => void,
 ) {
-  const store = ctx.engine.access
+  const store = referenceState(ctx.engine)
   const visible = rowViewsFromStore(store, engineLocals(ctx))
   let origin: string | undefined
   let spinOff: string | undefined
