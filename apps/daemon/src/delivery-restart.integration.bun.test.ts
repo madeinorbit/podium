@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
@@ -82,10 +82,51 @@ function owner(outbox: RuntimeEventOutbox) {
 }
 
 describe('daemon delivery journal across SIGKILL (POD-5556)', () => {
+  it('never retries a recovery reserved before the legacy outbox gained typing coverage', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-upgrade-'))
+    roots.push(dir)
+    writeFileSync(join(dir, 'runtime-event-outbox.json'), JSON.stringify({ version: 1, events: [] }))
+    const after = owner(open(dir))
+    after.idle()
+    await after.handle.send(input, options)
+    await Bun.sleep(250)
+    expect(after.write).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  }, 20_000)
+
+  it('never retries a recovery after both journal files were deleted between owners', async () => {
+    const dir = await crash('typing')
+    for (const name of ['runtime-event-outbox.json', 'runtime-event-outbox.log']) rmSync(join(dir, name), { force: true })
+    const after = owner(open(dir))
+    after.idle()
+    await after.handle.send(input, options)
+    await Bun.sleep(250)
+    expect(after.write).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  }, 20_000)
+
+  it('never trusts stored-only recovery coverage before a torn typing record', async () => {
+    const dir = await crash('typing')
+    const path = join(dir, 'runtime-event-outbox.log')
+    const journal = readFileSync(path, 'utf8')
+    const marker = journal.lastIndexOf('{"op":"typing"')
+    expect(marker).toBeGreaterThanOrEqual(0)
+    writeFileSync(path, journal.slice(0, marker) + '{"op":"typing"')
+    const after = owner(open(dir))
+    after.idle()
+    await after.handle.send(input, options)
+    await Bun.sleep(250)
+    expect(after.write).not.toHaveBeenCalled()
+    expect(after.emit).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failed', cause: 'unconfirmed' }))
+    await after.handle.stop()
+  }, 20_000)
+
   it('holds never-typed mail on the new owner, then types it exactly once at idle', async () => {
     const dir = await crash('held')
     const outbox = open(dir)
-    expect(outbox.deliveryJournal(sessionId).read(input.rowId)).toBeUndefined()
+    expect(outbox.deliveryJournal(sessionId).read(input.rowId)).toEqual({ typingStarted: false })
     const after = owner(outbox)
     await after.handle.send(input, options)
     await Bun.sleep(400)
