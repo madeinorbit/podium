@@ -11,7 +11,7 @@ import time
 import uuid
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--candidate', default='candidate', choices=['candidate', 'new'])
+parser.add_argument('--candidate', default='candidate', choices=['candidate', 'candidate2', 'candidate3', 'new'])
 parser.add_argument('--samples', type=int, default=8)
 parser.add_argument('--round', type=int, default=2)
 args = parser.parse_args()

@@ -39,6 +39,12 @@ function coldStartComposeIssue(projection, userState, gitState, repo, deps, bloc
 }
 `
 const joinMemoSource = readFileSync(resolve(arg('join-memo','packages/client-core/src/join-memo.ts')),'utf8')
+const writeBatchSource = readFileSync(resolve(arg('idb-helper','packages/sync/src/adapters/indexeddb/write-batch.ts')),'utf8')
+const writeBatch = writeBatchSource.replace(/^import type[^\n]*\n/, '')
+  .replace('        const end = Math.min(at + 256, ops.length)', `        const coldStartBatchBegan = performance.now(), coldStartBatchAt = at
+        const end = Math.min(at + 256, ops.length)`)
+  .replace('        if (at === ops.length)', `        coldStartMeasure('native-write-batch',coldStartBatchBegan,at-coldStartBatchAt)
+        if (at === ops.length)`)
 const quickMemo = joinMemoSource+`
 const coldStartActualJoins = new JoinMemo()
 function coldStartJoinMemo(root, keys) {
@@ -82,6 +88,7 @@ const plugin = {
     if (id.endsWith('/client-graph/src/host/screens.ts')) {
       code = helper+code.replace('    if (!screen.attach) continue', `    if (!screen.attach) continue
     if (coldStartFlag('coldStartNoAttachedScreens') && screen.id !== 'sidebar') continue
+    if (coldStartFlag('coldStartMinimalAttach') && !['sidebar','pane','shell'].includes(screen.id)) continue
     if (coldStartFlag('coldStartNoDormantAttach') && ['automations','notices','workflows','chatContext'].includes(screen.id)) continue
     const coldStartAttachBegan = performance.now()`)
       code = code.replace('      .then((stop) => {', `      .then((stop) => {
@@ -92,13 +99,38 @@ const plugin = {
     for (const row of event.rows)
 `)
     }
+    if (id.endsWith('/sync/src/adapters/indexeddb/store.ts')) {
+      code=helper+writeBatch+code.replace("    const tx = this.db.transaction(scopeOf(draft), 'readwrite')", `    const coldStartCommitBegan = performance.now()
+    const tx = this.db.transaction(scopeOf(draft), 'readwrite')`)
+      code=code.replace('      for (const op of draft.ops) {\n        const store = tx.objectStore(op.store)', `      const coldStartQueueBegan = performance.now()
+      if (coldStartFlag('coldStartChunkWrites')) await enqueueWrites(tx,draft.ops)
+      else for (const op of draft.ops) {
+        const store = tx.objectStore(op.store)`)
+      code=code.replace("        if (op.kind === 'put') store.put(op.value)", `        if (op.kind === 'put') {
+          // Diagnostic only: retain the mirror and keys while removing payload
+          // clone cost. This deliberately cannot certify durable startup.
+          const value = coldStartFlag('coldStartNoEntityPayload') && op.store === ENTITY_STORE
+            ? {...op.value,value:null} : op.value
+          store.put(value)
+        }`)
+      code=code.replace('      }\n    } catch (error) {\n      if (error instanceof SyncCommitConflict)', `      }
+      coldStartMeasure('native-enqueue',coldStartQueueBegan,draft.ops.length)
+    } catch (error) {
+      if (error instanceof SyncCommitConflict)`)
+      code=code.replace('    await completion\n  }\n\n  /** Swap a committed draft', `    await completion
+    coldStartMeasure('native-commit',coldStartCommitBegan,draft.ops.length)
+  }
+
+  /** Swap a committed draft`)
+    }
     if (id.endsWith('/client-graph/src/create.ts')) {
       code = helper+code.replace('  const row = source.row?.bind(source)', `  const coldStartBuildBegan = performance.now()
   const row = source.row?.bind(source)`)
       code = code.replace('  const offRows = source.subscribe((event) => pool.apply(event))', `  coldStartMeasure('pool-build', coldStartBuildBegan)
   const offRows = source.subscribe((event) => {
     const coldStartApplyBegan = performance.now()
-    pool.apply(event)
+    pool.apply(coldStartFlag('coldStartResidentReplace') && event.type === 'replace'
+      ? {...event,rows:event.rows.filter(row=>row.kind === 'worktree')} : event)
     coldStartMeasure('pool-apply:'+event.type, coldStartApplyBegan, event.rows.length)
   })`)
     }
@@ -176,6 +208,7 @@ writeFileSync(resolve(out,'ablation-provenance.json'),JSON.stringify({
   sourceSha:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),
   builderSha256:createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
   joinMemoSha256:createHash('sha256').update(joinMemoSource).digest('hex'),
+  writeBatchSha256:createHash('sha256').update(writeBatchSource).digest('hex'),
   changes,
 },null,2))
 console.log(`Ablation build ready: ${out}; ${changes.length} transformed modules`)

@@ -40,6 +40,8 @@ def cold_samples(paths):
     samples = []
     provenance = []
     for path in paths:
+        if Path(path).with_name('EXCLUDED.json').exists():
+            raise ValueError(f'{path}: capture was explicitly excluded')
         run = json.loads(Path(path).read_text())
         if run.get('status') != 'complete' or run.get('controlOnly') or run.get('variants') or run.get('diagnostic'):
             raise ValueError(f'{path}: incomplete or diagnostic capture')

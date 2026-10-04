@@ -96,6 +96,7 @@ import {
   isQuotaError,
   requestAsPromise,
 } from './idb'
+import { enqueueWrites } from './write-batch'
 import {
   ALL_STORES,
   CURSOR_KEY,
@@ -762,11 +763,7 @@ export class IndexedDbSyncStore {
           throw new SyncCommitConflict(conflicts)
         }
       }
-      for (const op of draft.ops) {
-        const store = tx.objectStore(op.store)
-        if (op.kind === 'put') store.put(op.value)
-        else store.delete(op.key)
-      }
+      await enqueueWrites(tx, draft.ops)
     } catch (error) {
       if (error instanceof SyncCommitConflict) throw error
       try {

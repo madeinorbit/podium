@@ -25,6 +25,10 @@ const variantQueries = {
   quick:'coldStartQuickMemos=1',
   quickCandidates:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartNoDiscardedHydrate=1',
   replaceQueries:'coldStartSkipReplaceQueries=1', attachAll:'coldStartNoAttachedScreens=1',
+  minimalAttach:'coldStartMinimalAttach=1', residentReplace:'coldStartResidentReplace=1',
+  noEntityPayload:'coldStartNoEntityPayload=1',
+  chunkWrites:'coldStartChunkWrites=1',
+  chunkBounded:'coldStartChunkWrites=1&coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
   bounded:'coldStartQuickMemos=1&coldStartLazyFacade=1&coldStartLazyTargets=1&coldStartBulkSessionFacts=1&coldStartSkipReplaceQueries=1',
 }
 const variants = arg('variants','').split(',').filter(Boolean)

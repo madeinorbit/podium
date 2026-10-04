@@ -26,15 +26,21 @@ function run(ms: number, patch: Record<string, unknown> = {}) {
   }
 }
 
-function compare(old: ReturnType<typeof run>, candidate: ReturnType<typeof run>) {
+function compare(old: ReturnType<typeof run>, candidate: ReturnType<typeof run>, excluded = false) {
   const directory = mkdtempSync(join(tmpdir(), 'pod-5513-guard-'))
   directories.push(directory)
   const oldPath = join(directory, 'old.json'), candidatePath = join(directory, 'candidate.json')
   writeFileSync(oldPath, JSON.stringify(old)); writeFileSync(candidatePath, JSON.stringify(candidate))
+  if (excluded) writeFileSync(join(directory, 'EXCLUDED.json'), JSON.stringify({ reason: 'companion build overlapped' }))
   return spawnSync('python3', [guard, '--old', oldPath, '--candidate', candidatePath], { encoding: 'utf8' })
 }
 
 describe('cold startup admission', () => {
+  it('refuses a capture explicitly excluded for overlapping build work', () => {
+    const result = compare(run(2_500), run(2_400), true)
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('explicitly excluded')
+  })
   it('requires both the matched OLD budget and the original 2.5 second ceiling', () => {
     expect(compare(run(2_500), run(2_400)).status).toBe(0)
     expect(compare(run(2_300), run(2_400)).status).toBe(1)
