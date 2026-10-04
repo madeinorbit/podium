@@ -23,7 +23,7 @@ import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
 import { createColdIndex } from './shared/cold-index'
-import { questionEntity } from './shared/reader-questions'
+import { createReaderIndex, questionEntity } from './shared/reader-questions'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 import { SHELL_SUMMARIES } from './shell-schema'
@@ -242,6 +242,29 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
 ]
 
 describe('readers behind declared cold questions', () => {
+  it('keeps publication path reads constant while indexing target text', () => {
+    for (const title of ['Target', `Target ${'alphabet '.repeat(32)}`]) {
+      const index = createReaderIndex()
+      let pathReads = 0
+      const value = new Proxy({
+        id: 'target', seq: 42, title, repoId: 'repo', repoPath: '/query',
+        stage: 'backlog', archived: false,
+      }, {
+        get(row, key, receiver) {
+          if (key === 'repoPath') pathReads++
+          return Reflect.get(row, key, receiver)
+        },
+      })
+      index.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'target', value } as never] })
+      // Assert the real declared query before its input-work budget: a plant
+      // that rereads the path for every gram must fail despite identical IDs.
+      expect(index.ids({
+        kind: 'mobileIssueTargets', repoPath: '/query', excludeId: '',
+        query: 'target', limit: 14, prefixes: { repo: 'Q-' },
+      })).toEqual(['target'])
+      expect(pathReads).toBe(1)
+    }
+  })
   it.each([
     1, 4,
   ])('keeps the filtered command issue roster exact with %ix archived history', (scale) => {
