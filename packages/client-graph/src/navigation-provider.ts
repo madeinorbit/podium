@@ -2,6 +2,7 @@ import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
+import { _isComputingDerivation, runInAction } from 'mobx'
 import { missions } from './mission'
 import { navigationActivity } from './navigation-activity'
 import type { MobxPool } from './pool'
@@ -20,11 +21,13 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       row.resume && (row.status === 'hibernated' || row.status === 'exited')
         ? [row.resume, row.lastActiveAt] : undefined])
   }
-  for (const id of pool.queries.ids({ kind: 'shellSessions' })) {
-    const value = signature(id)
-    if (value !== undefined) signatures.set(id, value)
-  }
-  return {
+  runInAction(() => {
+    for (const id of pool.queries.ids({ kind: 'shellSessions' })) {
+      const value = signature(id)
+      if (value !== undefined) signatures.set(id, value)
+    }
+  })
+  const provider: NavigationProvider = {
     onTopology(changed) {
       return pool.queries.onChange(event => {
         let moved = event.type === 'replace'
@@ -123,5 +126,21 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     issueReadAt: (id) => pool.readCursor(id),
     watch: (read, changed) => createPoolProjection(pool, read).subscribe(changed),
+  }
+  // Runtime actions also use this port outside a reactive read. Permit those
+  // addressed reads without detaching the same methods from watched projections.
+  const read = <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A): R =>
+    _isComputingDerivation() ? fn(...args) : runInAction(() => fn(...args))
+  return {
+    ...provider,
+    issue: read(provider.issue),
+    issueSessions: read(provider.issueSessions!),
+    missionRoot: read(provider.missionRoot),
+    missionMembers: read(provider.missionMembers),
+    session: read(provider.session),
+    sessionMembership: read(provider.sessionMembership!),
+    worktreeSessions: read(provider.worktreeSessions!),
+    activityAt: read(provider.activityAt),
+    issueReadAt: read(provider.issueReadAt),
   }
 }
