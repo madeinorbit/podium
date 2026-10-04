@@ -54,40 +54,63 @@ async function mount(inline: boolean) {
   // This fixture counts ordinary hook-driven renders, including an unchanged
   // parent render. Keep it plain and give React its name without an observer
   // or memo wrapper that would skip the render being measured.
-  const Probe = Object.assign(() => {
-    renders++
-    const captured = target
-    pool = host.usePool()
-    snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null)
-    return null
-  }, { displayName: 'PoolProjectionProbe' })
+  const Probe = Object.assign(
+    () => {
+      renders++
+      const captured = target
+      pool = host.usePool()
+      snapshot = host.usePoolProjection(inline ? freshReader(captured) : reader, null)
+      return null
+    },
+    { displayName: 'PoolProjectionProbe' },
+  )
   const replica = createKernelReplica({
-    cache: { readCursor: () => null, readEntities: () => [], read: () => undefined, durability: () => 'durable' },
+    cache: {
+      readCursor: () => null,
+      readEntities: () => [],
+      read: () => undefined,
+      durability: () => 'durable',
+    },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   const container = document.createElement('div')
   const root: Root = createRoot(container)
-  cleanups.push(() => { act(() => root.unmount()); container.remove() })
+  cleanups.push(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
   const principal = asClientPrincipal(asUserId('projection-count'))
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
   const api = {} as PodiumClientApi
   function render() {
-    act(() => root.render(
-      <StoreProvider
-        principal={principal} config={config} api={api} createReplicaFn={() => replica}
-        networkEnabled={false} onFatalError={(message) => { throw new Error(message) }}
-        attachRuntime={(owner) => {
-          runtime = owner
-          return host.attach(owner, (error) => { throw error })
-        }}
-      >
-        <Probe />
-      </StoreProvider>,
-    ))
+    act(() =>
+      root.render(
+        <StoreProvider
+          principal={principal}
+          config={config}
+          api={api}
+          createReplicaFn={() => replica}
+          networkEnabled={false}
+          onFatalError={(message) => {
+            throw new Error(message)
+          }}
+          attachRuntime={(owner) => {
+            runtime = owner
+            return host.attach(owner, (error) => {
+              throw error
+            })
+          }}
+        >
+          <Probe />
+        </StoreProvider>,
+      ),
+    )
   }
   render()
   await vi.waitFor(async () => {
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     expect(pool).not.toBeNull()
   })
   expect(pool).not.toBeNull()
@@ -99,21 +122,36 @@ async function mount(inline: boolean) {
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     render,
-    replaceReader: () => { reader = (current) => read(current); render() },
-    capture: (id: string) => { target = id; render() },
-    select: (id: string) => act(async () => {
-      const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
-      publisher.apply({ selectedIssueId: id })
-    }),
-    change: () => act(async () => {
-      const publisher = runtime as unknown as { apply(patch: { selectedIssueId: string | null }): void }
-      publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
-    }),
+    replaceReader: () => {
+      reader = (current) => read(current)
+      render()
+    },
+    capture: (id: string) => {
+      target = id
+      render()
+    },
+    select: (id: string) =>
+      act(async () => {
+        const publisher = runtime as unknown as {
+          apply(patch: { selectedIssueId: string | null }): void
+        }
+        publisher.apply({ selectedIssueId: id })
+      }),
+    change: () =>
+      act(async () => {
+        const publisher = runtime as unknown as {
+          apply(patch: { selectedIssueId: string | null }): void
+        }
+        publisher.apply({ selectedIssueId: snapshot!.selected ? null : 'projection-target' })
+      }),
   }
 }
 
 describe('real host projection read counts', () => {
-  it.each([false, true])('measures first mount and a real selection update (inline=%s)', async (inline) => {
+  it.each([
+    false,
+    true,
+  ])('measures first mount and a real selection update (inline=%s)', async (inline) => {
     const fixture = await mount(inline)
     const firstMount = fixture.reads()
     const first = fixture.snapshot()
@@ -124,8 +162,13 @@ describe('real host projection read counts', () => {
     const beforeRerender = fixture.reads()
     fixture.render()
     const parentRerender = fixture.reads() - beforeRerender
-    console.info('[pool projection counts]', { inline, firstMount, perChange, parentRerender,
-      stableOnRerender: fixture.snapshot() === updated })
+    console.info('[pool projection counts]', {
+      inline,
+      firstMount,
+      perChange,
+      parentRerender,
+      stableOnRerender: fixture.snapshot() === updated,
+    })
     // The equality gate derives once per publication. A fresh inline closure
     // gets one additional evaluation in render, without replacing the view.
     expect(perChange).toBe(inline ? 2 : 1)
@@ -136,10 +179,14 @@ describe('real host projection read counts', () => {
     expect(fixture.subscriptions()).toBe(1)
   })
 
-  it.each([false, true])('does not render the owner for structurally equal results (inline=%s)', async (inline) => {
+  it.each([
+    false,
+    true,
+  ])('does not render the owner for structurally equal results (inline=%s)', async (inline) => {
     const fixture = await mount(inline)
     const snapshot = fixture.snapshot()
-    const reads = fixture.reads(), renders = fixture.renders()
+    const reads = fixture.reads(),
+      renders = fixture.renders()
     await fixture.select('another-target')
     expect(fixture.reads() - reads).toBe(1)
     expect(fixture.renders()).toBe(renders)
