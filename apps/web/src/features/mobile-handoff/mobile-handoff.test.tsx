@@ -1,5 +1,5 @@
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureStore, normalizedFixtureIssues } from '@/test-support/normalized-issues'
+import { parsePodiumLink } from '@podium/protocol'
 // @vitest-environment happy-dom
 /**
  * The two mobile-handoff surfaces, against the three rules that define them
@@ -16,9 +16,9 @@ import {
   waitFor,
 } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
-import { parsePodiumLink } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 const fixture = vi.hoisted(() => {
   const rows = new Map<string, string>()
@@ -55,19 +55,21 @@ const fixture = vi.hoisted(() => {
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => normalizedFixtureIssues({ issues: fixture.issues }),
   useStoreSelector: (selector: (store: unknown) => unknown) =>
-    selector(normalizedFixtureStore({
-      uiState: fixture.uiState,
-      trpc: fixture.trpc,
-      httpOrigin: 'https://local.example',
-      issues: fixture.issues,
-      selectedIssueId: null,
-      selectedWorktree: null,
-      workspaces: fixture.workspaces,
-      paneA: fixture.paneA,
-      paneB: null,
-      split: false,
-      focusedPane: 'A',
-    })),
+    selector(
+      normalizedFixtureStore({
+        uiState: fixture.uiState,
+        trpc: fixture.trpc,
+        httpOrigin: 'https://local.example',
+        issues: fixture.issues,
+        selectedIssueId: null,
+        selectedWorktree: null,
+        workspaces: fixture.workspaces,
+        paneA: fixture.paneA,
+        paneB: null,
+        split: false,
+        focusedPane: 'A',
+      }),
+    ),
 }))
 
 vi.mock('@/app/store-worklist-pool', async () => ({

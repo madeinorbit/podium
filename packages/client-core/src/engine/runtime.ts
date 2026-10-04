@@ -822,7 +822,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * harness) are not routed.
    */
   readonly attachPoolWriter = (writer: PoolWriter): (() => void) => {
-    if (this.poolWriter !== null) throw new Error('A pool writer is already attached to this runtime')
+    if (this.poolWriter !== null)
+      throw new Error('A pool writer is already attached to this runtime')
     this.poolWriter = writer
     return () => {
       if (this.poolWriter === writer) this.poolWriter = null
@@ -1357,28 +1358,63 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  private attachNavigationWatch(provider: NavigationProvider, watch: NonNullable<NavigationProvider['watch']>): () => void {
-    return watch.call(provider, () => {
-      const st = this.state
-      const focused = focusedPaneSession(st)
-      const session = focused ? provider.session(focused) : undefined
-      const issue = foregroundIssue(st)
-      const pending = this.pendingNavigation
-      return [
-        resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt,
-          provider.activityAt(issue.id), provider.issueReadAt(issue.id)] : undefined,
-        // Watch only the pool fields these navigation reactions consume.
-        session && session !== NAVIGATION_LOADING
-          ? [session.sessionId, session.issueId, session.cwd, session.lastActiveAt, session.unread] : session,
-        this.pendingNavigationTopology && session && session !== NAVIGATION_LOADING && session.issueId
-          ? resolvedWorkspaceKey(overlayState(st, { selectedIssueId: session.issueId })) : undefined,
-        this.pendingSessionNavigation ? provider.session(this.pendingSessionNavigation) : undefined,
-        pending ? resolvedWorkspaceKey(overlayState(st, {
-          ...(pending.selectedIssueId !== undefined ? { selectedIssueId: pending.selectedIssueId } : {}),
-          ...(pending.selectedWorktree !== undefined ? { selectedWorktree: pending.selectedWorktree } : {}),
-        })) : undefined,
-      ]
-    }, () => this.queueNavigationWake(provider))
+  private attachNavigationWatch(
+    provider: NavigationProvider,
+    watch: NonNullable<NavigationProvider['watch']>,
+  ): () => void {
+    return watch.call(
+      provider,
+      () => {
+        const st = this.state
+        const focused = focusedPaneSession(st)
+        const session = focused ? provider.session(focused) : undefined
+        const issue = foregroundIssue(st)
+        const pending = this.pendingNavigation
+        return [
+          resolvedWorkspaceKey(st),
+          issue
+            ? [
+                issue.id,
+                issue.updatedAt,
+                provider.activityAt(issue.id),
+                provider.issueReadAt(issue.id),
+              ]
+            : undefined,
+          // Watch only the pool fields these navigation reactions consume.
+          session && session !== NAVIGATION_LOADING
+            ? [
+                session.sessionId,
+                session.issueId,
+                session.cwd,
+                session.lastActiveAt,
+                session.unread,
+              ]
+            : session,
+          this.pendingNavigationTopology &&
+          session &&
+          session !== NAVIGATION_LOADING &&
+          session.issueId
+            ? resolvedWorkspaceKey(overlayState(st, { selectedIssueId: session.issueId }))
+            : undefined,
+          this.pendingSessionNavigation
+            ? provider.session(this.pendingSessionNavigation)
+            : undefined,
+          pending
+            ? resolvedWorkspaceKey(
+                overlayState(st, {
+                  ...(pending.selectedIssueId !== undefined
+                    ? { selectedIssueId: pending.selectedIssueId }
+                    : {}),
+                  ...(pending.selectedWorktree !== undefined
+                    ? { selectedWorktree: pending.selectedWorktree }
+                    : {}),
+                }),
+              )
+            : undefined,
+        ]
+      },
+      () => this.queueNavigationWake(provider),
+    )
   }
 
   private queueNavigationWake(provider: NavigationProvider): void {
@@ -1386,24 +1422,27 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.navigationWakeQueued = true
     // The runtime publishes before the row source's queued fold. Cross that
     // boundary before following a rehome or pruning the original tab strip.
-    queueMicrotask(() => queueMicrotask(() => {
-      this.navigationWakeQueued = false
-      if (this.destroyed || this.state.navigation !== provider) return
-      this.batch(() => {
-        if (this.pendingNavigationTopology && this.reactions.sessionIssueFollow()) {
-          this.pendingNavigationTopology = false
-          this.reactions.pruneWorkspaces()
-        }
-        if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
-        if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
-        if (this.pendingNavigation) this.navigate(this.pendingNavigation)
-        this.syncWorkspaceSelection()
-        this.reactions.updateIssueVisitBaseline()
-        this.reactions.updateMarkReadTimer()
-        this.reactions.updateIssueMarkReadTimer()
-      })
-      this.watchNavigation()
-    }))
+    queueMicrotask(() =>
+      queueMicrotask(() => {
+        this.navigationWakeQueued = false
+        if (this.destroyed || this.state.navigation !== provider) return
+        this.batch(() => {
+          if (this.pendingNavigationTopology && this.reactions.sessionIssueFollow()) {
+            this.pendingNavigationTopology = false
+            this.reactions.pruneWorkspaces()
+          }
+          if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
+          if (this.pendingSessionNavigation)
+            this.statics.navigateToSession(this.pendingSessionNavigation)
+          if (this.pendingNavigation) this.navigate(this.pendingNavigation)
+          this.syncWorkspaceSelection()
+          this.reactions.updateIssueVisitBaseline()
+          this.reactions.updateMarkReadTimer()
+          this.reactions.updateIssueMarkReadTimer()
+        })
+        this.watchNavigation()
+      }),
+    )
   }
 
   // ------------------------------------------------------------ state pipeline
@@ -1543,7 +1582,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // next frame must still perform the original pruning, even if only its
       // activity moved. A title-only frame may conservatively dirty this bit.
       this.workspaceMembershipDirty = false
-      if (!this.state.navigation || !this.pendingNavigationTopology) this.reactions.pruneWorkspaces()
+      if (!this.state.navigation || !this.pendingNavigationTopology)
+        this.reactions.pruneWorkspaces()
     }
     // Lazy lists (POD-5434): the membership watch's "before" for the open
     // workspaces, recorded before an issue batch can change it.
@@ -1588,7 +1628,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       )
     )
       this.reactions.updateIssueMarkReadTimer()
-    if ((sessionTopology && this.state.navigation) || any('navigation', 'selectedIssueId', 'selectedWorktree', 'view', 'openIssueId', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
+    if (
+      (sessionTopology && this.state.navigation) ||
+      any(
+        'navigation',
+        'selectedIssueId',
+        'selectedWorktree',
+        'view',
+        'openIssueId',
+        'paneA',
+        'paneB',
+        'split',
+        'focusedPane',
+        'workspaces',
+      )
+    )
       this.watchNavigation()
   }
 

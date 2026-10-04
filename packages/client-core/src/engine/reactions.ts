@@ -16,8 +16,9 @@
  * after a different principal took over (POD-404 AC).
  */
 
-import type { SessionId, IssueId } from '@podium/model'
+import type { IssueId, SessionId } from '@podium/model'
 import { markSwitch } from '../perf/switch-trace'
+import type { SessionView } from '../session-values'
 import type { SocketHub } from '../socket-transport'
 import {
   allTabIds,
@@ -32,21 +33,20 @@ import {
   type EngineState,
   focusedPaneSession,
   foregroundIssue,
-  navigationSession,
-  NAVIGATION_LOADING,
-  resolvedWorkspaceKey,
-  navigationActivityAt,
-  navigationIssueReadAt,
   knownTabIds,
   knownTabIdsForWorkspace,
-  referencedTabIds,
-  visibleTabIds,
-  workspaceWritePatch,
-  workspacesPatch,
+  NAVIGATION_LOADING,
+  navigationActivityAt,
+  navigationIssueReadAt,
+  navigationSession,
   overlayState,
+  referencedTabIds,
+  resolvedWorkspaceKey,
+  visibleTabIds,
+  workspacesPatch,
+  workspaceWritePatch,
 } from './state'
 import type { StoreNotices } from './types'
-import type { SessionView } from '../session-values'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
@@ -266,7 +266,10 @@ export class Reactions {
     // Legacy delivery stays synchronous. A cold pool destination must keep
     // the previous owner until it can move the active tab without a fallback.
     if (!st.navigation) this.prevIssueIds = next
-    const finish = () => { this.prevIssueIds = next; return true }
+    const finish = () => {
+      this.prevIssueIds = next
+      return true
+    }
     if (Object.keys(prev).length === 0) return finish()
     const focused = focusedPaneSession(st)
     if (!focused) return finish()
