@@ -6,10 +6,12 @@ Python standard library; never reads operator data or terminates processes.
 import argparse
 import ctypes
 import json
+import os
 import pathlib
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 
 parser = argparse.ArgumentParser()
@@ -18,9 +20,11 @@ parser.add_argument('--url', required=True)
 parser.add_argument('--out', required=True)
 parser.add_argument('--driver', default='http://127.0.0.1:19689')
 parser.add_argument('--seconds', type=int, default=60)
+parser.add_argument('--openurl', action='store_true', help='Capture normal Safari opened by simctl, without WebDriver')
 args = parser.parse_args()
 out = pathlib.Path(args.out)
 out.mkdir(parents=True, exist_ok=True)
+(out / 'capture.pid').write_text(str(os.getpid()))
 start = time.monotonic()
 stop = threading.Event()
 libproc = ctypes.CDLL('/usr/lib/libproc.dylib')
@@ -30,8 +34,11 @@ def request(method, path, value=None, timeout=30):
     data = None if value is None else json.dumps(value).encode()
     req = urllib.request.Request(args.driver + path, data=data, method=method,
                                  headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
-        result = json.load(response)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            result = json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(error.read().decode()) from error
     if isinstance(result.get('value'), dict) and 'error' in result['value']:
         raise RuntimeError(result['value'])
     return result['value']
@@ -69,6 +76,16 @@ thread = threading.Thread(target=sample, daemon=True)
 thread.start()
 session = None
 try:
+    if args.openurl:
+        subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True)
+        stop.wait(args.seconds)
+        subprocess.run(['xcrun', 'simctl', 'io', args.udid, 'screenshot', str(out / 'phone.png')], check=True,
+                       stdout=subprocess.DEVNULL)
+    else:
+        pass
+    if args.openurl:
+        # Normal Safari telemetry is written by the isolated preview.
+        raise SystemExit(0)
     capabilities = {'browserName': 'Safari', 'platformName': 'iOS',
                     'safari:useSimulator': True, 'safari:deviceUDID': args.udid}
     value = request('POST', '/session', {'capabilities': {'alwaysMatch': capabilities}}, 90)
@@ -76,11 +93,16 @@ try:
     (out / 'session.json').write_text(json.dumps(value, indent=2))
     base = '/session/' + session
     request('POST', base + '/timeouts', {'pageLoad': 60000, 'script': 15000})
-    request('POST', base + '/url', {'url': args.url}, 75)
+    try:
+        request('POST', base + '/url', {'url': args.url}, 75)
+    except Exception as error:
+        append('page.ndjson', {'navigationError': str(error)})
     end = time.monotonic() + args.seconds
     script = """
       return {url:location.href, age:performance.now(),
         nodes:document.getElementsByTagName('*').length,
+        rows:document.querySelectorAll('[data-block]').length,
+        scroll:Array.from(document.querySelectorAll('[data-testid="transcript-scroller"]')).map(s=>({top:s.scrollTop,height:s.scrollHeight,viewport:s.clientHeight})),
         marks:document.querySelectorAll('.pod-mark').length,
         canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
         images:document.images.length, errors:window.__fixtureErrors || [],
@@ -107,4 +129,12 @@ finally:
             request('DELETE', '/session/' + session, timeout=15)
         except Exception as error:
             append('page.ndjson', {'cleanupError': str(error)})
+    with (out / 'native.log').open('w') as native:
+        try:
+            subprocess.run(['xcrun', 'simctl', 'spawn', args.udid, 'log', 'show', '--last', '5m',
+                            '--style', 'compact', '--predicate',
+                            'process == "MobileSafari" OR process CONTAINS "WebContent"'],
+                           stdout=native, stderr=subprocess.STDOUT, timeout=30)
+        except subprocess.TimeoutExpired:
+            append('page.ndjson', {'nativeLogError': 'log show timed out'})
     print(json.dumps({'out': str(out), 'elapsed': round(time.monotonic() - start, 1)}), flush=True)

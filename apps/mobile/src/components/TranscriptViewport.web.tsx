@@ -1,23 +1,27 @@
 import { useDomTranscriptScroll } from '@podium/client-core/react/transcript-scroll'
 import {
-  forwardRef,
   type ForwardedRef,
+  forwardRef,
   type ReactElement,
   type RefAttributes,
   useCallback,
   useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
   useRef,
+  useState,
 } from 'react'
 import { ScrollView } from 'react-native'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
 
 const noOperation = () => {}
 const separators = { highlight: noOperation, unhighlight: noOperation, updateProps: noOperation }
+const RENDER_WINDOW = 80
 
-/** RN Web does not implement native visible-content anchoring. Keep loaded rows
- * in normal DOM order, with the same scroll authority as desktop. Unmeasured
- * virtualizer spacers must never replace the reader's message. */
-function WebViewport<Item>(
+/** Mount a bounded tail while following, revealing history in measured DOM
+ * order as the reader moves up. Keep the mounted head while reading, just as
+ * desktop does; native FlatList windowing is unavailable in RN Web. */
+export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   {
     identity,
     data,
@@ -35,31 +39,96 @@ function WebViewport<Item>(
   ref: ForwardedRef<TranscriptViewportHandle>,
 ) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
+  const [following, setFollowing] = useState(true)
+  const [renderCount, setRenderCount] = useState(RENDER_WINDOW)
+  const heldHead = useRef<{ identity: string; key: string } | null>(null)
+  const pendingTarget = useRef<{ key: string; animated: boolean } | null>(null)
+  const windowIdentity = useRef(identity)
+  const tailStart = Math.max(
+    0,
+    data.length - (windowIdentity.current === identity ? renderCount : RENDER_WINDOW),
+  )
+  const retainedStart =
+    !following && heldHead.current?.identity === identity
+      ? data.findIndex(
+          (item, index) =>
+            keyExtractor(item, index) === heldHead.current?.key ||
+            anchorKeys?.(item).includes(heldHead.current?.key ?? ''),
+        )
+      : -1
+  const renderStart = retainedStart >= 0 ? Math.min(tailStart, retainedStart) : tailStart
+  const visibleRows = useMemo(() => data.slice(renderStart), [data, renderStart])
+  useLayoutEffect(() => {
+    windowIdentity.current = identity
+    setFollowing(true)
+    setRenderCount(RENDER_WINDOW)
+    pendingTarget.current = null
+  }, [identity])
+  useLayoutEffect(() => {
+    const first = visibleRows[0]
+    heldHead.current =
+      first === undefined ? null : { identity, key: keyExtractor(first, renderStart) }
+  }, [identity, keyExtractor, renderStart, visibleRows])
+  const followChanged = useCallback(
+    (next: boolean) => {
+      setFollowing(next)
+      if (next) setRenderCount(RENDER_WINDOW)
+      onFollowChange?.(next)
+    },
+    [onFollowChange],
+  )
+  const revealOlder = useCallback(() => {
+    if (renderStart > 0) setRenderCount((count) => count + RENDER_WINDOW)
+    else onLoadOlder()
+  }, [onLoadOlder, renderStart])
   const scroll = useDomTranscriptScroll({
     sessionId: identity,
     scrollerRef,
     active: true,
     blockCount: data.length,
-    renderStart: 0,
-    moreAbove,
+    renderStart,
+    moreAbove: renderStart > 0 || moreAbove,
     loadingOlder,
-    loadOlder: onLoadOlder,
-    rowsToRender: data,
-    onFollowChange,
+    loadOlder: revealOlder,
+    rowsToRender: visibleRows,
+    onFollowChange: followChanged,
   })
+  useLayoutEffect(() => {
+    const target = pendingTarget.current
+    if (!target) return
+    const index = data.findIndex((item, index) => keyExtractor(item, index) === target.key)
+    if (index < renderStart) return
+    pendingTarget.current = null
+    if (index >= 0) scroll.scrollToBlock(index, { instant: !target.animated })
+  }, [data, keyExtractor, renderStart, scroll.scrollToBlock])
   const setScrollView = useCallback(
     (node: ScrollView | null) => {
-      scroll.setScrollerRef((node?.getNativeScrollRef() ?? null) as HTMLDivElement | null)
+      const element = (node?.getNativeScrollRef() ?? null) as HTMLDivElement | null
+      // RN Web installs its {x, y, animated} scrollTo on this DOM node. Our
+      // shared browser scroll authority needs the native {top, behavior} API.
+      if (element) element.scrollTo = HTMLElement.prototype.scrollTo.bind(element)
+      scroll.setScrollerRef(element)
     },
     [scroll.setScrollerRef],
   )
   useImperativeHandle(
     ref,
     () => ({
-      pinToNewest: scroll.jumpToBottom,
-      scrollToIndex: ({ index, animated }) => scroll.scrollToBlock(index, { instant: !animated }),
+      pinToNewest() {
+        setRenderCount(RENDER_WINDOW)
+        scroll.jumpToBottom()
+      },
+      scrollToIndex({ index, animated }) {
+        const item = data[index]
+        if (item === undefined) return
+        if (index >= renderStart) scroll.scrollToBlock(index, { instant: !animated })
+        else {
+          pendingTarget.current = { key: keyExtractor(item, index), animated }
+          setRenderCount(Math.max(RENDER_WINDOW, data.length - index))
+        }
+      },
     }),
-    [scroll.jumpToBottom, scroll.scrollToBlock],
+    [data, keyExtractor, renderStart, scroll.jumpToBottom, scroll.scrollToBlock],
   )
   return (
     <ScrollView
@@ -74,7 +143,8 @@ function WebViewport<Item>(
         style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}
       >
         {data.length === 0 ? ListEmptyComponent : null}
-        {data.map((item, index) => {
+        {visibleRows.map((item, visibleIndex) => {
+          const index = renderStart + visibleIndex
           const key = keyExtractor(item, index)
           return (
             <div
@@ -98,8 +168,6 @@ function WebViewport<Item>(
       </div>
     </ScrollView>
   )
-}
-
-export const TranscriptViewport = forwardRef(WebViewport) as <Item>(
+}) as <Item>(
   props: TranscriptViewportProps<Item> & RefAttributes<TranscriptViewportHandle>,
 ) => ReactElement

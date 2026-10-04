@@ -5,9 +5,42 @@
 import { appendFileSync } from 'node:fs'
 const root = process.env.IOS_PREVIEW_ROOT
 if (!root) throw Error('Set IOS_PREVIEW_ROOT to the owned runner directory')
+const mobileRoot = `${root}/dist-${process.env.IOS_MOBILE_ARM ?? 'mobile'}`
 const manifest = await Bun.file(`${root}/manifest.json`).json()
 const api = await Bun.file(`${root}/fixture-api.json`).json()
 const transcript = await Bun.file(`${root}/transcript.json`).json()
+const streamMode = process.env.IOS_STREAM === '1'
+const sessionId = manifest.control
+const template = structuredClone(transcript)
+let generation = 0
+let nextItem = transcript.length
+function copyTurn() {
+  const turn = template.slice(0,11)
+  const prefix = `ios-live-${++generation}-`
+  return turn.map(item=> {
+    const copy = structuredClone(item)
+    copy.id = `synthetic-${nextItem++}`
+    copy.cursor = copy.id
+    copy.ts = new Date(Date.now()).toISOString()
+    // Tool ids in the generated template are unique per turn too.
+    for (const key of ['text','raw','toolUseId','toolInput','toolResult']) if (typeof copy[key] === 'string') {
+      copy[key] = copy[key].replace(/tool-[a-z0-9-]+/g,id=>prefix+id)
+    }
+    return copy
+  })
+}
+if (streamMode) while (transcript.length < 33_000) transcript.push(...copyTurn())
+const subscribers = new Set()
+let streamDeadline = null
+const streamTimer = streamMode ? setInterval(()=> {
+  if (subscribers.size === 0) return
+  if (streamDeadline === null) streamDeadline = Date.now() + 180_000
+  if (Date.now() >= streamDeadline) return
+  const items = copyTurn()
+  transcript.push(...items)
+  for (const client of subscribers) client.send(JSON.stringify({type:'transcriptDelta',sessionId,
+    items,tail:items.at(-1)?.cursor}))
+},250) : null
 const frames = await Bun.file(`${root}/socket-frames.json`).json()
 const procedures = new Map()
 for (const [path, entry] of Object.entries(api)) {
@@ -33,11 +66,13 @@ const telemetry = `<script>
   function diag(extra={}) {
     fetch('/__diag',{method:'POST',body:JSON.stringify({boot,age:performance.now(),
       url:location.href,nodes:document.getElementsByTagName('*').length,
+      rows:document.querySelectorAll('[data-block]').length,
       marks:document.querySelectorAll('[data-testid="working-mark"]').length,
       svg:document.querySelectorAll('svg').length,
       circles:document.querySelectorAll('circle').length,
       canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
-      images:document.images.length,errors:window.__fixtureErrors,...extra})}).catch(()=>{});
+      images:document.images.length,errors:window.__fixtureErrors,
+      text:document.body?.innerText.slice(-700),...extra})}).catch(()=>{});
   }
   function fault(error) {
     if(window.__fixtureErrors.length<40) window.__fixtureErrors.push(error);
@@ -45,6 +80,8 @@ const telemetry = `<script>
   }
   addEventListener('error',e=>fault({message:e.message,stack:e.error?.stack}));
   addEventListener('unhandledrejection',e=>fault({message:String(e.reason),stack:e.reason?.stack}));
+  const originalError=console.error;
+  console.error=(...args)=>{fault({console:args.map(a=>String(a)).join(' ')});originalError(...args)};
   addEventListener('pageshow',()=>diag({event:'pageshow'}));
   addEventListener('pagehide',()=>diag({event:'pagehide'}));
   setInterval(diag,1000);
@@ -56,7 +93,7 @@ const server = Bun.serve({
   async fetch(request, server) {
     const url = new URL(request.url)
     if (request.headers.get('upgrade') === 'websocket') {
-      if (server.upgrade(request)) return
+      if (server.upgrade(request,{data:{subscribed:false}})) return
     }
     if (url.pathname === '/__diag' && request.method === 'POST') {
       appendFileSync(`${root}/evidence/telemetry.ndjson`, JSON.stringify({time:Date.now(),...await request.json()})+'\n')
@@ -73,11 +110,11 @@ const server = Bun.serve({
     if (url.pathname === '/sw.js') return new Response('', {status:404})
     if (url.pathname === '/mobile' || url.pathname.startsWith('/mobile/')) {
       const path = url.pathname.slice('/mobile'.length)
-      const file = Bun.file(`${root}/dist-mobile${path}`)
+      const file = Bun.file(`${mobileRoot}${path}`)
       if (path && !path.includes('..') && await file.exists()) {
         return new Response(file,{headers:{'cache-control':'no-store'}})
       }
-      const html = (await Bun.file(`${root}/dist-mobile/index.html`).text()).replace('<head>', '<head>'+telemetry)
+      const html = (await Bun.file(`${mobileRoot}/index.html`).text()).replace('<head>', '<head>'+telemetry)
       return new Response(html,{headers:{'content-type':'text/html','cache-control':'no-store'}})
     }
     if (url.pathname.startsWith('/trpc/')) {
@@ -91,6 +128,8 @@ const server = Bun.serve({
         return procedures.get(name) ?? {error:{message:`Missing synthetic RPC: ${name}`,code:-32601,
           data:{code:'NOT_FOUND',httpStatus:404}}}
       })
+      appendFileSync(`${root}/evidence/api.ndjson`,JSON.stringify({time:Date.now(),names,
+        missing:names.filter(name=>name !== 'sessions.transcriptRead' && request.method !== 'POST' && !procedures.has(name))})+'\n')
       return Response.json(batch ? results : results[0])
     }
     if (api[url.pathname + url.search]) {
@@ -119,10 +158,20 @@ const server = Bun.serve({
       if (frame.type === 'hello') for (const saved of frames) {
         if (saved.type !== 'hostMetricsChanged') client.send(JSON.stringify(saved))
       }
+      if (streamMode && frame.type === 'transcriptSubscribe' && frame.sessionId === sessionId) {
+        subscribers.add(client)
+        client.data.subscribed = true
+        appendFileSync(`${root}/evidence/stream.ndjson`,JSON.stringify({time:Date.now(),event:'subscribe',items:transcript.length,since:frame.since})+'\n')
+      }
+      if (frame.type === 'transcriptUnsubscribe') subscribers.delete(client)
     },
+    close(client) {subscribers.delete(client)},
   },
 })
 await Bun.write(`${root}/preview.pid`,String(process.pid))
 console.log(`iPhone synthetic preview: ${server.url} (${manifest.issues} issues)`)
-for (const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>{server.stop(true);process.exit(0)})
+for (const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>{
+  if (streamTimer) clearInterval(streamTimer)
+  server.stop(true);process.exit(0)
+})
 await new Promise(()=>{})

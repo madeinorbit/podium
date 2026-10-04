@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import { createRef, type ReactElement, type Ref } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptViewport } from './TranscriptViewport'
+import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 
 let viewportHeight = 400
 let heights = new Map<string, number>()
@@ -24,18 +25,27 @@ beforeEach(() => {
   viewportHeight = 400
   heights = new Map()
   observers = []
-  vi.stubGlobal('ResizeObserver', class {
-    targets = new Set<Element>()
-    constructor(callback: ResizeObserverCallback) {
-      observers.push({
-        targets: this.targets,
-        notify: () => callback([], this as unknown as ResizeObserver),
-      })
-    }
-    observe(element: Element) { this.targets.add(element) }
-    unobserve(element: Element) { this.targets.delete(element) }
-    disconnect() { this.targets.clear() }
-  })
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      targets = new Set<Element>()
+      constructor(callback: ResizeObserverCallback) {
+        observers.push({
+          targets: this.targets,
+          notify: () => callback([], this as unknown as ResizeObserver),
+        })
+      }
+      observe(element: Element) {
+        this.targets.add(element)
+      }
+      unobserve(element: Element) {
+        this.targets.delete(element)
+      }
+      disconnect() {
+        this.targets.clear()
+      }
+    },
+  )
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
     this: HTMLElement,
   ) {
@@ -70,6 +80,17 @@ beforeEach(() => {
     }
     return rect(0, 0)
   })
+  vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(function (
+    this: HTMLElement,
+    options?: number | ScrollToOptions,
+  ) {
+    if (typeof options === 'object') {
+      this.scrollTop = Math.max(
+        0,
+        Math.min(this.scrollHeight - this.clientHeight, options.top ?? this.scrollTop),
+      )
+    }
+  })
 })
 afterEach(() => {
   cleanup()
@@ -79,11 +100,17 @@ afterEach(() => {
 
 function content(
   data = keys,
-  options: { loadingOlder?: boolean; onFollowChange?: (following: boolean) => void } = {},
+  options: {
+    loadingOlder?: boolean
+    onFollowChange?: (following: boolean) => void
+    onLoadOlder?: () => void
+    viewportRef?: Ref<TranscriptViewportHandle>
+  } = {},
 ): ReactElement {
   return (
     <TranscriptViewport
       identity="one"
+      ref={options.viewportRef}
       data={data}
       keyExtractor={(key) => key}
       renderItem={({ item }) => <span>{item}</span>}
@@ -91,6 +118,7 @@ function content(
       moreAbove
       loadingOlder={options.loadingOlder}
       onFollowChange={options.onFollowChange}
+      onLoadOlder={options.onLoadOlder}
     />
   )
 }
@@ -107,6 +135,56 @@ function resized(): void {
 }
 
 describe('phone web viewport', () => {
+  it('bounds mounted rows and observed elements during a marathon live feed', () => {
+    const initial = Array.from({ length: 3_000 }, (_, index) => `row-${index}`)
+    const { container, getByTestId, rerender } = render(content(initial))
+    resized()
+    const scroller = getByTestId('transcript-scroller')
+    expect(container.querySelectorAll('[data-block]')).toHaveLength(81)
+    expect(container.querySelector('[data-block="2920"]')).not.toBeNull()
+    for (let count = 4_000; count <= 10_000; count += 1_000) {
+      rerender(content(Array.from({ length: count }, (_, index) => `row-${index}`)))
+      resized()
+      expect(container.querySelectorAll('[data-block]')).toHaveLength(81)
+      expect(scroller.scrollTop).toBe(scroller.scrollHeight - scroller.clientHeight)
+      expect(
+        new Set(observers.flatMap((observer) => [...observer.targets])).size,
+      ).toBeLessThanOrEqual(83)
+    }
+  })
+  it('reveals held history before requesting older disk pages, without replacing the reader', () => {
+    const older = vi.fn()
+    const data = Array.from({ length: 160 }, (_, index) => `row-${index}`)
+    const { container, getByTestId } = render(content(data, { onLoadOlder: older }))
+    resized()
+    const scroller = getByTestId('transcript-scroller')
+    const row = container.querySelector('[data-row-key="row-80"]')
+    act(() => read(scroller, 80))
+    resized()
+    expect(container.querySelector('[data-row-key="row-80"]')).toBe(row)
+    expect(container.querySelector('[data-row-key="row-0"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-block]')).toHaveLength(161)
+    expect(older).not.toHaveBeenCalled()
+    act(() => read(scroller, 80))
+    expect(older).toHaveBeenCalledOnce()
+  })
+  it('reveals an unmounted search target and trims again when the reader returns to newest', () => {
+    const viewportRef = createRef<TranscriptViewportHandle>()
+    const data = Array.from({ length: 500 }, (_, index) => `row-${index}`)
+    const { container, getByTestId } = render(content(data, { viewportRef }))
+    resized()
+    act(() => viewportRef.current?.scrollToIndex({ index: 20, animated: false }))
+    resized()
+    expect(
+      container.querySelector('[data-row-key="row-20"]')?.getBoundingClientRect().top,
+    ).toBeCloseTo(0)
+    const scroller = getByTestId('transcript-scroller')
+    expect(container.querySelectorAll('[data-block]').length).toBeGreaterThan(81)
+    act(() => viewportRef.current?.pinToNewest())
+    resized()
+    expect(container.querySelectorAll('[data-block]')).toHaveLength(81)
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight - scroller.clientHeight)
+  })
   it('retains the latest reader position through loading and actual prepend commits', () => {
     const mode = vi.fn()
     const { getByTestId, container, rerender } = render(content(keys, { onFollowChange: mode }))
