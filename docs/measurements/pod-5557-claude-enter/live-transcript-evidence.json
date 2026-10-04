@@ -1,0 +1,18 @@
+{
+  "source": "/home/mgw/.claude/projects/-home-mgw-src-other-podium--worktrees-integrate-4286/0904be57-5ec3-43a8-a19f-b77e1e2e6d79.jsonl",
+  "line": 49907,
+  "timestamp": "2026-10-04T07:28:27.877Z",
+  "uuid": "056ba0d4-ef7d-44f1-b6b1-90e2581992ea",
+  "length": 4273,
+  "operatorTextCopies": 3,
+  "copyOffsets": [
+    0,
+    1851,
+    2073
+  ],
+  "framedMailIds": [
+    "msg_6fe30ce0-aa03-4327-805a-3904f2adeff8",
+    "msg_b784c688-6fb1-4e6e-a96a-3b574ee02527"
+  ],
+  "evidence": "One user entry contains all three copies; no inference from absence alone."
+}
