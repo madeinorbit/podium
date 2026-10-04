@@ -81,14 +81,14 @@ it('reports a later-batch quota abort as quota and keeps the pre-state durable',
   const store = await IndexedDbSyncStore.open({ factory, onDegraded: d => degradations.push(d) })
   try {
     store.viewFor(principal).cache.installSnapshot(
-      [{ entity: 'issueProjection', entityId: 'old', value: { title: 'old' } }],
+      [{ entity: 'issueProjection', entityId: 'old', value: { title: 'old' }, provenance: { seq: 1 } }],
       { feedId: 'feed', epoch: 'one', seq: 1 }, [],
     )
     await store.settled()
     const before = await readDurable(factory)
     factory.denyWriteAt({ at: 300, mode: 'after', error: new QuotaExceededDomError() })
     store.viewFor(principal).cache.installSnapshot(
-      Array.from({ length: 900 }, (_, i) => ({ entity: 'issueProjection', entityId: `new-${i}`, value: { title: 'new' } })),
+      Array.from({ length: 900 }, (_, i) => ({ entity: 'issueProjection', entityId: `new-${i}`, value: { title: 'new' }, provenance: { seq: 2 } })),
       { feedId: 'feed', epoch: 'one', seq: 2 }, [],
     )
     await store.settled()
