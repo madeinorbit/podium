@@ -140,7 +140,9 @@ The final structural rerun is pending.
 
 Phone timing will compare production Pixel7 pool-only samples with POD-5081's
 accepted ON capture: the same6,100-issue/5,200-session corpus, Chromium version,
-20 updates and three untraced samples plus diagnostic traced samples. Timing
+20 updates and three untraced samples plus diagnostic traced samples. The
+comparison uses the existing speed gate's fixed 10% median noise margin and
+retains the raw medians and deltas for review. Timing
 runs only under this session's `bench:flatblock` lease. POD-5407 released its
 capture lease at02:47:46Z; POD-5421 acquired it at03:01:17Z. The shared phone
 OFF/warm-start helper remains untouched until POD-5407's landing notice.
