@@ -1,0 +1,128 @@
+/** Isolated production preview of POD-5508's validated synthetic corpus.
+ * Run on the Mac from the issue-owned directory. No upstream or operator RPC.
+ * ablation.txt can contain "no-mark" for a diagnostic-only overlay ablation.
+ */
+import { appendFileSync } from 'node:fs'
+const root = process.env.IOS_PREVIEW_ROOT
+if (!root) throw Error('Set IOS_PREVIEW_ROOT to the owned runner directory')
+const manifest = await Bun.file(`${root}/manifest.json`).json()
+const api = await Bun.file(`${root}/fixture-api.json`).json()
+const transcript = await Bun.file(`${root}/transcript.json`).json()
+const frames = await Bun.file(`${root}/socket-frames.json`).json()
+const procedures = new Map()
+for (const [path, entry] of Object.entries(api)) {
+  if (!path.startsWith('/trpc/')) continue
+  const names = new URL(path, 'http://fixture').pathname.slice(6).split(',')
+  const values = JSON.parse(entry.body)
+  names.forEach((name, index) => procedures.set(name, Array.isArray(values) ? values[index] : values))
+}
+function readTranscript(input = {}) {
+  const limit = input.limit ?? 200
+  let index = input.anchor ? transcript.findIndex(item => item.cursor === input.anchor) : transcript.length
+  if (index < 0) index = transcript.length
+  const items = input.direction === 'after' && input.anchor
+    ? transcript.slice(index + 1, index + 1 + limit)
+    : transcript.slice(Math.max(0, index - limit), index)
+  return { result: { data: { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: index > limit } } }
+}
+const telemetry = `<script>
+  localStorage.setItem('podium.panelMode','chat');
+  localStorage.setItem('podium.panelModeDefault','chat');
+  window.__fixtureErrors=[];
+  const boot=crypto.randomUUID();
+  function diag(extra={}) {
+    fetch('/__diag',{method:'POST',body:JSON.stringify({boot,age:performance.now(),
+      url:location.href,nodes:document.getElementsByTagName('*').length,
+      marks:document.querySelectorAll('[data-testid="working-mark"]').length,
+      svg:document.querySelectorAll('svg').length,
+      circles:document.querySelectorAll('circle').length,
+      canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
+      images:document.images.length,errors:window.__fixtureErrors,...extra})}).catch(()=>{});
+  }
+  function fault(error) {
+    if(window.__fixtureErrors.length<40) window.__fixtureErrors.push(error);
+    diag({event:'error'});
+  }
+  addEventListener('error',e=>fault({message:e.message,stack:e.error?.stack}));
+  addEventListener('unhandledrejection',e=>fault({message:String(e.reason),stack:e.reason?.stack}));
+  addEventListener('pageshow',()=>diag({event:'pageshow'}));
+  addEventListener('pagehide',()=>diag({event:'pagehide'}));
+  setInterval(diag,1000);
+  const started=performance.now();
+  Date.now=()=>${manifest.fixedNow ?? 1789905600000}+Math.floor(performance.now()-started);
+</script>`
+const server = Bun.serve({
+  hostname: '127.0.0.1', port: 19687,
+  async fetch(request, server) {
+    const url = new URL(request.url)
+    if (request.headers.get('upgrade') === 'websocket') {
+      if (server.upgrade(request)) return
+    }
+    if (url.pathname === '/__diag' && request.method === 'POST') {
+      appendFileSync(`${root}/evidence/telemetry.ndjson`, JSON.stringify({time:Date.now(),...await request.json()})+'\n')
+      return new Response(null, {status:204})
+    }
+    if (url.pathname === '/__fixture') return Response.json(manifest)
+    if (url.pathname === '/sync/bootstrap') {
+      const file = Bun.file(`${root}/scale.txt`)
+      const scale = await file.exists() ? (await file.text()).trim() : '1'
+      if (!['1','4'].includes(scale)) throw Error('Invalid corpus scale')
+      return new Response(Bun.file(`${root}/bootstrap${scale === '4' ? '-4x' : ''}.ndjson`),
+        {headers:{'content-type':'application/x-ndjson'}})
+    }
+    if (url.pathname === '/sw.js') return new Response('', {status:404})
+    if (url.pathname === '/mobile' || url.pathname.startsWith('/mobile/')) {
+      const path = url.pathname.slice('/mobile'.length)
+      const file = Bun.file(`${root}/dist-mobile${path}`)
+      if (path && !path.includes('..') && await file.exists()) {
+        return new Response(file,{headers:{'cache-control':'no-store'}})
+      }
+      const html = (await Bun.file(`${root}/dist-mobile/index.html`).text()).replace('<head>', '<head>'+telemetry)
+      return new Response(html,{headers:{'content-type':'text/html','cache-control':'no-store'}})
+    }
+    if (url.pathname.startsWith('/trpc/')) {
+      const names = url.pathname.slice(6).split(',')
+      const batch = url.searchParams.get('batch') === '1'
+      const input = url.searchParams.has('input') ? JSON.parse(url.searchParams.get('input'))
+        : request.method === 'POST' ? await request.json() : {}
+      const results = names.map((name,index) => {
+        if (name === 'sessions.transcriptRead') return readTranscript(batch ? input[index] : input)
+        if (request.method === 'POST') return {result:{data:null}}
+        return procedures.get(name) ?? {error:{message:`Missing synthetic RPC: ${name}`,code:-32601,
+          data:{code:'NOT_FOUND',httpStatus:404}}}
+      })
+      return Response.json(batch ? results : results[0])
+    }
+    if (api[url.pathname + url.search]) {
+      const entry = api[url.pathname + url.search]
+      return new Response(entry.body, {status:entry.status,headers:{'content-type':entry.type}})
+    }
+    if (/^\/(auth|setup|sync|version|health|files|client)\b/.test(url.pathname)) {
+      return new Response('Unrecorded synthetic endpoint', {status:404})
+    }
+    const arm = (await Bun.file(`${root}/arm.txt`).text()).trim()
+    if (!/^[a-z0-9-]+$/.test(arm)) throw Error('Invalid build arm')
+    const file = Bun.file(`${root}/dist-${arm}${url.pathname}`)
+    if (url.pathname !== '/' && !url.pathname.includes('..') && await file.exists()) {
+      return new Response(file, {headers:{'cache-control':'no-store'}})
+    }
+    const ablationFile = Bun.file(`${root}/ablation.txt`)
+    const ablation = await ablationFile.exists() ? (await ablationFile.text()).trim() : ''
+    const style = ablation === 'no-mark' ? '<style>.pod-mark-frames{display:none!important;animation:none!important}</style>' : ''
+    const html = (await Bun.file(`${root}/dist-${arm}/index.html`).text()).replace('<head>', '<head>'+telemetry+style)
+    return new Response(html,{headers:{'content-type':'text/html','cache-control':'no-store'}})
+  },
+  websocket: {
+    message(client, message) {
+      const frame = JSON.parse(String(message))
+      if (frame.type === 'ping') client.send(JSON.stringify({type:'pong'}))
+      if (frame.type === 'hello') for (const saved of frames) {
+        if (saved.type !== 'hostMetricsChanged') client.send(JSON.stringify(saved))
+      }
+    },
+  },
+})
+await Bun.write(`${root}/preview.pid`,String(process.pid))
+console.log(`iPhone synthetic preview: ${server.url} (${manifest.issues} issues)`)
+for (const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>{server.stop(true);process.exit(0)})
+await new Promise(()=>{})
