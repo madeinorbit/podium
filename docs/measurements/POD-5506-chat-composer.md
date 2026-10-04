@@ -101,7 +101,7 @@ The final production caret source **`d6ff76e4fb`** passes all four native Chrome
 
 The focused Happy DOM regression explicitly models the WebKit event order in which a changed default-text write follows native input and moves the caret to the end. Restoring the old composer fails **four of six** selection cases: mid-text caret **4→7**, and backward selection **[2,5]→[15,15]**, in both skins. The final candidate passes **65 tests in exactly three files** (`ChatComposer`, real-runtime chat-context pool, and mention hooks), web typecheck (**15 successful tasks**) and scoped Biome checks. The real-runtime 60-key guard also checks mid-text range replacement, unchanged default text, zero value assignments, zero outside-composer renders and zero additional outbox/order scans. A compact sizing regression verifies growth on an external draft and shrink on clear.
 
-Native Safari verification follows POD-5517's priority window on the shared Mac runner, using synthetic data only. It remains pending; Chrome and the modeled event-order regression are evidence for the defensive fix, not a claim that the operator's WebKit reproduction has been verified.
+POD-5508 subsequently completed all four native Safari caret checks using synthetic data on the shared Mac runner. Insertion, backward replacement and both external-selection checks pass, as detailed below. This is acceptance of the defensive fix; the old-source Safari caret failure was not measured here.
 
 
 ## Urgent stale-draft follow-up
@@ -128,4 +128,20 @@ The final native Chrome **148.0.7778.96** comparison uses **44,633 elements, 56 
 
 The stale-write observer installs before React captures its prototype setter. An earlier run established final-value failures but installed that counter too late; those counter values are excluded. The final run blocks **9 draft offers** through both policies and never forwards a draft edit to the backend. Both native deletions initially succeeded, so the old policy's failure occurs on later sync, not keyboard routing. Native Chrome evidence and pending Safari acceptance are recorded in the attached draft replay evidence. The production preview contains the repaired client source, with only the original ledger policy swapped into the first comparison arm. All outgoing `draftEdit` and `setSessionDraft` frames are blocked before any draft input; incoming real draft frames are frozen during the synthetic comparison. Synthetic documents enter the existing `SocketHub` event/runtime ledger path. This keeps the operator backend unchanged and all live data on ludovico. A separate old full-bundle attempt timed out before hydration and is excluded. Source/bundle provenance is checked by matching the production files with the validated flatblock copy; that mirror's build stamp names its own checkout rather than this issue SHA.
 
-Native Safari checks are assigned to the existing POD-5508 acceptance lane, serialized behind POD-5517 on the shared Mac runner, using synthetic data only. They remain pending. This follow-up adds no compositing captures and does not establish a new latency result: the **18.35 / 39.41 ms** p95 residual remains the last measured result, and the **16 ms target is not met**.
+Native Safari typing and caret checks are complete in the existing POD-5508 acceptance lane. Its stale-wire replay check remains pending: a fixture HTTP-response decoder failure stopped the first attempt before the native clear/replay sequence, so that attempt supplies no product failure or acceptance result. The lane fixed its decoder and is arranging a short serial window after POD-5517. No new Chrome live-data captures or compositing probes ran here: **18.35 / 39.41 ms** remains the last measured Chrome p95, and the **16 ms target is not met**.
+
+## Native Safari acceptance supplied by POD-5508
+
+POD-5508 supplied these results at **19:41 UTC on 2026-10-04**, using production client source **35bdefb48f**, whose composer/caret/replay behavior matches the landed **f9da51c7df** repair and includes its static working marks. Its [WebKit report](POD-4286-webkit-typing.md) and issue artifacts own the raw native evidence. This is an independent synthetic acceptance lane; no operator records or drafts were copied to the Mac runner.
+
+All three 1× runs contain **60 trusted inputs**, with the intact final text, a foreground/focused Safari window, an **800 × 600** viewport and **DPR 2**. The strict loaded replica contains **4,868 issues / 4,306 sessions**; the selected transcript mounts **200 rows**, **2,558 transcript elements** and **4,516 total DOM elements**. The collector measures **input event timestamp → the zero-delay timer after the next animation frame**, a paint proxy. It does not measure Chrome's trace-derived input-to-Paint or complete-frame main-thread work, so these results cannot replace the live Chrome measurements above.
+
+| Synthetic Safari run | Input → post-frame timer median / p95 / max, ms | Actual input interval median / p95, ms |
+| --- | ---: | ---: |
+| 1× repeat 1 | 7 / **20** / 44 | 107 / 244 |
+| 1× repeat 2 | 7 / **25** / 131 | 107 / 245 |
+| 1× repeat 3 | 9 / **17** / 95 | 123 / 238 |
+
+These runs meet POD-5508's **p95 < 50 ms** synthetic 1× criterion. They do not establish this issue's **16 ms main-thread** target or a 4× guarantee.
+
+All four separate native Safari caret boundaries pass: insertion at **5→6**, backward replacement to collapsed **6**, an external append retaining collapsed **5**, and an external append retaining backward range **[5,8]** and its direction. Native stale-draft replay and matched final Chrome fixture checks remain pending in that lane. POD-5508 reports that its owned Mac browser, driver and preview were stopped and verified at **19:33 UTC**; this issue started no runner processes.
