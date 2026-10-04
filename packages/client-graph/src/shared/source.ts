@@ -1,5 +1,5 @@
 /** Row and local channels consumed by the worklist pool. */
-import type { ColdQueries } from './cold-index'
+import type { ColdQueries, HeldSummaries } from './cold-index'
 import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
 
 /**
@@ -25,9 +25,10 @@ export interface RowSource {
    * (`cold-index.ts`): built on first call from one snapshot per kind, then
    * kept current from this feed's own publications. Declared questions only;
    * never a map. Optional: a source without it cannot back a resident-only
-   * attach.
+   * attach. `summaries` (POD-5407): declared summary fields its rows must
+   * also hold; a call naming fields the index lacks rebuilds it with them.
    */
-  cold?(): ColdQueries
+  cold?(summaries?: HeldSummaries): ColdQueries
   /** A keyed identity read from the local replica, including cold issues. */
   issueIdByRef?(ref: string): string | undefined
   issueIdsByRef?(ref: string): readonly string[]

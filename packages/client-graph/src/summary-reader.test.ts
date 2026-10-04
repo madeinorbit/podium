@@ -16,34 +16,17 @@ const row = (id: string, archived: boolean) => ({ id, seq: 1, createdAt: '2026-0
 })
 function setup() {
   const cold = row('cold', true), hot = row('hot', false)
-  // The feed's per-row read answers what the feed published (POD-5407: a
-  // cold row's declared summary is read through it).
-  const rows = new Map<string, object>([['cold', cold]])
-  const load = vi.fn((_entity: string, id: string) => rows.get(id))
+  const load = vi.fn((_entity: string, id: string) => id === 'cold' ? cold : undefined)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined,
     { load, summaries: { issue: ['title'] }, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'cold', value: cold }, { kind: 'issue', id: 'hot', value: hot }] })
-  const publish = (id: string, value: object | undefined) => {
-    if (value === undefined) rows.delete(id)
-    else rows.set(id, value)
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: value as never }] })
-  }
   const server: Record<string, object> = { cold, hot }
   // POD-5432: a pending change reaches the pool as the visible row the
   // transaction log painted (`pooled` feed), and its rollback as the server row.
-  const paint = (id: string, patch: Record<string, unknown>) => publish(id, { ...server[id], ...patch })
-  const rebase = (id: string) => publish(id, server[id])
-  return { pool, paint, rebase, publish, load, cold, hot }
-}
-
-/**
- * POD-5407: `title` is not one of the rule's inputs the index holds, so a cold
- * row's declared summary is read through the one per-row reader: only these
- * rows, and none of them installed.
- */
-function expectSummaryReads(pool: MobxPool, load: ReturnType<typeof vi.fn>, ids: readonly string[]): void {
-  expect([...new Set(load.mock.calls.map(([, id]) => id as string))].sort()).toEqual([...ids].sort())
-  for (const id of ids) expect(pool.tables.issue.has(id), `${id} not installed`).toBe(false)
+  const paint = (id: string, patch: Record<string, unknown>) =>
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: { ...server[id], ...patch } as never }] })
+  const rebase = (id: string) => pool.apply({ type: 'update', rows: [{ kind: 'issue', id, value: server[id] as never }] })
+  return { pool, paint, rebase, load, cold, hot }
 }
 
 it('summary declarations compose and exclude undeclared cold payloads', () => {
@@ -56,7 +39,7 @@ it('summary declarations compose and exclude undeclared cold payloads', () => {
     expect(cold).not.toHaveProperty('privateBody')
     expect(pool.row('issue', 'hot', 'summary')).toBe(hot)
     expect(pool.hydrate()).toBe(0)
-    expectSummaryReads(pool, load, ['cold'])
+    expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
 })
 
@@ -67,12 +50,13 @@ it('summary mode shows a painted change on both resident and cold rows', () => {
     paint('hot', { title: 'Pending hot' })
     expect(pool.row('issue', 'cold', 'summary')).toMatchObject({ title: 'Pending cold' })
     expect(pool.row('issue', 'hot', 'summary')).toMatchObject({ title: 'Pending hot' })
-    expectSummaryReads(pool, load, ['cold'])
+    expect(pool.tables.issue.has('cold')).toBe(false)
+    expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
 })
 
 it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and cold/resident transitions without loading', mode => {
-  const { pool, paint, rebase, publish, cold, load } = setup()
+  const { pool, paint, rebase, cold, load } = setup()
   const seen: (string | undefined)[] = []
   const stop = reaction(() => {
     const value = pool.row('issue', 'cold', mode)
@@ -90,7 +74,7 @@ it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and 
     rebase('cold')
     expect(seen.slice(-2)).toEqual(['Pending again', 'Declared title'])
     expect(pool.hydrate()).toBe(0)
-    expectSummaryReads(pool, load, ['cold'])
+    expect(load).not.toHaveBeenCalled()
 
     expect(pool.row('issue', 'cold')).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
@@ -98,12 +82,12 @@ it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and 
     expect(seen.at(-1)).toBe('Pending resident')
     rebase('cold')
     expect(seen.at(-1)).toBe('Declared title')
-    publish('cold', undefined)
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: undefined }] })
     expect(seen.at(-1)).toBeUndefined()
-    publish('cold', { ...cold, title: 'Returned cold' })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: { ...cold, title: 'Returned cold' } }] })
     expect(pool.tables.issue.has('cold')).toBe(false)
     expect(seen.at(-1)).toBe('Returned cold')
-    publish('cold', { ...cold, title: 'Pending returned' })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'cold', value: { ...cold, title: 'Pending returned' } }] })
     expect(seen.at(-1)).toBe('Pending returned')
   } finally { stop(); pool.dispose() }
 })
@@ -117,25 +101,25 @@ it('a cold model parent follows a painted change without loading the row', () =>
     rebase('cold')
     expect(issue.parentRef).toBeNull()
     expect(pool.hydrate()).toBe(0)
-    expectSummaryReads(pool, load, ['cold'])
+    expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
 })
 
 it('an observed model summary follows an unknown id becoming cold, removal and return', () => {
-  const { pool, cold, load, publish } = setup()
+  const { pool, cold, load } = setup()
   const issue = pool.issueObject('future')
   const seen: (string | null | undefined)[] = []
   const stop = reaction(() => issue.hidden?.parentId, value => seen.push(value), { fireImmediately: true })
   try {
     expect(seen).toEqual([undefined])
-    publish('future', { ...cold, id: 'future', parentId: 'cold-parent' })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: { ...cold, id: 'future', parentId: 'cold-parent' } }] })
     expect(seen).toEqual([undefined, 'cold-parent'])
-    publish('future', undefined)
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: undefined }] })
     expect(seen.at(-1)).toBeUndefined()
-    publish('future', { ...cold, id: 'future', parentId: 'returned-parent' })
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'future', value: { ...cold, id: 'future', parentId: 'returned-parent' } }] })
     expect(seen.at(-1)).toBe('returned-parent')
     expect(pool.hydrate()).toBe(0)
-    expectSummaryReads(pool, load, ['future'])
+    expect(load).not.toHaveBeenCalled()
   } finally { stop(); pool.dispose() }
 })
 

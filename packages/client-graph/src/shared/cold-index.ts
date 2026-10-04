@@ -104,8 +104,13 @@ export interface ColdQueries {
   readonly readerActivityVisits: number
   /** POD-5407 — every declared relation over every row the feed carries. */
   readonly relations: RelationQueries
-  /** POD-5407 — what the last publication moved in {@link relations}. */
-  changes(): RelationDelta
+  /**
+   * POD-5407 — what applying `event` moved in {@link relations}: the delta of
+   * the publication the index applied last when it is `event`, else nothing
+   * (an event that reached a reader without passing the index moved nothing
+   * the index holds).
+   */
+  changes(event: RowSourceEvent): RelationDelta
   /** POD-5407 — the rows of the `via` entity `entity` that name `to:id` by their raw foreign key. */
   dependents(entity: EntityName, to: EntityName, id: string): Iterable<string>
   /**
@@ -134,7 +139,17 @@ export interface ColdQueries {
 
 export interface ColdIndex extends ColdQueries {
   apply(event: RowSourceEvent): void
+  /** Whether every row it keeps holds these declared summary fields. */
+  holds(summaries: HeldSummaries): boolean
 }
+
+/**
+ * POD-5407 — declared summary fields the index also keeps per row, next to the
+ * rule's own inputs, so a cold row's declared summary is answered from the
+ * index (`heldFields`) and never costs a row read. A pool names them
+ * (`PoolSummaryFields`); fields of an entity that is never cold are ignored.
+ */
+export type HeldSummaries = Partial<Record<EntityName, readonly string[]>>
 
 function pick(row: Row, fields: readonly string[]): Row {
   const out: Record<string, unknown> = {}
@@ -177,19 +192,43 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
   return [...fields]
 }
 
-export function createColdIndex(schema: ModelSchema): ColdIndex {
+export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = {}): ColdIndex {
   const readers = createReaderIndex()
   const relations = createRelationIndex(schema)
   let collapseVersion = 0
-  let delta: RelationDelta = { forwards: [], buckets: [], subsets: [], flips: [], orders: [], roots: [] }
+  const noDelta: RelationDelta = { forwards: [], buckets: [], subsets: [], flips: [], orders: [], roots: [] }
+  let delta = noDelta
+  /** The publication `delta` belongs to. */
+  let deltaOf: RowSourceEvent | null = null
   const lanes = laneSources(schema)
   const entities = (Object.keys(schema) as EntityName[]).filter(
     (entity) => schema[entity].cold.kind !== 'never',
   )
   const fieldsOf = new Map(entities.map((entity) => [entity, ruleFields(schema, entity, lanes)]))
-  const heldOf = new Map([...fieldsOf].map(([entity, fields]) => [entity, new Set(fields)]))
+  /**
+   * The declared summary fields that are not rule inputs, per entity, in a
+   * fixed order: each row keeps their values as one dense array (`extras`),
+   * not as properties of its rule row. A row object grown property by
+   * property over ~40 declared fields costs several times the array.
+   */
+  const extraOf = new Map(
+    entities.map((entity) => {
+      const rule = new Set(fieldsOf.get(entity))
+      return [entity, [...new Set(summaries[entity] ?? [])].filter((field) => !rule.has(field))]
+    }),
+  )
+  const extraAt = new Map(
+    [...extraOf].map(([entity, fields]) => [entity, new Map(fields.map((field, at) => [field, at]))]),
+  )
+  const heldOf = new Map(
+    entities.map((entity) => [entity, new Set([...fieldsOf.get(entity)!, ...extraOf.get(entity)!])]),
+  )
   /** Cold-capable entity → id → rule row. */
   const rules = new Map<EntityName, Map<string, Row>>(entities.map((entity) => [entity, new Map()]))
+  /** Cold-capable entity → id → its declared extra fields' values, in `extraOf` order. */
+  const extras = new Map<EntityName, Map<string, unknown[]>>(
+    entities.filter((entity) => extraOf.get(entity)!.length > 0).map((entity) => [entity, new Map()]),
+  )
   /** Lane-target entities (`worktree`): ids only. */
   const plain = new Map<EntityName, Set<string>>()
   for (const lane of lanes) if (!plain.has(lane.prefix.to)) plain.set(lane.prefix.to, new Set())
@@ -414,6 +453,11 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       const next = row === undefined ? undefined : pick(row, fieldsOf.get(entity)!)
       if (next === undefined) held.delete(record.id)
       else held.set(record.id, next)
+      const values = extras.get(entity)
+      if (values !== undefined) {
+        if (row === undefined) values.delete(record.id)
+        else values.set(record.id, extraOf.get(entity)!.map((field) => row[field]))
+      }
       const count = undeleted.get(entity)
       if (count !== undefined) {
         const was = previous !== undefined && previous['deletedAt'] == null
@@ -437,6 +481,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
     collapseVersion++
     relations.clear()
     for (const map of rules.values()) map.clear()
+    for (const map of extras.values()) map.clear()
     for (const set of plain.values()) set.clear()
     for (const entity of undeleted.keys()) undeleted.set(entity, 0)
     byOwner.clear()
@@ -528,7 +573,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
     sessionCollapsed: (id) => relations.collapsed('session', id),
     sessionOrderKey: (id) => relations.orderKey('session', id),
     relations,
-    changes: () => delta,
+    changes: (event) => (event === deltaOf ? delta : noDelta),
     dependents(entity, to, id) {
       const spec = schema[entity].cold
       if (spec.kind !== 'via' || schema[entity].relations[spec.relation]?.to !== to) return NO_IDS
@@ -542,11 +587,24 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       return coldFlatUntil(schema, entity, id, row, bound, context(now))
     },
     undeleted: (entity) => undeleted.get(entity) ?? 0,
+    holds(declared) {
+      return entities.every((entity) =>
+        (declared[entity] ?? []).every((field) => heldOf.get(entity)!.has(field)),
+      )
+    },
     heldFields(entity, id, fields) {
       const held = heldOf.get(entity)
       const row = rules.get(entity)?.get(id)
       if (held === undefined || row === undefined || !fields.every((field) => held.has(field))) return undefined
-      return pick(row, fields)
+      const values = extras.get(entity)?.get(id)
+      const at = extraAt.get(entity)!
+      const out: Record<string, unknown> = {}
+      for (const field of fields) {
+        const index = at.get(field)
+        const value = index === undefined ? row[field] : values?.[index]
+        if (value !== undefined) out[field] = value
+      }
+      return out
     },
     position: (_entity, id) => positions.get(id),
     get positionVersion() {
@@ -593,6 +651,7 @@ export function createColdIndex(schema: ModelSchema): ColdIndex {
       relations.begin()
       for (const record of event.rows) ingest(record)
       delta = relations.flush()
+      deltaOf = event
       // A lane subset that gained or lost a member moves its owners' deadlines.
       for (const [key, target] of delta.subsets) {
         for (const lane of lanes) {

@@ -323,19 +323,12 @@ export class Residency {
     if (this.summaryMemo.has(key)) summary = this.summaryMemo.get(key)
     else {
       const fields = this.summaryFields[entity]
-      // The rule's own inputs answer from the index; any other declared
-      // field is read through the one per-row reader.
-      const held = fields === undefined ? undefined : this.index().heldFields(entity, id, fields)
-      const row = held !== undefined || fields === undefined ? undefined : this.load(entity as LoadableEntity, id) as Row | undefined
-      if (held !== undefined) summary = held
-      else if (row !== undefined && fields !== undefined) {
-        const picked: Record<string, unknown> = {}
-        for (const field of fields) {
-          const value = row[field]
-          if (value !== undefined) picked[field] = value
-        }
-        summary = picked
-      }
+      // The index holds every declared field (the pool names them when it
+      // asks for the index). A field it does not hold is never read row by
+      // row here: the summary is absent, so the reader answers LOADING and
+      // the row comes in through one batched load (the cutoff rule).
+      summary = fields === undefined ? undefined : this.index().heldFields(entity, id, fields)
+      if (summary === undefined) return undefined
       this.summaryMemo.set(key, summary)
     }
     if (!decorate || summary === undefined) return summary
@@ -453,7 +446,8 @@ export class Residency {
       return
     }
     if (this.coldRule(entity, id, value)) {
-      if (entity === 'issue') target.volatile?.setIssueRead(id, value)
+      // Its read cursor is the row's (`MobxPool.readCursor`); none is kept.
+      if (entity === 'issue') target.volatile?.removeIssueRead(id)
       this.see(entity, id)
       this.coldChanged(entity, id)
       return

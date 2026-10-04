@@ -22,7 +22,7 @@ import { createMobileInboxViews } from './mobile-inbox-views'
 import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
-import { createColdIndex } from './shared/cold-index'
+import { type ColdIndex, createColdIndex, type HeldSummaries } from './shared/cold-index'
 import { createReaderIndex, questionEntity } from './shared/reader-questions'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
@@ -112,8 +112,16 @@ function fixture(scale = 1, bootOnly = false) {
   })
   if (bootOnly) rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
-  const index = createColdIndex(SCHEMA)
-  index.apply({ type: 'replace', rows })
+  // The feed's cold index, as `RowSource.cold(summaries)` builds it: holding
+  // the declared summary fields the pool names (POD-5407).
+  let built: ColdIndex | undefined
+  const cold = (held: HeldSummaries): ColdIndex => {
+    if (built === undefined || !built.holds(held)) {
+      built = createColdIndex(SCHEMA, held)
+      built.apply({ type: 'replace', rows })
+    }
+    return built
+  }
   const load = vi.fn((entity: string, id: string) => values.get(`${entity}:${id}`))
   const summaries = mergePoolSummaries(
     COMMAND_SUMMARIES,
@@ -126,7 +134,7 @@ function fixture(scale = 1, bootOnly = false) {
   )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    cold: () => index,
+    cold,
     header: true,
     settings: true,
     summaries,
@@ -158,7 +166,7 @@ function fixture(scale = 1, bootOnly = false) {
     getSnapshot: () => ({ repos: [], machines: [] }),
     subscribe: () => () => {},
   }) as never)
-  return { pool, index, load, rows, values }
+  return { pool, index: cold({}), load, rows, values }
 }
 
 /** Comparison rows are the actual ordered values consumed by the screens.

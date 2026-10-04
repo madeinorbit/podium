@@ -176,7 +176,8 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly load: LoadRow
-  readonly cold?: () => ColdQueries
+  /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
+  readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
   readonly issueIdByRef?: (ref: string) => string | undefined
   /** Add the header's declared cold summaries only for its startup switch. */
   readonly header?: boolean
@@ -208,6 +209,9 @@ export interface PoolMutator {
  *   the worklist-only flatUntil decoration or copying the cold summary.
  * Unknown rows answer undefined in every mode.
  */
+/** What the cold index holds per issue for `readCursor`. */
+const READ_CURSOR_FIELDS = ['readAt'] as const
+
 export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
@@ -330,8 +334,31 @@ export class MobxPool {
     // it stands (the source applies each publication before the pool sees
     // it); a feed without one gets the pool's, applied first in each
     // publication's action.
-    this.sourceIndex = lazy?.cold
-    this.ownIndex = this.sourceIndex === undefined ? createColdIndex(schema ?? SCHEMA) : undefined
+    // What visibility reads of a hidden issue (POD-4753), never the row, and
+    // what the screens declared. The cold index holds these fields per row,
+    // so a cold row's declared summary costs no row read (POD-5407).
+    const summaries =
+      lazy === undefined
+        ? undefined
+        : mergePoolSummaries(
+            {
+              issue: lazy.header
+                ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS]
+                : HIDDEN_ISSUE_FIELDS,
+              session: [
+                ...COLD_SESSION_FIELDS,
+                ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []),
+                ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : []),
+              ],
+            },
+            lazy.summaries ?? {},
+          )
+    // The index also holds each issue's read cursor (`readCursor`).
+    const held = mergePoolSummaries(summaries ?? {}, { issue: ['readAt'] })
+    const sourceCold = lazy?.cold
+    this.sourceIndex = sourceCold === undefined ? undefined : () => sourceCold(held)
+    this.ownIndex =
+      this.sourceIndex === undefined ? createColdIndex(schema ?? SCHEMA, held) : undefined
     this.queries = new ReaderQueries(this, schema ?? SCHEMA, () => this.coldIndex())
     const tables = this.tables
     const residency =
@@ -346,20 +373,7 @@ export class MobxPool {
             now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
-            // What visibility reads of a hidden issue (POD-4753), never the row.
-            summaries: mergePoolSummaries(
-              {
-                issue: lazy.header
-                  ? [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS]
-                  : HIDDEN_ISSUE_FIELDS,
-                session: [
-                  ...COLD_SESSION_FIELDS,
-                  ...(lazy.header ? HEADER_SESSION_SUMMARY_FIELDS : []),
-                  ...(lazy.settings ? SETUP_SESSION_SUMMARY_FIELDS : []),
-                ],
-              },
-              lazy.summaries ?? {},
-            ),
+            summaries: summaries ?? {},
           })
     this.residency = residency
     /**
@@ -757,9 +771,17 @@ export class MobxPool {
    * TRACKED: an issue's read cursor, from the read-state lane (POD-4686: per
    * key, so a mark-read re-validates only its own row). A pending mark-read is
    * already in it: the lane follows the visible row the log painted.
+   *
+   * The lane holds resident issues only (POD-5407: the pool keeps nothing per
+   * cold row). A cold issue's cursor is the one the cold index holds for it,
+   * tracked by its residency key, which every publication of the row reports.
    */
   readCursor(id: string): string | null | undefined {
-    return this.readStates.get(id)
+    const cursor = this.readStates.get(id)
+    if (cursor !== undefined) return cursor
+    if (this.residency === null || !this.residency.known('issue', id)) return undefined
+    const held = this.coldIndex().heldFields('issue', id, READ_CURSOR_FIELDS)
+    return held === undefined ? undefined : readAtOf(held['readAt'])
   }
 
   /** The model of a row in memory, built on first request; undefined when absent (tracked). */
@@ -975,7 +997,7 @@ export class MobxPool {
         // other row it warms is asked for (the load window).
         this.residency?.publication(event.rows)
         for (const record of event.rows) ingestRecord(this.target, record, out)
-        const delta = index.changes()
+        const delta = index.changes(event)
         // POD-4745: a row the rule no longer keeps cold is warmed, once every
         // row of the update is in.
         this.residency?.settle(this.target, out, fresh ? undefined : delta)

@@ -28,16 +28,12 @@ function fixture(coldCount = 0) {
     const id = `cold-${index}`
     rows.set(id, session(id, { status: 'exited', stoppedAt: stamp(NOW - 30 * 86_400_000) }))
   }
-  // The feed's per-row read answers the row it last published: the painted
-  // row while a change is pending (POD-5432's pooled feed), else the server's.
-  const painted = new Map<string, SessionView>()
-  const load = vi.fn((_entity: string, id: string) => painted.get(id) ?? rows.get(id))
+  const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined,
     { header: true, load, schedule: () => () => {} })
   const apply = (id: string, value: SessionView | undefined) => {
     if (value) rows.set(id, value)
     else rows.delete(id)
-    painted.delete(id)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: value as never }] })
   }
   pool.apply({ type: 'replace', rows: [...rows].map(([id, value]) => ({ kind: 'session', id, value: value as never })) })
@@ -50,27 +46,11 @@ function fixture(coldCount = 0) {
   runInAction(() => { for (const [id, value] of rows) if (pool.tables.session.has(id)) pool.header.change('session', id, value) })
   // POD-5432: a pending change arrives as the row the transaction log painted
   // (the server row in `rows` stays), and its rollback as the server row.
-  const paint = (id: string, patch: Partial<SessionView>) => {
-    const value = { ...rows.get(id)!, ...patch }
-    painted.set(id, value)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: value as never }] })
-  }
-  const rebase = (id: string) => {
-    painted.delete(id)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: rows.get(id) as never }] })
-  }
+  const paint = (id: string, patch: Partial<SessionView>) =>
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: { ...rows.get(id)!, ...patch } as never }] })
+  const rebase = (id: string) => pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: rows.get(id) as never }] })
   return { pool, rows, load, apply, paint, rebase, change(id: string, patch: Partial<SessionView>) { apply(id, { ...rows.get(id)!, ...patch }) },
     dispose() { stopEdges(); pool.dispose() } }
-}
-
-/**
- * POD-5407: a cold row's declared summary is read through the one per-row
- * reader (`load`), not kept by the pool. Every read was such a summary read:
- * of the named cold rows only, none of them installed.
- */
-function expectSummaryReadsOnly(f: ReturnType<typeof fixture>, ids: readonly string[]): void {
-  expect([...new Set(f.load.mock.calls.map(([, id]) => id))].sort()).toEqual([...ids].sort())
-  for (const id of ids) expect(f.pool.tables.session.has(id), `${id} stays cold`).toBe(false)
 }
 
 function visits(pool: MobxPool) {
@@ -104,7 +84,7 @@ describe('incremental header sessions', () => {
       expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'cold-0' })])
       expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(f.pool.hydrate()).toBe(0)
-      expectSummaryReadsOnly(f, ['cold-0'])
+      expect(f.load).not.toHaveBeenCalled()
     } finally { stop(); f.dispose() }
   })
 
@@ -141,7 +121,7 @@ describe('incremental header sessions', () => {
       check('cold-0', () => f.change('cold-0', { status: 'live', agentState: state('compacting') }))
       expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       expect(working).toEqual(['cold-0', 'resident-0'])
-      expectSummaryReadsOnly(f, ['cold-0'])
+      expect(f.load).not.toHaveBeenCalled()
       check('cold-0', () => { expect(f.pool.row('session', 'cold-0')).toBe(LOADING); expect(f.pool.hydrate()).toBe(1) })
       expect(working).toEqual(['cold-0', 'resident-0'])
       check('resident-0', () => f.change('resident-0', { archived: true }))
@@ -169,7 +149,7 @@ describe('incremental header sessions', () => {
       expect(first).toMatchObject({ count: 32, phases: { waiting: 1, idle: 31 }, idleSplit: { idle: 32, parkable: 31, protected: 1 } })
       check('cold-0', () => f.change('cold-0', { status: 'live', resumable: false }))
       expect(first.idleSplit).toEqual({ idle: 33, parkable: 31, protected: 2 })
-      expectSummaryReadsOnly(f, ['cold-0'])
+      expect(f.load).not.toHaveBeenCalled()
       check('cold-0', () => f.change('cold-0', { machineId: HOSTS[1] }))
       expect(first.count).toBe(32)
       expect(second).toMatchObject({ count: 1, idleSplit: { protected: 1 } })
@@ -238,7 +218,7 @@ describe('incremental header sessions', () => {
       expect(ids).toEqual([])
       tick(NOW)
       expect(ids).toEqual(['cold-0', 'resident-0'])
-      expectSummaryReadsOnly(f, ['cold-0'])
+      expect(f.load).not.toHaveBeenCalled()
     } finally { count.restore(); stop(); f.dispose() }
   })
 

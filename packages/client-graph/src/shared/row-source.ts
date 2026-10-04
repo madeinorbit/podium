@@ -3,7 +3,7 @@ import {
   type SessionValueInput,
   sessionView,
 } from '@podium/client-core/session-values'
-import { type ColdIndex, type ColdQueries, createColdIndex } from './cold-index'
+import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /**
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
@@ -1290,12 +1290,25 @@ export function createRowSource(
 
   /** POD-5405 — the cold index, built on the first question and fed by `emit`. */
   let coldIndex: ColdIndex | null = null
-  function cold(): ColdQueries {
+  /** POD-5407 — the declared summary fields it holds (the union of every caller's), and the last declaration found held. */
+  let coldHeld: HeldSummaries = {}
+  let coldChecked: HeldSummaries | undefined
+  function cold(summaries?: HeldSummaries): ColdQueries {
     if (disposed) {
       throw new Error('createRowSource: cold() on a disposed source (the principal switched; rebind first)')
     }
+    if (coldIndex !== null && summaries !== undefined && summaries !== coldChecked) {
+      if (coldIndex.holds(summaries)) coldChecked = summaries
+      else coldIndex = null
+    }
     if (coldIndex === null) {
-      const index = createColdIndex(SCHEMA)
+      const held: Record<string, readonly string[]> = { ...coldHeld }
+      for (const [entity, fields] of Object.entries(summaries ?? {})) {
+        held[entity] = [...new Set([...(held[entity] ?? []), ...(fields ?? [])])]
+      }
+      coldHeld = held as HeldSummaries
+      coldChecked = summaries
+      const index = createColdIndex(SCHEMA, coldHeld)
       index.apply({
         type: 'replace',
         rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree')],

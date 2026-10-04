@@ -86,14 +86,9 @@ it('loads cold pane detail through one batched reader, with no full payload reta
     expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
     expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
     expect(f.load).not.toHaveBeenCalled()
-    // POD-5407: the pane's declared summary fields are not the rule's inputs,
-    // so the summary is read once through the one per-row reader (never
-    // installed); the window then installs the row with one more read.
     expect(f.pool.row('session', cold.sessionId, 'summary')).not.toHaveProperty('configureFields')
-    expect(f.load).toHaveBeenCalledTimes(1)
-    expect(f.pool.tables.session.has(cold.sessionId)).toBe(false)
     expect(f.pool.hydrate()).toBe(1)
-    expect(f.load).toHaveBeenCalledTimes(2)
+    expect(f.load).toHaveBeenCalledTimes(1)
     expect(paneSession(f.pool, cold.sessionId)).toEqual(cold)
   } finally { f.pool.dispose() }
 })

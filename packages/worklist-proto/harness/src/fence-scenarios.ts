@@ -203,7 +203,9 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     // POD-5407: the feed's own cold index, as production hands it to the pool:
     // the feed applies each publication to it before the arm hears it, so its
     // upkeep is the feed's work, not the arm's.
-    ...(raw.source.cold ? { cold: () => outsideArm(() => raw.source.cold!()) } : {}),
+    ...(raw.source.cold
+      ? { cold: (summaries) => outsideArm(() => raw.source.cold!(summaries)) }
+      : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {
         for (const record of event.rows) named.add(`${record.kind}:${record.id}`)
