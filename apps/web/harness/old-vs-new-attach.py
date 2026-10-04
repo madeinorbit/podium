@@ -39,8 +39,11 @@ for archive in manifest:
             response = json.loads(result.stdout)
             if not response.get('ok'):
                 raise RuntimeError(response)
+            attached = response.get('data', response)
+            if isinstance(attached, list):
+                attached = next(row for row in attached if row.get('path') == str(part))
             parts.append({'path': str(part), 'bytes': len(content), 'sha256': checksum,
-                          'attachment': response.get('data', response)})
+                          'attachment': attached})
             manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
             print(json.dumps({'path': str(part), 'bytes': len(content), 'attached': True}), flush=True)
     archive['attached'] = True
