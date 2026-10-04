@@ -963,6 +963,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       previous?.()
       return
     }
+    // The topology port already follows background membership. An idle
+    // window has no addressed pool cells to watch and needs no row reaction.
+    if (provider.onTopology && !focusedPaneSession(this.state) &&
+      !this.state.selectedIssueId && !this.state.openIssueId &&
+      !this.pendingSessionNavigation && !this.pendingNavigation) {
+      previous?.()
+      return
+    }
     try {
       this.stopNavigationWatch = this.attachNavigationWatch(provider, provider.watch)
     } finally {
@@ -978,7 +986,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const issue = foregroundIssue(st)
       const pending = this.pendingNavigation
       return [
-        this.pendingNavigationTopology || this.pendingWorktreeFallback
+        !provider.onTopology && (this.pendingNavigationTopology || this.pendingWorktreeFallback)
           ? provider.worktreeSessions?.()
           : undefined,
         resolvedWorkspaceKey(st), issue ? [issue.id, issue.updatedAt,

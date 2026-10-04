@@ -15,18 +15,19 @@ import { LOADING } from './worklist/rollup'
 export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider {
   const signatures = new Map<string, string>()
   const signature = (id: string): string | undefined => {
-    const row = pool.row('session', id, 'summary-fields') as SessionView | typeof LOADING | undefined
-    if (!row || row === LOADING) return undefined
-    return JSON.stringify([row.cwd, row.issueId, pool.queries.collapsed(id),
+    const index = pool.coldIndex()
+    const row = index.heldFields('session', id, ['cwd', 'issueId', 'resume', 'status', 'lastActiveAt'])
+    if (!row) return undefined
+    return JSON.stringify([row.cwd, row.issueId, index.sessionCollapsed(id),
       row.resume && (row.status === 'hibernated' || row.status === 'exited')
         ? [row.resume, row.lastActiveAt] : undefined])
   }
-  runInAction(() => {
-    for (const id of pool.queries.ids({ kind: 'shellSessions' })) {
-      const value = signature(id)
-      if (value !== undefined) signatures.set(id, value)
-    }
-  })
+  // Topology follows source metadata, not a reaction over every pool row.
+  // These scalars already belong to the cold index and allocate no row facets.
+  for (const id of pool.coldIndex().readerIds({ kind: 'shellSessions' })) {
+    const value = signature(id)
+    if (value !== undefined) signatures.set(id, value)
+  }
   const provider: NavigationProvider = {
     onTopology(changed) {
       return pool.queries.onChange(event => {
