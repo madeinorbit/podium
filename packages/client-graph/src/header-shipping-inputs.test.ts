@@ -4,16 +4,19 @@ import {
   resolveActiveWorktree,
   shippingPanelModel,
 } from '@podium/client-core/viewmodels'
-import { autorun } from 'mobx'
+import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
 import type { HeaderRecord, HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 
 const stamp = '2026-10-04T12:00:00Z'
+installMobxWarnTrap()
 function fixture(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     header: true,
+    worklist: 'demand',
     load: () => undefined,
     schedule: () => () => {},
   })
@@ -150,7 +153,7 @@ function fixture(scale: 1 | 4) {
     reorder() {
       const reordered = [...repos].reverse()
       repos.splice(0, repos.length, ...reordered)
-      pool.header.order('repository', [...ids].reverse())
+      runInAction(() => pool.header.order('repository', [...ids].reverse()))
     },
     dispose() {
       stop()
