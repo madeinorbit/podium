@@ -28,9 +28,9 @@ function poolFor(ui: RoutedUiState) {
 }
 function port() {
   const values = new Map<string, string>()
-  const listeners = new Set<() => void>()
-  const emit = () => {
-    for (const wake of [...listeners]) wake()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
+  const emit = (keys: ReadonlySet<string> = new Set()) => {
+    for (const wake of [...listeners]) wake(keys)
   }
   return {
     values,
@@ -40,13 +40,13 @@ function port() {
     get: vi.fn((key: string) => values.get(key) ?? null),
     set: (key: string, value: string | null) => {
       value === null ? values.delete(key) : values.set(key, value)
-      emit()
+      emit(new Set([key]))
     },
     clear: (key: string) => {
       values.delete(key)
-      emit()
+      emit(new Set([key]))
     },
-    subscribe: (wake: () => void) => {
+    subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
       listeners.add(wake)
       return () => {
         listeners.delete(wake)

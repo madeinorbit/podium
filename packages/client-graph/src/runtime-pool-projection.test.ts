@@ -200,10 +200,14 @@ it('gives abandoned renders to the observer finalizer and re-arms a finalized vi
 it('rethrows reader errors through getSnapshot and recovers on a real input change', () => {
   const f = fixture()
   const failure = new Error('projection reader failed')
-  const view = createPoolProjection(f.pool, (current) => {
-    if (current.selection.has('target')) throw failure
-    return { selected: false }
-  })
+  const view = createPoolProjection(
+    f.pool,
+    (current) => {
+      if (current.selection.has('target')) throw failure
+      return { selected: false }
+    },
+    { equals: compareStructural },
+  )
   const wake = vi.fn()
   cleanups.push(view.subscribe(wake))
   const first = view.getSnapshot()
