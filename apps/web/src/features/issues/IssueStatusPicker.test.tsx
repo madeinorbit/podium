@@ -54,21 +54,21 @@ describe('IssueStatusPicker', () => {
   it('mounts zero menus for 337 rows, then only the intended menu across row updates', () => {
     const onPick = vi.fn()
     const onRowClick = vi.fn()
+    const ids = Array.from({ length: 337 }, (_, index) => `issue-${index}`)
     const rows = (stage: 'backlog' | 'in_progress') =>
-      Array.from({ length: 337 }, (_, id) => (
-        <Row key={id} stage={stage} onPick={onPick} onRowClick={onRowClick} />
-      ))
-    const view = render(<>{rows('backlog')}</>)
+      ids.map((id) => <Row key={id} stage={stage} onPick={onPick} onRowClick={onRowClick} />)
+    const view = render(rows('backlog'))
     expect(roots.mounts).toBe(0)
     expect(roots.live).toBe(0)
-    const trigger = screen.getAllByTestId('issue-status-picker')[12]!
+    const trigger = screen.getAllByTestId('issue-status-picker')[12]
+    if (!trigger) throw new Error('Missing status fixture row')
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
 
     fireEvent.pointerEnter(trigger)
     expect(roots.mounts).toBe(1)
     expect(screen.queryByRole('menu')).toBeNull()
-    view.rerender(<>{rows('in_progress')}</>)
+    view.rerender(rows('in_progress'))
     expect(roots.mounts).toBe(1)
     expect(roots.live).toBe(1)
   })
@@ -95,7 +95,8 @@ describe('IssueStatusPicker', () => {
     const onRowClick = vi.fn()
     render(<Row stage="backlog" onPick={vi.fn()} onRowClick={onRowClick} />)
     const cold = screen.getByLabelText('Status: Backlog')
-    const owner = cold.parentElement!
+    const owner = cold.parentElement
+    if (!owner) throw new Error('Missing status event owner')
     fireEvent.pointerDown(cold, { button: 0, pointerType: 'touch' })
     expect(await screen.findByRole('menu')).toBeTruthy()
     // Down and up straddle the trigger replacement, so the browser's click

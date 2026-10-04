@@ -74,7 +74,8 @@ export async function installStatusMenuMountGuard(page: Page): Promise<void> {
         let count = 0
         const stack = [root.current]
         while (stack.length) {
-          const fiber = stack.pop()!
+          const fiber = stack.pop()
+          if (!fiber) break
           if (fiber.sibling) stack.push(fiber.sibling)
           if (fiber.child) stack.push(fiber.child)
           if (fiber.tag !== 0 || fiber.type !== window.__statusMenuRootType) continue

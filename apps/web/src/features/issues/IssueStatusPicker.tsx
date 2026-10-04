@@ -1,3 +1,4 @@
+import { mergeProps } from '@base-ui/react/merge-props'
 import {
   type IssueStatusFields,
   isSystemOwnedIssueStage,
@@ -7,7 +8,6 @@ import {
   issueStatusOf,
   issueStatusValueOf,
 } from '@podium/model/browser'
-import { mergeProps } from '@base-ui/react/merge-props'
 import { Check } from 'lucide-react'
 import { cloneElement, Fragment, type JSX, useId, useLayoutEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -183,6 +183,7 @@ export function IssueStatusPicker({
   return (
     // A stable event owner catches the first click even when pointerdown has
     // replaced its target. It adds no box and keeps the row's button closed.
+    // biome-ignore lint/a11y/noStaticElementInteractions: this is the event boundary around the single accessible child trigger, not an additional control
     <span
       className="contents"
       onClick={(event) => {
@@ -205,11 +206,13 @@ export function IssueStatusPicker({
             nativeButton={false}
             id={triggerId}
             ref={triggerRef}
-            render={(props, state) => cloneElement(trigger, {
-              ...mergeProps(props, trigger.props),
-              ref: props.ref,
-              'aria-expanded': state.open,
-            })}
+            render={(props, state) =>
+              cloneElement(trigger, {
+                ...mergeProps(props, trigger.props),
+                ref: props.ref,
+                'aria-expanded': state.open,
+              })
+            }
           />
           {/* The same list, the same order, the same rules as the dock and the
           right-click menu — `issueStatusMenuEntries()` is the single place that
