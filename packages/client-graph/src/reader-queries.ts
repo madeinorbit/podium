@@ -1,9 +1,6 @@
 import {
-  compareStructural,
-  computed,
   createAtom,
   type IAtom,
-  type IComputedValue,
   observable,
   observe,
   runInAction,
@@ -15,7 +12,7 @@ import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
 import { questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
-import type { SessionActivityQuestion } from './shared/session-activity'
+import { createSessionActivityIndex, type SessionActivityQuestion } from './shared/session-activity'
 import type { RowSourceEvent } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -32,10 +29,10 @@ interface IdentityResult {
 export class ReaderQueries {
   private readonly sessionsChanged = observable.box(0)
   private sessionVersion = -1
-  private readonly activityRows = new Map<
-    string,
-    IComputedValue<{ cwd: string; at: number; collapsed: boolean } | undefined>
-  >()
+  private readonly residentActivityIds = new Set<string>()
+  private readonly residentActivity = createSessionActivityIndex((id) =>
+    this.index().sessionCollapsed(id),
+  )
   private readonly observed = new Map<
     string,
     { atom: IAtom; version: number; revision(index: ColdQueries): number }
@@ -64,8 +61,32 @@ export class ReaderQueries {
         observe(pool.tables[entity], (change) => {
           this.correctCount(entity, change.name)
           this.updateIdentity(entity, change.name)
+          if (entity === 'session') this.updateActivity(change.name)
         }),
       )
+  }
+  /** Maintain numerical maxima as resident slots change. A repository query
+   * must not walk every resident session or create dependencies on other roots. */
+  private updateActivity(id: string): void {
+    const resident = this.pool.tables.session.has(id)
+    if (resident) this.residentActivityIds.add(id)
+    else this.residentActivityIds.delete(id)
+    const row = resident
+      ? untracked(() => this.pool.row('session', id, 'summary-fields'))
+      : undefined
+    this.residentActivity.set(
+      id,
+      row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+    )
+    // Hydration can change a resident slot without a source publication.
+    const index = this.index()
+    for (const [key, state] of this.observed) {
+      if (!key.startsWith('activity:')) continue
+      const version = state.revision(index)
+      if (state.version === version) continue
+      state.version = version
+      state.atom.reportChanged()
+    }
   }
   private correctCount(entity: 'issue' | 'session', id: string): void {
     const before = this.extras[entity].has(id)
@@ -133,19 +154,20 @@ export class ReaderQueries {
     return index
   }
   publish(event: RowSourceEvent): void {
-    if (event.type === 'replace') this.activityRows.clear()
-    for (const row of event.rows) {
-      if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
-        this.activityRows.delete(row.id)
-    }
     const index = this.index()
     const fresh = this.sourceSeen !== undefined && this.sourceSeen !== index
     this.sourceSeen = index
     if (event.type === 'replace' || fresh) {
+      this.residentActivity.clear()
+      this.residentActivityIds.clear()
+      for (const id of residentIds(this.pool, 'session')) this.updateActivity(id)
       for (const entity of ['issue', 'session'] as const) {
         this.extras[entity].clear()
         for (const id of residentIds(this.pool, entity)) this.correctCount(entity, id)
       }
+    } else {
+      for (const [entity, id] of index.changes(event).flips)
+        if (entity === 'session') this.residentActivity.visibilityChanged(id)
     }
     for (const row of event.rows)
       if (row.kind === 'issue' || row.kind === 'session') {
@@ -317,49 +339,20 @@ export class ReaderQueries {
     ).issueRepoIds(repoPath)
   }
   activity(question: SessionActivityQuestion): number {
-    const index = this.watch(JSON.stringify(question), (value) =>
-      value.readerActivityRevision(question),
-    )
-    const resident = residentIds(this.pool, 'session')
-    let latest = index.readerActivity({
+    const key = JSON.stringify({
       ...question,
-      excluded: [...resident, ...(question.excluded ?? [])],
+      ...(question.excluded ? { excluded: [...question.excluded] } : {}),
     })
-    const excluded = new Set(question.excluded)
-    for (const id of resident) {
-      if (excluded.has(id)) continue
-      let input = this.activityRows.get(id)
-      if (!input) {
-        input = computed(
-          () => {
-            const row = this.pool.row('session', id, 'summary-fields') as
-              | { cwd: string; lastActiveAt?: string }
-              | typeof LOADING
-              | undefined
-            return !row || row === LOADING
-              ? undefined
-              : {
-                  cwd: row.cwd,
-                  at: Date.parse(row.lastActiveAt ?? '') || 0,
-                  collapsed: this.collapsed(id),
-                }
-          },
-          { equals: compareStructural },
-        )
-        this.activityRows.set(id, input)
-      }
-      const row = input.get()
-      if (!row || row.collapsed) continue
-      if (
-        !question.roots.some(
-          (root) =>
-            row.cwd === root || (question.match !== 'exact' && row.cwd?.startsWith(`${root}/`)),
-        )
-      )
-        continue
-      latest = Math.max(latest, row.at)
-    }
-    return latest
+    const index = this.watch(`activity:${key}`, (value) =>
+      value.readerActivityRevision(question) + this.residentActivity.revision(question),
+    )
+    const excluded = question.excluded
+      ? new Set([...this.residentActivityIds, ...question.excluded])
+      : this.residentActivityIds
+    return Math.max(
+      index.readerActivity({ ...question, excluded }),
+      this.residentActivity.answer(question),
+    )
   }
   collapsed(id: string): boolean {
     this.sessionsChanged.get()
@@ -377,6 +370,7 @@ export class ReaderQueries {
     this.listeners.clear()
     this.memberListeners.clear()
     this.observed.clear()
-    this.activityRows.clear()
+    this.residentActivity.clear()
+    this.residentActivityIds.clear()
   }
 }

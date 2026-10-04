@@ -4,7 +4,7 @@ export interface SessionActivityQuestion {
   kind: 'commandRootActivity'
   roots: readonly string[]
   match?: 'within' | 'exact'
-  excluded?: readonly string[]
+  excluded?: readonly string[] | ReadonlySet<string>
 }
 
 type Entry = { id: string; at: number }
@@ -139,7 +139,7 @@ export function createSessionActivityIndex(collapsed: (id: string) => boolean) {
       )
     },
     answer(question: SessionActivityQuestion): number {
-      const excluded = new Set(question.excluded)
+      const excluded = question.excluded instanceof Set ? question.excluded : new Set(question.excluded)
       return Math.max(
         0,
         ...question.roots.map(

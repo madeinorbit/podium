@@ -829,4 +829,65 @@ describe('readers behind declared cold questions', () => {
       f.pool.dispose()
     }
   })
+
+  it('answers repository activity without enumerating or rereading resident sessions', () => {
+    const f = fixture()
+    f.pool.apply({
+      type: 'update',
+      rows: Array.from({ length: 256 }, (_, n) => ({
+        kind: 'session',
+        id: `activity-${n}`,
+        value: {
+          sessionId: `activity-${n}`,
+          cwd: `/activity-${n}/worktree`,
+          status: 'live',
+          lastActiveAt: '2027-01-01T00:00:00Z',
+        },
+      })) as RowRecord[],
+    })
+    const reads = vi.spyOn(f.pool, 'row')
+    const residents = vi.spyOn(f.pool.tables.session, 'keys')
+    try {
+      for (let n = 0; n < 500; n++)
+        expect(f.pool.queries.activity({ kind: 'commandRootActivity', roots: [`/activity-${n}`] }))
+          .toBe(n < 256 ? Date.parse('2027-01-01T00:00:00Z') : 0)
+      expect(reads).not.toHaveBeenCalled()
+      expect(residents).not.toHaveBeenCalled()
+    } finally {
+      reads.mockRestore()
+      residents.mockRestore()
+      f.pool.dispose()
+    }
+  })
+
+  it('tracks activity by root across resident moves, exclusions, eviction and replacement', () => {
+    const f = fixture()
+    const question = { kind: 'commandRootActivity', roots: ['/query'] } as const
+    const values: number[] = []
+    const stop = autorun(() => values.push(f.pool.queries.activity(question)))
+    const update = (id: string, cwd: string, at: string) => f.pool.apply({
+      type: 'update',
+      rows: [{ kind: 'session', id, value: { sessionId: id, cwd, status: 'live', lastActiveAt: at } } as RowRecord],
+    })
+    try {
+      const before = values.length
+      update('elsewhere', '/elsewhere', '2028-01-01T00:00:00Z')
+      expect(values).toHaveLength(before)
+      update('moving', '/query/worktree', '2027-01-01T00:00:00Z')
+      expect(values.at(-1)).toBe(Date.parse('2027-01-01T00:00:00Z'))
+      expect(f.pool.queries.activity({ ...question, excluded: ['moving'] })).toBe(values[0])
+      expect(f.pool.queries.activity({ ...question, match: 'exact' })).toBe(0)
+      update('moving', '/elsewhere', '2029-01-01T00:00:00Z')
+      expect(values.at(-1)).toBe(values[0])
+      update('moving', '/query', '2030-01-01T00:00:00Z')
+      expect(f.pool.queries.activity({ ...question, match: 'exact' })).toBe(Date.parse('2030-01-01T00:00:00Z'))
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'moving', value: undefined }] })
+      expect(values.at(-1)).toBe(values[0])
+      f.pool.apply({ type: 'replace', rows: f.rows })
+      expect(values.at(-1)).toBe(values[0])
+    } finally {
+      stop()
+      f.pool.dispose()
+    }
+  })
 })
