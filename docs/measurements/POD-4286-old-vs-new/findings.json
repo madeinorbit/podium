@@ -2,7 +2,7 @@
   "summary": "CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 5.54\u21920.63 s, mark-read 10.02\u21920.21 s, and busy live-update CPU 95%\u219224% of one renderer core. Startup costs more: cold 6.90\u219211.86 s and retained-data reload 4.00\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening and sidebar expansion show no clear median gain at 4x. This is a mixed web result: 1x has two matched pairs and 4x currently has one. The whole-app verdict awaits phone, heap and sampled CPU attribution. OLD phone cannot start with the shared corpus.",
   "currentArm": {
     "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
-    "status": "Two web1x pairs and first web4x pair complete; second4x OLD queued",
+    "status": "Two web1x pairs and first web4x pair complete; second4x OLD complete and CURRENT waiting for bench",
     "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
     "workspaceBuildSeconds": 181.073
   },
@@ -17,6 +17,178 @@
       "oldP95Ms": 322.269,
       "newP95Ms": 597.825,
       "nPerArm": 16
+    },
+    {
+      "issue": "POD-5561",
+      "id": "iss_d196d1b5-b5da-4f64-b291-ff02948db1a9",
+      "scope": "The Search tasks textbox on the Tasks board",
+      "action": "board-search",
+      "evidence": [
+        {
+          "newArm": "new-current",
+          "surface": "web",
+          "scale": 1,
+          "action": "board-search",
+          "old": {
+            "n": 16,
+            "median": 58.489000000000004,
+            "p95": 100.375,
+            "max": 100.375,
+            "cpuN": 16,
+            "cpuMedian": 55.947,
+            "cpuP95": 84.737,
+            "cpuMax": 84.737,
+            "layoutCpuMedian": 8.6045,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 82.4659999999966
+          },
+          "new": {
+            "n": 16,
+            "median": 89.497,
+            "p95": 144.165,
+            "max": 144.165,
+            "cpuN": 16,
+            "cpuMedian": 89.0745,
+            "cpuP95": 141.618,
+            "cpuMax": 141.618,
+            "layoutCpuMedian": 8.505,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 156.9110000000009
+          },
+          "changePercent": 53.015096855819024,
+          "p95ChangePercent": 43.626400996264,
+          "verdict": "slower"
+        },
+        {
+          "newArm": "new-current",
+          "surface": "web",
+          "scale": 4,
+          "action": "board-search",
+          "old": {
+            "n": 8,
+            "median": 142.346,
+            "p95": 187.181,
+            "max": 187.181,
+            "cpuN": 8,
+            "cpuMedian": 141.5225,
+            "cpuP95": 185.706,
+            "cpuMax": 185.706,
+            "layoutCpuMedian": 11.007,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 203.2725000000255
+          },
+          "new": {
+            "n": 8,
+            "median": 353.2215,
+            "p95": 1045.905,
+            "max": 1045.905,
+            "cpuN": 8,
+            "cpuMedian": 352.4495,
+            "cpuP95": 1039.294,
+            "cpuMax": 1039.294,
+            "layoutCpuMedian": 19.9805,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 644.212500000009
+          },
+          "changePercent": 148.14290531521786,
+          "p95ChangePercent": 458.7666483243491,
+          "verdict": "slower"
+        }
+      ]
+    },
+    {
+      "issue": "POD-5562",
+      "id": "iss_80e29456-236b-43b0-a154-ea8dfab148a8",
+      "scope": "The Control+k command palette combobox in task-result mode; distinct from palette opening and editor mention pickers",
+      "action": "issue-picker-search",
+      "evidence": [
+        {
+          "newArm": "new-current",
+          "surface": "web",
+          "scale": 1,
+          "action": "issue-picker-search",
+          "old": {
+            "n": 16,
+            "median": 22.624000000000002,
+            "p95": 56.668,
+            "max": 56.668,
+            "cpuN": 16,
+            "cpuMedian": 20.6615,
+            "cpuP95": 34.462,
+            "cpuMax": 34.462,
+            "layoutCpuMedian": 3.588,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 63.99499999999847
+          },
+          "new": {
+            "n": 16,
+            "median": 53.319500000000005,
+            "p95": 141.253,
+            "max": 141.253,
+            "cpuN": 16,
+            "cpuMedian": 30.283,
+            "cpuP95": 54.67,
+            "cpuMax": 54.67,
+            "layoutCpuMedian": 4.721,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 102.02100000000058
+          },
+          "changePercent": 135.67671499292788,
+          "p95ChangePercent": 149.2641349615303,
+          "verdict": "slower"
+        },
+        {
+          "newArm": "new-current",
+          "surface": "web",
+          "scale": 4,
+          "action": "issue-picker-search",
+          "old": {
+            "n": 8,
+            "median": 53.2285,
+            "p95": 91.979,
+            "max": 91.979,
+            "cpuN": 8,
+            "cpuMedian": 48.558,
+            "cpuP95": 60.144,
+            "cpuMax": 60.144,
+            "layoutCpuMedian": 7.811,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 117.58400000002212
+          },
+          "new": {
+            "n": 8,
+            "median": 74.118,
+            "p95": 94.246,
+            "max": 94.246,
+            "cpuN": 8,
+            "cpuMedian": 73.45400000000001,
+            "cpuP95": 93.892,
+            "cpuMax": 93.892,
+            "layoutCpuMedian": 9.1385,
+            "boundary": [
+              "Paint"
+            ],
+            "taskWindowMedian": 229.40199999999322
+          },
+          "changePercent": 39.24495336145111,
+          "p95ChangePercent": 2.4646930277563373,
+          "verdict": "slower"
+        }
+      ]
     }
   ]
 }

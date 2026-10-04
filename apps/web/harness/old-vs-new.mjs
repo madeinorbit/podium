@@ -16,8 +16,10 @@ const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = 
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const controlOnly=process.argv.includes('--control-only')
 const backgroundOnly=process.argv.includes('--background-only')
+const terminalProbe=process.argv.includes('--terminal-probe')
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
+if(terminalProbe && (surface!=='phone' || mode!=='probe'))throw Error('Direct phone terminal is a structural probe, never a Work-screen timing capture')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
@@ -52,7 +54,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   httpCache:'disabled by bootstrap request routing',
   warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
   sameOriginTracePriming:true,
-  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,
+  semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -276,15 +278,16 @@ async function makePage() {
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
 }
-const url=()=>surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
+const url=()=>surface==='phone'?`${base}/mobile/${terminalProbe?`session/${controls[0].secondSession.sessionId}/terminal`:'work'}?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
 async function ready(page,{controlById=false}={}) {
   if(surface==='phone') {
-    await page.waitForFunction(()=>!!document.querySelector('[aria-label="Search work"]') || document.body.innerText.includes('CANNOT START'),undefined,{timeout:120000})
+    await page.waitForFunction(selector=>!!document.querySelector(selector) || document.body.innerText.includes('CANNOT START'),terminalProbe?'.xterm':'[aria-label="Search work"]',{timeout:120000})
     const failure=await page.evaluate(()=>document.body.innerText.includes('CANNOT START')?document.body.innerText.slice(0,700):null)
     if(failure)throw Error('Phone startup refused: '+failure)
   }
   else await page.locator('aside').first().waitFor({timeout:120000})
-  if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
+  if(terminalProbe)await page.locator('.xterm').waitFor({timeout:120000})
+  else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
@@ -888,6 +891,15 @@ try {
   if(mode==='probe') {
     // Untimed controls only: retain selectors for the complete timing action map.
     if(surface==='web'){await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
+    else if(terminalProbe) {
+      const targetSession=controls[0].secondSession.sessionId
+      for(let i=0;i<100 && !outputEpochs.has(targetSession);i++)await pause(100)
+      if(!outputEpochs.has(targetSession))throw Error('No output subscription on direct phone terminal')
+      output(targetSession,'comparison direct-terminal witness\r\n')
+      await f.page.waitForFunction(()=>window.__podium?.screenText?.().includes('comparison direct-terminal witness'),undefined,{timeout:15000})
+      result.directTerminalWitness={sessionId:targetSession,subscription:true,renderedOutput:true};save()
+      await inspect(f.page,'phone-terminal')
+    }
     else {await f.page.getByRole('button',{name:'Search work',exact:true}).click();await inspect(f.page,'phone-search')}
   }
   if(mode==='timing') {

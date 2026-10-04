@@ -648,7 +648,7 @@ Inbox has no production route/tab in the measured revisions. Its detached compon
 
 The web issue-picker-search row measures task-result search in the Control+k command palette combobox. The phone issue-picker row measures the mission parent picker. These are different production controls; neither row claims editor mention-picker coverage. Real server updates continue to pass through the relay alongside the synthetic replay. Busy idle windows record upstream counter snapshots; the historical-rate windows do not separately count incidental upstream frames. Thus the recipe describes injected rates, not the entire observed traffic rate.
 
-Performance regressions are recorded separately from this measurement work: POD-5513 covers startup, POD-5514 covers palette opening and populated group expansion, and POD-5555 records repeated Tasks-board opening. POD-5371 concerns initial board-index attachment. No product fixes are included here.
+Performance regressions are recorded separately from this measurement work: POD-5513 covers startup, POD-5514 covers palette opening and populated group expansion, and POD-5555 records repeated Tasks-board opening, POD-5561 records Tasks search, and POD-5562 records command-palette query search. POD-5371 concerns initial board-index attachment. No product fixes are included here.
 
 - NEW phone 1x: **phone-inbox** — Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement
 - NEW phone 4x: **phone-inbox** — Error: No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement
