@@ -88,7 +88,7 @@ export interface AdoptOutcome {
 /** The persisted form includes empty drafts: a deletion is a local edit too. */
 export type DraftLedgerSnapshot = Record<
   string,
-  { text: string; serverRev: number; editedAt: number }
+  { text: string; serverRev: number; editedAt: number; dirty?: boolean }
 >
 
 export interface DraftLedger {
@@ -109,16 +109,16 @@ export interface DraftLedger {
   /** Persistable snapshot, including clears so an offline reload cannot undo them. */
   snapshot(): DraftLedgerSnapshot
   /**
-   * Rehydrate from {@link snapshot}. Restored text is marked DIRTY: a draft
-   * written while the socket was down may never have reached the server, and
-   * re-offering it costs one no-op edit the server dedups, where staying quiet
-   * would lose it on every other device permanently.
+   * Rehydrate from {@link snapshot}, preserving whether the server confirmed
+   * the edit. Legacy snapshots lack that information and remain DIRTY so text
+   * written offline is never lost. A confirmed cache must not re-offer itself
+   * over a newer draft from another device after reload.
    */
   restore(data: DraftLedgerSnapshot): void
   remove(sessionId: SessionId): void
 }
 
-function isRestorable(v: unknown): v is { text: string; serverRev: number; editedAt: number } {
+function isRestorable(v: unknown): v is DraftLedgerSnapshot[string] {
   if (typeof v !== 'object' || v === null) return false
   const r = v as Record<string, unknown>
   return typeof r.text === 'string' && typeof r.serverRev === 'number'
@@ -169,9 +169,9 @@ export function createDraftLedger(): DraftLedger {
       // resurrect the deleted message. Re-offer our text on that base instead.
       // Once a versioned document has arrived, an unversioned replay likewise
       // cannot establish that its different text is newer.
-      const stale = local && (incoming.rev === undefined
-        ? local.serverRev > 0
-        : incoming.rev <= local.serverRev)
+      const stale =
+        local &&
+        (incoming.rev === undefined ? local.serverRev > 0 : incoming.rev <= local.serverRev)
       if (local && stale && local.text !== incoming.text) {
         entries.set(sessionId, { ...local, serverRev: nextRev, dirty: true })
         return { acceptText: false, resend: true }
@@ -222,6 +222,7 @@ export function createDraftLedger(): DraftLedger {
           text: draft.text,
           serverRev: draft.serverRev,
           editedAt: draft.editedAt,
+          dirty: draft.dirty,
         }
       }
       return out
@@ -236,7 +237,7 @@ export function createDraftLedger(): DraftLedger {
         entries.set(sessionId as SessionId, {
           text: stored.text,
           serverRev: stored.serverRev,
-          dirty: true,
+          dirty: stored.dirty !== false,
           editedAt: typeof stored.editedAt === 'number' ? stored.editedAt : 0,
         })
       }

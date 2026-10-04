@@ -587,7 +587,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       return this.state.drafts
     }
     const drafts = { ...this.state.drafts }
-    for (const sessionId of this.draftLedger.dirtySessions()) {
+    for (const id of Object.keys(this.draftLedger.snapshot())) {
+      const sessionId = asSessionId(id)
       const local = this.draftLedger.get(sessionId)
       if (local) drafts[sessionId] = local.text
     }
@@ -725,8 +726,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.applyDraftToStore(sessionId, text)
         }
         const current = this.draftLedger.get(sessionId)
-        if (outcome.acceptText || previous?.serverRev !== current?.serverRev ||
-          previous?.dirty !== current?.dirty) {
+        if (
+          outcome.acceptText ||
+          previous?.serverRev !== current?.serverRev ||
+          previous?.dirty !== current?.dirty
+        ) {
           // Acknowledgements also move the durable revision, even though no
           // visible text changed. Retain a cleared document across reload.
           this.scheduleDraftPersist()

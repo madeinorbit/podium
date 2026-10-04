@@ -1,9 +1,13 @@
 import type { useVoiceInput } from '@podium/terminal-client-react'
-import { act, createRef } from 'react'
+import { createDraftLedger } from '@podium/client-core'
+import { createKeyedInputs, type EngineState, type KeyedInputs } from '@podium/client-core/engine'
+import { asSessionId } from '@podium/model/browser'
+import { act, createRef, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
 import { PanelVisible } from '@/app/panel-visible'
+import { useRuntimeDraft } from '@/app/keyed-runtime'
 import { ChatComposer } from './ChatComposer'
 import type { UseAttachmentsResult } from './use-attachments'
 
@@ -22,6 +26,8 @@ import type { UseAttachmentsResult } from './use-attachments'
 // ---------------------------------------------------------------------------
 
 vi.mock('./use-chat-context', () => ({ useChatMentions: () => [] }))
+const draftFixture = vi.hoisted(() => ({ inputs: undefined as KeyedInputs | undefined }))
+vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => draftFixture.inputs }))
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
@@ -31,6 +37,11 @@ vi.mock('@/app/store', () => ({
 let container: HTMLDivElement
 let root: Root
 let sizingStyles: HTMLStyleElement
+
+function RuntimeDraftComposer(props: ComponentProps<typeof ChatComposer>) {
+  const draft = useRuntimeDraft(asSessionId(props.autoFocusKey))
+  return <ChatComposer {...props} draft={draft} />
+}
 
 const noopAttachments: UseAttachmentsResult = {
   attachments: [],
@@ -70,13 +81,15 @@ async function mount(
     transcriptFreshness?: 'checking' | 'rendering' | 'saved' | null
     deliverable?: boolean
     autoFocusKey?: string
+    fromRuntime?: boolean
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
+  const Composer = opts.fromRuntime ? RuntimeDraftComposer : ChatComposer
   act(() => {
     root.render(
       <PanelVisible visible={opts.visible ?? true}>
-        <ChatComposer
+        <Composer
           taRef={taRef}
           draft={opts.draft ?? ''}
           onDraftChange={opts.onDraftChange ?? (() => {})}
@@ -132,6 +145,65 @@ afterEach(() => {
 })
 
 describe.each([false, true])('draft selection, compact=%s', (compact) => {
+  it('keeps deletion through sync, older echoes, focus and session adoption without stale writes', async () => {
+    const id = asSessionId('s1'),
+      other = asSessionId('s2')
+    let state = { drafts: { [id]: 'old message', [other]: 'other current draft' } } as EngineState
+    const inputs = createKeyedInputs(() => state)
+    draftFixture.inputs = inputs
+    const ledger = createDraftLedger()
+    ledger.adoptRemote(id, { text: 'old message', rev: 10 })
+    const publish = (text: string) => {
+      state = { ...state, drafts: { ...state.drafts, [id]: text } }
+      inputs.emit(new Set(['drafts']), new Set([id]))
+    }
+    const onDraftChange = (text: string) => {
+      ledger.localEdit(id, text, 1)
+      publish(text)
+    }
+    const options = { compact, fromRuntime: true, onDraftChange }
+    try {
+      const { ta } = await mount(options)
+      expect(ta.value).toBe('old message')
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!
+        .set!
+      const writes = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
+      act(() => {
+        ta.focus()
+        ta.setSelectionRange(0, ta.value.length)
+        nativeSet.call(ta, '')
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(state.drafts[id]).toBe('')
+      expect(ta.value).toBe('')
+      writes.mockClear()
+      for (const incoming of [
+        { text: '', rev: 12 },
+        { text: 'old message', rev: 10 },
+        { text: 'second old message', rev: 11 },
+      ]) {
+        act(() => {
+          if (ledger.adoptRemote(id, incoming).acceptText) publish(incoming.text)
+          ta.blur()
+          ta.focus()
+        })
+        await mount(options)
+        expect(ta.value).toBe('')
+        expect([ta.selectionStart, ta.selectionEnd]).toEqual([0, 0])
+      }
+      // Catch even a stale value that was written and replaced before paint.
+      expect(writes).not.toHaveBeenCalled()
+      await mount({ ...options, autoFocusKey: other })
+      expect(ta.value).toBe('other current draft')
+      await mount(options)
+      expect(ta.value).toBe('')
+      expect(state.drafts[id]).toBe('')
+    } finally {
+      inputs.dispose()
+      draftFixture.inputs = undefined
+    }
+  })
+
   it('keeps the caret when a draft render follows native mid-text input', async () => {
     const onDraftChange = vi.fn()
     const { ta } = await mount({ compact, draft: 'abcdef', onDraftChange })

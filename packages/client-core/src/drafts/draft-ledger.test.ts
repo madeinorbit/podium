@@ -52,7 +52,12 @@ describe('a local edit', () => {
   it('starts from rev 0 when the server has never spoken', () => {
     const ledger = createDraftLedger()
     ledger.localEdit(S, 'offline typing', T0)
-    expect(ledger.get(S)).toEqual({ text: 'offline typing', serverRev: 0, dirty: true, editedAt: T0 })
+    expect(ledger.get(S)).toEqual({
+      text: 'offline typing',
+      serverRev: 0,
+      dirty: true,
+      editedAt: T0,
+    })
   })
 })
 
@@ -235,6 +240,23 @@ describe('the reconnect flush set', () => {
 })
 
 describe('persistence across a reload', () => {
+  it('does not re-offer an acknowledged cache over a newer server draft after reload', () => {
+    const ledger = createDraftLedger()
+    ledger.localEdit(S, 'previous message', T0)
+    ledger.adoptRemote(S, { text: 'previous message', rev: 3 })
+    const restored = createDraftLedger()
+    restored.restore(ledger.snapshot())
+    expect(restored.get(S)?.dirty).toBe(false)
+    expect(restored.dirtySessions()).toEqual([])
+    expect(restored.adoptRemote(S, { text: 'current message', rev: 5 })).toEqual({
+      acceptText: true,
+      resend: false,
+    })
+    expect(restored.get(S)?.text).toBe('current message')
+    expect(restored.adoptRemote(S, { text: '', rev: 6 }).acceptText).toBe(true)
+    expect(restored.get(S)?.text).toBe('')
+  })
+
   it('round-trips the text and its base rev', () => {
     const ledger = createDraftLedger()
     ledger.adoptRemote(S, { text: 'seed', rev: 5 })
@@ -245,9 +267,8 @@ describe('persistence across a reload', () => {
     expect(restored.get(S)?.serverRev).toBe(5)
   })
 
-  // A restored draft may never have reached the server — the tab could have
-  // closed with the socket down. Offering it again costs one no-op edit the
-  // server dedups; NOT offering it loses the text on the other devices forever.
+  // Unconfirmed text may never have reached the server. It must still be
+  // re-offered; acknowledged caches must instead follow newer remote edits.
   it('marks restored text dirty so the next connect re-offers it', () => {
     const ledger = createDraftLedger()
     ledger.localEdit(S, 'typed offline', T0)
@@ -265,7 +286,8 @@ describe('persistence across a reload', () => {
     restored.restore(ledger.snapshot())
     expect(restored.get(S)).toEqual({ text: '', serverRev: 3, dirty: true, editedAt: T0 })
     expect(restored.adoptRemote(S, { text: 'deleted message', rev: 3 })).toEqual({
-      acceptText: false, resend: true,
+      acceptText: false,
+      resend: true,
     })
     expect(restored.get(S)?.text).toBe('')
     expect(restored.dirtySessions()).toEqual([S])
