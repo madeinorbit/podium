@@ -277,7 +277,17 @@ async function population(page) {
   if(!controlOnly && (Math.max(counts.issue??0,counts.issueProjection??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length))throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
 }
 async function attempt(name,fn) {
-  try {await fn()} catch(error) {result.unavailable.push({action:name,reason:String(error),load:loadavg()}); console.log(`UNAVAILABLE ${name}: ${String(error).slice(0,240)}`); save();if(round>=100 && fixture)await inspect(fixture.page,`${name}-unavailable`).catch(()=>{});await fixture?.page.keyboard.press('Escape').catch(()=>{})}
+  try {await fn()} catch(error) {
+    result.unavailable.push({action:name,reason:String(error),load:loadavg()}); console.log(`UNAVAILABLE ${name}: ${String(error).slice(0,240)}`); save()
+    if((round>=100 || name==='large-mission-switch') && fixture) {
+      await inspect(fixture.page,`${name}-unavailable`).catch(()=>{})
+      if(name==='large-mission-switch') {
+        result.largeMissionFailureDom=await fixture.page.evaluate(()=>({url:location.href,headers:[...document.querySelectorAll('.deck-header')].map(x=>({text:x.textContent,width:x.getBoundingClientRect().width,hidden:!!x.closest('[aria-hidden="true"]')})),selected:[...document.querySelectorAll('[data-issue-row][data-selected="true"]')].map(x=>({id:x.getAttribute('data-issue-row'),text:x.textContent})),childRows:document.querySelectorAll('[data-testid="flight-deck-scroller"] [data-flight-issue]').length}))
+        save()
+      }
+    }
+    await fixture?.page.keyboard.press('Escape').catch(()=>{})
+  }
 }
 let recordIndex=0
 const actionSamples = new Map()
