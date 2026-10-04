@@ -56,7 +56,7 @@ const snapshot = () => {
       })
     : state
 }
-const handle = { getSnapshot: snapshot, subscribe: (_listener: () => void) => () => {} }
+const handle = { get access() { return snapshot() }, subscribe: (_listener: () => void) => () => {} }
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
   useReplicaIssues: () => {

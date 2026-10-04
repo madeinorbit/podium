@@ -6,7 +6,7 @@ import { fixtureStoreSnapshot } from './fixture-store'
 vi.mock('@podium/client-core/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const owner = {
-    getSnapshot: () => fixtureStoreSnapshot(selectMockSnapshot((state) => state)),
+    get access() { return fixtureStoreSnapshot(selectMockSnapshot((state) => state)) },
   }
   return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
 })

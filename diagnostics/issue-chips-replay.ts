@@ -11,7 +11,7 @@ import { checkIssueChips } from '../packages/client-graph/diagnostics/chip-check
 import { createWorklistPool } from '../packages/client-graph/src/create'
 import { issueRefKey } from '../packages/client-graph/src/issue-reference'
 import { createEngineLocals } from '../packages/client-graph/src/shared/engine-locals'
-import { createRowSource } from '../packages/client-graph/src/shared/row-source'
+import { createRowSource } from '../packages/worklist-proto/shared/src/row-source'
 import { parseAnyRef } from '../packages/protocol/src/index'
 import { readLive } from '../packages/worklist-proto/harness/src/fixture/export-snapshot'
 import { corpusFromLive } from '../packages/worklist-proto/harness/src/fixture/live-snapshot'

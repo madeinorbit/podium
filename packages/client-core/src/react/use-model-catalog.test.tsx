@@ -11,7 +11,7 @@ const trpc = { models: { catalog: { query: catalog }, refresh: { mutate: refresh
 let activeTrpc: unknown = trpc
 
 vi.mock('./provider', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => ({ trpc: activeTrpc }) }),
+  useStoreHandle: () => ({ get access() { return ({ trpc: activeTrpc }) } }),
 }))
 
 const { useModelCatalog, useModelCatalogState } = await import('./use-model-catalog')

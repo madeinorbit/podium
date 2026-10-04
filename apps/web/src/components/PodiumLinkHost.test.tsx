@@ -37,12 +37,12 @@ vi.mock('@/app/store', () => ({
 
 vi.mock('@podium/client-core/react', async (load) => ({
   ...await load<typeof import('@podium/client-core/react')>(),
-  useStoreHandle: () => ({ getSnapshot: () => ({
+  useStoreHandle: () => ({ get access() { return ({
     httpOrigin: 'http://127.0.0.1:18787',
     setOpenIssueId: hostStore.setOpenIssueId, setView: hostStore.setView,
     navigateToSession: hostStore.navigateToSession, openArtifact: hostStore.openArtifact,
     openFileInWorktree: hostStore.openFileInWorktree,
-  }) }),
+  }) } }),
 }))
 
 import {

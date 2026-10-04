@@ -6,7 +6,7 @@ import { useRuntimeSelector as selectLocals } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 import './mock-screen-pool'
-const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState) => T) => T
+const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState<import('@/app/trpc').Trpc>) => T) => T
 
 // Opt-in for provider-free suites that replace the web store. Stable accessors
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this

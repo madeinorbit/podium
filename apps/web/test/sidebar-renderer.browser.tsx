@@ -137,15 +137,15 @@ const fixture = {
   failures: () => [...failures],
   show,
   rail: (value: boolean) => toggleRail?.(value),
-  palette: (value: boolean) => runtime?.getSnapshot().setPaletteOpen(value),
+  palette: (value: boolean) => runtime?.access.setPaletteOpen(value),
   update: (patch: Record<string, unknown>) =>
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
-  select: (id: string) => runtime?.getSnapshot().setSelectedIssueId(asIssueId(id)),
+  select: (id: string) => runtime?.access.setSelectedIssueId(asIssueId(id)),
   state: () => ({
-    selected: runtime?.getSnapshot().selectedIssueId,
-    pane: runtime?.getSnapshot().paneA,
-    projectOrder: runtime?.getSnapshot().sidebarSettings.repoOrder,
-    coarseNow: runtime?.getSnapshot().coarseNow,
+    selected: runtime?.access.selectedIssueId,
+    pane: runtime?.access.paneA,
+    projectOrder: runtime?.access.sidebarSettings.repoOrder,
+    coarseNow: runtime?.access.coarseNow,
   }),
   stats: (): {
     enabled: boolean

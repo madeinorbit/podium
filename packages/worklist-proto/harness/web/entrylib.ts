@@ -1,3 +1,4 @@
+import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../../shared/src/scenarios'
 /**
@@ -119,7 +120,7 @@ import { upsertIssue } from '../../shared/src/scenarios'
  * differs.
  */
 
-import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
+import { MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/values'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
 import { type RowSourceHandle, type RowSourceOptions, type RowSourceRepaint } from '@podium/client-graph/shared/row-source'

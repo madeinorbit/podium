@@ -138,7 +138,7 @@ const proof = {
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,
-    repos: runtime?.getSnapshot().repos.length,
+    repos: runtime?.access.repos.length,
     issues: runtime?.replica.rows('issueProjections').length,
     sessions: runtime?.replica.rows('sessions').length,
   }),

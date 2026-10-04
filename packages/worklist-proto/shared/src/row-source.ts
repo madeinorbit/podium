@@ -18,7 +18,7 @@ function followPending(rows: RowSourceRepaint, pending: PooledPending, follow: (
   return follow(() => {
     const next = new Set<string>()
     for (const kind of ['sessions', 'sessionUserStates', 'issueProjections', 'issueUserStates'] as const)
-      for (const id of pending[kind]?.keys() ?? [])
+      for (const id of pending.byRow(kind).keys())
         next.add(JSON.stringify([kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue', id]))
     const touched = new Set([...previous, ...next])
     previous = next

@@ -25,7 +25,7 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@podium/client-core/react', () => {
-  const owner = { getSnapshot: () => f.actions }
+  const owner = { get access() { return f.actions } }
   return { useStoreHandle: () => owner }
 })
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))

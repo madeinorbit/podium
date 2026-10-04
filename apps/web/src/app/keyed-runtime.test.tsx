@@ -1,3 +1,4 @@
+import { tracked } from '../../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
 import { useSyncExternalStore } from 'react'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -29,7 +30,7 @@ let transactions: ReturnType<typeof createPoolTransactions>
 const prompt = (id: string, text: string | null | undefined) => {
   // Test at the transaction's observable map boundary. Production writes use its spawn owner.
   const map = transactions.spawnPrompts as Map<string, string | null>
-  if (text === undefined) map.delete(id); else map.set(id, text)
+  tracked(() => { if (text === undefined) map.delete(id); else map.set(id, text) })
 }
 const sid = asSessionId('first'),
   other = asSessionId('other')

@@ -61,7 +61,7 @@ const SyntheticRow = observer(
         type="button"
         data-tick={tick}
         className="m-4 rounded border border-border p-3 text-left"
-        onClick={() => runtime?.getSnapshot().setSelectedIssueId(asIssueId(model.id))}
+        onClick={() => runtime?.access.setSelectedIssueId(asIssueId(model.id))}
       >
         {model.title}
       </button>

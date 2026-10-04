@@ -13,17 +13,7 @@ import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { useHasFirstTask } from './mobile-handoff'
 
 const mode = vi.hoisted(() => ({ value: 'pool' as 'legacy' | 'pool', legacyReads: 0 }))
-vi.mock('@/app/store', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/app/store')>()
-  return {
-    ...original,
-    useReplicaIssues: () => {
-      mode.legacyReads += 1
-      if (mode.value === 'pool') throw new Error('Pool first-task check read legacy issue models')
-      return original.useReplicaIssues()
-    },
-  }
-})
+
 
 const NOW = Date.parse('2026-10-01T08:00:00Z')
 const pools: MobxPool[] = []

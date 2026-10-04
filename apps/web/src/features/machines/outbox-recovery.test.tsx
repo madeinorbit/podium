@@ -54,7 +54,7 @@ vi.mock('@/app/store', () => ({
 // The card reads its recovery actions through the store handle; the indicator's
 // legacy reader records its work against the same owner.
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => storeState() }),
+  useStoreHandle: () => ({ get access() { return storeState() } }),
 }))
 
 // The migrated surface gets refusal data through the pool notice hook, rather

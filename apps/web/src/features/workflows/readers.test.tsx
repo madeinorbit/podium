@@ -318,6 +318,6 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
   expect(fixture.calls.profileSave).toBe(1)
   expect(fixture.calls.list).toBe(2)
   expect(fixture.calls.locks).toBe(1)
-  expect(owner?.getSnapshot().replica).toBe(fixture.replica)
+  expect(owner?.access.replica).toBe(fixture.replica)
   expect(fatal).not.toHaveBeenCalled()
 })

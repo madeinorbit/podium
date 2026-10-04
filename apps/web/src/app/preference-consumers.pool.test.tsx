@@ -21,7 +21,7 @@ const ports = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => ({ uiState: ports.ui }) }),
+  useStoreHandle: () => ({ get access() { return ({ uiState: ports.ui }) } }),
   useRuntimeSelector: () => {
     throw new Error('Preference consumers must use the pool')
   },
@@ -40,7 +40,7 @@ vi.mock('@/app/store-worklist-pool', async () => {
       )
       return useSyncExternalStore(
         projection?.subscribe ?? subscribe,
-        () => projection?.getSnapshot() ?? empty,
+        () => projection?.access ?? empty,
       )
     },
   }

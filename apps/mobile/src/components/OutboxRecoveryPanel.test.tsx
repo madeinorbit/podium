@@ -22,7 +22,7 @@ vi.mock('../client/use-pool-notices', () => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => mobile.state }),
+  useStoreHandle: () => ({ get access() { return mobile.state } }),
 }))
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'

@@ -136,10 +136,10 @@ const driver = {
     const runtimes = storeStats.snapshot().runtimes
     return {
       runtimes: runtimes.length,
-      issues: owner?.getSnapshot().issueProjections.length ?? 0,
-      sessions: owner?.getSnapshot().sessions.length ?? 0,
-      automations: owner?.getSnapshot().automations.length ?? 0,
-      runs: owner?.getSnapshot().automationRuns.length ?? 0,
+      issues: owner?.replica.rowCount?.('issueProjections') ?? 0,
+      sessions: owner?.replica.rowCount?.('sessions') ?? 0,
+      automations: owner?.replica.rowCount?.('automations') ?? 0,
+      runs: owner?.replica.rowCount?.('automationRuns') ?? 0,
       pool: Boolean(pool),
       publishes: runtimes.reduce((sum, row) => sum + row.publishes, 0),
       selectors: runtimes.reduce((sum, row) => sum + row.selectorRuns, 0),

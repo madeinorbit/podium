@@ -54,7 +54,7 @@ try {
   pool.row('settingsWindow', 'window')
   pool.row('preference', 'podium.sounds.enabled')
   await Promise.resolve()
-  const result = checkSettings(pool, state)
+  const result = checkSettings(pool, owner as never)
   console.log(JSON.stringify({ ...result, sessions: sessions.length, machines: machines.length, registeredRoots: roots.length }))
   if (!sessions.length || result.differences || result.pending) process.exitCode = 1
 } finally { pool.dispose() }

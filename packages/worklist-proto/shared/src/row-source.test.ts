@@ -131,7 +131,7 @@ function fakeRuntime(
       return () => listeners.delete(listener)
     },
     getSnapshot: () => ({ repos, sessions: painted }),
-    pending,
+    pending: { byRow: (entity: Entity) => pending[entity] },
     onPending: (changed: () => void) => { listeners.add(changed); return () => { listeners.delete(changed) } },
     setPending: (entity: Entity, id: string, overlays: PendingOverlay[] | null) => {
       if (overlays === null) pending[entity].delete(id)
@@ -1531,7 +1531,7 @@ async function runFence(
       await waitFor(
         () =>
           engine.outbox.pending().length === 0 &&
-          (engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.issueUserStates!.has('i0'),
+          (engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.byRow('issueUserStates').has('i0'),
         'press to drain into awaiting truth',
       )
     })
@@ -1544,7 +1544,7 @@ async function runFence(
         pinned: false,
       })
       await waitFor(
-        () => !(engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.issueUserStates!.has('i0'),
+        () => !(engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.byRow('issueUserStates').has('i0'),
         'echo to retire',
       )
     })

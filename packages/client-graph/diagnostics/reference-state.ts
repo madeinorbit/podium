@@ -13,17 +13,26 @@ export type ReferenceState<T extends import('@podium/client-core/api').PodiumCli
 }
 /** Test oracle only. Production has no full record state or publication. */
 export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(runtime: { readonly access: Store<T>; readonly replica?: ClientRuntime['replica']; readonly principal?: { userId: string } }): ReferenceState<T> {
-  const replica = runtime.replica ?? runtime.access.replica
+  const access = runtime.access
+  const replica = runtime.replica ?? access.replica
+  // Plain component fixtures already supply their reference records.
+  if (!replica?.rows) return access as unknown as ReferenceState<T>
+  const userId = runtime.principal?.userId ?? 'operator'
   const log = (runtime as unknown as { poolWriter?: { pending: { byRow(entity: OverlayTarget): PendingRows }; spawnPrompts: ReadonlyMap<string, string> } }).poolWriter
   const read = <K extends keyof ReplicaRows>(kind: K): ReplicaRows[K][] => {
     const rows = replica.rows(kind)
     const pending = (['sessions', 'issueProjections', 'sessionUserStates', 'issueUserStates'].includes(kind) ? log?.pending.byRow(kind as OverlayTarget) : undefined)
     if (!pending) return rows
-    const key = (row: ReplicaRows[K]) => kind === 'sessions' ? (row as ReplicaRows['sessions']).sessionId : (row as {id: string}).id
+    const key = (row: ReplicaRows[K]) =>
+      kind === 'sessions' || kind === 'sessionUserStates' ? (row as { sessionId: string }).sessionId
+        : kind === 'issueUserStates' ? (row as { entityId: string }).entityId : (row as { id: string }).id
     const out = new Map(rows.map(row => [key(row), row]))
     for (const id of pending.keys()) {
       const overlays = pending.get(id)!
-      const value = foldRowOverlays(out.get(id), overlays)
+      const base = out.get(id) ?? (kind === 'issueUserStates'
+        ? { userId, entityId: id, readAt: null, tuckedAt: null, pinned: false }
+        : kind === 'sessionUserStates' ? { userId, sessionId: id, readAt: null, snoozedUntil: null } : undefined)
+      const value = foldRowOverlays(base, overlays)
       if (value) out.set(id, value as ReplicaRows[K])
       else out.delete(id)
     }
@@ -31,9 +40,9 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   }
   const kinds = ['issueProjections','issueUserStates','issueGitStates','issueDeps','issueEvents','pendingInteractions','messageRecords','shipOrders','shipLanes','conversations','automations','automationRuns','sessionUserStates','userLayouts'] as const
   const records = Object.fromEntries(kinds.map(kind => [kind, read(kind)]))
-  const sessions = dedupeSessions(sessionViews(read('sessions'), { userId: runtime.principal?.userId ?? 'operator', userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
+  const sessions = dedupeSessions(sessionViews(read('sessions'), { userId, userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
   const prompts = log?.spawnPrompts ?? new Map<string,string>()
-  return { ...runtime.access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
+  return { ...access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
 }
 
 export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {

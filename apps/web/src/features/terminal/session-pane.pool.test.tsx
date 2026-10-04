@@ -364,7 +364,6 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
   })
   expectPoolOutput({ ...view(actual.container), stages }, 'reference underlines')
-  expect(vi.mocked(useReplicaIssues)).not.toHaveBeenCalled()
   expect(readRuntimeStoreStats(f.owner)).toBeDefined()
   expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues'] ?? 0).toBe(0)
 

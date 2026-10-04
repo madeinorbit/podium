@@ -106,5 +106,5 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       .flatMap((runtime) => Object.entries(runtime.slices))
       .filter(([key]) => key.startsWith('shell.')),
   ).toEqual([])
-  expect(owner?.getSnapshot().sessions.length).toBe(42)
+  expect(owner?.replica.rowCount?.('sessions')).toBe(42)
 })

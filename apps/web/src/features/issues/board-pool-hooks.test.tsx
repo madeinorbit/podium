@@ -35,7 +35,7 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => ({}) }),
+  useStoreHandle: () => ({ get access() { return ({}) } }),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => null,

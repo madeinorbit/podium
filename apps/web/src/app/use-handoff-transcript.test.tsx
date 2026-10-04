@@ -29,7 +29,7 @@ const harness = vi.hoisted(() => {
 })
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => harness.store }),
+  useStoreHandle: () => ({ get access() { return harness.store } }),
 }))
 
 const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionView =>

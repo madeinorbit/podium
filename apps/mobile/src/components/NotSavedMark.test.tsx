@@ -12,11 +12,11 @@ import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 const state = vi.hoisted(() => ({ current: null as Awaited<ReturnType<typeof refusalFixture>> | null }))
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }))
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => ({ recoverOutbox: {
+  useStoreHandle: () => ({ get access() { return ({ recoverOutbox: {
     retry: state.current!.outbox.retry.bind(state.current!.outbox),
     edit: state.current!.outbox.edit.bind(state.current!.outbox),
     discard: state.current!.outbox.discard.bind(state.current!.outbox),
-  } }) }),
+  } }) } }),
 }))
 vi.mock('../client/mobile-pool', () => ({
   useMobilePoolProjection: (read: (pool: MobxPool) => unknown) => {

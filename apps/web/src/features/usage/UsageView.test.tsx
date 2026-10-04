@@ -32,7 +32,7 @@ const store = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ getSnapshot: () => store }),
+  useStoreHandle: () => ({ get access() { return store } }),
 }))
 
 const bucket = (over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
