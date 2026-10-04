@@ -44,7 +44,7 @@
 import type { ConfirmationRule } from '@podium/commands'
 import type { IssueStage } from '@podium/model'
 import type { OutboxRejectionCode } from '@podium/sync/outbox'
-import { ISSUE_STAGE_LABELS } from './viewmodels/issue-reference'
+import { ISSUE_STAGE_LABELS } from './values/issue-reference'
 
 /** One clause naming what happened, for a toast. */
 export function reasonSummary(code: OutboxRejectionCode): string {

@@ -87,7 +87,7 @@ import {
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FeedServerFrame } from '../socket-transport'
-import { type ReferentState, resolveReferent } from '../viewmodels/session-ownership'
+import { type ReferentState, resolveReferent } from '../values/session-ownership'
 import type { Replica as ClientReplica } from './contract'
 import { FeedSink } from './feed/sink'
 import { createKernelReplica, createSideCache, type KernelCacheRead } from './kernel'

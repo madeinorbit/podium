@@ -2,7 +2,7 @@
  * A present companion wins even when its cell is null, empty or absent. */
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
-import { activityAfterRead } from './viewmodels/unread'
+import { activityAfterRead } from './values/unread'
 
 export interface SessionValues {
   readAt: string | null

@@ -7,7 +7,7 @@ import {
   issueUserStateRowId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { issueAwaitingMerge, issuePendingDecision } from '../viewmodels/slices/issues'
+import { issueAwaitingMerge, issuePendingDecision } from '../values/compose/issues'
 import { allIssueViewModels } from './issue-view-cache'
 import { issueViewModelsFromReplica } from './issue-view-models'
 import { createReplica, memoryStorage } from './replica'

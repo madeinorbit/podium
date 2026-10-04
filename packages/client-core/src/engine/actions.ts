@@ -49,7 +49,7 @@ import type {
   TabId,
   WorkspaceLayout,
   WorkspaceMap,
-} from '../viewmodels'
+} from '../values'
 import {
   activateTab,
   closePane,
@@ -63,8 +63,8 @@ import {
   resizeSplit,
   splitPane,
   tabIdFor,
-} from '../viewmodels'
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
+} from '../values'
+import type { SuperThreadView } from '../values/compose/superagent'
 import {
   createReplicatedLayoutController,
   type ReplicatedLayoutController,
@@ -194,11 +194,9 @@ export const ACTION_STATE_REDUCER_COMMANDS = [
 ] as const
 
 type ActionState = {
-  navigation?: NavigationProvider
+  navigation: NavigationProvider
   pins: PinState
   tabOrders: Record<string, string[]>
-  sessions: SessionView[]
-  issueProjections: Store['issueProjections']
   repos: Store['repos']
   superThreadId: ThreadId
   superOpen: boolean
@@ -280,7 +278,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * state rather than read it once. The runtime publishes on any state change,
    * so a listener that re-reads `state()` sees each delta as it lands.
    */
-  subscribe(listener: () => void): () => void
+  onLocals(keys: readonly ('selectedIssueId' | 'navigation')[], listener: () => void): () => void
   /**
    * Queue a write and repaint from it (#263). RESOLVES WHEN THE OVERLAY IS
    * PUBLISHED, not when the call is made (POD-781): the durable enqueue is a real
@@ -349,7 +347,7 @@ function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean):
 /** The slice of action state a workspace write reads. */
 type WorkspaceStateSlice = Pick<
   ActionState,
-  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'workspaces' | 'navigation'
+  'selectedIssueId' | 'selectedWorktree' | 'workspaces' | 'navigation'
 >
 
 /** Reduce the current workspace and re-derive the pane mirrors — the pure core
@@ -507,9 +505,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
    */
   const navigateToSession = (sessionIdOrRef: string): void => {
     const state = rt.state()
-    const meta = state.navigation
-      ? state.navigation.session(sessionIdOrRef)
-      : resolveSessionIdentifier(sessionIdOrRef, state.sessions)
+    const meta = state.navigation.session(sessionIdOrRef)
     if (meta === NAVIGATION_LOADING) {
       rt.waitForSessionNavigation?.(sessionIdOrRef)
       return
@@ -544,7 +540,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // The row may not be in this replica yet; a full id is then inert here,
     // exactly as any other unknown full id is.
     const state = rt.state()
-    if (state.navigation || resolveSessionIdentifier(answer.sessionId, state.sessions)) {
+    if (state.navigation.session(answer.sessionId)) {
       navigateToSession(answer.sessionId)
     }
   }
@@ -736,11 +732,17 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const excluded = new Set(opts?.excludeSessionIds ?? [])
       rt.apply({ selectedIssueId: issueId })
       const session = await waitForState(
-        (listener) => rt.subscribe(listener),
+        listener => {
+          const navigation = rt.state().navigation
+          const stopRows = navigation.watch?.(() => [navigation.issueSessions?.(issueId)], listener)
+          const stopLocal = rt.onLocals(['selectedIssueId', 'navigation'], listener)
+          return () => { stopRows?.(); stopLocal() }
+        },
         () => {
           const st = rt.state()
-          if (!st.issueProjections.some((issue) => issue.id === issueId)) return undefined
-          return st.sessions.find(
+          const rows = st.navigation.issueSessions?.(issueId)
+          if (!rows || rows === NAVIGATION_LOADING || st.selectedIssueId !== issueId) return undefined
+          return rows.find(
             (candidate) =>
               candidate.issueId === issueId &&
               !candidate.archived &&
@@ -813,7 +815,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const scope: FileScope = { kind: 'session', sessionId }
       const id = tabIdFor(scope, path)
       const state = rt.state()
-      const session = state.sessions.find((candidate) => candidate.sessionId === sessionId)
+      const rawSession = state.navigation.session(sessionId)
+      const session = rawSession === NAVIGATION_LOADING ? undefined : rawSession
       const cwd = session?.cwd ?? ''
       const worktreePath =
         reposToViews(state.repos)

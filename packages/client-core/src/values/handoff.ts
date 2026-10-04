@@ -1,5 +1,5 @@
 import type { SessionView } from '../session-values'
-import { issueAsked } from './slices/issues'
+import { issueAsked } from './compose/issues'
 import type { IssueId, SessionId, TranscriptItem } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { sessionPresentOnTask } from './fleet'
@@ -13,9 +13,9 @@ import {
   sessionAtWork,
 } from './mission'
 import { defaultChatCapable, motionPhase } from './session-status'
-import type { OperatorPromptOptions } from './slices/chat'
-import { isOperatorPrompt } from './slices/chat'
-import type { IssueNavigationModel } from './slices/issues'
+import type { OperatorPromptOptions } from './compose/chat'
+import { isOperatorPrompt } from './compose/chat'
+import type { IssueNavigationModel } from './compose/issues'
 
 export interface HandoffAnchor {
   sessionId: SessionId

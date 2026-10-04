@@ -43,7 +43,7 @@ import {
   sessionNeedsHuman,
   waitingNote,
 } from './mission'
-import { type IssueNavigationModel, issuePendingDecision } from './slices/issues'
+import { type IssueNavigationModel, issuePendingDecision } from './compose/issues'
 
 // ---------------------------------------------------------------------------
 // Fixtures

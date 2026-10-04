@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { createSubscriptionStore } from '../store'
-import { createSlicePublisher } from '../viewmodels/slices/publish'
+import { createSlicePublisher } from '../values/compose/publish'
 import { beginSwitch, getRecentSwitchTraces, markSwitch, resetSwitchTraces } from './switch-trace'
 import {
   bindStoreStatsOwner,

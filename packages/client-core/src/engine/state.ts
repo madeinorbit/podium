@@ -1,6 +1,6 @@
 import type { SessionView } from '../session-values'
 import { sessionById } from '../session-index'
-import { countLegacyNavigation, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
+import { loadingNavigationProvider, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
 export * from './navigation-provider'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
@@ -61,8 +61,8 @@ import {
   type WorkspaceLayout,
   type WorkspaceMap,
   workspaceKeyFor,
-} from '../viewmodels'
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
+} from '../values'
+import type { SuperThreadView } from '../values/compose/superagent'
 import { EMPTY_ID_SET } from './overlay'
 import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from './types'
 
@@ -70,32 +70,16 @@ import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } fr
  *  that change over time (constants like hub/trpc/replica live outside it). */
 export interface EngineState {
   /** Startup-only read provider; absent on legacy web and mobile. */
-  navigation?: NavigationProvider
+  navigation: NavigationProvider
   repos: GitRepositoryWire[]
   reposLoading: boolean
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionView[]
-  issueProjections: IssueProjection[]
-  issueDeps: IssueDepProjection[]
-  issueGitStates: IssueGitStateProjection[]
-  repoProjections: RepoProjection[]
   /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`),
    *  one row per issue they touched, optimistic edits folded in (POD-4969). */
-  issueUserStates: IssueUserStateWire[]
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
-  issueEvents: IssueEventWire[]
-  pendingInteractions: PendingInteractionWire[]
   /** People's chat message records (POD-4764), replicated by id. */
-  messageRecords: MessageRecordWire[]
-  shipOrders: ShipOrderProjection[]
-  shipLanes: ShipLaneProjection[]
-  conversations: ConversationSummaryWire[]
-  automations: AutomationWire[]
-  automationRuns: AutomationRunWire[]
-  pendingSpawnIds: ReadonlySet<string>
-  pendingSpawnPrompts: ReadonlyMap<string, string>
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
   approvals: ApprovalWire[]
@@ -149,7 +133,6 @@ export interface EngineState {
   recentFiles: RecentFileEntry[]
   outboxSize: number
   outboxDeadLetters: OutboxDeadLetterEntry[]
-  recoverOutbox: Store['recoverOutbox']
   /**
    * A COARSE CLOCK, in the snapshot on purpose (POD-331).
    *
@@ -193,7 +176,6 @@ export const tabIsVisible = (): boolean =>
  *  does (POD-912). */
 export function issueActivityAt(
   issue: Pick<IssueProjection, 'id' | 'updatedAt'>,
-  sessions: SessionView[],
   issues: readonly Pick<IssueProjection, 'id' | 'parentId' | 'updatedAt'>[] = [],
 ): string {
   const subtree = new Set<string>([issue.id])
@@ -289,7 +271,7 @@ export interface WorkspacePatch {
 /** The selection a workspace key is computed from. */
 export type WorkspaceSelection = Pick<
   EngineState,
-  'issueProjections' | 'selectedIssueId' | 'selectedWorktree' | 'navigation'
+  'selectedIssueId' | 'selectedWorktree' | 'navigation'
 >
 
 /**
@@ -301,22 +283,6 @@ export type WorkspaceSelection = Pick<
  * here so the engine and the view cannot disagree about which task's tabs they
  * are writing.
  */
-const workspaceKeys = new WeakMap<
-  WorkspaceSelection,
-  {
-    source?: WorkspaceSelection['issueProjections']
-    issue?: WorkspaceSelection['selectedIssueId']
-    worktree?: WorkspaceSelection['selectedWorktree']
-    value?: WorkspaceKey
-  }
->()
-
-/** The existing runtime opts in at startup. Cache one scalar answer, never
- * rows or relations; a replaced issue array (including evict/rescope) misses. */
-export function enableWorkspaceKeyCache(st: WorkspaceSelection): void {
-  if (!workspaceKeys.has(st)) workspaceKeys.set(st, {})
-}
-
 /**
  * `st` with `patch` on top, for asking a question of a state that is not the
  * current one (where a navigation lands, which workspace a selection resolves
@@ -347,34 +313,8 @@ export function resolvedWorkspaceKey(st: WorkspaceSelection): WorkspaceKey | typ
     // legacy issue array, which need not move when a cold pool row arrives.
     return workspaceKeyFor({ missionRootId: root ?? null, issueId: st.selectedIssueId, worktreePath: st.selectedWorktree })
   }
-  const cached = workspaceKeys.get(st)
-  if (
-    cached?.value !== undefined &&
-    cached.source === st.issueProjections &&
-    cached.issue === st.selectedIssueId &&
-    cached.worktree === st.selectedWorktree
-  )
-    return cached.value
-  let selected: IssueProjection | undefined
-  if (st.selectedIssueId) {
-    countLegacyNavigation('issuesFind')
-    selected = st.issueProjections.find((i) => i.id === st.selectedIssueId && !i.archived && !i.deletedAt)
-  }
-  if (selected) countLegacyNavigation('missionRootFor')
-  const root = selected ? missionRootFor(st.issueProjections, selected.id) : undefined
-  const value = workspaceKeyFor({
-    missionRootId: root?.id ?? null,
-    issueId: st.selectedIssueId,
-    worktreePath: st.selectedWorktree,
-  })
-  if (cached)
-    Object.assign(cached, {
-      source: st.issueProjections,
-      issue: st.selectedIssueId,
-      worktree: st.selectedWorktree,
-      value,
-    })
-  return value
+  return 'none'
+
 }
 
 /** The layout for a key — always a layout, never undefined, so no caller has to
@@ -483,7 +423,12 @@ export function workspaceWritePatch(
  * slice shrinking under an evict). Deciding which is which is the caller's job
  * — see `Reactions.pruneWorkspaces`.
  */
-export function knownTabIds(st: EngineState): Set<string> {
+export interface PruningState extends EngineState {
+  sessions: SessionView[]
+  pendingSpawnIds: ReadonlySet<string>
+}
+
+export function knownTabIds(st: PruningState): Set<string> {
   const ids = new Set<string>()
   for (const session of st.sessions) ids.add(session.sessionId)
   for (const id of st.pendingSpawnIds) ids.add(id)
@@ -506,7 +451,7 @@ export function knownTabIds(st: EngineState): Set<string> {
  * same grace period a late-arriving session tab gets, because at boot the
  * sessions slice may simply not have loaded yet.
  */
-function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): string[] {
+function resolvableFileTabIds(st: Pick<PruningState, 'sessions' | 'fileTabs'>): string[] {
   const ids: string[] = []
   // The session set is built ONCE per call rather than scanned per tab: this
   // runs for every workspace on every inbound frame, and that is exactly the
@@ -530,8 +475,8 @@ function resolvableFileTabIds(st: Pick<EngineState, 'sessions' | 'fileTabs'>): s
  */
 export function knownTabIdsForWorkspace(
   st: Pick<
-    EngineState,
-    'navigation' | 'issueProjections' | 'issueDeps' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
+    PruningState,
+    'navigation' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
   >,
   key: WorkspaceKey,
 ): Set<string> {
@@ -570,17 +515,6 @@ export function knownTabIdsForWorkspace(
  * be impossible; if it ever happens this must not quietly start answering with
  * the other one.
  */
-const issueIndexes = new WeakMap<readonly IssueProjection[], ReadonlyMap<string, IssueProjection>>()
-
-function issuesById(issues: readonly IssueProjection[]): ReadonlyMap<string, IssueProjection> {
-  const cached = issueIndexes.get(issues)
-  if (cached) return cached
-  const byId = new Map<string, IssueProjection>()
-  for (const issue of issues) if (!byId.has(issue.id)) byId.set(issue.id, issue)
-  issueIndexes.set(issues, byId)
-  return byId
-}
-
 /**
  * The workspace-membership rule, resolved for ONE key and then asked per session.
  *
@@ -594,7 +528,7 @@ function issuesById(issues: readonly IssueProjection[]): ReadonlyMap<string, Iss
  * which is how ~651 ms of main-thread time went missing per frame.
  */
 export function workspaceMembership(
-  st: Pick<EngineState, 'navigation' | 'issueProjections' | 'issueDeps' | 'sessions'>,
+  st: Pick<EngineState, 'navigation'>,
   key: WorkspaceKey,
 ): (session: SessionView) => boolean {
   if (key === 'none') return () => true
@@ -606,7 +540,7 @@ export function workspaceMembership(
     const issueId = key.slice(6)
     // Resolved for the KEY, not for the session: the old code re-found the same
     // issue for every session that did not name one.
-    const issue = st.navigation ? st.navigation.issue(issueId) : issuesById(st.issueProjections).get(issueId)
+    const issue = st.navigation.issue(issueId)
     const wt = issue !== NAVIGATION_LOADING ? issue?.worktreePath : undefined
     return (session) => {
       if (session.issueId !== undefined) return session.issueId === issueId
@@ -639,18 +573,6 @@ export function workspaceMembership(
         return loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
       }
     }
-    const ids = missionIssueIds(issueTopology(st), rootId, st.sessions)
-    // The mission's worktrees, collected once. The old loop rebuilt this
-    // filtered view of the slice inside every session's test; the SET it walks
-    // is identical, and the answer is a boolean, so order is immaterial.
-    const worktrees: string[] = []
-    for (const issue of st.issueProjections) {
-      if (ids.has(issue.id) && issue.worktreePath) worktrees.push(issue.worktreePath)
-    }
-    return (session) => {
-      if (session.issueId !== undefined) return ids.has(session.issueId)
-      return worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
-    }
   }
   return () => true
 }
@@ -659,7 +581,7 @@ export function workspaceMembership(
  *  {@link workspaceMembership} — a caller with one session to test should not
  *  have to know that the rule has a per-key half. */
 export function sessionBelongsToWorkspace(
-  st: Pick<EngineState, 'navigation' | 'issueProjections' | 'issueDeps' | 'sessions'>,
+  st: Pick<EngineState, 'navigation'>,
   key: WorkspaceKey,
   session: SessionView,
 ): boolean {
@@ -686,30 +608,26 @@ export function foregroundIssue(st: EngineState): NavigationIssue | undefined {
     const issue = st.navigation.issue(id)
     return issue === NAVIGATION_LOADING ? undefined : issue
   }
-  countLegacyNavigation('issuesFind')
-  return st.issueProjections.find((i) => i.id === id)
+  return undefined
 }
 
 /** Session reactions use the same addressed provider as a selection gesture. */
-export function navigationSession(st: Pick<EngineState, 'sessions' | 'navigation'>, id: string): SessionView | undefined {
+export function navigationSession(st: Pick<EngineState, 'navigation'>, id: string): SessionView | undefined {
   if (st.navigation) {
     const session = st.navigation.session(id)
     return session === NAVIGATION_LOADING ? undefined : session
   }
-  countLegacyNavigation('sessionById')
-  return sessionById(st.sessions).get(id)
+  return undefined
 }
 
 /** Read reactions share the navigation port rather than scanning snapshot rows. */
 export function navigationActivityAt(st: EngineState, issue: NavigationIssue): string | undefined {
-  if (!st.navigation) return issueActivityAt(issue, st.sessions, st.issueProjections)
   const stamp = st.navigation.activityAt(issue.id)
   return stamp === NAVIGATION_LOADING ? undefined : stamp
 }
 
 export function navigationIssueReadAt(st: EngineState, id: string): string | null {
-  return (st.navigation ? st.navigation.issueReadAt(id)
-    : st.issueUserStates.find(marker => marker.entityId === id)?.readAt) ?? null
+  return st.navigation.issueReadAt(id) ?? null
 }
 
 /** The UI-state module's view of the workspace — the single input to routing,
@@ -742,7 +660,7 @@ export function userFocus(st: EngineState): UserFocus {
   // is why this is `visibleTabIds` and not the layout's leaves.
   const paneIds = visibleTabIds(st)
   const focusedId = focusedPaneSession(st)
-  const isSession = (id: SessionId): boolean => st.sessions.some((s) => s.sessionId === id)
+  const isSession = (id: SessionId): boolean => navigationSession(st, id) !== undefined
   const focusedFile = focusedId ? st.fileTabs.find((f) => f.id === focusedId) : undefined
   // EVERY visible tab that is a FILE, not just the focused one (POD-782). The
   // sessions half of `paneIds` has always been reported in full; the files half
@@ -773,22 +691,7 @@ export function userFocus(st: EngineState): UserFocus {
 export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
-  readonly sessions: SessionView[]
-  readonly issueProjections: IssueProjection[]
-  readonly issueUserStates: IssueUserStateWire[]
-  readonly issueGitStates: IssueGitStateProjection[]
-  readonly repoProjections: RepoProjection[]
-  readonly issueDeps: IssueDepProjection[]
-  readonly issueEvents: IssueEventWire[]
-  readonly pendingInteractions: PendingInteractionWire[]
-  readonly messageRecords: MessageRecordWire[]
-  readonly shipOrders: ShipOrderProjection[]
-  readonly shipLanes: ShipLaneProjection[]
-  readonly conversations: ConversationSummaryWire[]
-  readonly automations: AutomationWire[]
-  readonly automationRuns: AutomationRunWire[]
   readonly outboxDeadLetters: OutboxDeadLetterEntry[]
-  readonly recoverOutbox: Store['recoverOutbox']
   /** Seed for the coarse clock (see {@link EngineState.coarseNow}). Injected
    *  rather than read here so a test can pin it. */
   readonly now: number
@@ -810,26 +713,11 @@ export interface EngineStateSeed {
  */
 export function initialEngineState(seed: EngineStateSeed): EngineState {
   return {
+    navigation: loadingNavigationProvider,
     repos: [],
     reposLoading: false,
     reposLoaded: false,
     repoDiagnostics: [],
-    sessions: seed.sessions,
-    issueProjections: seed.issueProjections,
-    issueUserStates: seed.issueUserStates,
-    issueGitStates: seed.issueGitStates,
-    repoProjections: seed.repoProjections,
-    issueDeps: seed.issueDeps,
-    issueEvents: seed.issueEvents,
-    pendingInteractions: seed.pendingInteractions,
-    messageRecords: seed.messageRecords,
-    shipOrders: seed.shipOrders,
-    shipLanes: seed.shipLanes,
-    conversations: seed.conversations,
-    automations: seed.automations,
-    automationRuns: seed.automationRuns,
-    pendingSpawnIds: EMPTY_ID_SET,
-    pendingSpawnPrompts: new Map(),
     machines: [],
     approvals: [],
     pins: EMPTY_PINS,
@@ -875,37 +763,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     recentFiles: seed.persisted.recentFiles,
     outboxSize: 0,
     outboxDeadLetters: seed.outboxDeadLetters,
-    recoverOutbox: seed.recoverOutbox,
     coarseNow: seed.now,
   }
 }
 
-const topologyJoins = new WeakMap<
-  readonly IssueProjection[],
-  WeakMap<
-    readonly IssueDepProjection[],
-    Array<IssueProjection & { deps: Array<{ id: string; type: string }> }>
-  >
->()
-function issueTopology(st: Pick<EngineState, 'issueProjections' | 'issueDeps'>) {
-  let byEdges = topologyJoins.get(st.issueProjections)
-  if (!byEdges) {
-    byEdges = new WeakMap()
-    topologyJoins.set(st.issueProjections, byEdges)
-  }
-  const edges = st.issueDeps
-  const previous = byEdges.get(edges)
-  if (previous) return previous
-  const outgoing = new Map<string, Array<{ id: string; type: string }>>()
-  for (const dep of edges) {
-    const values = outgoing.get(dep.fromId) ?? []
-    values.push({ id: dep.toId, type: dep.type })
-    outgoing.set(dep.fromId, values)
-  }
-  const joined = st.issueProjections.map((issue) => ({
-    ...issue,
-    deps: outgoing.get(issue.id) ?? [],
-  }))
-  byEdges.set(edges, joined)
-  return joined
-}

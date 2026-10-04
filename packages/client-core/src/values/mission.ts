@@ -12,8 +12,8 @@ import { sessionParked, sessionPresentOnTask } from './fleet'
 import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
-import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './slices/issues'
-import { isCoordinatorSession } from './slices/terminal'
+import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
+import { isCoordinatorSession } from './compose/terminal'
 
 /**
  * THE VIEW BAR'S THREE VIEWS, AND THEY ARE DISJOINT (POD-1452).

@@ -28,9 +28,10 @@ import {
   pruneWorkspace,
   reposToViews,
   type TabId,
-} from '../viewmodels'
+} from '../values'
 import {
   type EngineState,
+  type PruningState,
   focusedPaneSession,
   foregroundIssue,
   knownTabIds,
@@ -50,15 +51,14 @@ import type { StoreNotices } from './types'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
-function pruningState(state: EngineState): EngineState {
-  if (!state.navigation) return state
+function pruningState(state: EngineState): PruningState {
   const ids = referencedTabIds(state)
   for (const id of visibleTabIds(state)) ids.add(id)
   for (const tab of state.fileTabs) {
     if (tab.scope.kind === 'session') ids.add(tab.scope.sessionId)
   }
   const sessions: SessionView[] = []
-  const pending = new Set(state.pendingSpawnIds)
+  const pending = new Set<string>()
   const loading = new Set<string>()
   for (const id of ids) {
     if (id.startsWith('file:')) continue
@@ -314,9 +314,7 @@ export class Reactions {
    *  where it now lives in the sidebar. */
   worktreeFollow(): boolean {
     const st = this.ports.state()
-    const sessions = st.navigation?.worktreeSessions
-      ? st.navigation.worktreeSessions()
-      : st.sessions
+    const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
     const rows = sessions ?? []
     const prevCwds = this.prevCwds
@@ -360,9 +358,7 @@ export class Reactions {
     }
     const known = worktrees.some((w) => w.path === st.selectedWorktree)
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
-    const sessions = st.navigation?.worktreeSessions
-      ? st.navigation.worktreeSessions()
-      : st.sessions
+    const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
     const hasSession = (sessions ?? []).some(
       (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),

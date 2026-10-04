@@ -1,7 +1,7 @@
 import type { SessionView } from '../session-values'
-import { issueAsked } from './slices/issues'
+import { issueAsked } from './compose/issues'
 import type { SessionId, SessionOffer } from '@podium/model'
-import type { IssueNavigationModel } from './slices/issues'
+import type { IssueNavigationModel } from './compose/issues'
 import { attentionGroup } from '../focus'
 
 /**

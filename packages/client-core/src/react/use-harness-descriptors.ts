@@ -77,7 +77,7 @@ async function fetchDescriptors(
 export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClientApi>(
   machineId: MachineId | undefined,
 ): HarnessDescriptorState {
-  const trpc = useStoreHandle<TApi>().getSnapshot().trpc
+  const trpc = useStoreHandle<TApi>().access.trpc
   const [, forceRender] = useState(0)
   const key = machineId ?? '__no_machine__'
   // First-render transport wins: some test stores hand out a fresh `trpc`

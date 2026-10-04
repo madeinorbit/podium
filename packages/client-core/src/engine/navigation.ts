@@ -1,6 +1,6 @@
 import type { IssueId } from '@podium/model'
 import { type MainView, type RouteState, routeDefaults } from '../ui-state'
-import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } from '../viewmodels'
+import { type FileTab, type RecentFileEntry, allTabIds, leafPaneIds, openTab } from '../values'
 import {
   type EngineState, foregroundIssue, workspaceFor, resolvedWorkspaceKey, NAVIGATION_LOADING,
   workspaceMirrorPatch, workspaceWritePatch, navigationIssueReadAt,

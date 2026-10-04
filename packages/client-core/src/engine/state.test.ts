@@ -21,8 +21,8 @@ import type { SessionView } from '../session-values'
 
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { FileTab, WorkspaceKey } from '../viewmodels'
-import { missionIssueIds } from '../viewmodels'
+import type { FileTab, WorkspaceKey } from '../values'
+import { missionIssueIds } from '../values'
 import type { EngineState } from './state'
 import {
   enableWorkspaceKeyCache,

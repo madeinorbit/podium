@@ -4,7 +4,7 @@ import {
   agentProbeTimeoutDescription,
   harnessRejection,
 } from '@podium/model'
-import type { MachineAvailability } from './slices/machines/authority'
+import type { MachineAvailability } from './compose/machines/authority'
 
 export const SIGNED_OUT_HINT = 'signed out'
 

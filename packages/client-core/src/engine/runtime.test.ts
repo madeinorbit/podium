@@ -53,9 +53,9 @@ import {
   SIDEBAR_COLLAPSED_KEY,
   SUPERAGENT_MODE_KEY,
 } from '../ui-state'
-import { allTabIds, leafPaneIds, shippingPanelModel } from '../viewmodels'
-import { createSlicePublisher } from '../viewmodels/slices/publish'
-import { worklistSlice } from '../viewmodels/slices/worklist/published'
+import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
+import { createSlicePublisher } from '../values/compose/publish'
+import { worklistSlice } from '../values/compose/worklist/published'
 import { type OptimismLedger, placeholderProjection } from './optimism'
 import {
   type AwaitingTruth,
@@ -364,7 +364,7 @@ describe('engine replica construction (POD-1239)', () => {
 describe('replicated layout routing', () => {
   it('each real legacy setter enqueues exactly one canonical layout command', async () => {
     const dock = makeEngine()
-    dock.engine.getSnapshot().setDockTab('git')
+    dock.engine.access.setDockTab('git')
     await settle()
     expect(dock.engine.outbox.pending()).toMatchObject([
       { kind: 'layoutSet', input: { values: { dockTab: 'git' } } },
@@ -372,7 +372,7 @@ describe('replicated layout routing', () => {
     dock.engine.dispose()
 
     const superPanel = makeEngine()
-    superPanel.engine.getSnapshot().setSuperOpen(false)
+    superPanel.engine.access.setSuperOpen(false)
     await settle()
     expect(superPanel.engine.outbox.pending()).toMatchObject([
       { kind: 'layoutSet', input: { values: { superOpen: '0' } } },
@@ -380,7 +380,7 @@ describe('replicated layout routing', () => {
     superPanel.engine.dispose()
 
     const panelMode = makeEngine()
-    panelMode.engine.getSnapshot().setPanelMode(asSessionId('session-1'), 'native')
+    panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
     expect(panelMode.engine.outbox.pending()).toMatchObject([
       {
@@ -410,7 +410,7 @@ describe('engine lifecycle', () => {
     await settle()
 
     expect(fatals).toEqual([])
-    expect(engine.getSnapshot().reposLoaded).toBe(true)
+    expect(engine.access.reposLoaded).toBe(true)
     engine.dispose()
   })
 
@@ -420,10 +420,10 @@ describe('engine lifecycle', () => {
     await settle()
     const publish = vi.fn()
     const machinePublish = vi.fn()
-    let previousMachines = engine.getSnapshot().machines
+    let previousMachines = engine.access.machines
     engine.subscribe(() => {
       publish()
-      const machines = engine.getSnapshot().machines
+      const machines = engine.access.machines
       if (machines !== previousMachines) machinePublish()
       previousMachines = machines
     })
@@ -438,7 +438,7 @@ describe('engine lifecycle', () => {
       },
     }
     hub.emit('machines', [machine])
-    const snapshot = engine.getSnapshot()
+    const snapshot = engine.access
     // The scope change also publishes reposLoading; count machine publications
     // separately, then require duplicate/clock frames to publish nothing at all.
     expect(machinePublish).toHaveBeenCalledTimes(1)
@@ -456,7 +456,7 @@ describe('engine lifecycle', () => {
       },
     ])
     expect(publish).not.toHaveBeenCalled()
-    expect(engine.getSnapshot()).toBe(snapshot)
+    expect(engine.access).toBe(snapshot)
     engine.dispose()
     engine.start()
     publish.mockClear()
@@ -513,9 +513,9 @@ describe('engine lifecycle', () => {
     hub.emit('machines', [machine])
     // The scope-triggered refresh returns an empty machine list.
     await settle()
-    expect(engine.getSnapshot().machines).toEqual([])
+    expect(engine.access.machines).toEqual([])
     hub.emit('machines', [machine])
-    expect(engine.getSnapshot().machines).toEqual([machine])
+    expect(engine.access.machines).toEqual([machine])
     engine.dispose()
   })
 
@@ -568,7 +568,7 @@ describe('engine lifecycle', () => {
     await settle()
 
     expect(api.discovery.refreshRepos.mutate).not.toHaveBeenCalled()
-    expect(engine.getSnapshot().machines[0]?.name).toBe('after inventory')
+    expect(engine.access.machines[0]?.name).toBe('after inventory')
     engine.dispose()
   })
 
@@ -602,7 +602,7 @@ describe('engine lifecycle', () => {
     engine.start()
     await settle()
     expect(api.superagent.listThreads.query).toHaveBeenCalled()
-    expect(engine.getSnapshot().superThreads).toEqual([{ id: 'global', kind: 'global' }])
+    expect(engine.access.superThreads).toEqual([{ id: 'global', kind: 'global' }])
     engine.dispose()
   })
 
@@ -617,7 +617,7 @@ describe('engine lifecycle', () => {
     // An empty list, not a fatal and not a spinner: boot enrichments are not the
     // source of truth for the principal slice.
     expect(fatals).toEqual([])
-    expect(engine.getSnapshot().superThreads).toEqual([])
+    expect(engine.access.superThreads).toEqual([])
     engine.dispose()
   })
 
@@ -649,7 +649,7 @@ describe('session resurrection', () => {
     }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.getSnapshot().resurrectSession(asSessionId('sleeping'))
+    await engine.access.resurrectSession(asSessionId('sleeping'))
 
     expect(errors).toEqual(["Couldn't resume the session — worktree unavailable"])
   })
@@ -663,7 +663,7 @@ describe('session resurrection', () => {
     }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.getSnapshot().resurrectSession(asSessionId('sleeping'))
+    await engine.access.resurrectSession(asSessionId('sleeping'))
 
     expect(errors).toEqual(["Couldn't resume the session — server offline"])
   })
@@ -684,7 +684,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     })
     engine.start()
     await settle(80)
-    const snap = engine.getSnapshot()
+    const snap = engine.access
     expect(snap.view).toBe('workspace')
     // The unknown worktree cannot be shown; the selection settles on the one
     // known worktree (a deterministic fallback, not a loop) …
@@ -707,13 +707,13 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     const { engine, rw, fatals } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo' })
     engine.start()
     await settle(40)
-    expect(engine.getSnapshot().selectedWorktree).toBe('/tmp/known-repo')
+    expect(engine.access.selectedWorktree).toBe('/tmp/known-repo')
     const before = rw.writes.length
     // Simulate back/forward to a workspace URL whose wt doesn't exist — the
     // scenario that ping-ponged the old two-effect design into React #185.
     rw.popTo('/workspace?wt=%2Ftmp%2Fother&pane=s1')
     await settle(40)
-    const snap = engine.getSnapshot()
+    const snap = engine.access
     // The pane is adopted (Workspace holds/clears unknown panes safely) …
     expect(snap.paneA).toBe('s1')
     // … while the unknown worktree settles on the known fallback, mirrored into
@@ -740,7 +740,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
     })
     engine.start()
     await settle(40)
-    expect(engine.getSnapshot().view).toBe('workspace')
+    expect(engine.access.view).toBe('workspace')
     expect(fatals).toEqual([])
     engine.dispose()
   })
@@ -757,7 +757,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
  */
 describe('stale workspace tabs (POD-710)', () => {
   const openTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
-    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+    Object.values(engine.access.workspaces).flatMap((ws) =>
       Object.values(ws.panes).flatMap((pane) => pane.tabs),
     )
 
@@ -774,11 +774,11 @@ describe('stale workspace tabs (POD-710)', () => {
     // ADOPTED FIRST. An id that has not arrived yet is early, not gone — an
     // eager prune here is what would break optimistic spawns and deep links.
     expect(openTabIds(engine)).toContain('ghost')
-    expect(engine.getSnapshot().paneA).toBe('ghost')
+    expect(engine.access.paneA).toBe('ghost')
 
     await settle(200)
     expect(openTabIds(engine)).not.toContain('ghost')
-    expect(engine.getSnapshot().paneA).toBeNull()
+    expect(engine.access.paneA).toBeNull()
     engine.dispose()
   })
 
@@ -792,10 +792,10 @@ describe('stale workspace tabs (POD-710)', () => {
       { ...session('s1', '/tmp/known-repo'), issueId: oldId },
     ])
     await settle(30)
-    engine.getSnapshot().setSelectedIssueId(oldId)
-    engine.getSnapshot().openSessionTab(asSessionId('s1'), { permanent: true })
+    engine.access.setSelectedIssueId(oldId)
+    engine.access.openSessionTab(asSessionId('s1'), { permanent: true })
     await settle(20)
-    const oldKey = engine.getSnapshot().workspaceKey()
+    const oldKey = engine.access.workspaceKey()
     expect(oldKey).toBe(`issue:${oldId}`)
     expect(openTabIds(engine)).toContain('s1')
 
@@ -805,7 +805,7 @@ describe('stale workspace tabs (POD-710)', () => {
       [],
     )
     await settle(30)
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.workspaces[oldKey] ? allTabIds(st.workspaces[oldKey]!) : []).not.toContain('s1')
     expect(st.selectedIssueId).toBe(newId)
     expect(openTabIds(engine)).toContain('s1')
@@ -826,7 +826,7 @@ describe('stale workspace tabs (POD-710)', () => {
 
     await settle(200)
     expect(openTabIds(engine)).toContain('late')
-    expect(engine.getSnapshot().paneA).toBe('late')
+    expect(engine.access.paneA).toBe('late')
     engine.dispose()
   })
 })
@@ -842,7 +842,7 @@ describe('stale workspace tabs (POD-710)', () => {
 describe('short session id pane links (POD-4637)', () => {
   const FULL = '214a3887-6146-4a1d-9c3e-0123456789ab'
   const openTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
-    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+    Object.values(engine.access.workspaces).flatMap((ws) =>
       Object.values(ws.panes).flatMap((pane) => pane.tabs),
     )
   const apiResolving = (answer: unknown) => {
@@ -862,7 +862,7 @@ describe('short session id pane links (POD-4637)', () => {
     engine.start()
     await settle(60)
     expect(resolve).toHaveBeenCalledWith({ identifier: '214a3887' })
-    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(engine.access.paneA).toBe(FULL)
     expect(rw.url()).toContain(`pane=${FULL}`)
     expect(openTabIds(engine)).toContain(FULL)
     expect(openTabIds(engine)).not.toContain('214a3887')
@@ -878,7 +878,7 @@ describe('short session id pane links (POD-4637)', () => {
     await settle(40)
     rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=214a')
     await settle(60)
-    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(engine.access.paneA).toBe(FULL)
     expect(rw.url()).toContain(`pane=${FULL}`)
     expect(openTabIds(engine)).not.toContain('214a')
     engine.dispose()
@@ -895,12 +895,12 @@ describe('short session id pane links (POD-4637)', () => {
     const { engine, rw, errors } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
     engine.start()
     await settle(40)
-    const before = engine.getSnapshot().paneA
+    const before = engine.access.paneA
     rw.popTo('/workspace?wt=%2Ftmp%2Fknown-repo&pane=2')
     await settle(60)
     expect(errors).toEqual([`Couldn't open session link — ${message}`])
     expect(openTabIds(engine)).not.toContain('2')
-    expect(engine.getSnapshot().paneA).toBe(before)
+    expect(engine.access.paneA).toBe(before)
     engine.dispose()
   })
 
@@ -914,7 +914,7 @@ describe('short session id pane links (POD-4637)', () => {
     await settle(60)
     expect(errors).toEqual(["Couldn't open session link — no session matches 'bbbbbbbb'"])
     expect(openTabIds(engine)).not.toContain('bbbbbbbb')
-    expect(engine.getSnapshot().paneA).not.toBe('bbbbbbbb')
+    expect(engine.access.paneA).not.toBe('bbbbbbbb')
     engine.dispose()
   })
 
@@ -924,10 +924,10 @@ describe('short session id pane links (POD-4637)', () => {
     engine.start()
     engine.replica.applySnapshot('sessions', [session(FULL, '/tmp/known-repo')])
     await settle(40)
-    engine.getSnapshot().navigateToSession('214a3887')
+    engine.access.navigateToSession('214a3887')
     await settle(60)
     expect(resolve).toHaveBeenCalledWith({ identifier: '214a3887' })
-    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(engine.access.paneA).toBe(FULL)
     engine.dispose()
   })
 
@@ -936,7 +936,7 @@ describe('short session id pane links (POD-4637)', () => {
     const { engine, errors } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
     engine.start()
     await settle(40)
-    engine.getSnapshot().navigateToSession('bbbbbbbb')
+    engine.access.navigateToSession('bbbbbbbb')
     await settle(60)
     expect(errors).toEqual(["Couldn't open session link — no session matches 'bbbbbbbb'"])
     engine.dispose()
@@ -951,7 +951,7 @@ describe('short session id pane links (POD-4637)', () => {
     engine.start()
     await settle(60)
     expect(resolve).not.toHaveBeenCalled()
-    expect(engine.getSnapshot().paneA).toBe(FULL)
+    expect(engine.access.paneA).toBe(FULL)
     expect(errors).toEqual([])
     engine.dispose()
   })
@@ -973,7 +973,7 @@ describe('session pane links open that session (POD-4642)', () => {
   const LINKED = 'bbbbbbbb-0000-4000-8000-000000000002'
   const FOREIGN = '/tmp/elsewhere/.worktrees/issue-9'
   const activeTab = (engine: ReturnType<typeof makeEngine>['engine']): string | null => {
-    const st = engine.getSnapshot()
+    const st = engine.access
     const ws = st.workspaces[st.workspaceKey()]
     const first = ws ? leafPaneIds(ws.root)[0] : undefined
     return first && ws ? (ws.panes[first]?.activeTabId ?? null) : null
@@ -986,7 +986,7 @@ describe('session pane links open that session (POD-4642)', () => {
     first.engine.replica.applySnapshot('sessions', rows)
     await first.engine.replica.flush()
     await settle(40)
-    first.engine.getSnapshot().navigateToSession(OTHER)
+    first.engine.access.navigateToSession(OTHER)
     await settle(30)
     expect(activeTab(first.engine)).toBe(OTHER)
     first.engine.destroy()
@@ -1005,7 +1005,7 @@ describe('session pane links open that session (POD-4642)', () => {
     engine.start()
     await settle(60)
     expect(activeTab(engine)).toBe(LINKED)
-    expect(engine.getSnapshot().paneA).toBe(LINKED)
+    expect(engine.access.paneA).toBe(LINKED)
     expect(rw.url()).toContain(`pane=${LINKED}`)
     expect(errors).toEqual([])
     engine.dispose()
@@ -1022,7 +1022,7 @@ describe('session pane links open that session (POD-4642)', () => {
     })
     engine.start()
     await settle(60)
-    expect(engine.getSnapshot().selectedWorktree).toBe(FOREIGN)
+    expect(engine.access.selectedWorktree).toBe(FOREIGN)
     expect(activeTab(engine)).toBe(LINKED)
     expect(rw.url()).toContain(`wt=${encodeURIComponent(FOREIGN)}`)
     expect(rw.url()).toContain(`pane=${LINKED}`)
@@ -1039,7 +1039,7 @@ describe('session pane links open that session (POD-4642)', () => {
     await settle(60)
     engine.replica.applyChanges('sessions', [session(LINKED, FOREIGN)], [])
     await settle(40)
-    expect(engine.getSnapshot().selectedWorktree).toBe(FOREIGN)
+    expect(engine.access.selectedWorktree).toBe(FOREIGN)
     expect(activeTab(engine)).toBe(LINKED)
     expect(rw.url()).toContain(`wt=${encodeURIComponent(FOREIGN)}`)
     expect(rw.url()).toContain(`pane=${LINKED}`)
@@ -1060,7 +1060,7 @@ describe('session pane links open that session (POD-4642)', () => {
       [],
     )
     await settle(40)
-    expect(engine.getSnapshot().selectedIssueId).toBe('iss_late')
+    expect(engine.access.selectedIssueId).toBe('iss_late')
     expect(activeTab(engine)).toBe(LINKED)
     expect(rw.url()).toContain(`pane=${LINKED}`)
     engine.dispose()
@@ -1077,7 +1077,7 @@ describe('session pane links open that session (POD-4642)', () => {
     expect(activeTab(engine)).toBe(OTHER)
     rw.popTo(`/workspace?wt=%2Ftmp%2Fknown-repo&pane=${LINKED}`)
     await settle(40)
-    expect(engine.getSnapshot().selectedIssueId).toBe('iss_b')
+    expect(engine.access.selectedIssueId).toBe('iss_b')
     expect(activeTab(engine)).toBe(LINKED)
     expect(rw.url()).toContain(`pane=${LINKED}`)
     engine.dispose()
@@ -1093,7 +1093,7 @@ describe('session pane links open that session (POD-4642)', () => {
     expect(errors).toEqual([])
     await settle(200)
     expect(errors).toEqual([`Couldn't open session link — no session matches '${LINKED}'`])
-    expect(engine.getSnapshot().paneA).not.toBe(LINKED)
+    expect(engine.access.paneA).not.toBe(LINKED)
     engine.dispose()
   })
 })
@@ -1107,7 +1107,7 @@ describe('session pane links open that session (POD-4642)', () => {
  */
 describe('file tabs across a reload (POD-1247)', () => {
   const layoutTabIds = (engine: ReturnType<typeof makeEngine>['engine']): string[] =>
-    Object.values(engine.getSnapshot().workspaces).flatMap((ws) =>
+    Object.values(engine.access.workspaces).flatMap((ws) =>
       Object.values(ws.panes).flatMap((pane) => pane.tabs),
     )
 
@@ -1116,20 +1116,20 @@ describe('file tabs across a reload (POD-1247)', () => {
     const first = makeEngine({ url: '/workspace', storage })
     first.engine.start()
     await settle(40)
-    first.engine.getSnapshot().openFileInWorktree({
+    first.engine.access.openFileInWorktree({
       root: '/tmp/known-repo/.worktrees/wt1',
       path: 'notes.md',
     })
     await settle(30)
     const tabId = 'file:w:/tmp/known-repo/.worktrees/wt1:notes.md'
-    expect(first.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    expect(first.engine.access.fileTabs.map((t) => t.id)).toEqual([tabId])
     first.engine.dispose()
 
     // The reload: a fresh engine over the same device storage.
     const second = makeEngine({ url: '/workspace', storage })
     second.engine.start()
     await settle(40)
-    const st = second.engine.getSnapshot()
+    const st = second.engine.access
     expect(st.fileTabs.map((t) => t.id)).toEqual([tabId])
     expect(st.fileTabs[0]?.path).toBe('notes.md')
     expect(st.fileTabs[0]?.scope).toEqual({
@@ -1150,14 +1150,14 @@ describe('file tabs across a reload (POD-1247)', () => {
 
     const second = makeEngine({ storage })
     try {
-      expect(second.engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s1'])
+      expect(second.engine.access.sessions.map((s) => s.sessionId)).toEqual(['s1'])
       second.engine.start()
       await second.engine.replica.hydrate()
       // No inserted row has passed through this engine's subscription. Removing
       // the cached row must still publish, or file retirement never sees absence.
       second.engine.replica.applySnapshot('sessions', [])
       expect(second.engine.replica.rows('sessions')).toEqual([])
-      expect(second.engine.getSnapshot().sessions).toEqual([])
+      expect(second.engine.access.sessions).toEqual([])
     } finally {
       second.engine.destroy()
     }
@@ -1170,10 +1170,10 @@ describe('file tabs across a reload (POD-1247)', () => {
     await settle(40)
     first.engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo')])
     await settle(30)
-    first.engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
+    first.engine.access.openFile(asSessionId('s1'), 'notes.md')
     await settle(30)
     const tabId = 'file:s:s1:notes.md'
-    expect(first.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    expect(first.engine.access.fileTabs.map((t) => t.id)).toEqual([tabId])
     first.engine.dispose()
 
     // Reload, and the feed says the session is gone — killed from the CLI, or
@@ -1182,10 +1182,10 @@ describe('file tabs across a reload (POD-1247)', () => {
     const second = makeEngine({ url: '/workspace', storage, workspacePruneGraceMs: 150 })
     second.engine.start()
     await settle(40)
-    expect(second.engine.getSnapshot().fileTabs.map((t) => t.id)).toEqual([tabId])
+    expect(second.engine.access.fileTabs.map((t) => t.id)).toEqual([tabId])
     second.engine.replica.applySnapshot('sessions', [])
     await settle(250)
-    expect(second.engine.getSnapshot().fileTabs).toEqual([])
+    expect(second.engine.access.fileTabs).toEqual([])
     expect(layoutTabIds(second.engine)).not.toContain(tabId)
     second.engine.dispose()
   })
@@ -1196,16 +1196,16 @@ describe('snapshot stability (useSyncExternalStore contract)', () => {
     const { engine } = makeEngine()
     engine.start()
     await settle(40)
-    const a = engine.getSnapshot()
-    expect(engine.getSnapshot()).toBe(a)
+    const a = engine.access
+    expect(engine.access).toBe(a)
     // A real change produces a new snapshot …
     a.setSessionDraft(asSessionId('s1'), 'x')
-    const b = engine.getSnapshot()
+    const b = engine.access
     expect(b).not.toBe(a)
     expect(b.drafts).toEqual({ s1: 'x' })
     // … but re-writing the SAME value is a no-op that keeps identity.
     b.setSessionDraft(asSessionId('s1'), 'x')
-    expect(engine.getSnapshot()).toBe(b)
+    expect(engine.access).toBe(b)
     // Action identities are stable across snapshots.
     expect(b.setSessionDraft).toBe(a.setSessionDraft)
     expect(b.markSessionRead).toBe(a.markSessionRead)
@@ -1240,23 +1240,23 @@ describe('replica snapshot coalescing (#262 review)', () => {
     replica.applySnapshot('shipLanes', [lane])
     const { engine } = makeEngine({ replica })
     const rank = () => {
-      const state = engine.getSnapshot()
+      const state = engine.access
       return shippingPanelModel(state.shipOrders, [], order.repoId, state.shipLanes).waiting[0]
         ?.rows[0]?.queueRank
     }
     try {
-      expect(engine.getSnapshot().shipLanes).toMatchObject([lane])
+      expect(engine.access.shipLanes).toMatchObject([lane])
       expect(rank()).toBe(1)
       engine.start()
       await settle()
-      const before = engine.getSnapshot().shipOrders
+      const before = engine.access.shipOrders
       replica.applyChanges(
         'shipLanes',
         [{ ...lane, trains: [{ orderIds: ['hidden' as never] }, { orderIds: [order.id] }] }],
         [],
       )
       expect(rank()).toBe(2)
-      expect(engine.getSnapshot().shipOrders).toBe(before)
+      expect(engine.access.shipOrders).toBe(before)
       replica.applyChanges('shipLanes', [], [lane.id])
       // The lane owns ranks; evicting it must not revive a cached order rank.
       expect(rank()).toBeUndefined()
@@ -1273,9 +1273,9 @@ describe('replica snapshot coalescing (#262 review)', () => {
     await settle(40) // repos loaded → fallback selected /tmp/known-repo
     // A session anchors an UNREGISTERED worktree; the user selects it.
     engine.replica.applyChanges('sessions', [session('s1', '/x/unregistered')], [])
-    engine.getSnapshot().setSelectedWorktree('/x/unregistered')
+    engine.access.setSelectedWorktree('/x/unregistered')
     await settle()
-    expect(engine.getSnapshot().selectedWorktree).toBe('/x/unregistered')
+    expect(engine.access.selectedWorktree).toBe('/x/unregistered')
     expect(rw.url()).toContain('wt=%2Fx%2Funregistered')
     const writesBefore = rw.writes.length
     // ONE metadata snapshot replaces s1 with s2 in the same worktree. The
@@ -1285,7 +1285,7 @@ describe('replica snapshot coalescing (#262 review)', () => {
     // /tmp/known-repo) plus a URL rewrite the upsert couldn't undo.
     engine.replica.applySnapshot('sessions', [session('s2', '/x/unregistered')])
     await settle()
-    const snap = engine.getSnapshot()
+    const snap = engine.access
     expect(snap.sessions.map((s) => s.sessionId)).toEqual(['s2'])
     expect(snap.selectedWorktree).toBe('/x/unregistered')
     expect(rw.writes.length).toBe(writesBefore) // zero URL writes
@@ -1306,7 +1306,7 @@ describe('constructor snapshot seeding (#262 review)', () => {
     // useReplicaRows path had them at first render; mobile flashed "not found"
     // when they only arrived via start()).
     const { engine } = makeEngine({ storage })
-    expect(engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s-seeded'])
+    expect(engine.access.sessions.map((s) => s.sessionId)).toEqual(['s-seeded'])
     engine.dispose()
   })
 
@@ -1363,7 +1363,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle()
 
     // Enqueue paints instantly — the queued entry is the overlay.
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
+    void engine.access.renameSession(asSessionId('s1'), 'renamed')
     expect(nameOf(engine, 's1')).toBe('renamed')
 
     // A heal snapshot WITHOUT the rename must not flash the stale value: the
@@ -1377,7 +1377,7 @@ describe('unified optimistic overlay (#263)', () => {
     // landed — the overlay moves to the awaiting-truth stage, still painting.
     resolveRename?.()
     await settle()
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
     expect(nameOf(engine, 's1')).toBe('renamed')
 
     // Covering truth lands (the server echo) — retired, value unchanged.
@@ -1413,7 +1413,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle()
     expect(offerOf(engine, 's1')).toEqual(offer)
 
-    void engine.getSnapshot().dismissOffer(asSessionId('s1'), 'T1')
+    void engine.access.dismissOffer(asSessionId('s1'), 'T1')
     await settle()
 
     // Gone on the click, and STILL gone after a heal snapshot that carries the
@@ -1423,7 +1423,7 @@ describe('unified optimistic overlay (#263)', () => {
     engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), offer }])
     await settle()
     expect(offerOf(engine, 's1')).toBeUndefined()
-    expect(engine.getSnapshot().outboxSize).toBe(1)
+    expect(engine.access.outboxSize).toBe(1)
 
     // The connection comes back: the queued dismissal drains, the server clears
     // the offer, and the overlay retires against that covering truth.
@@ -1433,7 +1433,7 @@ describe('unified optimistic overlay (#263)', () => {
     engine.replica.applySnapshot('sessions', [session('s1', '/w')])
     await settle()
     expect(offerOf(engine, 's1')).toBeUndefined()
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
 
     // Exactly once: a NEW offer the agent posts later shows through.
     const next = { message: 'Ready to land', actions: [], createdAt: 'T2' }
@@ -1450,9 +1450,9 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'mine')
+    void engine.access.renameSession(asSessionId('s1'), 'mine')
     await settle() // resolves (default executor) → awaiting truth
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
     expect(nameOf(engine, 's1')).toBe('mine')
     // A competing client's rename won — the row moved past the resolution
     // fingerprint without covering our mutation. Server truth must win.
@@ -1481,16 +1481,16 @@ describe('unified optimistic overlay (#263)', () => {
     }
     engine.replica.applySnapshot('sessionUserStates', [personal])
     await settle()
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
-    void engine.getSnapshot().markSessionUnread(asSessionId('s1'))
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
+    void engine.access.renameSession(asSessionId('s1'), 'first')
+    void engine.access.markSessionUnread(asSessionId('s1'))
+    void engine.access.renameSession(asSessionId('s1'), 'second')
     await settle()
-    const row = engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
+    const row = engine.access.sessions.find((s) => s.sessionId === 's1')
     // Later rename wins over the earlier one; the mark-unread composes with it.
     expect(row?.name).toBe('second')
     expect(row?.unread).toBe(true)
     expect(engine.replica.rows('sessionUserStates')[0]).toMatchObject(personal)
-    expect(engine.getSnapshot().outboxSize).toBe(3)
+    expect(engine.access.outboxSize).toBe(3)
     engine.dispose()
   })
 
@@ -1506,12 +1506,12 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'doomed')
+    void engine.access.renameSession(asSessionId('s1'), 'doomed')
     expect(nameOf(engine, 's1')).toBe('doomed') // painted while queued
     await settle()
     expect(nameOf(engine, 's1')).toBeUndefined() // poison drop → overlay gone
-    expect(engine.getSnapshot().outboxSize).toBe(0)
-    expect(engine.getSnapshot().outboxDeadLetters).toMatchObject([
+    expect(engine.access.outboxSize).toBe(0)
+    expect(engine.access.outboxDeadLetters).toMatchObject([
       { entry: { kind: 'rename', input: { name: 'doomed' } }, reason: { code: 'invalid' } },
     ])
     expect(errors.some((m) => m.includes('rename'))).toBe(true)
@@ -1536,22 +1536,22 @@ describe('unified optimistic overlay (#263)', () => {
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
 
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'rebased')
+    void engine.access.renameSession(asSessionId('s1'), 'rebased')
     expect(nameOf(engine, 's1')).toBe('rebased')
     await settle()
 
-    const [parked] = engine.getSnapshot().outboxDeadLetters
+    const [parked] = engine.access.outboxDeadLetters
     expect(parked?.reason).toEqual({ code: 'conflict' })
     expect(nameOf(engine, 's1')).toBeUndefined()
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
 
-    engine.getSnapshot().recoverOutbox.retry(parked!.entry.mutationId, { expectedRevision: 2 })
-    expect(engine.getSnapshot().outboxDeadLetters).toEqual([])
+    engine.access.recoverOutbox.retry(parked!.entry.mutationId, { expectedRevision: 2 })
+    expect(engine.access.outboxDeadLetters).toEqual([])
     expect(nameOf(engine, 's1')).toBe('rebased')
     await settle()
     expect(attempts).toBe(2)
     expect(nameOf(engine, 's1')).toBe('rebased')
-    expect(engine.getSnapshot().outboxSize).toBe(1)
+    expect(engine.access.outboxSize).toBe(1)
     engine.dispose()
   })
 
@@ -1566,7 +1566,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
+    void first.engine.access.renameSession(asSessionId('s1'), 'renamed')
     await settle()
     expect(nameOf(first.engine, 's1')).toBe('renamed')
     first.engine.dispose()
@@ -1607,15 +1607,15 @@ describe('unified optimistic overlay (#263)', () => {
     const derivedUnread = (): boolean | undefined =>
       issueViewModelsFromReplica(
         engine.replica,
-        engine.getSnapshot().issueProjections,
-        engine.getSnapshot().issueUserStates,
+        engine.access.issueProjections,
+        engine.access.issueUserStates,
       ).get('iss_1')?.unread
     engine.replica.applyChanges('issueProjections', [projection], [])
     applyIssueRecords(engine, [issue])
     await settle()
     expect(issueModels(engine)[0]?.readAt).toBeNull()
     expect(derivedUnread()).toBe(true)
-    void engine.getSnapshot().markIssueRead('iss_1')
+    void engine.access.markIssueRead('iss_1')
     expect(issueModels(engine)[0]?.readAt).not.toBeNull() // instant
     expect(derivedUnread()).toBe(false) // the same overlaid row drives unread
     await settle() // mutation resolves → awaiting truth, still painted
@@ -1627,7 +1627,7 @@ describe('unified optimistic overlay (#263)', () => {
     await settle()
     expect(issueModels(engine)[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
     expect(derivedUnread()).toBe(false) // persist echo covers without a bounce
-    expect(engine.getSnapshot().issueProjections).toHaveLength(1)
+    expect(engine.access.issueProjections).toHaveLength(1)
     engine.dispose()
   })
 
@@ -1662,7 +1662,7 @@ describe('unified optimistic overlay (#263)', () => {
     applyIssueRecords(engine, [issue])
     await settle()
 
-    const pending = engine.getSnapshot().markIssueRead('iss_1')
+    const pending = engine.access.markIssueRead('iss_1')
     // Synchronous with the call: nothing was awaited, so the durable enqueue
     // cannot be in front of the paint.
     const paintedAt = issueModels(engine)[0]?.readAt
@@ -1695,9 +1695,9 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
+    void first.engine.access.renameSession(asSessionId('s1'), 'renamed')
     await settle()
-    expect(first.engine.getSnapshot().outboxSize).toBe(0) // resolved
+    expect(first.engine.access.outboxSize).toBe(0) // resolved
     expect(nameOf(first.engine, 's1')).toBe('renamed') // awaiting truth, painted
     first.engine.dispose()
 
@@ -1735,7 +1735,7 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'mine')
+    void engine.access.renameSession(asSessionId('s1'), 'mine')
     expect(nameOf(engine, 's1')).toBe('mine')
     // A competing client's write lands while our mutation is still in flight —
     // the row is already "final" before our response arrives.
@@ -1760,10 +1760,10 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
     // Two rapid edits of the same field, both resolved before any echo.
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
+    void engine.access.renameSession(asSessionId('s1'), 'first')
+    void engine.access.renameSession(asSessionId('s1'), 'second')
     await settle()
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
     expect(engine.outbox.awaiting()).toHaveLength(2)
     expect(nameOf(engine, 's1')).toBe('second')
     // Echo for the FIRST edit only: it moves the row past both (shared)
@@ -1798,8 +1798,8 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'first') // A
-    void engine.getSnapshot().renameSession(asSessionId('s1'), 'second') // B (chained behind A)
+    void engine.access.renameSession(asSessionId('s1'), 'first') // A
+    void engine.access.renameSession(asSessionId('s1'), 'second') // B (chained behind A)
     // Negative flicker check: from the moment B is pending, 'first' (or the
     // pre-rename undefined) must never paint again until B retires.
     const painted: Array<string | undefined> = []
@@ -1845,8 +1845,8 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'first')
-    void first.engine.getSnapshot().renameSession(asSessionId('s1'), 'second')
+    void first.engine.access.renameSession(asSessionId('s1'), 'first')
+    void first.engine.access.renameSession(asSessionId('s1'), 'second')
     await settle()
     resolvers[0]?.()
     await settle()
@@ -1920,11 +1920,11 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle(40)
     engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
     await settle()
-    void engine.getSnapshot().archiveSession(asSessionId('s1'), true)
+    void engine.access.archiveSession(asSessionId('s1'), true)
     await settle()
     const row = (): SessionView | undefined =>
-      engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+      engine.access.sessions.find((s) => s.sessionId === 's1')
+    expect(engine.access.outboxSize).toBe(0)
     expect(row()?.archived).toBe(true)
     expect(row()?.workState).toBe('done')
     // Echo for setArchived only — the workState write hasn't echoed yet. The
@@ -1963,7 +1963,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.start()
     await settle(40)
 
-    const made = engine.getSnapshot().spawnDraftAgent({
+    const made = engine.access.spawnDraftAgent({
       issueId: asIssueId('reserved-issue'),
       sessionId: asSessionId('reserved-session'),
       mutationId: asMutationId('reserved-mutation'),
@@ -1996,10 +1996,10 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     'unreachable',
   ] as const)('refuses %s placement before optimistic rows are painted', (placement) => {
     const { engine } = makeEngine({ api: spawnApi() })
-    const before = engine.getSnapshot()
+    const before = engine.access
 
     expect(() =>
-      engine.getSnapshot().spawnDraftAgent({
+      engine.access.spawnDraftAgent({
         target: {
           path: '/w',
           repoPath: '/w',
@@ -2010,8 +2010,8 @@ describe('spawn transport failure (#263 review finding 4)', () => {
       }),
     ).toThrow(placement === 'unauthorized' ? /not authorized/ : /unreachable/)
 
-    expect(engine.getSnapshot().sessions).toEqual(before.sessions)
-    expect(engine.getSnapshot().issueProjections).toEqual(before.issueProjections)
+    expect(engine.access.sessions).toEqual(before.sessions)
+    expect(engine.access.issueProjections).toEqual(before.issueProjections)
     engine.dispose()
   })
 
@@ -2034,7 +2034,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
       .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'claude-code' })
     await settle(80) // past the grace too — the outcome must be stable
     expect(made.errors).toEqual([]) // no "Couldn't start" cry-wolf
-    expect(made.engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    expect(made.engine.access.sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
     made.engine.dispose()
   })
 
@@ -2051,9 +2051,9 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     const ids = engine
       .getSnapshot()
       .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'claude-code' })
-    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    expect(engine.access.sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
     await settle(80) // rejection + grace elapsed, still no row
-    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(false)
+    expect(engine.access.sessions.some((s) => s.sessionId === ids.sessionId)).toBe(false)
     expect(issueModels(engine).some((i) => i.id === ids.issueId)).toBe(false)
     expect(errors.some((m) => m.includes("Couldn't start"))).toBe(true)
     engine.dispose()
@@ -2076,7 +2076,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.start()
     await settle(40)
 
-    const made = engine.getSnapshot().spawnIssueAgent({
+    const made = engine.access.spawnIssueAgent({
       target: { path: '/w', repoPath: '/w' },
       title: 'Smooth task launch',
       description: 'Show this prompt immediately',
@@ -2090,9 +2090,9 @@ describe('spawn transport failure (#263 review finding 4)', () => {
       isDraftVessel: false,
     })
     expect(
-      engine.getSnapshot().sessions.find((row) => row.sessionId === made.sessionId),
+      engine.access.sessions.find((row) => row.sessionId === made.sessionId),
     ).toMatchObject({ issueId: made.issueId, status: 'starting' })
-    expect(engine.getSnapshot().pendingSpawnPrompts.get(made.sessionId)).toBe(
+    expect(engine.access.pendingSpawnPrompts.get(made.sessionId)).toBe(
       'Show this prompt immediately',
     )
     expect(createInput).toMatchObject({
@@ -2123,8 +2123,8 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     releaseCreate()
     expect(await made.settled).toBe(true)
     await settle(40)
-    expect(engine.getSnapshot().pendingSpawnPrompts.has(made.sessionId)).toBe(false)
-    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(true)
+    expect(engine.access.pendingSpawnPrompts.has(made.sessionId)).toBe(false)
+    expect(engine.access.sessions.some((row) => row.sessionId === made.sessionId)).toBe(true)
     engine.dispose()
   })
 
@@ -2139,16 +2139,16 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.start()
     await settle(40)
 
-    const made = engine.getSnapshot().spawnIssueAgent({
+    const made = engine.access.spawnIssueAgent({
       target: { path: '/w', repoPath: '/w' },
       title: 'Broken launch',
       description: 'Keep my prompt',
       agentKind: 'codex',
     })
-    expect(engine.getSnapshot().pendingSpawnPrompts.get(made.sessionId)).toBe('Keep my prompt')
+    expect(engine.access.pendingSpawnPrompts.get(made.sessionId)).toBe('Keep my prompt')
     expect(await made.settled).toBe(false)
-    expect(engine.getSnapshot().pendingSpawnPrompts.has(made.sessionId)).toBe(false)
-    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(
+    expect(engine.access.pendingSpawnPrompts.has(made.sessionId)).toBe(false)
+    expect(engine.access.sessions.some((row) => row.sessionId === made.sessionId)).toBe(
       false,
     )
     expect(errors).toContain("Couldn't start the task — worktree add failed")
@@ -2166,7 +2166,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.start()
     await settle(40)
 
-    const made = engine.getSnapshot().spawnIssueAgent({
+    const made = engine.access.spawnIssueAgent({
       target: { path: '/w', repoPath: '/w' },
       title: 'Partially started',
       description: 'Keep the saved task',
@@ -2178,7 +2178,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
 
     expect(await made.outcome).toBe('issue-only')
     expect(issueModels(engine).some((row) => row.id === made.issueId)).toBe(true)
-    expect(engine.getSnapshot().sessions.some((row) => row.sessionId === made.sessionId)).toBe(
+    expect(engine.access.sessions.some((row) => row.sessionId === made.sessionId)).toBe(
       false,
     )
     expect(errors).toContain(
@@ -2198,7 +2198,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     engine.start()
     await settle(40)
 
-    const first = engine.getSnapshot().spawnIssueAgent({
+    const first = engine.access.spawnIssueAgent({
       target: { path: '/w', repoPath: '/w' },
       title: 'Ambiguous launch',
       description: 'Create this once',
@@ -2209,7 +2209,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     expect(await first.outcome).toBe('failed')
 
     applyIssueRecords(engine, [{ ...lateIssue, seq: 1 }])
-    const retry = engine.getSnapshot().spawnIssueAgent({
+    const retry = engine.access.spawnIssueAgent({
       issueId: first.issueId,
       sessionId: first.sessionId,
       mutationId: first.mutationId,
@@ -2251,7 +2251,7 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     // A replaced engine must not fire against state its successor owns: the
     // overlay was NOT rolled back and no cry-wolf toast surfaced.
     expect(errors).toEqual([])
-    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    expect(engine.access.sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
     expect(issueModels(engine).some((i) => i.id === ids.issueId)).toBe(true)
   })
 })
@@ -2297,7 +2297,7 @@ describe('a chat send holds for optimistic spawn (POD-546)', () => {
     const { sessionId } = engine
       .getSnapshot()
       .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'grok' })
-    expect(engine.getSnapshot().pendingSpawnIds.has(sessionId)).toBe(true)
+    expect(engine.access.pendingSpawnIds.has(sessionId)).toBe(true)
 
     // Composer fires immediately — the classic mobile race.
     const sendPromise = engine
@@ -2311,7 +2311,7 @@ describe('a chat send holds for optimistic spawn (POD-546)', () => {
     await settle(40)
 
     expect(resumeCalls).toEqual([{ sessionId, text: 'hello from mobile' }])
-    expect(engine.getSnapshot().pendingSpawnIds.has(sessionId)).toBe(false)
+    expect(engine.access.pendingSpawnIds.has(sessionId)).toBe(false)
     engine.dispose()
   })
 
@@ -2340,8 +2340,8 @@ describe('a chat send holds for optimistic spawn (POD-546)', () => {
     ).rejects.toThrow('not sent — session archived')
     await settle(40)
 
-    expect(engine.getSnapshot().outboxSize).toBe(0)
-    expect(engine.getSnapshot().outboxDeadLetters).toMatchObject([
+    expect(engine.access.outboxSize).toBe(0)
+    expect(engine.access.outboxDeadLetters).toMatchObject([
       { entry: { kind: 'resumeAndSend' } },
     ])
     engine.dispose()
@@ -2373,8 +2373,8 @@ describe('a chat send holds for optimistic spawn (POD-546)', () => {
     ).rejects.toThrow(`not sent — ${UNADDRESSABLE_SEND_REASON}`)
     await settle(40)
 
-    expect(engine.getSnapshot().outboxSize).toBe(0)
-    expect(engine.getSnapshot().outboxDeadLetters).toEqual([])
+    expect(engine.access.outboxSize).toBe(0)
+    expect(engine.access.outboxDeadLetters).toEqual([])
     expect(errors).toEqual(['Message not sent — the session no longer exists: “too late”'])
     engine.dispose()
   })
@@ -2393,16 +2393,16 @@ describe('outbox drain on reconnect', () => {
     const { engine } = makeEngine({ api, hub })
     engine.start()
     await settle(40)
-    await engine.getSnapshot().renameSession(asSessionId('s1'), 'renamed')
+    await engine.access.renameSession(asSessionId('s1'), 'renamed')
     await settle()
     expect(renameCalls).toBe(1)
-    expect(engine.getSnapshot().outboxSize).toBe(1)
+    expect(engine.access.outboxSize).toBe(1)
     // The hub's heartbeat-derived health recovering must drain the outbox —
     // the browser 'online' event alone misses a server restart.
     hub.emit('connectionHealth', { status: 'ok', rttMs: 5, since: 1 })
     await settle()
     expect(renameCalls).toBe(2)
-    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.access.outboxSize).toBe(0)
     engine.dispose()
   })
 })
@@ -2437,9 +2437,9 @@ describe('navigateToSession (#411)', () => {
 
   it("switches to the workspace, selects the session's worktree, and opens its pane", async () => {
     const { engine, rw } = await withSession()
-    engine.getSnapshot().navigateToSession('s1')
+    engine.access.navigateToSession('s1')
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.view).toBe('workspace')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.paneA).toBe('s1')
@@ -2451,18 +2451,18 @@ describe('navigateToSession (#411)', () => {
 
   it('accepts a permanent session birth ref and navigates to its canonical pane id', async () => {
     const { engine, rw } = await withSession()
-    engine.getSnapshot().navigateToSession('POD-529-A')
+    engine.access.navigateToSession('POD-529-A')
     await settle()
-    expect(engine.getSnapshot().paneA).toBe('s1')
+    expect(engine.access.paneA).toBe('s1')
     expect(rw.url()).toContain('pane=s1')
   })
 
   it('is inert for an unknown session (no view change, no URL write)', async () => {
     const { engine, rw } = await withSession()
     const before = rw.writes.length
-    engine.getSnapshot().navigateToSession('nope')
+    engine.access.navigateToSession('nope')
     await settle()
-    expect(engine.getSnapshot().view).toBe('issues')
+    expect(engine.access.view).toBe('issues')
     expect(rw.writes.length).toBe(before)
   })
 })
@@ -2471,13 +2471,13 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
   it('openArtifact creates an artifact-scoped tab carrying the issue, and focuses it', () => {
     const { engine } = makeEngine()
     engine.start()
-    engine.getSnapshot().openArtifact({
+    engine.access.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/wt',
     })
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.fileTabs).toEqual([
       {
         id: 'file:a:iss_1:abc123:index.html',
@@ -2493,12 +2493,12 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine.getSnapshot().openArtifact({
+    engine.access.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
     })
-    expect(engine.getSnapshot().fileTabs).toHaveLength(1)
+    expect(engine.access.fileTabs).toHaveLength(1)
     engine.dispose()
   })
 
@@ -2506,14 +2506,14 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().openArtifact({
+    engine.access.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo/.worktrees/wt1',
     })
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.view).toBe('workspace')
     expect(st.selectedIssueId).toBe('iss_1')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
@@ -2528,13 +2528,13 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
     engine.start()
     await settle()
-    engine.getSnapshot().openArtifact({
+    engine.access.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
       path: 'doc.md',
     })
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.view).toBe('workspace')
     expect(st.selectedIssueId).toBe('iss_1')
     expect(st.paneA).toBe('file:a:iss_1:abc123:doc.md')
@@ -2546,12 +2546,12 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     const { engine, rw } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.getSnapshot().openFileInWorktree({
+    engine.access.openFileInWorktree({
       root: '/tmp/known-repo/.worktrees/wt1',
       path: 'notes.md',
     })
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.view).toBe('workspace')
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
     expect(st.paneA).toBe('file:w:/tmp/known-repo/.worktrees/wt1:notes.md')
@@ -2565,9 +2565,9 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     await settle()
     engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1/sub')])
     await settle()
-    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
+    engine.access.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.view).toBe('workspace')
     // the containing worktree, not the session's deeper cwd
     expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
@@ -2597,13 +2597,13 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc123'),
     } as const
-    await engine.getSnapshot().readFileScoped(scope, 'index.html')
+    await engine.access.readFileScoped(scope, 'index.html')
     expect(reads).toEqual([
       { issueId: asIssueId('iss_1'), artifactId: asArtifactId('abc123'), path: 'index.html' },
     ])
     // Immutable snapshot: the write API is never called.
     await expect(
-      engine.getSnapshot().writeFileScoped({ scope, path: 'index.html', content: 'x' }),
+      engine.access.writeFileScoped({ scope, path: 'index.html', content: 'x' }),
     ).rejects.toThrow('artifact snapshots are read-only')
     expect(api.files.write.mutate).not.toHaveBeenCalled()
     engine.dispose()
@@ -2617,10 +2617,10 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     await settle()
     engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo/.worktrees/wt1')])
     await settle()
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_9'))
-    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
+    engine.access.setSelectedIssueId(asIssueId('iss_9'))
+    engine.access.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.fileTabs[0]?.issueId).toBe('iss_9')
     // reveal keeps the owning issue selected so the strip lists the tab
     expect(st.selectedIssueId).toBe('iss_9')
@@ -2642,10 +2642,10 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
       } as SessionView,
     ])
     await settle()
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_other'))
-    engine.getSnapshot().openFile(asSessionId('s1'), 'notes.md')
+    engine.access.setSelectedIssueId(asIssueId('iss_other'))
+    engine.access.openFile(asSessionId('s1'), 'notes.md')
     await settle()
-    const st = engine.getSnapshot()
+    const st = engine.access
     expect(st.fileTabs[0]?.issueId).toBe('iss_own')
     // navigated to the OWNING issue's workspace, not the stale selection
     expect(st.selectedIssueId).toBe('iss_own')
@@ -2656,13 +2656,13 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    const snap = engine.getSnapshot()
+    const snap = engine.access
     snap.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', issueId: asIssueId('iss_1') })
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
-    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
-    engine.getSnapshot().setSelectedIssueId(null)
-    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
-    const tabs = engine.getSnapshot().fileTabs
+    engine.access.setSelectedIssueId(asIssueId('iss_2'))
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md' })
+    engine.access.setSelectedIssueId(null)
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    const tabs = engine.access.fileTabs
     expect(tabs.map((t) => t.issueId)).toEqual(['iss_1', 'iss_2', undefined])
     engine.dispose()
   })
@@ -2671,11 +2671,11 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
-    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
-    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
-    const st = engine.getSnapshot()
+    engine.access.setSelectedIssueId(asIssueId('iss_1'))
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    engine.access.setSelectedIssueId(asIssueId('iss_2'))
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md' })
+    const st = engine.access
     expect(st.fileTabs).toHaveLength(1)
     expect(st.fileTabs[0]?.issueId).toBe('iss_1')
     expect(st.selectedIssueId).toBe('iss_1')
@@ -2687,17 +2687,17 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     engine.start()
     await settle()
     const preview = (path: string): void =>
-      engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path, permanent: false })
+      engine.access.openFileInWorktree({ root: '/tmp/known-repo', path, permanent: false })
 
     preview('a.md')
-    let st = engine.getSnapshot()
+    let st = engine.access
     let ws = st.workspaces[st.workspaceKey()]
     expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:a.md')
 
     // The glance moves on: one temporary tab, in the same strip slot, and the
     // record of the file nothing is rendering any more goes with it.
     preview('b.md')
-    st = engine.getSnapshot()
+    st = engine.access
     ws = st.workspaces[st.workspaceKey()]
     expect(ws?.previewTabId).toBe('file:w:/tmp/known-repo:b.md')
     expect(ws ? allTabIds(ws) : []).toEqual(['file:w:/tmp/known-repo:b.md'])
@@ -2706,8 +2706,8 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     expect(st.recentFiles.map((r) => r.path)).toEqual(['b.md', 'a.md'])
 
     // A double click (and every caller that has not thought about it) keeps it.
-    engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
-    st = engine.getSnapshot()
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'c.md' })
+    st = engine.access
     ws = st.workspaces[st.workspaceKey()]
     expect(ws?.previewTabId).toBe(null)
     expect(st.fileTabs.map((t) => t.path)).toEqual(['c.md'])
@@ -2722,11 +2722,11 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
       .getSnapshot()
       .openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
     // What `usePreviewPromotion` fires when the operator types into the panel.
-    engine.getSnapshot().promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
+    engine.access.promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
     engine
       .getSnapshot()
       .openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
-    const st = engine.getSnapshot()
+    const st = engine.access
     const ws = st.workspaces[st.workspaceKey()]
     expect(ws ? allTabIds(ws) : []).toEqual([
       'file:w:/tmp/known-repo:a.md',
@@ -2742,17 +2742,17 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     first.engine.start()
     await settle()
     for (let i = 0; i < 32; i++) {
-      first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
+      first.engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: `f${i}.md` })
     }
     // duplicate open moves to front instead of adding
-    first.engine.getSnapshot().openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
-    first.engine.getSnapshot().openArtifact({
+    first.engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'f31.md' })
+    first.engine.access.openArtifact({
       issueId: asIssueId('iss_1'),
       artifactId: asArtifactId('abc'),
       path: 'index.html',
       worktreePath: '/tmp/known-repo',
     })
-    const recents = first.engine.getSnapshot().recentFiles
+    const recents = first.engine.access.recentFiles
     expect(recents).toHaveLength(30)
     expect(recents[0]).toMatchObject({
       path: 'index.html',
@@ -2764,8 +2764,8 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const second = makeEngine({ storage })
     second.engine.start()
     await settle()
-    expect(second.engine.getSnapshot().recentFiles).toHaveLength(30)
-    expect(second.engine.getSnapshot().recentFiles[0]?.path).toBe('index.html')
+    expect(second.engine.access.recentFiles).toHaveLength(30)
+    expect(second.engine.access.recentFiles[0]?.path).toBe('index.html')
     second.engine.dispose()
   })
 })
@@ -2796,13 +2796,13 @@ describe('eager mark-read-on-view (POD-272)', () => {
     await settle(40)
     publish(engine, [active('s1')])
     await settle()
-    engine.getSnapshot().setPane('A', asSessionId('s1'))
+    engine.access.setPane('A', asSessionId('s1'))
     await settle()
     // A message arrives while s1 IS the visible pane.
     publish(engine, [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })])
     await settle() // ~25ms — an order of magnitude under MARK_READ_ON_VIEW_MS
     expect(api.sessions.markRead.mutate).toHaveBeenCalledTimes(1)
-    expect(engine.getSnapshot().sessions[0]?.unread).toBe(false)
+    expect(engine.access.sessions[0]?.unread).toBe(false)
     engine.dispose()
   })
 
@@ -2813,14 +2813,14 @@ describe('eager mark-read-on-view (POD-272)', () => {
     await settle(40)
     publish(engine, [active('s1', { readAt: '2026-07-01T00:00:01.000Z' })])
     await settle()
-    engine.getSnapshot().setPane('A', asSessionId('s1'))
+    engine.access.setPane('A', asSessionId('s1'))
     await settle()
     // Marking THIS open session unread flips the flag without new activity —
     // the trigger is activity, so nothing re-reads it.
     publish(engine, [active('s1', { readAt: null, unread: true })])
     await settle(60)
     expect(api.sessions.markRead.mutate).not.toHaveBeenCalled()
-    expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
+    expect(engine.access.sessions[0]?.unread).toBe(true)
     engine.dispose()
   })
 
@@ -2831,7 +2831,7 @@ describe('eager mark-read-on-view (POD-272)', () => {
     await settle(40)
     publish(engine, [active('s1')])
     await settle()
-    engine.getSnapshot().setPane('A', asSessionId('s1'))
+    engine.access.setPane('A', asSessionId('s1'))
     await settle()
     publish(engine, [active('s1', { lastActiveAt: '2026-07-01T00:01:00.000Z', unread: true })])
     await settle()
@@ -2880,16 +2880,16 @@ describe('eager mark-read-on-view (POD-272)', () => {
     } as unknown as IssueViewModel
     applyNormalizedIssueRecords(engine, [issue])
     await settle()
-    engine.getSnapshot().setOpenIssueId(asIssueId('iss_1'))
-    engine.getSnapshot().setView('issues')
+    engine.access.setOpenIssueId(asIssueId('iss_1'))
+    engine.access.setView('issues')
     await settle()
     applyNormalizedIssueRecords(engine, [
       { ...issue, unread: true, updatedAt: '2026-07-01T00:05:00.000Z' } as typeof issue,
     ])
     await settle()
     expect(api.issues.markRead.mutate).toHaveBeenCalledTimes(1)
-    expect(engine.getSnapshot()).not.toHaveProperty('issues')
-    const readAt = engine.getSnapshot().issueUserStates[0]?.readAt
+    expect(engine.access).not.toHaveProperty('issues')
+    const readAt = engine.access.issueUserStates[0]?.readAt
     expect(readAt).not.toBeNull()
     expect(Date.parse(readAt ?? '')).toBeGreaterThanOrEqual(Date.parse('2026-07-01T00:05:00.000Z'))
     engine.dispose()
@@ -2938,7 +2938,7 @@ describe('coarse clock (POD-331)', () => {
       const { engine } = makeEngine()
       engine.start()
 
-      const before = engine.getSnapshot()
+      const before = engine.access
       expect(typeof before.coarseNow).toBe('number')
 
       // Nothing about the world changes here — no session moves, no row
@@ -2946,7 +2946,7 @@ describe('coarse clock (POD-331)', () => {
       // slice cache gets wrong when the clock is read out of band.
       await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS + 1)
 
-      const after = engine.getSnapshot()
+      const after = engine.access
       expect(after).not.toBe(before)
       expect(after.coarseNow).toBeGreaterThan(before.coarseNow)
       engine.dispose()
@@ -2969,11 +2969,11 @@ describe('coarse clock (POD-331)', () => {
         },
       },
     })
-    expect(engine.getSnapshot().coarseNow).toBe(pinned)
+    expect(engine.access.coarseNow).toBe(pinned)
     engine.start()
     expect(tick).not.toBeNull()
     tick!(pinned + COARSE_CLOCK_MS)
-    expect(engine.getSnapshot().coarseNow).toBe(pinned + COARSE_CLOCK_MS)
+    expect(engine.access.coarseNow).toBe(pinned + COARSE_CLOCK_MS)
     engine.dispose()
     expect(tick).toBeNull()
   })
@@ -2988,9 +2988,9 @@ describe('coarse clock (POD-331)', () => {
 
       // A runtime whose interval outlived it would keep republishing under a
       // principal that is gone — the leak the offs[] registration prevents.
-      const afterDispose = engine.getSnapshot()
+      const afterDispose = engine.access
       await vi.advanceTimersByTimeAsync(COARSE_CLOCK_MS * 3)
-      expect(engine.getSnapshot()).toBe(afterDispose)
+      expect(engine.access).toBe(afterDispose)
     } finally {
       vi.useRealTimers()
     }
@@ -3098,7 +3098,7 @@ describe('mounted worklist rescopes (POD-4722)', () => {
             bufferedFramesApplied: 0,
           })
         })
-        expect(engine.getSnapshot().issueProjections.map((row) => row.id)).toEqual(ids)
+        expect(engine.access.issueProjections.map((row) => row.id)).toEqual(ids)
         expect(publications).toEqual([ids])
         expect(renderedIds()).toEqual(ids)
         expect(idsOf()).toEqual(ids)
@@ -3157,10 +3157,10 @@ describe('one delta, one snapshot (POD-1645)', () => {
     // counting those would make the number say something other than what this
     // test is about.
     const replicaKeys = ['sessions', 'issueProjections'] as const
-    let prev = engine.getSnapshot()
+    let prev = engine.access
     let snapshots = 0
     const off = engine.subscribe(() => {
-      const next = engine.getSnapshot()
+      const next = engine.access
       if (replicaKeys.some((k) => next[k] !== prev[k])) snapshots++
       prev = next
     })
@@ -3170,7 +3170,7 @@ describe('one delta, one snapshot (POD-1645)', () => {
     expect(snapshots).toBe(1)
     // …and the one snapshot carries every collection, so coalescing did not
     // simply drop two thirds of the delta on the floor.
-    const state = engine.getSnapshot()
+    const state = engine.access
     expect(state.sessions.map((s) => s.sessionId)).toEqual(['a'])
     expect(state.issueProjections.map((i) => i.id)).toEqual(['i1'])
     expect(state.sessions[0]?.name).toBe('changed')
@@ -3203,7 +3203,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.getSnapshot().setSessionDraft(SID, 'typed with the socket down')
+    engine.access.setSessionDraft(SID, 'typed with the socket down')
 
     expect(draftOf(engine)).toBe('typed with the socket down')
     engine.dispose()
@@ -3217,7 +3217,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    engine.access.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
 
     expect(draftOf(engine)).toBe('hello world')
@@ -3230,7 +3230,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    engine.access.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello', { rev: 3 })
     await settle()
 
@@ -3251,7 +3251,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    engine.access.setSessionDraft(SID, 'hello world')
     hub.emit('sessionDraft', SID, 'hello')
 
     expect(draftOf(engine)).toBe('hello world')
@@ -3277,7 +3277,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     const before = hub.draftEdits.length
 
-    const actions = engine.getSnapshot()
+    const actions = engine.access
     actions.setSessionDraft(SID, 'h')
     actions.setSessionDraft(SID, 'he')
     actions.setSessionDraft(SID, 'hel')
@@ -3297,7 +3297,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    const actions = engine.getSnapshot()
+    const actions = engine.access
     actions.setSessionDraft(SID, 'about to send')
     actions.setSessionDraft(SID, '')
 
@@ -3311,7 +3311,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     engine.start()
     await settle()
 
-    engine.getSnapshot().setSessionDraft(SID, 'hello world')
+    engine.access.setSessionDraft(SID, 'hello world')
     await settle()
     const sentBeforeEcho = hub.draftEdits.length
 
@@ -3332,7 +3332,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.connected = false
 
-    engine.getSnapshot().setSessionDraft(SID, 'typed during the outage')
+    engine.access.setSessionDraft(SID, 'typed during the outage')
     await settle()
     expect(hub.draftEdits).toEqual([])
 
@@ -3356,7 +3356,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.getSnapshot().setSessionDraft(SID, 'survives the reload')
+    first.engine.access.setSessionDraft(SID, 'survives the reload')
     await settle(40)
     first.engine.dispose()
     await settle()
@@ -3364,7 +3364,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     // A NEW runtime over the same device storage — the reload. No hub traffic
     // and no start() before the read: the draft is on screen from frame one.
     const second = makeEngine({ storage })
-    expect(second.engine.getSnapshot().drafts[SID]).toBe('survives the reload')
+    expect(second.engine.access.drafts[SID]).toBe('survives the reload')
     second.engine.dispose()
     await settle()
   })
@@ -3375,7 +3375,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.start()
     await settle()
     first.hub.connected = false
-    first.engine.getSnapshot().setSessionDraft(SID, 'never reached the server')
+    first.engine.access.setSessionDraft(SID, 'never reached the server')
     await settle(40)
     first.engine.dispose()
     await settle()
@@ -3401,7 +3401,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     const first = makeEngine({ storage, draftSendDebounceMs: 5, draftPersistDebounceMs: 5 })
     first.engine.start()
     await settle()
-    const actions = first.engine.getSnapshot()
+    const actions = first.engine.access
     actions.setSessionDraft(SID, 'temporary')
     await settle(40)
     actions.setSessionDraft(SID, '')
@@ -3410,7 +3410,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
 
     const second = makeEngine({ storage })
-    expect(second.engine.getSnapshot().drafts[SID]).toBeUndefined()
+    expect(second.engine.access.drafts[SID]).toBeUndefined()
     second.engine.dispose()
     await settle()
   })
@@ -3476,14 +3476,14 @@ describe('issue visit baseline', () => {
       updatedAt: '2026-07-01T00:00:00Z',
     } as IssueViewModel
     applyNormalizedIssueRecords(engine, [issue])
-    const before = engine.getSnapshot()
+    const before = engine.access
     engine.replica.applyChanges(
       'repos',
       [{ id: 'repo', prefix: 'NEW', repoPath: '/new-home' } as never],
       [],
     )
-    const after = engine.getSnapshot()
-    expect(engine.getSnapshot()).not.toHaveProperty('issues')
+    const after = engine.access
+    expect(engine.access).not.toHaveProperty('issues')
     expect(after).not.toBe(before)
     expect(after.repoProjections).toMatchObject([{ repoPath: '/new-home' }])
     const model = issueViewModelsFromReplica(engine.replica).get(issue.id)!
@@ -3521,31 +3521,31 @@ describe('issue visit baseline', () => {
     applyIssueRecords(engine, [first, second])
     await settle()
 
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_1'))
-    engine.getSnapshot().setView('workspace')
-    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+    engine.access.setSelectedIssueId(asIssueId('iss_1'))
+    engine.access.setView('workspace')
+    expect(engine.access.issueVisitBaseline).toMatchObject({
       issueId: 'iss_1',
       readAt: first.readAt,
     })
 
-    void engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+    void engine.access.markIssueRead(asIssueId('iss_1'))
     expect(issueModels(engine).find((issue) => issue.id === 'iss_1')?.readAt).not.toBe(first.readAt)
-    expect(engine.getSnapshot().issueVisitBaseline?.readAt).toBe(first.readAt)
+    expect(engine.access.issueVisitBaseline?.readAt).toBe(first.readAt)
 
-    engine.getSnapshot().setSelectedIssueId(asIssueId('iss_2'))
-    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+    engine.access.setSelectedIssueId(asIssueId('iss_2'))
+    expect(engine.access.issueVisitBaseline).toMatchObject({
       issueId: 'iss_2',
       readAt: second.readAt,
     })
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
     document.dispatchEvent(new Event('visibilitychange'))
-    expect(engine.getSnapshot().issueVisitBaseline).toBeNull()
+    expect(engine.access.issueVisitBaseline).toBeNull()
     const visibleReadAt = issueModels(engine).find((issue) => issue.id === 'iss_2')?.readAt
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
     document.dispatchEvent(new Event('visibilitychange'))
-    expect(engine.getSnapshot().issueVisitBaseline).toMatchObject({
+    expect(engine.access.issueVisitBaseline).toMatchObject({
       issueId: 'iss_2',
       readAt: visibleReadAt,
     })
@@ -3716,7 +3716,7 @@ describe('shared session index', () => {
     const sessions = [moved]
     const find = vi.spyOn(sessions, 'find')
     const state = {
-      ...engine.getSnapshot(),
+      ...engine.access,
       sessions,
       paneA: moved.sessionId,
       focusedPane: 'A',
@@ -3825,13 +3825,13 @@ describe('atomic navigation publication', () => {
         applyIssueRecords(engine, [otherIssue])
         engine.replica.applyChanges('sessions', [otherSession], [])
         await settle()
-        engine.getSnapshot().navigateWorkspace({
+        engine.access.navigateWorkspace({
           selectedIssueId: issue.id,
           selectedWorktree: issue.worktreePath,
           tabId: session.sessionId,
           firstPane: true,
         })
-        engine.getSnapshot().navigateWorkspace({
+        engine.access.navigateWorkspace({
           selectedIssueId: otherIssue.id,
           selectedWorktree: issue.worktreePath,
           tabId: otherSession.sessionId,
@@ -3840,11 +3840,11 @@ describe('atomic navigation publication', () => {
       }
       const focusBefore = hub.viewStates.length
       const snapshots: Array<ReturnType<typeof engine.getSnapshot>> = []
-      const off = engine.subscribe(() => snapshots.push(engine.getSnapshot()))
+      const off = engine.subscribe(() => snapshots.push(engine.access))
       storeStats.enable()
       storeStats.reset()
       const window = storeStats.begin('gesture')
-      const actions = engine.getSnapshot()
+      const actions = engine.access
       if (legacy) {
         actions.setSelectedIssueId(issue.id)
         actions.setSelectedWorktree(issue.worktreePath)
@@ -3864,7 +3864,7 @@ describe('atomic navigation publication', () => {
         })
       }
       storeStats.end(window)
-      const final = engine.getSnapshot()
+      const final = engine.access
       const result = {
         publishes: readRuntimeStoreStats(engine)?.publishes,
         selected: final.selectedIssueId,
@@ -3946,7 +3946,7 @@ describe('atomic navigation publication', () => {
     const { engine, rw, hub } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    const before = engine.getSnapshot()
+    const before = engine.access
     const focus = hub.viewStates.length
     vi.spyOn(rw.win.history, 'pushState').mockImplementation(() => {
       throw new Error('history failed')
@@ -3954,7 +3954,7 @@ describe('atomic navigation publication', () => {
     expect(() => before.navigateWorkspace({ selectedIssueId: asIssueId('unknown') })).toThrow(
       'history failed',
     )
-    expect(engine.getSnapshot()).toBe(before)
+    expect(engine.access).toBe(before)
     expect(hub.viewStates).toHaveLength(focus)
     engine.destroy()
   })
@@ -3968,20 +3968,20 @@ describe('atomic navigation publication', () => {
       state: EngineState
     }
     const reaction = vi.spyOn(seam, 'react').mockImplementation(() => {})
-    const before = engine.getSnapshot()
+    const before = engine.access
     const subscriber = vi.fn()
     engine.subscribe(subscriber)
     seam.batch(() => {
       seam.apply({ paletteOpen: true })
       seam.batch(() => seam.apply({ coarseNow: 123 }))
       seam.apply({ coarseNow: 456 })
-      expect(engine.getSnapshot()).toBe(before)
+      expect(engine.access).toBe(before)
       expect(seam.state).toMatchObject({ paletteOpen: true, coarseNow: 456 })
       expect(subscriber).not.toHaveBeenCalled()
     })
     expect(subscriber).toHaveBeenCalledTimes(1)
     expect(reaction).toHaveBeenCalledWith(new Set(['paletteOpen', 'coarseNow']))
-    expect(engine.getSnapshot()).toMatchObject({ paletteOpen: true, coarseNow: 456 })
+    expect(engine.access).toMatchObject({ paletteOpen: true, coarseNow: 456 })
     engine.destroy()
   })
 })
@@ -4121,17 +4121,17 @@ describe('coalesced outbox and reaction publications', () => {
       engine.replica.applyChanges('sessionUserStates', [{ userId: asUserId('operator'), sessionId: row.sessionId, readAt: row.readAt }], [])
       engine.replica.applyChanges('sessions', [row], [])
       await settle()
-      engine.getSnapshot().navigateWorkspace({
+      engine.access.navigateWorkspace({
         selectedIssueId: oldId,
         selectedWorktree: row.cwd,
         tabId: row.sessionId,
         firstPane: true,
       })
       await settle()
-      const oldKey = engine.getSnapshot().workspaceKey()
+      const oldKey = engine.access.workspaceKey()
       hub.viewStates.length = 0
       const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
-      const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+      const off = engine.subscribe(() => seen.push(engine.access))
       storeStats.reset()
       storeStats.enable()
       const capture = storeStats.begin(scenario === 'outbox' ? 'gesture' : 'feed')
@@ -4172,7 +4172,7 @@ describe('coalesced outbox and reaction publications', () => {
         // Replica notifications and reactions are synchronous. End this
         // event before the optimistic action's post-await handoff (POD-4351).
         storeStats.end(capture)
-        const st = engine.getSnapshot()
+        const st = engine.access
         const publications = readStoreStats().publishes.length
         expect(publications).toBe(seen.length)
         if (legacy) expect(publications).toBeGreaterThan(1)
@@ -4255,11 +4255,11 @@ describe('coalesced outbox and reaction publications', () => {
     expect(() => seam.batch(() => seam.apply({ paletteOpen: true }))).toThrow('reaction failed')
     expect(seam.batchDepth).toBe(0)
     expect(seam.statsReactionDepth).toBe(0)
-    expect(engine.getSnapshot()).toMatchObject({ paletteOpen: true, coarseNow: 123 })
+    expect(engine.access).toMatchObject({ paletteOpen: true, coarseNow: 123 })
     expect(listener).toHaveBeenCalledTimes(1)
     reaction.mockRestore()
     seam.apply({ coarseNow: 456 })
-    expect(engine.getSnapshot().coarseNow).toBe(456)
+    expect(engine.access.coarseNow).toBe(456)
     expect(listener).toHaveBeenCalledTimes(2)
     engine.destroy()
   })
@@ -4287,7 +4287,7 @@ function legacyOptimisticFolds(engine: ReturnType<typeof makeEngine>['engine']):
 /** Render the engine's normalized rows, including optimistic personal markers. */
 function issueModels(
   engine: ReturnType<typeof makeEngine>['engine'],
-  state = engine.getSnapshot(),
+  state = engine.access,
 ): IssueViewModel[] {
   return allIssueViewModels(engine.replica, state.issueProjections, state.issueUserStates)
 }
@@ -4392,7 +4392,7 @@ describe('stable optimistic folds (B11)', () => {
         engine.replica.applyChanges('sessions', [row], [])
         await settle()
         if (scenario === 'reaction-read') {
-          engine.getSnapshot().navigateWorkspace({
+          engine.access.navigateWorkspace({
             selectedIssueId: issue.id,
             selectedWorktree: row.cwd,
             firstPane: true,
@@ -4405,14 +4405,14 @@ describe('stable optimistic folds (B11)', () => {
         const entity = scenario === 'rename' ? 'sessions' : 'issueUserStates'
         const painted = () =>
           scenario === 'rename'
-            ? engine.getSnapshot().sessions[0]?.name
+            ? engine.access.sessions[0]?.name
             : issueModels(engine)[0]?.readAt
         const phase = () => {
           const counts = b11Counts(entity)
           storeStats.reset()
           return counts
         }
-        const visitBaseline = engine.getSnapshot().issueVisitBaseline
+        const visitBaseline = engine.access.issueVisitBaseline
         storeStats.reset()
         storeStats.enable()
         let command: Promise<void> | undefined
@@ -4425,8 +4425,8 @@ describe('stable optimistic folds (B11)', () => {
             [],
           )
         } else if (scenario === 'rename') {
-          command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
-        } else command = engine.getSnapshot().markIssueRead(issue.id)
+          command = engine.access.renameSession(row.sessionId, 'renamed')
+        } else command = engine.access.markIssueRead(issue.id)
         const sync = phase()
         const instant = painted()
         expect(instant).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:00.000Z')
@@ -4464,7 +4464,7 @@ describe('stable optimistic folds (B11)', () => {
         if (legacy) expect(assertBudget).toThrow()
         else assertBudget()
         if (scenario === 'reaction-read') expect(sync.publications).toBe(1) // B2 boundary stays separate
-        expect(engine.getSnapshot().issueVisitBaseline).toEqual(visitBaseline)
+        expect(engine.access.issueVisitBaseline).toEqual(visitBaseline)
         const calls =
           scenario === 'rename'
             ? api.sessions.rename.mutate.mock.calls
@@ -4560,7 +4560,7 @@ describe('stable optimistic folds (B11)', () => {
               () => Promise.reject(failure) as unknown as ReturnType<typeof engine.outbox.enqueue>,
             )
         }
-        const command = engine.getSnapshot().markIssueRead(issue.id)
+        const command = engine.access.markIssueRead(issue.id)
         if (
           scenario === 'sync-failure' ||
           scenario === 'persistence-failure' ||
@@ -4667,42 +4667,42 @@ describe('S5 one publication per click', () => {
       applyIssueRecords(engine, [issueA, issueB])
       engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
       await settle()
-      engine.getSnapshot().navigateWorkspace({
+      engine.access.navigateWorkspace({
         selectedIssueId: issueA.id,
         selectedWorktree: '/tmp/known-repo',
         tabId: sessionA.sessionId,
         firstPane: true,
       })
       await settle()
-      await engine.getSnapshot().markIssueRead(issueA.id)
+      await engine.access.markIssueRead(issueA.id)
       await settle()
       await engine.outbox.drain()
       await settle()
       const seam = engine as unknown as { batch(fn: () => void): void }
       const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
-      const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+      const off = engine.subscribe(() => seen.push(engine.access))
       storeStats.reset()
       storeStats.enable()
       const window = storeStats.begin('gesture')
       let command: Promise<void> | undefined
       if (batched) {
         seam.batch(() => {
-          engine.getSnapshot().navigateWorkspace({
+          engine.access.navigateWorkspace({
             selectedIssueId: issueB.id,
             selectedWorktree: '/tmp/known-repo',
             tabId: sessionB.sessionId,
             firstPane: true,
           })
-          command = engine.getSnapshot().markIssueRead(issueB.id)
+          command = engine.access.markIssueRead(issueB.id)
         })
       } else {
-        engine.getSnapshot().navigateWorkspace({
+        engine.access.navigateWorkspace({
           selectedIssueId: issueB.id,
           selectedWorktree: '/tmp/known-repo',
           tabId: sessionB.sessionId,
           firstPane: true,
         })
-        command = engine.getSnapshot().markIssueRead(issueB.id)
+        command = engine.access.markIssueRead(issueB.id)
       }
       const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
       const sync = readStoreStats().publishes.length
@@ -4711,7 +4711,7 @@ describe('S5 one publication per click', () => {
       await command!
       await settle()
       storeStats.end(window)
-      const st = engine.getSnapshot()
+      const st = engine.access
       // Control: the read command was sent in both arms. After settle the
       // entry has drained from pending to awaiting; either home counts.
       const queued = [...engine.outbox.pending(), ...engine.outbox.awaiting()]
@@ -4769,7 +4769,7 @@ describe('S5 one publication per click', () => {
       // the awaiting overlay without changing the gesture's publication count.
       applyIssueRecords(engine, [{ ...issueB, readAt: '2099-01-01T00:00:00.000Z' }])
       await settle()
-      const echo = engine.getSnapshot()
+      const echo = engine.access
       const echoReadAt = issueModels(engine, echo).find((i) => i.id === issueB.id)?.readAt
       expect(echoReadAt).toBe('2099-01-01T00:00:00.000Z')
       results.push({
@@ -4834,11 +4834,11 @@ describe('S5 one publication per click', () => {
     engine.replica.applyChanges('sessions', [row], [])
     await settle()
     const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
-    const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+    const off = engine.subscribe(() => seen.push(engine.access))
     storeStats.reset()
     storeStats.enable()
     const window = storeStats.begin('gesture')
-    const snapshot = engine.getSnapshot()
+    const snapshot = engine.access
     // Production path: the store's batchGesture (actions.ts) wraps the calls
     // use-unified-work issues. Here through the same public surface.
     const batchGesture = (snapshot as unknown as { batchGesture: (fn: () => void) => void })
@@ -4861,7 +4861,7 @@ describe('S5 one publication per click', () => {
     await command!
     await settle()
     storeStats.end(window)
-    expect(engine.getSnapshot().selectedIssueId).toBe(issue.id)
+    expect(engine.access.selectedIssueId).toBe(issue.id)
     expect(issueModels(engine)[0]?.readAt).not.toBeNull()
     off()
     storeStats.enable(false)
@@ -4886,7 +4886,7 @@ describe('unreferenced file records', () => {
       const { engine } = makeEngine()
       const deadId = 'file:s:gone:notes.md'
       let current = {
-        ...engine.getSnapshot(),
+        ...engine.access,
         sessions: [],
         issues: [],
         pendingSpawnIds: new Set<string>(),
@@ -4971,8 +4971,8 @@ describe('session home reads in the shared runtime', () => {
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
     })
     const { engine } = makeEngine({ replica })
-    const seen: boolean[] = [engine.getSnapshot().sessions[0]!.unread]
-    const off = engine.subscribe(() => seen.push(engine.getSnapshot().sessions[0]!.unread))
+    const seen: boolean[] = [engine.access.sessions[0]!.unread]
+    const off = engine.subscribe(() => seen.push(engine.access.sessions[0]!.unread))
     try {
       engine.start()
       await settle()
@@ -4983,10 +4983,10 @@ describe('session home reads in the shared runtime', () => {
       }]
       replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: 11, entityCount: 2, bufferedFramesApplied: 0 })
       expect(seen.every(value => value === false)).toBe(true)
-      expect(engine.getSnapshot().sessions[0]?.readAt).toBe(read)
+      expect(engine.access.sessions[0]?.readAt).toBe(read)
       records = records.filter(row => row.entity === 'session')
       replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 12, entityCount: 1, bufferedFramesApplied: 0 })
-      expect(engine.getSnapshot().sessions[0]?.unread).toBe(true)
+      expect(engine.access.sessions[0]?.unread).toBe(true)
       expect(replica.rows('sessions')[0]).toBe(raw)
     } finally {
       off()
@@ -4997,7 +4997,7 @@ describe('session home reads in the shared runtime', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica })
     try {
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+      expect(engine.access.sessions[0]).toMatchObject({
         readAt: read,
         unread: false,
         snoozedUntil: undefined,
@@ -5022,15 +5022,15 @@ describe('session home reads in the shared runtime', () => {
     await settle()
     try {
       replica.applySnapshot('repos', [{ id: 'repo:one', prefix: 'RENAMED' } as never])
-      expect(engine.getSnapshot().sessions[0]?.displayRef).toBe('RENAMED-42-A')
+      expect(engine.access.sessions[0]?.displayRef).toBe('RENAMED-42-A')
       replica.applySnapshot('sessionUserStates', [
         { userId: user, sessionId: id, readAt: null, snoozedUntil: null },
       ])
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, snoozedUntil: null })
+      expect(engine.access.sessions[0]).toMatchObject({ unread: true, snoozedUntil: null })
       replica.applySnapshot('machines', [
         { id: asMachineId('m1'), name: 'New source', loggedOutHarnesses: ['claude-code'] },
       ])
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+      expect(engine.access.sessions[0]).toMatchObject({
         machineName: 'New source',
         condition: 'logged-out',
       })
@@ -5051,14 +5051,14 @@ describe('session home reads in the shared runtime', () => {
     engine.start()
     await settle()
     try {
-      const write = engine.getSnapshot().markSessionUnread(id)
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: true, readAt: null })
+      const write = engine.access.markSessionUnread(id)
+      expect(engine.access.sessions[0]).toMatchObject({ unread: true, readAt: null })
       refuse(
         Object.assign(new Error('refused'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }),
       )
       await write
       await settle()
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({ unread: false, readAt: read })
+      expect(engine.access.sessions[0]).toMatchObject({ unread: false, readAt: read })
     } finally {
       engine.destroy()
     }
@@ -5067,7 +5067,7 @@ describe('session home reads in the shared runtime', () => {
     const replica = seeded()
     const { engine } = makeEngine({ replica, principal: 'other' })
     try {
-      expect(engine.getSnapshot().sessions[0]).toMatchObject({
+      expect(engine.access.sessions[0]).toMatchObject({
         unread: true,
         readAt: null,
         snoozedUntil: undefined,
@@ -5130,9 +5130,9 @@ describe('pool shared runtime work', () => {
         seam.apply({ sessions: [] }) // original pruning after a changed issue topology
         expect(spies[3]).toHaveBeenCalledTimes(1)
         runs.push({
-          sessions: engine.getSnapshot().sessions,
-          selected: engine.getSnapshot().selectedWorktree,
-          workspaces: engine.getSnapshot().workspaces,
+          sessions: engine.access.sessions,
+          selected: engine.access.selectedWorktree,
+          workspaces: engine.access.workspaces,
         })
       } finally {
         spies.forEach((spy) => {
@@ -5305,7 +5305,7 @@ describe('lazy legacy lists (POD-5434): spawns', () => {
     engine.enablePoolRuntimeWork({ lazyLegacyLists: lazy })
     const seen: unknown[] = []
     const look = (step: string) => {
-      const s = engine.getSnapshot()
+      const s = engine.access
       // Minted ids differ per arm: name the spawned row by its role.
       const name = (id: string) => (id === spawned ? 'spawned' : id)
       seen.push({
@@ -5317,7 +5317,7 @@ describe('lazy legacy lists (POD-5434): spawns', () => {
     }
     let spawned = ''
     try {
-      const made = engine.getSnapshot().spawnDraftAgent({
+      const made = engine.access.spawnDraftAgent({
         target: { path: '/w', repoPath: '/w' },
         agentKind: 'claude-code',
         firstPrompt: 'hello',

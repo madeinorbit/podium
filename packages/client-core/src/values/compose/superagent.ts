@@ -24,7 +24,6 @@
  * Platform-neutral: no DOM, no storage, no tRPC.
  */
 import type { SessionId, ThreadId } from '@podium/model'
-import { defineSlice, type SliceDefinition } from './publish'
 
 /** One superagent thread, as the client renders it. The shape the VIEW may
  *  depend on — deliberately narrower than the server row, which also carries
@@ -72,26 +71,6 @@ export interface SuperagentSliceValue {
   /** The active thread's headless session, when it has one. */
   readonly activeSessionId: SessionId | undefined
 }
-
-export const superagentSlice: SliceDefinition<SuperagentSource, SuperagentSliceValue> = defineSlice(
-  {
-    name: 'superagent',
-    sourceEqual: (a, b) =>
-      a.superThreads === b.superThreads && a.superThreadId === b.superThreadId,
-    derive: (s) => {
-      const active = s.superThreads.find((t) => t.id === s.superThreadId)
-      return {
-        threads: s.superThreads,
-        active,
-        ...(active?.podiumSessionId !== undefined
-          ? { activeSessionId: active.podiumSessionId }
-          : { activeSessionId: undefined }),
-      }
-    },
-    isEqual: (a, b) =>
-      a.threads === b.threads && a.active === b.active && a.activeSessionId === b.activeSessionId,
-  },
-)
 
 /** The thread the view should render for an id, or undefined. Takes the LIST,
  *  never a store or a fetcher: a function that could go and get a thread by id

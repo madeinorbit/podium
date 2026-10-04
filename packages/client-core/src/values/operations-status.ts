@@ -22,7 +22,7 @@ import {
 } from '@podium/model'
 import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
 import { relativeTime } from '../focus'
-import { type MachineAvailability, machineViewsFromWire } from './slices/machines/authority'
+import { type MachineAvailability, machineViewsFromWire } from './compose/machines/authority'
 import {
   type HostDiskView,
   type HostLoadView,
@@ -30,7 +30,7 @@ import {
   hostDiskView,
   hostLoadView,
   hostMemoryView,
-} from './slices/machines/facts'
+} from './compose/machines/facts'
 
 export type MachineCapacityReading =
   | { state: 'loading'; value: HostMemoryBreakdown | null }

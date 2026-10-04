@@ -5,7 +5,7 @@ import type { PodiumClientApi } from '../api'
 import type { OutboxEntry } from '../outbox'
 import type { SocketHub } from '../socket-transport'
 import type { Router } from '../ui-state'
-import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../viewmodels'
+import { allTabIds, emptyWorkspace, openTab, splitPane, type WorkspaceLayout } from '../values'
 import {
   COMMAND_ACTIONS,
   createEngineActions,

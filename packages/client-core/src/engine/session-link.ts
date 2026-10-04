@@ -5,7 +5,7 @@
  */
 import type { IssueId, SessionMeta } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
-import { reposToViews } from '../viewmodels'
+import { reposToViews } from '../values'
 import type { EngineState } from './state'
 
 export function sessionLinkProblem(

@@ -1,5 +1,5 @@
-import type { IssueNavigationModel } from './slices/issues'
-import { issueDraftVessel } from './slices/issues'
+import type { IssueNavigationModel } from './compose/issues'
+import { issueDraftVessel } from './compose/issues'
 import { isSystemOwnedIssueStage } from '@podium/model'
 
 /**

@@ -3,7 +3,7 @@ import { asMachineId } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { readRuntimeStoreStats, storeStats } from '../perf/store-stats'
 import { createHostSessionAggregatesSelector } from './host-session-aggregates'
-import { hostAgentsView, hostAgentsViewFromCounts, idleSessionSplit, residencyBreakdown, residentWorktreeKey } from './slices/machines/facts'
+import { hostAgentsView, hostAgentsViewFromCounts, idleSessionSplit, residencyBreakdown, residentWorktreeKey } from './compose/machines/facts'
 
 const ids = [asMachineId('a'), asMachineId('b'), undefined]
 const fixture = () => Array.from({ length: 4304 }, (_, i) => ({

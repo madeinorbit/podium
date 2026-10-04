@@ -9,7 +9,7 @@ import {
   selectLatestPromptSession,
 } from './handoff'
 import { parseEnvelopeBatch } from './message-envelope'
-import type { IssueNavigationModel } from './slices/issues'
+import type { IssueNavigationModel } from './compose/issues'
 
 const issue = (id: string, over: Partial<IssueNavigationModel> = {}): IssueNavigationModel =>
   ({

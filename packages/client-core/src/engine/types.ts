@@ -49,8 +49,8 @@ import type {
   TabId,
   WorkspaceKey,
   WorkspaceMap,
-} from '../viewmodels'
-import type { SuperThreadView } from '../viewmodels/slices/superagent'
+} from '../values'
+import type { SuperThreadView } from '../values/compose/superagent'
 import type { ChatSendInput, ChatSendOutcome, OutboxChatSend } from './chat-send'
 import type { ReplicatedLayoutPort } from './replicated-layout'
 
@@ -146,47 +146,31 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   replica: Replica
   repos: GitRepositoryWire[]
   /** Normalized replica repo facts, including path and issue prefix. */
-  repoProjections: import('@podium/model').RepoProjection[]
   reposLoading: boolean
   /** True once the first repo refresh has resolved — lets the UI distinguish
    *  "still loading" from "registry is genuinely empty" (first-run onboarding). */
   reposLoaded: boolean
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
-  sessions: SessionView[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   /** Normalized durable issue rows. Per-user markers live on `issueUserStates`. */
-  issueProjections: IssueProjection[]
   /** This principal's per-user issue markers (`readAt`, `tuckedAt`, `pinned`):
    *  one row per issue they touched, absent = none set. Optimistic edits are
    *  folded in (POD-4969). */
-  issueUserStates: import('@podium/model').IssueUserStateWire[]
-  issueGitStates: import('@podium/model').IssueGitStateProjection[]
-  issueDeps: import('@podium/model').IssueDepProjection[]
   /** The cross-project issue-event window, replicated (POD-1772). A bounded,
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */
-  issueEvents: IssueEventWire[]
-  pendingInteractions: PendingInteractionWire[]
   /** People's chat messages and their delivery status (POD-4764) — replicated
    *  rows keyed by the message id the sender minted. The chat reads these, not
    *  the ledger. */
-  messageRecords: import('@podium/model').MessageRecordWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
-  shipOrders: import('@podium/model').ShipOrderProjection[]
-  shipLanes: import('@podium/model').ShipLaneProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
-  conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */
-  automations: AutomationWire[]
-  automationRuns: AutomationRunWire[]
   /** Session ids painted optimistically that the server hasn't confirmed yet (#119).
    *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
    *  session is dropped and never retried, so it must wait for reconciliation. */
-  pendingSpawnIds: ReadonlySet<string>
   /** First prompts for optimistic sessions whose server row has not landed yet.
    * Chat surfaces seed their pending bubble from this and keep it through the
    * later transcript reconciliation. */
-  pendingSpawnPrompts: ReadonlyMap<string, string>
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests. */
@@ -644,3 +628,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  stable function identity and never forces a re-render on pane/session churn. */
   getUserFocus: () => UserFocus
 }
+
+export type SpawnPlaceholderEvent =
+  | { readonly type: 'painted'; readonly overlays: readonly import('../command-reducers').PendingOverlay[]; readonly sessionId: SessionId; readonly prompt?: string }
+  | { readonly type: 'removed'; readonly ids: readonly string[] }

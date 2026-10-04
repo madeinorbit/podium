@@ -1,7 +1,7 @@
 import { asIssueId, asSessionId, type IssueProjection } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { routeDefaults } from '../ui-state'
-import { emptyWorkspace, openTab, splitPane } from '../viewmodels'
+import { emptyWorkspace, openTab, splitPane } from '../values'
 import { planNavigation } from './navigation'
 import { type EngineState, workspaceMirrorPatch } from './state'
 

@@ -7,7 +7,7 @@ import type { PodiumClientApi } from '../api'
 import type { Store, StoreServerConfig } from '../engine/types'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import { createSubscriptionStore } from '../store'
-import { StoreProvider, useCurrentPrincipal, useStoreHandle, useStoreSelector } from './provider'
+import { StoreProvider, useCurrentPrincipal, useStoreHandle, useRuntimeSelector } from './provider'
 
 const fixture = vi.hoisted(() => ({ handle: null as unknown }))
 vi.mock('../engine/runtime', () => ({ createClientRuntime: () => fixture.handle }))
@@ -35,7 +35,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   function Reader() {
     const owner = useStoreHandle()
     const principal = useCurrentPrincipal()!
-    const close = useStoreSelector((s) => s.closeFileTab)
+    const close = useRuntimeSelector((s) => s.closeFileTab)
     const [draft, setDraft] = useState('')
     // These callbacks deliberately have mount lifetime, like UI gesture hooks.
     // They must see the current account even when their scalar inputs stay equal.

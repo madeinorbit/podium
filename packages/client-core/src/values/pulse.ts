@@ -39,7 +39,7 @@ import {
   type QuotaTone,
   splitQuotaWindows,
 } from './quota'
-import { type HostLoadView, hostLoadView } from './slices/machines/facts'
+import { type HostLoadView, hostLoadView } from './compose/machines/facts'
 
 /** One pool's runway: its own tightest gating window, reported as spend. */
 export interface QuotaRunway {

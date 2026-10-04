@@ -84,6 +84,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useSyncExternalStore,
 } from 'react'
@@ -114,22 +115,14 @@ export type { Store, StoreNotices, StoreServerConfig, UserFocus } from '../engin
 export type { ClientPrincipal } from '../principal'
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
-export type { FileTab } from '../viewmodels'
+export type { FileTab } from '../values'
 
-/** The read seam the hooks consume — the runtime, structurally. */
-interface StoreHandle<TApi extends PodiumClientApi> {
-  readonly hostMetrics: {
-    subscribe(listener: () => void): () => void
-    getSnapshot(): HostMetricsWire[]
-  }
-  subscribe(listener: () => void): () => void
-  getSnapshot(): Store<TApi>
-}
+type StoreHandle<TApi extends PodiumClientApi> = ClientRuntime<TApi>
 
 // The context carries the runtime HANDLE (stable identity for as long as the
 // principal is unchanged), not the value object — so a provider re-render never
 // re-renders consumers by itself. Consumers subscribe via useSyncExternalStore
-// (useStore / useStoreSelector below) and only re-render when the slice they
+// (useStore / useRuntimeSelector below) and only re-render when the slice they
 // read actually changed.
 const Ctx = createContext<StoreHandle<PodiumClientApi> | null>(null)
 /** The current principal, for DISPLAY only. Never an input to a command. */
@@ -384,88 +377,48 @@ export function useStoreHandle<TApi extends PodiumClientApi>(): StoreHandle<TApi
   return s as unknown as StoreHandle<TApi>
 }
 
-/** Compatibility hook: the WHOLE store snapshot. Re-renders whenever any store
- *  field changes — prefer `useStoreSelector` for hot components. */
-export function useStore<TApi extends PodiumClientApi = PodiumClientApi>(): Store<TApi> {
-  const handle = useStoreHandle<TApi>()
-  return useSyncExternalStore(handle.subscribe, handle.getSnapshot)
-}
-
-/**
- * Slice subscription: re-renders only when `selector(store)` changes (per
- * `isEqual`, Object.is by default). Selectors may allocate (e.g. pick several
- * fields into an object) as long as `isEqual` is passed accordingly — the hook
- * caches the last selected value per snapshot so getSnapshot stays stable.
- *
- * ---------------------------------------------------------------------------
- * THE SELECTOR-CACHE DECISION (POD-404 / POD-328): KEEP THIS ONE.
- * ---------------------------------------------------------------------------
- *
- * POD-328 asked whether to replace this hand-rolled cache with the slice
- * mechanism POD-330 will land. The decision is to KEEP IT, and the reason is
- * the multi-user one rather than a preference:
- *
- * Slices now derive over a PARTIAL WORLD (POD-401/POD-1077). The principal's
- * slice can SHRINK when the authority evicts a row — a removal from your VIEW
- * that is not a deletion and moves no row's revision — and can be REBUILT
- * wholesale under a rescope. Any memoization that keys on entity identity, on a
- * dependency set of ids, or on a revision high-water mark is wrong under that,
- * because all three encode "a referenced row I cannot see is merely LATE". Under
- * scoping it may be permanently invisible, and a cache that waits for it paints
- * a stale row forever.
- *
- * This cache encodes none of that. Its key is SNAPSHOT IDENTITY (`c.snap ===
- * snap`) and nothing else. The runtime publishes a fresh snapshot object on any
- * slice change (`ClientRuntime.apply`), so an evict, a rescope and an ordinary
- * update are indistinguishable to it — all three miss, all three re-derive from
- * whatever rows are actually visible now. It cannot hold a row past its
- * visibility because it never remembers rows, only the last answer for the last
- * snapshot.
- *
- * It is also correct across the PRINCIPAL boundary for the same reason: a new
- * principal is a new runtime and therefore a new snapshot object, so the very
- * first read after a switch misses and re-derives. Nothing here needs to know
- * that a switch happened, which is the property that makes it safe — a cache
- * that had to be TOLD about sign-out is a cache that will one day not be.
- *
- * When POD-330 lands its slice mechanism it should be measured against exactly
- * this: it must invalidate on shrink-without-revision-change, not merely on
- * update.
- */
-export function useStoreSelector<T, TApi extends PodiumClientApi = PodiumClientApi>(
-  selector: (s: Store<TApi>) => T,
+/** Select actions from their runtime owner and subscribe only to local keys
+ * the selector reads. Replica records never enter this binding. */
+export function useRuntimeSelector<T, TApi extends PodiumClientApi = PodiumClientApi>(
+  selector: (access: Store<TApi>) => T,
   isEqual: (a: T, b: T) => boolean = Object.is,
 ): T {
-  const handle = useStoreHandle<TApi>()
-  const cache = useRef<{ snap: Store<TApi>; selected: T } | null>(null)
-  // A new selector closure (inline arrows capture fresh props each render)
-  // must invalidate the cache — but only across renders, never mid-render.
-  const selectorRef = useRef(selector)
-  if (selectorRef.current !== selector) {
-    selectorRef.current = selector
-    cache.current = null
-  }
-  const isEqualRef = useRef(isEqual)
-  isEqualRef.current = isEqual
-  const getSelected = () => {
-    const snap = handle.getSnapshot()
-    const c = cache.current
-    if (c && c.snap === snap) return c.selected
-    recordStoreSelector(handle)
-    const started = startStoreStatsMeasure(handle)
-    let next: T
-    try {
-      next = selectorRef.current(snap)
-    } finally {
-      endStoreStatsMeasure(handle, started)
+  const owner = useStoreHandle<TApi>()
+  const current = useRef({ selector, isEqual })
+  current.current = { selector, isEqual }
+  const view = useMemo(() => {
+    let keys: string[] = []
+    let selected: { value: T } | undefined
+    let stop: (() => void) | undefined
+    let listener: (() => void) | undefined
+    const arm = () => {
+      stop?.()
+      stop = listener ? owner.onLocals(keys as import('../engine/keyed-inputs').LocalKey[], listener) : undefined
     }
-    // Keep the previous selected identity when equal, so useSyncExternalStore's
-    // Object.is check sees "unchanged" and skips the re-render.
-    const selected = c && isEqualRef.current(c.selected, next) ? c.selected : next
-    cache.current = { snap, selected }
-    return selected
-  }
-  return useSyncExternalStore(handle.subscribe, getSelected)
+    const access = new Proxy(owner.access, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && !Object.hasOwn(owner.services, key)) nextKeys.add(key)
+        return Reflect.get(target, key, receiver)
+      },
+    })
+    let nextKeys = new Set<string>()
+    return {
+      read() {
+        nextKeys = new Set()
+        const value = current.current.selector(access)
+        const next = [...nextKeys].sort()
+        if (next.join('|') !== keys.join('|')) { keys = next; arm() }
+        if (!selected || !current.current.isEqual(selected.value, value)) selected = { value }
+        return selected.value
+      },
+      subscribe(notify: () => void) {
+        listener = notify
+        arm()
+        return () => { listener = undefined; stop?.(); stop = undefined }
+      },
+    }
+  }, [owner])
+  return useSyncExternalStore(view.subscribe, view.read)
 }
 
 /** Live telemetry subscribes independently of the entity snapshot. */

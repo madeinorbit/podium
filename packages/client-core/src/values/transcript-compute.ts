@@ -1,7 +1,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { buildChatRows, pairToolResults, type ChatBlock, type ChatRow } from './chat'
 import { applyChatVerbosity, type ChatVerbosity } from './chat-verbosity'
-import { transcriptSearchState, type TranscriptSearchState } from './slices/chat'
+import { transcriptSearchState, type TranscriptSearchState } from './compose/chat'
 
 /**
  * The serializable input to the transcript compute boundary.

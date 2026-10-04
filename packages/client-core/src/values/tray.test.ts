@@ -1,7 +1,7 @@
 import { asSessionId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionView, SessionViewInput } from '../session-values'
-import type { IssueNavigationModel } from './slices/issues'
+import type { IssueNavigationModel } from './compose/issues'
 import { deriveTrayItems as deriveTrayItemsCore, offerKey, workingSessionCount } from './tray'
 
 /**

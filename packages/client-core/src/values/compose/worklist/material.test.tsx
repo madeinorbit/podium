@@ -215,7 +215,7 @@ describe('worklist material inputs', () => {
         storeStats.reset()
         storeStats.enable()
         for (let frame = 1; frame <= 3; frame++) {
-          const before = handle.getSnapshot()
+          const before = handle.access
           await act(async () =>
             handle.publish(
               kind === 'sessions'
@@ -263,7 +263,7 @@ describe('worklist material inputs', () => {
         )
       }
       // Material controls: all seven real useSlice readers must still commit.
-      const original = handle.getSnapshot()
+      const original = handle.access
       const changes: Partial<Store>[] = [
         { sessions: original.sessions.map((s) => ({ ...s, title: 'renamed' })) },
         { sessions: original.sessions.map((s) => ({ ...s, status: 'hibernated' })) },
@@ -296,7 +296,7 @@ describe('worklist material inputs', () => {
         await act(async () => handle.publish(patch))
         expect(commits).toEqual(Array(7).fill(1))
         expect(readRuntimeStoreStats(handle)?.slices.worklist).toBe(1)
-        const expected = JSON.stringify(visible(worklistSlice.derive(handle.getSnapshot())))
+        const expected = JSON.stringify(visible(worklistSlice.derive(handle.access)))
         for (let index = 0; index < 7; index++)
           expect(root.getByTestId(`reader-${index}`).textContent).toBe(expected)
       }

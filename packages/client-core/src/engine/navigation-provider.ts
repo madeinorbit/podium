@@ -22,6 +22,9 @@ export interface NavigationProvider {
   sessionMembership?(id: string): NavigationRead<Pick<SessionView, 'sessionId' | 'cwd' | 'issueId'>>
   /** The existing source identities and cold fields for worktree move notices. */
   worktreeSessions?(): NavigationRead<readonly NavigationWorktreeSession[]>
+  issueSessions?(id: string): NavigationRead<readonly SessionView[]>
+  /** Pool topology changes, excluding ordinary activity/title updates. */
+  onTopology?(changed: () => void): () => void
   activityAt(id: string): NavigationRead<string>
   issueReadAt(id: string): string | null | undefined
   /** Track just the addressed reads made by the current navigation. */

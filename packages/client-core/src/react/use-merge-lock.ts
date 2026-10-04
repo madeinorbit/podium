@@ -87,7 +87,7 @@ const messageFor = (cause: unknown): string =>
  * — to every lock in the repository.
  */
 function useLockQuery(repoPath: string | null, lockName: string | null): QueryState {
-  const trpc = useStoreHandle().getSnapshot().trpc
+  const trpc = useStoreHandle().access.trpc
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY)
   const loadRef = useRef<() => void>(() => {})
   const refresh = useCallback(() => loadRef.current(), [])

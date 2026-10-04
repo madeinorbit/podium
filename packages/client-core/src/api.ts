@@ -50,8 +50,8 @@ import type {
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
-import type { SuperThreadView } from './viewmodels/slices/superagent'
-import type { PinKind, PinState } from './viewmodels/types'
+import type { SuperThreadView } from './values/compose/superagent'
+import type { PinKind, PinState } from './values/types'
 
 export interface ApiQuery<I, O> {
   query(input: I): Promise<O>

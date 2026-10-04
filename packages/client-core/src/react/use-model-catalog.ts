@@ -126,7 +126,7 @@ async function fetchCatalog(
 export function useModelCatalogState<TApi extends PodiumClientApi = PodiumClientApi>(
   machineId?: MachineId,
 ): ModelCatalogState {
-  const trpc = useStoreHandle<TApi>().getSnapshot().trpc
+  const trpc = useStoreHandle<TApi>().access.trpc
   const [revision, forceRender] = useState(0)
   const key = cacheKey(machineId)
   const scope = catalogScope(trpc)

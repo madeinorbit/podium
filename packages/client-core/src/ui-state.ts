@@ -19,8 +19,8 @@ import {
   THEME_UI_KEYS,
 } from '@podium/model'
 import type { UiState } from './replica/contract'
-import type { DockTab, FileScope, FileTab, RecentFileEntry, WorkspaceMap } from './viewmodels'
-import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './viewmodels'
+import type { DockTab, FileScope, FileTab, RecentFileEntry, WorkspaceMap } from './values'
+import { deserializeWorkspaces, readStoredDockTab, serializeWorkspaces } from './values'
 
 export type { UiState }
 

@@ -1,8 +1,6 @@
 import { beginSidebarUpdate } from '../perf/sidebar-perf'
 import { bindStoreStatsOwner } from '../perf/store-stats'
 import type { ReplicaKind } from '../replica/contract'
-import { allIssueViewModels } from '../replica/issue-view-cache'
-import { sessionViews } from '../session-values'
 
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
@@ -74,18 +72,17 @@ import {
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
-import type { OverlayRow, OverlayTarget, PendingOverlay } from '../command-reducers'
+import { overlaysForOutboxEntry } from '../command-reducers'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
-import { initializeIssueViewCache } from '../replica/issue-view-cache'
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
-import { createSubscriptionStore, type SubscriptionStore, shallowEqual } from '../store'
+
 import {
   createRouterUiState,
   createUiStateRouter,
@@ -95,7 +92,7 @@ import {
   type RouterWindow,
   type RouteState,
 } from '../ui-state'
-import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../viewmodels'
+import { allTabIds, closeTab, openTab, reposToViews, type WorkspaceKey } from '../values'
 import { createEngineActions, type EngineActionRuntime, type EngineActions } from './actions'
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
@@ -110,38 +107,15 @@ import {
   type LocalKey,
   type LocalsListener,
 } from './keyed-inputs'
-import {
-  IssueMembershipWatch,
-  LAZY_LIST_KEYS,
-  type LazyListKey,
-  LazyLists,
-  MEMBERSHIP_FIELDS,
-  PLAIN_LIST_KINDS,
-  type PlainListKey,
-  SessionTopology,
-} from './legacy-snapshot'
 import { machinesMaterialSignature } from './machines-material'
 import { type NavigationIntent, planNavigation } from './navigation'
-import {
-  type DeferredPaint,
-  dedupeSessions,
-  OptimismLedger,
-  type PaintGroup,
-  type SpawnPlaceholderEvent,
-} from './optimism'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
-import {
-  createReplicaBinding,
-  type ReplicaBinding,
-  type ReplicaPublication,
-} from './replica-binding'
 import type { ReplicatedLayoutController } from './replicated-layout'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   asIssueIdOrNull,
   type EngineState,
   type EngineStatics,
-  enableWorkspaceKeyCache,
   focusedPaneSession,
   foregroundIssue,
   initialEngineState,
@@ -211,37 +185,6 @@ export type OutboxOutcome =
  * enqueue path; its promise is that enqueue's: it settles when the record is
  * durable and rejects when the commit fails, as an unrouted action does.
  */
-const LAZY_KEYS: ReadonlySet<string> = new Set(LAZY_LIST_KEYS)
-/** Session fields the topology reactions follow, and the dedupe that decides
- *  membership (`SessionTopology`). */
-const SESSION_TOPOLOGY_FIELDS = ['cwd', 'issueId', 'status', 'resume', 'lastActiveAt', 'headless']
-const movesSessionTopology = (o: PendingOverlay): boolean =>
-  o.entity === 'sessions' &&
-  (o.op === 'insert' || SESSION_TOPOLOGY_FIELDS.some((field) => field in o.patch))
-const movesMembership = (o: PendingOverlay): boolean =>
-  o.op === 'insert' || MEMBERSHIP_FIELDS.some((field) => field in o.patch)
-/** Snapshots whose lists are read on demand (POD-5434). */
-const LAZY_SNAPSHOTS = new WeakSet<object>()
-/** The store's keep-the-old-snapshot test. A lazy snapshot is new whenever a
- *  batch published: comparing it key by key would build every list. */
-function sameSnapshot(a: object, b: object): boolean {
-  if (LAZY_SNAPSHOTS.has(a) || LAZY_SNAPSHOTS.has(b)) return a === b
-  return shallowEqual(a, b)
-}
-
-/**
- * Whole-array work of the legacy snapshot, cumulative (POD-5434, plan step
- * 10). Each count is one pass over a whole list: a kind materialised from the
- * replica, the session views over every session, a ledger repaint of a whole
- * list, or the pool-mode session topology compare.
- */
-export interface LegacyFoldStats {
-  readonly replicaRowReads: number
-  readonly sessionViewBuilds: number
-  readonly ledgerFolds: number
-  readonly topologyScans: number
-}
-
 export interface PoolWriter {
   spawnDraftAgent?: Store['spawnDraftAgent']
   spawnIssueAgent?: Store['spawnIssueAgent']
@@ -407,9 +350,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  because a cursor merges monotonically, not last-writer-wins. */
   readonly readPosition: ReadPositionPort
 
-  private readonly replicaBinding: ReplicaBinding
   private readonly routerUi: RouterUiState
-  private readonly optimism: OptimismLedger<TApi>
   private readonly reactions: Reactions
   private readonly boot: BootFetches<TApi>
 
@@ -438,34 +379,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private pendingNavigationTopology = false
   private pendingWorktreeFallback = false
   private statsReactionDepth = 0
-  private readonly subStore: SubscriptionStore<Store<TApi>>
-  /** The action methods + constant handles, spread into every snapshot so their
-   *  identities never change for the runtime's lifetime. */
-  private readonly statics: EngineStatics<TApi>
-
-  // ---- internal (non-snapshot) state ----
-  /** Server truth for this principal's slice — the replica's rows, unpainted. */
-  private baseSessions: EngineState['sessions'] = []
-  /** The per-user session rows, raw: the ledger paints this principal's and
-   *  joins them over `baseSessions` (POD-4974 S3). */
-  private baseSessionUserStates: ReplicaPublication['snapshot']['sessionUserStates'] = []
-  private baseIssueProjections: EngineState['issueProjections'] = []
-  private baseIssueUserStates: EngineState['issueUserStates'] = []
-  /** POD-5434: the replica-derived lists built on read, once the pool attaches
-   *  ({@link enablePoolRuntimeWork}); null keeps the eager per-batch rebuild. */
-  private lazyLists: LazyLists | null = null
-  /** On read too: which base lists a batch changed since they were last read. */
-  private readonly staleBase = { sessions: false, issueProjections: false, issueUserStates: false }
-  /** The replica's session rows by id, for the keyed topology check. */
-  private sessionTopology: SessionTopology | null = null
-  /** While a replica batch is published lazily: the base lists it changed. A
-   *  deferred repaint changes a list only if its base moved or it carried a
-   *  live paint; otherwise the list is unchanged and nothing is announced. */
-  private replicaMoved: {
-    sessions: boolean
-    issueProjections: boolean
-    issueUserStates: boolean
-  } | null = null
+  readonly services: EngineStatics<TApi>
+  readonly access: Store<TApi>
+  private stopTopologyWatch: (() => void) | undefined
   private prevRoute: RouteState
   /** Which workspace is on screen (POD-710). A change here is a TASK SWITCH, and
    *  the pane mirrors are re-derived from the workspace being switched to. */
@@ -498,9 +414,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
   private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof EngineState>()
-  private poolRuntimeWork = false
-  private sessionTopologyChanged = false
-  private workspaceMembershipDirty = false
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   // ---- offline-first composer drafts (POD-2045) ----
@@ -543,11 +456,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the hub's first changesSince; entity hydration happens async in start().
     this.replica = init.createReplicaFn(init.principal)
     bindStoreStatsOwner(this.replica, this)
-    // Store subscribers can derive synchronously inside a replica notification.
-    // Invalidate their shared issue views before the binding publishes new rows,
-    // or a growth rescope can pin old-scope models under the new Store snapshot.
-    initializeIssueViewCache(this.replica)
-    this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.visibility = init.visibility ?? domVisibility()
     this.hub = createEngineHub({
       wsClientUrl: init.config.wsClientUrl,
@@ -591,30 +499,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // remain durable-but-invisible.
       onDeadLetter: () => this.apply({ outboxDeadLetters: this.outbox.deadLetters() }),
     })
-    this.optimism = new OptimismLedger<TApi>({
-      api: this.api,
-      outbox: this.outbox,
-      notices: this.notices,
-      userId: this.principal.userId,
-      base: () => {
-        this.readStaleBase()
-        return {
-          sessions: this.baseSessions,
-          sessionUserStates: this.baseSessionUserStates,
-          issueProjections: this.baseIssueProjections,
-          issueUserStates: this.baseIssueUserStates,
-        }
-      },
-      paintedIssues: () =>
-        allIssueViewModels(this.replica, this.state.issueProjections, this.state.issueUserStates),
-      publish: (patch) => this.apply(patch),
-      batch: (fn) => this.batch(fn),
-      paintDeferred: (group, change) => this.paintDeferred(group, change),
-      truth: (entity, id) => this.truthRow(entity, id),
-      ...(init.spawnConfirmGraceMs !== undefined
-        ? { spawnConfirmGraceMs: init.spawnConfirmGraceMs }
-        : {}),
-    })
     const localUi = this.replica.uiState()
     this.router = createUiStateRouter(localUi, init.routerWindow)
     // ORDER IS LOAD-BEARING HERE. `createActions()` builds the replicated-layout
@@ -647,79 +531,28 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const persisted = this.routerUi.hydrate()
     const route = this.router.current()
     this.prevRoute = route
-    // Hydrate-first FIRST snapshot (#262 review): the replica's collections
-    // load synchronous storage at construction, so seed the entity slices from
-    // them BEFORE any subscriber reads — an empty initial snapshot regressed
-    // that into "not found" flashes until start() (a passive effect) ran.
-    const replicaSeed = this.replicaBinding.snapshot()
-    this.baseSessions = this.readSessionViews(replicaSeed)
-    this.baseSessionUserStates = replicaSeed.sessionUserStates
-    this.baseIssueProjections = replicaSeed.issueProjections
-    this.baseIssueUserStates = replicaSeed.issueUserStates
     this.reactions = new Reactions({
       state: () => this.state,
       publish: (patch) => this.apply(patch),
       hub: this.hub,
       notices: this.notices,
       isVisible: () => this.visibility.isVisible(),
-      markSessionRead: (sessionId) => void this.statics.markSessionRead(sessionId),
-      markIssueRead: (issueId) => void this.statics.markIssueRead(issueId),
+      markSessionRead: (sessionId) => void this.services.markSessionRead(sessionId),
+      markIssueRead: (issueId) => void this.services.markIssueRead(issueId),
       ...(init.workspacePruneGraceMs !== undefined
         ? { pruneGraceMs: init.workspacePruneGraceMs }
         : {}),
       linkedWorktree: () => this.paneLink?.worktree ?? null,
     })
     this.paneLinkGraceMs = init.workspacePruneGraceMs ?? WORKSPACE_PRUNE_GRACE_MS
-    this.reactions.seedCwds(this.baseSessions)
-    this.reactions.seedIssueIds(this.baseSessions)
-    // Fold queued outbox entries over the seed (#263): after an offline reload
-    // the durable queue still paints its optimism in the VERY FIRST snapshot.
-    const seededSessionFold = this.optimism.foldSeedSessions()
-    const seededProjectionFold = this.optimism.foldSeed(
-      'issueProjections',
-      this.baseIssueProjections,
-      (i) => i.id,
-    )
-    const seededUserStates = this.optimism.foldSeedUserStates(this.baseIssueUserStates)
     this.state = initialEngineState({
       persisted,
       route,
-      sessions: seededSessionFold.rows,
-      issueProjections: seededProjectionFold.rows,
-      issueUserStates: seededUserStates,
-      issueDeps: replicaSeed.issueDeps,
-      issueGitStates: replicaSeed.issueGitStates,
-      repoProjections: replicaSeed.repos,
-      issueEvents: replicaSeed.issueEvents,
-      pendingInteractions: replicaSeed.pendingInteractions,
-      messageRecords: replicaSeed.messageRecords,
-      shipOrders: replicaSeed.shipOrders,
-      shipLanes: replicaSeed.shipLanes,
-      conversations: replicaSeed.conversations,
-      automations: replicaSeed.automations,
-      automationRuns: replicaSeed.automationRuns,
       // Hydrate-first, like the entity slices: the outbox constructor has
       // already restored its durable recovery home, so the first Store snapshot
       // must expose it without waiting for start() or a queue notification.
       outboxDeadLetters: this.outbox.deadLetters(),
       now: this.coarseClock.now(),
-      recoverOutbox: {
-        // Every one of these repaints through the outbox subscription, because
-        // recovery changes queue membership and queue membership IS overlay
-        // membership (#263).
-        retry: (mutationId, satisfaction) => {
-          this.outbox.retry(mutationId, satisfaction)
-          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
-        },
-        edit: (mutationId, input) => {
-          this.outbox.edit(mutationId, input)
-          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
-        },
-        discard: (mutationId) => {
-          this.outbox.discard(mutationId)
-          this.apply({ outboxDeadLetters: this.outbox.deadLetters() })
-        },
-      },
     })
     this.workspaceKey = workspaceKeyForState(this.state)
     // Drafts are hydrate-first for the same reason the entity slices are, and
@@ -729,9 +562,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // effect — a frame late is a frame of blank box, and on a cold boot with no
     // server there is nothing else that would ever fill it in.
     this.state.drafts = this.hydrateDrafts()
-    this.statics = this.buildStatics(actions)
-    this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), sameSnapshot, this)
     this.inputs = createKeyedInputs(() => this.state)
+    this.services = this.buildStatics(actions)
+    this.access = Object.defineProperties({ ...this.services }, Object.fromEntries(
+      Object.keys(this.state).map(key => [key, { enumerable: true, get: () => this.readLocal(key as LocalKey) }]),
+    )) as Store<TApi>
   }
 
   /** Read this device's persisted drafts into the ledger, and return the map the
@@ -761,9 +596,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ------------------------------------------------------------------ read seam
 
-  /** useSyncExternalStore-shaped subscription. Bound so it can be passed bare. */
-  readonly subscribe = (listener: () => void): (() => void) => this.subStore.subscribe(listener)
-  readonly getSnapshot = (): Store<TApi> => this.subStore.getSnapshot()
   /** Keyed locals (POD-5426 §4.10): `listener` runs after a batch that changed
    *  one of `keys`, with that subset. Bound so it can be passed bare. */
   readonly onLocals = (keys: readonly LocalKey[], listener: LocalsListener): (() => void) =>
@@ -785,38 +617,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   get keyedInputStats(): KeyedInputStats {
     return this.inputs.stats
   }
-  /** Whole-array work of the legacy snapshot (POD-5434), cumulative. */
-  get legacyFoldStats(): LegacyFoldStats {
-    return {
-      replicaRowReads: this.replicaBinding.stats.rowReads,
-      sessionViewBuilds: this.foldStats.sessionViewBuilds,
-      ledgerFolds: this.optimism.stats.folds,
-      topologyScans: this.foldStats.topologyScans,
-    }
-  }
-  private readonly foldStats = { sessionViewBuilds: 0, topologyScans: 0 }
-  /** The optimism ledger's pending overlays by row id (POD-4553), read-only:
-   *  lets a per-row reader fold one row over `replica.row()` instead of
-   *  diffing the snapshot's folded arrays. Derived at call time; retirement
-   *  runs in each recompute, so read it after a publication, not inside one. */
-  readonly pendingOverlaysByRow = (
-    entity: OverlayTarget,
-  ): ReadonlyMap<string, readonly PendingOverlay[]> => this.optimism.pendingByRow(entity)
-
   // ----------------------------------------------------------------- write seam
-
-  /**
-   * The optimistic enqueue every queued action goes through, for a caller
-   * that must name the mutation id itself (POD-4554: a round-three prototype
-   * returns it from `edit()` synchronously, and the drain can report the entry
-   * before this promise resolves). Same paint, same queue, same outcome as the
-   * `EngineActions` wrappers; `opts.mutationId` omitted mints one.
-   */
-  readonly enqueueOverlayed = <K extends keyof OutboxKinds & string>(
-    kind: K,
-    input: OutboxKinds[K],
-    opts?: { mutationId?: MutationId; queuedAt?: number },
-  ): Promise<void> => this.optimism.enqueueOverlayed(kind, input, opts)
 
   /** The pool's transaction log while it owns optimism for pool screens
    *  (POD-5432); null otherwise. */
@@ -837,16 +638,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (this.poolWriter === writer) this.poolWriter = null
     }
   }
-
-  /** The ledger's spawn placeholders now, for a reader that adopts them
-   *  (POD-5431: the pool's transaction layer). */
-  readonly spawnPlaceholders = (): ReturnType<OptimismLedger<TApi>['spawnPlaceholders']> =>
-    this.optimism.spawnPlaceholders()
-
-  /** Spawn placeholders being painted and taken back (POD-5431). */
-  readonly subscribeSpawnPlaceholders = (
-    listener: (event: SpawnPlaceholderEvent) => void,
-  ): (() => void) => this.optimism.subscribeSpawnPlaceholders(listener)
 
   // ------------------------------------------------------------------ lifecycle
 
@@ -885,40 +676,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.batch(() => {
           this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
           this.replicatedLayout.outboxChanged()
-          this.optimism.recomputeAll()
         })
       }),
     )
     this.outbox.attach()
     this.apply({ outboxSize: this.outbox.size(), outboxDeadLetters: this.outbox.deadLetters() })
-    // Restored awaiting-truth entries need the TTL backstop armed even if no
-    // replica change ever recomputes them.
-    this.optimism.armAwaitingSweep()
-
-    // Entity state, single-sourced. ReplicaBinding owns preload + row
-    // subscriptions and publishes a coalesced slice; the runtime never hydrates
-    // or reaches collection listeners directly.
-    offs.push(
-      this.replicaBinding.start({
-        publish: (publication) => this.publishReplica(publication),
-        hydrated: (snap) => {
-          // Wire-v1 compatibility. The kernel feed's persisted slice is already
-          // the first Store paint and must never be copied into v1 hub lists.
-          if (
-            !this.onFeed &&
-            snap.sessions.length +
-              snap.shipOrders.length +
-              snap.shipLanes.length +
-              snap.conversations.length +
-              snap.automations.length +
-              snap.automationRuns.length >
-              0
-          ) {
-            this.hub.seedMetadata(snap)
-          }
-        },
-      }),
-    )
+    void this.replica.hydrate().catch(error => {
+      if (!this.destroyed) this.onFatalError(this.formatError(error, 'Could not load local data'))
+    })
+    offs.push(this.replica.subscribeRows('userLayouts', () => {
+      this.replicatedLayout.replace(layoutSnapshotFromRows(this.replica.rows('userLayouts')))
+    }))
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
@@ -1123,7 +891,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.reactions.dispose()
     this.dropPaneLink()
-    this.optimism.dispose()
     // Drafts: drop the timers, but FLUSH the pending storage write first. A tab
     // closing is the most likely moment for a draft to be lost, and a debounce
     // that discards its last write on teardown would lose exactly the keystrokes
@@ -1168,6 +935,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.dispose()
     this.stopNavigationWatch?.()
     this.stopNavigationWatch = undefined
+    this.stopTopologyWatch?.()
+    this.stopTopologyWatch = undefined
     this.pendingNavigation = undefined
     this.pendingSessionNavigation = undefined
     this.pendingNavigationTopology = false
@@ -1183,171 +952,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     return this.destroyed
   }
 
-  /** Startup-only opt-in from the sidebar's existing attachment. The legacy
-   * runtime keeps its exact reaction/fold path when the screen is switched off. */
-  enablePoolRuntimeWork(options: { readonly lazyLegacyLists?: boolean } = {}): void {
-    if (this.poolRuntimeWork || this.destroyed) return
-    this.poolRuntimeWork = true
-    enableWorkspaceKeyCache(this.state)
-    this.optimism.enableKeyedFolds()
-    // `lazyLegacyLists: false` is the revert path (and the eager parity arm).
-    if (options.lazyLegacyLists !== false) this.enableLazyLists()
-  }
-
-  /**
-   * POD-5434 (plan step 10): the pool reads none of the legacy lists, so from
-   * here they are built when read (`legacy-snapshot.ts`). A replica batch marks
-   * what it changed; the ledger repaints at once only while a write is in
-   * flight for that group. Needs the replica's addressed batches (the kernel
-   * feed); without them the eager rebuild stays.
-   */
-  private enableLazyLists(): void {
-    if (this.lazyLists !== null || !this.replicaBinding.readOnDemand()) return
-    const live = this.replicaBinding.snapshot()
-    this.sessionTopology = new SessionTopology(() => live.sessions as SessionMeta[])
-    this.lazyLists = new LazyLists(this.state, (key) => this.rebuildList(key))
-    this.inputs.readOnDemand(LAZY_LIST_KEYS)
-    this.optimism.enableLazyPaint()
-  }
-
-  /** Bring the base lists a batch changed up to date, on the ledger's read. */
-  private readStaleBase(): void {
-    const stale = this.staleBase
-    if (!stale.sessions && !stale.issueProjections && !stale.issueUserStates) return
-    const live = this.replicaBinding.snapshot()
-    if (stale.sessions) {
-      stale.sessions = false
-      this.baseSessions = this.readSessionViews(live)
-      this.baseSessionUserStates = live.sessionUserStates
-    }
-    if (stale.issueProjections) {
-      stale.issueProjections = false
-      this.baseIssueProjections = live.issueProjections
-    }
-    if (stale.issueUserStates) {
-      stale.issueUserStates = false
-      this.baseIssueUserStates = live.issueUserStates
-    }
-  }
-
-  /** The first read of a stale list builds it, without publishing: the batch
-   *  that made it stale already announced the change. */
-  private rebuildList(key: LazyListKey): void {
-    if (key in PLAIN_LIST_KINDS) {
-      const kind = PLAIN_LIST_KINDS[key as PlainListKey]
-      this.lazyLists?.fill(key, this.replicaBinding.snapshot()[kind])
-      return
-    }
-    const group: PaintGroup = key === 'sessions' ? 'sessions' : 'issues'
-    this.rebuilding = true
-    try {
-      this.optimism.paintNow(group)
-    } finally {
-      this.rebuilding = false
-    }
-  }
-  /** > 0 while a stale list is rebuilt: the ledger's publish writes silently. */
-  private rebuilding = false
-
-  /** The ledger settled a group instead of repainting it (it never paints
-   *  while lists are built on read). Mark stale, and announce, only the lists
-   *  that may have moved: their base moved in this replica batch, or their
-   *  pending overlays changed. */
-  private paintDeferred(group: PaintGroup, change: DeferredPaint): void {
-    const lists = this.lazyLists
-    if (lists === null) return
-    const replica = this.replicaMoved
-    if (group === 'sessions') {
-      const painted = change.moved.size > 0
-      if (!replica?.sessions && !painted) return
-      // A paint that inserts a row or moves one's topology fields changes what
-      // the session reactions follow; the replica's own moves are tracked by row.
-      if (painted && change.overlays.some(movesSessionTopology)) this.sessionTopologyChanged = true
-      lists.markStale('sessions')
-      this.announce(['sessions'])
-      return
-    }
-    const keys: LazyListKey[] = []
-    if (replica?.issueProjections || change.moved.has('issueProjections'))
-      keys.push('issueProjections')
-    if (replica?.issueUserStates || change.moved.has('issueUserStates'))
-      keys.push('issueUserStates')
-    if (change.moved.has('issueProjections')) {
-      const ids = new Set(
-        change.overlays
-          .filter((o) => o.entity === 'issueProjections' && movesMembership(o))
-          .map((o) => o.id),
-      )
-      if (ids.size > 0 && this.issueMembershipTouched(ids)) this.workspaceMembershipDirty = true
-    }
-    for (const key of keys) lists.markStale(key)
-    if (keys.length > 0) this.announce(keys)
-  }
-
-  /** One server-truth row by the ledger's id, read by id (POD-5434): the
-   *  replica's row, this principal's per-user rows, and a session as its view.
-   *  The lists are never built for it. */
-  private truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
-    const replica = this.replica
-    const userId = this.principal.userId
-    switch (entity) {
-      case 'issueProjections':
-        return replica.row?.('issueProjections', id)
-      case 'issueUserStates': {
-        const row = replica.row?.('issueUserStates', issueUserStateRowId(userId, asIssueId(id)))
-        return row?.userId === userId ? row : undefined
-      }
-      case 'sessionUserStates': {
-        const row = replica.row?.(
-          'sessionUserStates',
-          sessionUserStateRowId(userId, asSessionId(id)),
-        )
-        return row?.userId === userId ? row : undefined
-      }
-      case 'sessions': {
-        const raw = replica.row?.('sessions', id)
-        if (raw === undefined) return undefined
-        // The same view the list builds (`readSessionViews`), over this row's homes.
-        const userState = replica.row?.(
-          'sessionUserStates',
-          sessionUserStateRowId(userId, asSessionId(id)),
-        )
-        const repo = raw.refRepoId ? replica.row?.('repos', raw.refRepoId) : undefined
-        const machines = [raw.machineId, raw.handoffTargetMachineId].flatMap((machineId) => {
-          const machine = machineId ? replica.row?.('machines', machineId) : undefined
-          return machine === undefined ? [] : [machine]
-        })
-        return sessionViews([raw], {
-          userId,
-          userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
-          userStates: userState === undefined ? [] : [userState],
-          repos: repo === undefined ? [] : [repo],
-          machines,
-        })[0]
-      }
-    }
-  }
-
-  /** {@link apply} for lists whose new value is built on read: the keys count
-   *  as changed without reading either value. Workspace membership is the
-   *  caller's to mark ({@link issueMembershipMoved}). */
-  private announce(keys: readonly (keyof EngineState)[]): void {
-    this.batch(() => {
-      const changed = new Set(keys)
-      for (const k of keys) this.pendingChanges.add(k)
-      if (this.statsReactionDepth > 0) this.runReactions(changed)
-      else for (const key of changed) this.pendingReactions.add(key)
-    })
-  }
-
   /** Each client's startup attachment supplies this read port. No fallback is
    * installed during loading or teardown. */
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
+    this.stopTopologyWatch?.()
+    this.stopTopologyWatch = provider.onTopology?.(() => {
+      if (this.destroyed) return
+      this.pendingNavigationTopology = true
+      this.queueNavigationWake(provider)
+    })
+    this.pendingNavigationTopology = true
     this.apply({ navigation: provider })
     if (this.pendingNavigationTopology || this.pendingWorktreeFallback)
       this.queueNavigationWake(provider)
-    if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
+    if (this.pendingSessionNavigation) this.services.navigateToSession(this.pendingSessionNavigation)
     if (this.pendingNavigation) this.navigate(this.pendingNavigation)
   }
 
@@ -1422,7 +1041,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         )
           this.pendingWorktreeFallback = false
         if (this.paneLink) this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
-        if (this.pendingSessionNavigation) this.statics.navigateToSession(this.pendingSessionNavigation)
+        if (this.pendingSessionNavigation) this.services.navigateToSession(this.pendingSessionNavigation)
         if (this.pendingNavigation) this.navigate(this.pendingNavigation)
         this.syncWorkspaceSelection()
         this.reactions.updateIssueVisitBaseline()
@@ -1445,32 +1064,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const changed = new Set<keyof EngineState>()
       for (const k of Object.keys(patch) as Array<keyof EngineState>) {
         const next = patch[k]
-        if (this.rebuilding) {
-          // A stale list's first read: write what the announcement promised.
-          if (this.lazyLists?.isStale(k as LazyListKey)) this.lazyLists.fill(k as LazyListKey, next)
-          continue
-        }
-        // A stale list's old value is unknown; reading it would build it.
-        const stale = this.lazyLists?.isStale(k as LazyListKey) === true
-        if (stale || !Object.is(this.state[k], next)) {
-          if (this.poolRuntimeWork && (k === 'issueProjections' || k === 'issueDeps'))
-            this.workspaceMembershipDirty = true
-          if (this.poolRuntimeWork && k === 'sessions' && stale) this.sessionTopologyChanged = true
-          if (this.poolRuntimeWork && k === 'sessions' && !this.sessionTopologyChanged) {
-            this.foldStats.topologyScans++
-            const sessions = next as EngineState['sessions']
-            const previous = this.state.sessions
-            this.sessionTopologyChanged =
-              previous.length !== sessions.length ||
-              sessions.some((row, i) => {
-                const old = previous[i]!
-                return (
-                  old.sessionId !== row.sessionId ||
-                  old.cwd !== row.cwd ||
-                  old.issueId !== row.issueId
-                )
-              })
-          }
+        if (!Object.is(this.state[k], next)) {
           ;(this.state as unknown as Record<string, unknown>)[k as string] = next
           changed.add(k)
           this.pendingChanges.add(k)
@@ -1519,10 +1113,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.pendingChanges = new Set()
           const drafts = this.pendingDrafts
           this.pendingDrafts = new Set()
-          this.sessionTopologyChanged = false
           // Clear bookkeeping before notifying: listeners may write again.
           if (changed.size > 0 && !this.destroyed) {
-            this.subStore.publish(this.buildSnapshot(), changed)
             this.inputs.emit(changed, drafts)
           }
         }
@@ -1536,24 +1128,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const any = (...keys: Array<keyof EngineState>): boolean => keys.some((k) => changed.has(k))
     // ONE persistence reaction; routing and serialization live in ui-state.ts.
     if (!this.applyingHydratedUi) this.routerUi.flush(workspaceUiSnapshot(this.state), changed)
-    // Session-follows-view policy: diffs consecutive session snapshots.
-    const sessionTopology =
-      changed.has('sessions') && (!this.poolRuntimeWork || this.sessionTopologyChanged)
-    if (sessionTopology) {
-      if (this.state.navigation) {
-        this.pendingNavigationTopology = true
-        this.queueNavigationWake(this.state.navigation)
-      } else {
-        this.reactions.worktreeFollow()
-        this.reactions.sessionIssueFollow()
-      }
-    }
-    // Link arrival is a membership change, but keep its independent guard.
-    if (changed.has('sessions') && this.paneLink)
-      this.openLinkedSession(this.paneLink.sessionId, this.paneLink.worktree)
     // Worktree fallback selection.
     if (
-      (sessionTopology || any('repos', 'reposLoaded', 'selectedWorktree')) &&
+      any('repos', 'reposLoaded', 'selectedWorktree') &&
       !this.pendingNavigationTopology
     ) {
       if (!this.reactions.worktreeFallback() && this.state.navigation) {
@@ -1565,25 +1142,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the truth; the pane scalars follow whichever workspace is now on screen.
     // `issueProjections` is in the trigger set because the key resolves through the
     // mission root, which an issue update can move.
-    if (any('selectedIssueId', 'selectedWorktree', 'issueProjections', 'navigation'))
+    if (any('selectedIssueId', 'selectedWorktree', 'navigation'))
       this.syncWorkspaceSelection()
     // A tab whose session or file is GONE (POD-710). Nothing else can remove it
     // — it renders nothing, so there is no ✕ to click — and it is persisted, so
     // it comes back on every reload until this drops it.
-    if (
-      sessionTopology ||
-      (changed.has('sessions') && this.workspaceMembershipDirty) ||
-      any('fileTabs', 'workspaces', 'pendingSpawnIds')
-    ) {
-      // Issue topology can change membership between two session frames. The
-      // next frame must still perform the original pruning, even if only its
-      // activity moved. A title-only frame may conservatively dirty this bit.
-      this.workspaceMembershipDirty = false
-      if (!this.state.navigation || !this.pendingNavigationTopology) this.reactions.pruneWorkspaces()
-    }
-    // Lazy lists (POD-5434): the membership watch's "before" for the open
-    // workspaces, recorded before an issue batch can change it.
-    if (this.lazyLists !== null && any('workspaces', 'navigation')) this.watchMembership()?.prime()
     // State→URL mirror — the single URL writer.
     if (any('selectedWorktree', 'paneA'))
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
@@ -1597,15 +1160,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
-    if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
+    if (any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'navigation'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
     if (
       any(
         'navigation',
-        'issueProjections',
-        'issueUserStates',
-        'sessions',
         'view',
         'selectedIssueId',
         'openIssueId',
@@ -1615,16 +1175,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (
       any(
         'navigation',
-        'issueProjections',
-        'issueUserStates',
-        'sessions',
         'view',
         'selectedIssueId',
         'openIssueId',
       )
     )
       this.reactions.updateIssueMarkReadTimer()
-    if ((sessionTopology && this.state.navigation) || any('navigation', 'selectedIssueId', 'selectedWorktree', 'view', 'openIssueId', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
+    if (any('navigation', 'selectedIssueId', 'selectedWorktree', 'view', 'openIssueId', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
       this.watchNavigation()
   }
 
@@ -1660,7 +1217,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.pendingPaneLink = null
       return
     }
-    if (this.state.sessions.some((session) => session.sessionId === pane)) return
+    if (navigationSession(this.state, pane)) return
     this.pendingPaneLink = pane
     void Promise.resolve()
       .then(() => this.api.sessions.resolve.query({ identifier: pane }))
@@ -1703,20 +1260,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const next = openTab(workspaceFor(st, key), tabId, { permanent })
     this.workspaceKey = key
     return workspaceWritePatch(st, key, next)
-  }
-
-  private buildSnapshot(): Store<TApi> {
-    const lists = this.lazyLists
-    if (lists === null) return { ...this.state, ...this.statics }
-    // Lazy lists (POD-5434): copy the plain state, and let each list be read
-    // when a reader asks for it. A spread here would build every stale list.
-    const snapshot = {} as Record<string, unknown>
-    const state = this.state as unknown as Record<string, unknown>
-    for (const key of Object.keys(state)) if (!LAZY_KEYS.has(key)) snapshot[key] = state[key]
-    lists.snapshot(snapshot)
-    Object.assign(snapshot, this.statics)
-    LAZY_SNAPSHOTS.add(snapshot)
-    return snapshot as unknown as Store<TApi>
   }
 
   private syncReplicatedUi(): void {
@@ -1832,7 +1375,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const canShow =
         !st.reposLoaded ||
         worktrees.some((w) => w.path === route.worktree) ||
-        st.sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
+        (st.navigation.worktreeSessions?.() === NAVIGATION_LOADING ||
+          (st.navigation.worktreeSessions?.() ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`)))
       if (canShow) patch.selectedWorktree = route.worktree
     }
     // A pane the state is not already showing is a LINK (deep link, back/forward),
@@ -1874,7 +1418,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const timer = setTimeout(() => {
       if (this.paneLink?.sessionId !== pane) return
       this.dropPaneLink()
-      if (this.destroyed || this.state.sessions.some((s) => s.sessionId === pane)) return
+      if (this.destroyed || navigationSession(this.state, pane)) return
       this.notices.error(sessionLinkProblem(pane, { kind: 'absent' }))
       // The held worktree may name nothing now; let the fallback settle it.
       this.reactions.worktreeFallback()
@@ -1884,9 +1428,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Open a linked session this replica holds; false when it holds none. */
   private openLinkedSession(sessionId: string, worktree: string | null): boolean {
-    const meta = this.state.navigation
-      ? navigationSession(this.state, sessionId)
-      : this.state.sessions.find((session) => session.sessionId === sessionId)
+    const meta = navigationSession(this.state, sessionId)
     if (!meta) return false
     this.dropPaneLink()
     const selection = sessionLinkSelection(this.state, meta, worktree)
@@ -1908,176 +1450,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.paneLink = null
   }
 
-  // ----------------------------------------------------------- replica ↔ state
-
-  private readSessionViews(snapshot: ReplicaPublication['snapshot']): EngineState['sessions'] {
-    this.foldStats.sessionViewBuilds++
-    return dedupeSessions(
-      sessionViews(snapshot.sessions, {
-        userId: this.principal.userId,
-        userStatesLoaded: this.replica.sessionUserStatesLoaded?.() ?? true,
-        userStates: snapshot.sessionUserStates,
-        repos: snapshot.repos,
-        machines: snapshot.machines,
-      }),
-    )
-  }
-
-  private publishReplica(publication: ReplicaPublication): void {
-    if (this.destroyed) return
-    if (this.lazyLists !== null) {
-      this.publishReplicaLazily(publication)
-      return
-    }
-    const { snapshot, changed } = publication
-    const endPerfUpdate = beginSidebarUpdate(this, changed)
-    // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
-    // below publish separately and every snapshot-keyed slice derives 3×.
-    try {
-      this.batch(() => {
-        if (
-          ['sessions', 'sessionUserStates', 'machines', 'repos'].some((kind) =>
-            changed.has(kind as ReplicaKind),
-          )
-        ) {
-          this.baseSessions = this.readSessionViews(snapshot)
-          this.baseSessionUserStates = snapshot.sessionUserStates
-          this.optimism.recomputeSessions()
-        }
-        // Both issue kinds repaint together: projection presence determines
-        // whether an absent per-user row means untouched or no longer visible.
-        if (changed.has('issueProjections')) this.baseIssueProjections = snapshot.issueProjections
-        if (changed.has('issueUserStates')) this.baseIssueUserStates = snapshot.issueUserStates
-        if (changed.has('issueProjections') || changed.has('issueUserStates')) {
-          this.optimism.recomputeFor(['issueProjections', 'issueUserStates'])
-        }
-        const patch: Partial<EngineState> = {}
-        if (changed.has('issueDeps')) patch.issueDeps = snapshot.issueDeps
-        if (changed.has('issueGitStates')) patch.issueGitStates = snapshot.issueGitStates
-        if (changed.has('repos')) patch.repoProjections = snapshot.repos
-        if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
-        if (changed.has('pendingInteractions'))
-          patch.pendingInteractions = snapshot.pendingInteractions
-        if (changed.has('messageRecords')) patch.messageRecords = snapshot.messageRecords
-        if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
-        if (changed.has('shipLanes')) patch.shipLanes = snapshot.shipLanes
-        if (changed.has('conversations')) patch.conversations = snapshot.conversations
-        if (changed.has('automations')) patch.automations = snapshot.automations
-        if (changed.has('automationRuns')) patch.automationRuns = snapshot.automationRuns
-        this.apply(patch)
-      })
-    } finally {
-      endPerfUpdate?.()
-    }
-  }
-
-  /**
-   * {@link publishReplica} once the lists are built on read (POD-5434): the
-   * batch marks what it changed. The ledger repaints a group at once only while
-   * a write is in flight for it (`OptimismLedger.enableLazyPaint`); otherwise
-   * the group goes stale with the plain kinds. The session topology that pool
-   * mode's reactions follow is checked per addressed row.
-   */
-  private publishReplicaLazily(publication: ReplicaPublication): void {
-    const { changed, addressed } = publication
-    const endPerfUpdate = beginSidebarUpdate(this, changed)
-    const sessions = ['sessions', 'sessionUserStates', 'machines', 'repos'].some((kind) =>
-      changed.has(kind as ReplicaKind),
-    )
-    this.replicaMoved = {
-      sessions,
-      issueProjections: changed.has('issueProjections'),
-      issueUserStates: changed.has('issueUserStates'),
-    }
-    try {
-      this.batch(() => {
-        if (sessions) {
-          this.staleBase.sessions = true
-          if (changed.has('sessions')) this.trackSessionTopology(addressed)
-          this.optimism.recomputeSessions()
-        }
-        if (changed.has('issueProjections')) {
-          this.staleBase.issueProjections = true
-          if (this.issueMembershipMoved(addressed)) this.workspaceMembershipDirty = true
-        }
-        if (changed.has('issueDeps')) this.workspaceMembershipDirty = true
-        if (changed.has('issueUserStates')) this.staleBase.issueUserStates = true
-        if (changed.has('issueProjections') || changed.has('issueUserStates')) {
-          this.optimism.recomputeFor(['issueProjections', 'issueUserStates'])
-        }
-        const plain: PlainListKey[] = []
-        for (const key of Object.keys(PLAIN_LIST_KINDS) as PlainListKey[]) {
-          if (!changed.has(PLAIN_LIST_KINDS[key])) continue
-          this.lazyLists?.markStale(key)
-          plain.push(key)
-        }
-        if (plain.length > 0) this.announce(plain)
-      })
-    } finally {
-      this.replicaMoved = null
-      endPerfUpdate?.()
-    }
-  }
-
-  private trackSessionTopology(addressed: ReplicaPublication['addressed']): void {
-    const topology = this.sessionTopology
-    if (topology === null) return
-    if (addressed === undefined || addressed === 'replace') {
-      topology.reseed()
-      this.sessionTopologyChanged = true
-      return
-    }
-    const ids = addressed.get('sessions')
-    if (ids === undefined) return
-    const row = (id: string) => this.replica.row?.('sessions', id) as SessionMeta | undefined
-    if (topology.update(ids, row)) this.sessionTopologyChanged = true
-  }
-
-  /** {@link IssueMembershipWatch} over this batch's addressed issues. */
-  private issueMembershipMoved(addressed: ReplicaPublication['addressed']): boolean {
-    if (addressed === undefined || addressed === 'replace') return true
-    const ids = addressed.get('issueProjections')
-    if (ids === undefined || ids.size === 0) return false
-    const watch = this.watchMembership()
-    return watch === null || watch.moved(ids)
-  }
-
-  /** A paint that moves these issues' membership fields matters only for an
-   *  open workspace they belong to or join. */
-  private issueMembershipTouched(ids: ReadonlySet<string>): boolean {
-    const watch = this.watchMembership()
-    return watch === null || watch.touches(ids)
-  }
-
-  private watchMembership(): IssueMembershipWatch | null {
-    if (!this.state.navigation) return null
-    this.membershipWatch ??= new IssueMembershipWatch({
-      workspaceKeys: () => Object.keys(this.state.workspaces),
-      members: (root) => {
-        const members = this.state.navigation?.missionMembers(root)
-        return members === undefined || members === NAVIGATION_LOADING ? 'loading' : members
-      },
-      issue: (id) => this.replica.row?.('issueProjections', id),
-      sessionIssue: (id) => this.replica.row?.('sessions', id)?.issueId,
-    })
-    return this.membershipWatch
-  }
-  private membershipWatch: IssueMembershipWatch | null = null
-
   // -------------------------------------------------------------- outbox seams
 
   private onMutationApplied(entry: OutboxEntry): boolean {
     if (this.destroyed) return false
     const actionHold = this.reconcileActionState(entry, 'applied')
-    const hold = actionHold !== null ? actionHold : this.optimism.mutationApplied(entry)
     this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
-    return hold
+    return actionHold ?? this.poolWriter?.holds?.(entry.mutationId) ?? false
   }
 
   private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {
     if (this.destroyed) return
     this.reconcileActionState(entry, 'dropped')
-    this.optimism.mutationDropped(entry)
     this.emitOutcome({
       type: 'rejected',
       mutationId: entry.mutationId,
@@ -2251,6 +1635,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     })
   }
 
+  private requirePoolWriter(): PoolWriter {
+    if (!this.poolWriter || this.destroyed) throw new Error('Pool transactions are not attached')
+    return this.poolWriter
+  }
+
   private createActions(): EngineActions<TApi> {
     return createEngineActions({
       api: this.api,
@@ -2259,7 +1648,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       outboxSettlements: this.outboxSettlements,
       router: this.router,
       notices: this.notices,
-      layoutSeed: layoutSnapshotFromRows(this.replicaBinding.snapshot().userLayouts),
+      layoutSeed: layoutSnapshotFromRows(this.replica.rows('userLayouts')),
       onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
@@ -2274,17 +1663,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // this batch; the async outbox drain echo and background broadcasts stay
       // separate by construction (they fire after the batch closed).
       batch: (fn) => this.batch(fn),
-      subscribe: (listener) => this.subscribe(listener),
+      onLocals: (keys, listener) => this.onLocals(keys, listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.poolWriter !== null
           ? this.poolWriter.write(kind, input)
-          : this.optimism.enqueueOverlayed(kind, input),
+          : Promise.reject(new Error('Pool transactions are not attached')),
       revealFileTab: (args) => this.revealFileTab(args),
-      spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
-        (this.poolWriter?.spawnDraftAgent ?? this.optimism.spawnDraftAgent.bind(this.optimism))(args),
-      spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
-        (this.poolWriter?.spawnIssueAgent ?? this.optimism.spawnIssueAgent.bind(this.optimism))(args),
-      waitForSpawnConfirmed: (sessionId) => this.poolWriter?.waitForSpawnConfirmed?.(sessionId) ?? this.optimism.waitForSpawnConfirmed(sessionId),
+      spawnDraftAgent: (args: Parameters<Store<TApi>['spawnDraftAgent']>[0]) =>
+        this.requirePoolWriter().spawnDraftAgent!(args),
+      spawnIssueAgent: (args: Parameters<Store<TApi>['spawnIssueAgent']>[0]) =>
+        this.requirePoolWriter().spawnIssueAgent!(args),
+      waitForSpawnConfirmed: (sessionId) => this.requirePoolWriter().waitForSpawnConfirmed!(sessionId),
       // ONE KEYSTROKE. The store write is synchronous and unconditional — it is
       // what the caret is attached to. Everything else about this edit (when it
       // goes out, whether it went out, when it is written to disk) is a
@@ -2344,6 +1733,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // The ONE key resolver, published so no view re-derives it (POD-710).
       workspaceKey: () => workspaceKeyForState(this.state),
       getUserFocus: () => this.getUserFocus(),
+      recoverOutbox: {
+        retry: (id, satisfaction) => this.outbox.retry(id, satisfaction),
+        edit: (id, input) => this.outbox.edit(id, input),
+        discard: id => this.outbox.discard(id),
+      },
       refreshRepos: () => this.boot.refreshRepos(),
       refreshSuperThreads: () => this.boot.refreshSuperThreads(),
       ...actions,

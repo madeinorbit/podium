@@ -230,7 +230,7 @@ describe('the outbox takes its connectivity from the injected seams', () => {
     const onlineEvents = fakeOnlineEvents()
     const { engine } = makeEngine({ api, onlineEvents, isOnline: () => false })
     engine.start()
-    engine.getSnapshot().setDockTab('git')
+    engine.access.setDockTab('git')
     await settle()
     expect(engine.outbox.pending()).toHaveLength(1)
     expect(layoutSets).toHaveLength(0)
@@ -288,7 +288,7 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    engine.getSnapshot().setDockTab('git')
+    engine.access.setDockTab('git')
     await settle()
     // Durably queued and NOT sent. Without the injected probe this driver would
     // have called `platformIsOnline()`, got `true` under happy-dom, and sent it.
@@ -329,7 +329,7 @@ describe('the KERNEL outbox takes its connectivity from the same injected seams'
       createOutboxFn: await kernelDriver(api),
     })
     engine.start()
-    engine.getSnapshot().setDockTab('git')
+    engine.access.setDockTab('git')
     onlineEvents.fire()
     visibility.set(true)
     await settle()

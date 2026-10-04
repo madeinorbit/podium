@@ -1,5 +1,5 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { insertInCursorOrder } from '../viewmodels/cursor-order'
+import { insertInCursorOrder } from '../values/cursor-order'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
