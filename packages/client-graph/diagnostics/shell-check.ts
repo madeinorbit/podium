@@ -1,5 +1,5 @@
 /** Synthetic fixture and private count-only replay comparisons. */
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { type IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import {

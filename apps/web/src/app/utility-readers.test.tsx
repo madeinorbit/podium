@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/engine'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -16,7 +17,7 @@ import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { useWaterfallActivity } from './FlightDeckWaterfall'
 import { MissionCostChip } from './MissionCostChip'
-import type { Store } from './store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { Trpc } from './trpc'
 import { useHandoffTranscript } from './use-handoff-transcript'
 
@@ -107,7 +108,7 @@ function setup() {
   const snapshot = { trpc, replica, coarseNow: 0 } as unknown as Store
   const store = createSubscriptionStore(snapshot, undefined, owner)
   const subscribe = vi.fn(store.subscribe)
-  fixture.handle = Object.assign(owner, store, { subscribe })
+  fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <StoreProvider

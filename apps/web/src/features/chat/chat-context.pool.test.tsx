@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'
 import {

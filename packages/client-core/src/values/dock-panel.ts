@@ -1,5 +1,5 @@
 import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
 import type { FileScope } from './file-scope'

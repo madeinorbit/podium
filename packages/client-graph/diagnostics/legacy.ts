@@ -1,6 +1,6 @@
 /** Diagnostic-only legacy derivation. Never imported by pool rows or app readers. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { sortUnifiedWorkRows, type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/values'

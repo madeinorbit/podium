@@ -1,6 +1,6 @@
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { withKeyedInputs } from '@podium/client-core/engine'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'

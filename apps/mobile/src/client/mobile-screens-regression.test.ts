@@ -3,7 +3,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * Synthetic fixture roots select the same questions and publication gates. */
 
 import { createHash } from 'node:crypto'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {

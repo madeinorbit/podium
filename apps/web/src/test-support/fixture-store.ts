@@ -1,4 +1,4 @@
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { asSessionId } from '@podium/model/browser'
 
 /** Supply the runtime plumbing old component fixtures omitted. */

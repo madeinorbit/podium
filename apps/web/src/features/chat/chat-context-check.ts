@@ -1,6 +1,6 @@
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
 import {

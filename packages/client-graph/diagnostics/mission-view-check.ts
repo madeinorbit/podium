@@ -1,6 +1,6 @@
 /** Diagnostic only: compare actual mission-view inputs from one publication.
  * Report locations, counts and opaque IDs; prose never leaves the comparator. */
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'

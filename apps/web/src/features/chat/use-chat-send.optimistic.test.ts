@@ -19,7 +19,7 @@ import { renderHook } from '@testing-library/react'
 import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Store } from '@/app/store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
 

@@ -118,7 +118,7 @@ let api: {
 } | null = null
 
 function Consumer(): null {
-  const s = useStore()
+  const s = useRuntimeSelector(s => s)
   api = {
     setPane: s.setPane,
     setFocusedPane: s.setFocusedPane,

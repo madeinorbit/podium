@@ -1,6 +1,6 @@
 import { ISSUE_STATUS_LABELS, type IssueId, type IssueStage } from '@podium/model'
 import { issueDisplayRef, parseAnyRef } from '@podium/protocol'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 
 /** Human labels for the workflow glyph family. Kept with the reference model so
  * every adapter (web, terminal, native) announces the same state.

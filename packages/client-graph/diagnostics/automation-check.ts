@@ -1,4 +1,4 @@
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { MobxPool } from '../src/pool'
 import { automationViews, type AutomationTarget, type TargetExclusions } from '../src/automation-views'
 import { LOADING } from '../src/worklist/rollup'

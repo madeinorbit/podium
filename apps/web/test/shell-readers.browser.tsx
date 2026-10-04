@@ -1,6 +1,7 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real production consumers and one offline runtime. Every row is synthetic. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'

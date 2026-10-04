@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util'
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { MobxPool } from '@podium/client-graph'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'

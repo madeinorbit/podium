@@ -1,4 +1,3 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime, Store, OverlayTarget } from '@podium/client-core/engine'
 import { dedupeSessionsByResume, type SessionMeta } from '@podium/model'
 import type { PendingRows } from '../src/shared/row-source'
@@ -32,7 +31,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   const records = Object.fromEntries(kinds.map(kind => [kind, read(kind)]))
   const sessions = dedupeSessions(sessionViews(read('sessions'), { userId: runtime.principal?.userId ?? 'operator', userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
   const prompts = log?.spawnPrompts ?? new Map<string,string>()
-  return { ...referenceState(runtime), ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as ReferenceState<T>
+  return { ...runtime.access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as ReferenceState<T>
 }
 
 export function dedupeSessions<T extends SessionMeta>(rows: T[]): T[] {

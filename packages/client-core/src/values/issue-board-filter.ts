@@ -1,5 +1,5 @@
 import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 
 /** Every task facet shared by the desktop board and the native iPhone list. */
 export interface BoardFilter {

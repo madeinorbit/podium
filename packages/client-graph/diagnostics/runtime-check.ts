@@ -3,7 +3,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * per request, outside input handling; the opt-in switch requests one at startup.
  */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import {
   beginSidebarCheck,
   bindSidebarCheckRequest,

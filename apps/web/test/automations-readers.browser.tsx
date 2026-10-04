@@ -8,7 +8,7 @@ import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-c
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Store } from '../src/app/store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import type { Trpc } from '../src/app/trpc'
 import { AutomationsView } from '../src/features/automations/AutomationsView'

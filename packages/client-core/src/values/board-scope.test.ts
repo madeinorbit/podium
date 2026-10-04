@@ -1,6 +1,6 @@
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import { boardIssues, filterBoardScope } from './board-scope'
 
 function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {

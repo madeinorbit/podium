@@ -1,4 +1,5 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { IssueEventWire } from '@podium/model'
 import { issueEventRowId } from '@podium/model'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'

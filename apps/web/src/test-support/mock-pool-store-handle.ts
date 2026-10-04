@@ -23,6 +23,7 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
         state.workspaceKey = () => workspaceKeyForState(state)
       return state
     },
+    services: {},
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })

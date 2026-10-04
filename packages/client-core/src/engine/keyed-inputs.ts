@@ -301,5 +301,8 @@ export function withKeyedInputs<T extends { getSnapshot(): object; subscribe(lis
   fake: T,
 ): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
+  const fixture = fake as T & { services?: object; replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] } }
+  fixture.services ??= Object.fromEntries(Object.entries(fake.getSnapshot()).filter(([, value]) => typeof value === 'function'))
+  if (fixture.replica && !fixture.replica.rowCount) fixture.replica.rowCount = kind => fixture.replica!.rows(kind).length
   return Object.defineProperty(Object.assign(fake, inputs), 'access', { get: () => fake.getSnapshot() }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
 }

@@ -4,7 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId } from '@podium/model/browser'
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { Store } from '@/app/store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 
 const f = vi.hoisted(() => ({
   sessions: [] as SessionView[],

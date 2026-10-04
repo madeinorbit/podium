@@ -12,7 +12,7 @@ import { asSessionId, type SessionMeta } from '@podium/model'
 import { act, type JSX } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Store } from '@/app/store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import {
   type UseTranscriptWindowOptions,
   type UseTranscriptWindowResult,

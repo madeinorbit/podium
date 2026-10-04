@@ -3,7 +3,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * counts, positions, field names and opaque ids leave the comparison. */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { reportChipCheck } from '@podium/client-core/perf'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'

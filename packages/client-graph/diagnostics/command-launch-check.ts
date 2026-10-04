@@ -2,7 +2,7 @@
  * reports contain counts and positions. */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import {
   lastUsedMaps,
   type RepoNavView,

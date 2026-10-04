@@ -12,7 +12,7 @@ import {
   spawnedByTag,
   type UserId,
 } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import type { SessionValues, SessionView } from '../session-values'
 
 /**

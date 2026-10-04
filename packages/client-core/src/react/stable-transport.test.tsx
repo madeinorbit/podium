@@ -1,12 +1,13 @@
+import { withKeyedInputs } from '@podium/client-core/engine'
 // @vitest-environment happy-dom
 import { asUserId } from '@podium/model'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { Store } from '../engine/types'
+import type { ReferenceState as Store } from '../../../client-graph/diagnostics/reference-state'
 import { storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
-import { createSubscriptionStore } from '../store'
+import { createSubscriptionStore } from '../../test-support/local-store'
 import { StoreProvider } from './provider'
 import { useHarnessDescriptors } from './use-harness-descriptors'
 import { useRepoLocks } from './use-merge-lock'
@@ -23,7 +24,7 @@ it('acquires every shared transport without legacy subscriptions or derivations'
   const snapshot = { trpc: api, hub: undefined, coarseNow: 0 } as unknown as Store
   const store = createSubscriptionStore(snapshot, undefined, owner)
   const subscribe = vi.fn(store.subscribe)
-  fixture.handle = Object.assign(owner, store, { subscribe })
+  fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))
   function Reader() {
     const catalog = useModelCatalogState()
     const descriptors = useHarnessDescriptors(undefined)

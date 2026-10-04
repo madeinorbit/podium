@@ -1,6 +1,6 @@
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView } from '../session-values'
 import {
   indexSessionOwnership,

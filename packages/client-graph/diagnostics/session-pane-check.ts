@@ -1,7 +1,8 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Optional pane differential, using sidebar-check's positions-only report.
  * Legacy input is diagnostic-only; it never enters the switched read path. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { attentionGroup } from '@podium/client-core/focus'
 import { sessionWaking, resumeCommand, sessionUrgencyRank, exitedRecovery, deriveGitStamp, sessionTerminalOutlook, defaultChatCapable } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'

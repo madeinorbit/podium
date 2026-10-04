@@ -1292,7 +1292,7 @@ const OVERLAY_ENTITIES = [
 export function pendingWrites(ctx: ScenarioEngine): string[] {
   const pending: string[] = []
   for (const entity of OVERLAY_ENTITIES) {
-    for (const id of ctx.engine.pendingOverlaysByRow(entity).keys()) pending.push(`${entity}:${id}`)
+    for (const id of ((ctx.engine as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter?.pending.byRow(entity) ?? new Map()).keys()) pending.push(`${entity}:${id}`)
   }
   return pending.sort()
 }

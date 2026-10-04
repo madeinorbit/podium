@@ -4,7 +4,7 @@
 // else (urgency/activity) sorts; a parent's children sort by their own keys.
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
 import {
   partitionUnifiedWork,

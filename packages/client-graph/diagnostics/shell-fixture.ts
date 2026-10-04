@@ -1,5 +1,6 @@
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'

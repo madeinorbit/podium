@@ -92,7 +92,7 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
-  const s = useStore()
+  const s = useRuntimeSelector(s => s)
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
   // The bug manifested as an unbounded update loop (React #185). Fail fast and

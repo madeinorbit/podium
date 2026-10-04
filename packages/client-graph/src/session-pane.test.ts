@@ -1,4 +1,5 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'

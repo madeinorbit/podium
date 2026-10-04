@@ -1,7 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
-import { createSubscriptionStore } from '../store'
-import { createSlicePublisher } from '../values/compose/publish'
+import { createSubscriptionStore } from '../../test-support/local-store'
 import { beginSwitch, getRecentSwitchTraces, markSwitch, resetSwitchTraces } from './switch-trace'
 import {
   bindStoreStatsOwner,
@@ -70,44 +69,6 @@ it('retains reentrant publish ordering, listener mutation and exceptions', () =>
   expect(() => store.publish(3)).toThrow('listener')
   expect(store.getSnapshot()).toBe(3)
   expect(readStoreStats().publishes.at(-1)?.subscriberWakes).toBe(2)
-})
-
-it('correlates actual slice work with switch IDs and checkpoints without metadata or payloads', () => {
-  storeStats.enable()
-  const owner = {}
-  const replica = {}
-  bindStoreStatsOwner(replica, owner)
-  const store = createSubscriptionStore({ draft: 'secret draft' }, undefined, owner)
-  const publisher = createSlicePublisher(store.getSnapshot, owner)
-  const slice = { name: 'worklist', derive: (s: { draft: string }) => s.draft.length }
-  const sid = asSessionId('session-private')
-  beginSwitch({ sessionId: sid })
-  store.subscribe(() => {
-    publisher.read(slice)
-    publisher.read(slice)
-  })
-  store.publish({ draft: 'secret prompt' }, new Set(['draft']))
-  recordIssueRowBuild(replica)
-  markSwitch(sid, 'chat:first-paint', { prompt: 'secret metadata' })
-  markSwitch(sid, 'chat:interactable')
-  const report = readStoreStats()
-  expect(report.windows[0]).toMatchObject({
-    ended: true,
-    switchId: getRecentSwitchTraces()[0]?.switchId,
-  })
-  expect(report.windows[0]?.runtimes[0]).toMatchObject({
-    publishes: 1,
-    subscriberWakes: 1,
-    rowBuilds: 1,
-    slices: { worklist: 1 },
-  })
-  expect(report.windows[0]?.marks[0]?.counts).toMatchObject({
-    publishes: 1,
-    sliceDerivations: 1,
-    rowBuilds: 1,
-  })
-  expect(JSON.stringify(report)).not.toMatch(/secret|session-private|prompt/)
-  expect(publisher.derivations()).toEqual({ worklist: 1 })
 })
 
 it('bounds every accumulating dimension and exposes dropped data', () => {

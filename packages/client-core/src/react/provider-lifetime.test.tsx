@@ -1,12 +1,14 @@
+import { withKeyedInputs } from '@podium/client-core/engine'
 // @vitest-environment happy-dom
 import { asUserId } from '@podium/model'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useCallback, useEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { Store, StoreServerConfig } from '../engine/types'
+import type { StoreServerConfig } from '../engine/types'
+import type { ReferenceState as Store } from '../../../client-graph/diagnostics/reference-state'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
-import { createSubscriptionStore } from '../store'
+import { createSubscriptionStore } from '../../test-support/local-store'
 import { StoreProvider, useCurrentPrincipal, useStoreHandle, useRuntimeSelector } from './provider'
 
 const fixture = vi.hoisted(() => ({ handle: null as unknown }))
@@ -16,11 +18,11 @@ afterEach(cleanup)
 function runtime() {
   const action = vi.fn()
   const owner = { start: vi.fn(), dispose: vi.fn(), destroy: vi.fn() }
-  return Object.assign(
+  return withKeyedInputs(Object.assign(
     owner,
     createSubscriptionStore({ closeFileTab: action } as unknown as Store, undefined, owner),
     { action },
-  )
+  ))
 }
 
 it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', async () => {

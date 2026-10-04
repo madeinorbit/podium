@@ -3,7 +3,7 @@ import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Store } from '@/app/store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
 // [spec:SP-3701] Hosting affordances in the machines panel: standalone card for

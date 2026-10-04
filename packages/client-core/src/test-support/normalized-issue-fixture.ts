@@ -7,7 +7,7 @@ import {
   type RepoProjection,
   type SessionMeta,
 } from '@podium/model'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import { createReplica, memoryStorage } from '../replica/replica'
 
 /** Test-only fixture decomposition. Every runtime input is a normalized kind. */

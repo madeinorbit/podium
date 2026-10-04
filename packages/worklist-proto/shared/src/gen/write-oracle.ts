@@ -44,7 +44,7 @@ import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/i
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { Replica } from '@podium/client-core/replica'
 import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'

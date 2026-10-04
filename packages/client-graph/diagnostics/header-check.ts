@@ -1,6 +1,6 @@
 /** Diagnostic-only side-by-side value check. Values stay in this process;
  * reports contain comparison positions and field names, never payloads. */
-import type { Store } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import {

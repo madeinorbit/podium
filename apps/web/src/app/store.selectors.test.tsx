@@ -30,7 +30,7 @@ const fakeTrpc = {
 }
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
-const { StoreProvider, useStore, useRuntimeSelector } = await import('./store')
+const { StoreProvider,  useRuntimeSelector } = await import('./store')
 const { Workspace } = await import('./Workspace')
 const { CommandPalette } = await import('./CommandPalette')
 const { HostIndicators } = await import('@/features/machines/HostIndicators')
@@ -46,7 +46,7 @@ class FakeWS {
 }
 
 let renders: Record<string, number> = {}
-let latestStore: ReturnType<typeof useStore> | null = null
+let latestStore: import('./store').Store | null = null
 
 function ViewProbe(): null {
   renders.view = (renders.view ?? 0) + 1
@@ -60,7 +60,7 @@ function DraftsProbe(): null {
 }
 function CompatProbe(): null {
   renders.compat = (renders.compat ?? 0) + 1
-  latestStore = useStore()
+  latestStore = useRuntimeSelector(s => s)
   return null
 }
 
@@ -138,7 +138,7 @@ describe('selector-scoped store', () => {
   it('converted hot components do not re-commit when an unrelated slice changes', async () => {
     // The REAL components (now on useRuntimeSelector slices), instrumented via
     // React Profiler: an unrelated store write (a session draft) must not
-    // re-commit their subtrees. Before the conversion each useStore() consumer
+    // re-commit their subtrees. Before the conversion each useRuntimeSelector(s => s) consumer
     // re-rendered on every store publish.
     const { Profiler } = await import('react')
     const commits: Record<string, number> = {}
@@ -187,7 +187,7 @@ describe('selector-scoped store', () => {
     expect(commits.workspace ?? 0).toBeGreaterThan(before.workspace ?? 0)
   })
 
-  it('compat useStore() keeps snapshot identity across a no-op provider render', async () => {
+  it('compat useRuntimeSelector(s => s) keeps snapshot identity across a no-op provider render', async () => {
     await render()
     const snapA = latestStore
     // A drafts write that sets the SAME value is a no-op — the store publishes a

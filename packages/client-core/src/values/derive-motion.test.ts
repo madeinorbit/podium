@@ -1,6 +1,6 @@
 import type { AgentRuntimeState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../replica/issue-view-models'
+import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
 import { formatClock, motionPhase, motionTiming } from './index'
 

@@ -1,4 +1,5 @@
-import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
