@@ -227,6 +227,26 @@ for (const action of run.actions) {
   const nodes = new Map(profile.nodes.map(n => [n.id, n]))
   const parents = new Map<number, number>()
   for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node.id)
+  const locations = new Map(profile.nodes.map(node => [node.id, maps.locate(node.callFrame)]))
+  const classifications = new Map<number, { kind: string; storeDerive: boolean; unmapped: boolean }>()
+  const classify = (sample: number) => {
+    const cached = classifications.get(sample)
+    if (cached) return cached
+    const chain: {frame: Frame; source: Location | null}[] = []
+    let id: number | undefined = sample
+    while (id !== undefined) {
+      const node = nodes.get(id)!
+      chain.push({frame: node.callFrame, source: locations.get(id) ?? null})
+      id = parents.get(id)
+    }
+    const classification = {
+      kind: bucket(chain),
+      storeDerive: chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica|store)|packages\/client-graph\/|packages\/worklist-proto\/shared\/src\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file)),
+      unmapped: chain.some(({frame, source}) => frame.url.endsWith('.js') && !source),
+    }
+    classifications.set(sample, classification)
+    return classification
+  }
   const buckets: Record<string, number> = {}
   const events: Event[] = JSON.parse(gunzipSync(await readFile(resolve(runFile, '..', action.trace))).toString())
   const input = events.find(e => e.name === (action.action.startsWith('app-')?'comparison:navigation-start':'comparison:input'))!
@@ -245,17 +265,10 @@ for (const action of run.actions) {
     const ms = Math.max(0, Math.min(next, end) - Math.max(cursor, profileStart)) / 1000
     cursor = next
     if (ms === 0) continue
-    const chain: {frame: Frame; source: Location | null}[] = []
-    let id: number | undefined = profile.samples[index]
-    while (id !== undefined) {
-      const node = nodes.get(id)!
-      chain.push({frame: node.callFrame, source: maps.locate(node.callFrame)})
-      id = parents.get(id)
-    }
-    const kind = bucket(chain)
+    const {kind, storeDerive, unmapped} = classify(profile.samples[index]!)
     add(buckets, kind, ms); sampledMs += ms
-    if (chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica|store)|packages\/client-graph\/|packages\/worklist-proto\/shared\/src\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file))) storeDeriveInclusiveMs += ms
-    if (chain.some(({frame, source}) => frame.url.endsWith('.js') && !source)) unmappedMs += ms
+    if (storeDerive) storeDeriveInclusiveMs += ms
+    if (unmapped) unmappedMs += ms
   }
   const activeSampledMs=sampledMs-(buckets.idle??0)
   const hardwareCpuMs=action.mainThreadCpuMs??boundaries[action.trace]?.mainThreadCpuMs??null
