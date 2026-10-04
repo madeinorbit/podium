@@ -12,7 +12,10 @@ POD-5432's overlay retirement at `1771dbb415`, POD-5438's behavior-preserving
 transaction URL latch separation at `cca0cf29cc`, and POD-5430's independent
 outbox partition drainers at `d9870eabd9`; these writer changes are
 inherited, rather than edits in this issue. Shared host files are not edited.
-The phone declarations omit `initialize` and `enabled`.
+The phone declarations omit `initialize` and `enabled`. The branch also includes
+POD-5421's mission reader landing at `ba1171ee9d`. Its `archivedCount` interface
+is retained in the empty mobile deck; the rebase preserves the deleted legacy
+checker rather than restoring its control arm.
 
 ## Accepted outputs and retained controls
 
@@ -49,9 +52,22 @@ UTC01:58:33.888–02:18:39.429Z, exit124, endload17.60, with shared load31–34
 during the run. Its collected partial report proves both repaired files green:
 session-homes has four assertions, including4,304 corpus routes; inbox has14,
 including its complete frozen bank. WorkScreen logs green menu/click budgets
-and1xpaint0/1 but has no final file result. The remaining five files require
-completion; no complete seven-file green is claimed. The later SSH banner
-exchange failed before the next patch, then recovered. No validation is active.
+and1xpaint0/1 but has no final file result. The remaining five files subsequently
+completed green at source `2ba88fc1f4`, flatblock WIP
+`04daa12a9d54763345f6b7f46a04f40206d37f8e`, UTC02:50:14.250–02:53:35.726Z,
+load5.99→8.69, exit0: WorkScreen11, MissionDeck10, mobile slices7, board17 and
+screening10, totaling55 checks. Literal native rows/styles, paint counts,
+search identity and the menu/click1x/4x budgets pass. Together with the two
+completed files from the interrupted run, all seven files have green results;
+the interrupted invocation itself remains exit124.
+
+The mission dependency rebase has a separate green three-file run at source
+`6ab3da11d5`, tree `9a8e2e42d977e482ee125261d05482f8363af857`, flatblock WIP
+`93543174a75e9f7a2979413dc7064cd442866887`, UTC03:05:56.975–03:13:17.963Z,
+freshload7.53→9.84, exit0. Corpus2, mounted-screen2 and MissionDeck10 total14
+checks. Both scales preserve all 9,714 corpus digests through 115,418 positions
+and 18 gates each; all 30 mounted fingerprints and cumulative zero legacy
+counts remain unchanged. The capture owner has the exact overlap bounds.
 
 The two converted snapshot test keys were mechanically renamed to match their
 new test names. Their expected bodies were checked byte-for-byte. No expected
@@ -125,13 +141,13 @@ The final structural rerun is pending.
 Phone timing will compare production Pixel7 pool-only samples with POD-5081's
 accepted ON capture: the same6,100-issue/5,200-session corpus, Chromium version,
 20 updates and three untraced samples plus diagnostic traced samples. Timing
-runs only under this session's `bench:flatblock` lease. POD-5407 currently owns
-that lease; its shared phone OFF/warm-start helper remains untouched until its
-landing notice.
+runs only under this session's `bench:flatblock` lease. POD-5407 released its
+capture lease at02:47:46Z; POD-5421 acquired it at03:01:17Z. The shared phone
+OFF/warm-start helper remains untouched until POD-5407's landing notice.
 
 ## Zero legacy readers and private counts
 
-The final source audit at `a1d9a42490` scans300 production files and finds zero
+The final source audit at `6ab3da11d5` scans 300 production files and finds zero
 legacy reader references, including twins, selectors, slices, switches and
 removed board/screening builders. The store action mapping, screening command
 interface, decision function and tally are byte-identical to `b4d0134f17`.
@@ -161,9 +177,14 @@ unrecorded process termination is used. While POD-5407 holds the bench lease,
 new runs initially required fresh one-minute load below8. At02:26:35Z the
 coordinator imposed a stricter quiet window after the shared host reached
 22of23GB and a capture was aborted: no new validation of any kind until
-POD-5407 explicitly releases the bench, regardless of load.
+POD-5407 explicitly releases the bench, regardless of load. That release was
+received at02:47:46Z and the coordinator restored normal admission at02:47:57Z.
+While another lane holds the bench, new test/compiler/lint runs require a fresh
+one-minute load below8. The coordinator separately holds structural meters
+until approximately03:48Z while POD-5430 runs its final4x meter. No timing is
+started under another session's lease.
 
-The latest filtered mobile/e2e compiler is green at source`52b7940f9f`,
+The preceding filtered mobile/e2e compiler is green at source`52b7940f9f`,
 flatblock WIP`e2bd21033e20dc5d99e80cc6c2453f333d215f29`,
 UTC02:29:11.994–02:30:08.336Z, load5.64→7.01:16successful tasks,
 no cache hits or bypasses, and216 e2e runtime imports resolve. Focused follow-up
@@ -176,11 +197,21 @@ The stricter quiet-window mail was read here after those runs had finished;
 exact timestamps were sent to POD-4286 and POD-5407 for capture-overlap exclusion.
 A checkout-scoped process audit finds no surviving Node/Bun/timeout validation
 process. The clean rebase onto `d9870eabd9` inherits only its three outbox files;
-all phone and graph source bytes are unchanged from the recorded checks. No
-new run starts until explicit bench release. Production Pixel7
-screenshots/counters, its actual startup-selector negative control, the remaining
-fixture collection and strict structural rerun are prepared and held. This
-report makes no physical-device claim.
+all phone and graph source bytes are unchanged from that checkpoint. The later
+mission rebase changes the empty-deck interface; its focused regressions above
+are green and its filtered compiler retry awaits fresh admission. A03:18Z
+attempt stopped before committing or starting the compiler when load was8.58.
+
+The first production Pixel7 proof attempt reaches the unchanged web bundle
+budget guard and exits1 before any browser case. At source`2ba88fc1f4`, flatblock
+WIP`94afc49563d3de39ee6ade0873b257667eb1d1a9`,
+UTC02:55:29.293–02:58:36.935Z, load7.97→10.19, the guard rejects eagerly loaded
+`IssueContextMenu.tsx` and `machine-handoff.ts`. No web/model edit or guard
+bypass is made in this lane. POD-4286 assigned the required lazy import repair
+to POD-5438 under blocking POD-5476; the duplicate blocker POD-5475 is closed
+as moved. Production screenshots/counters and their actual startup-selector
+negative control wait for that landing. Strict structural verification and
+ON timing remain pending. This report makes no physical-device claim.
 
 The old670-fingerprint work bank's optimisticPress and seed3 pending mark-read
 hashes vary with wall-clock queuedAt. The original independent controls fail
