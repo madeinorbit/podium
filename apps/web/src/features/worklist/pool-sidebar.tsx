@@ -32,7 +32,8 @@ import {
   useState,
 } from 'react'
 import { useRuntimeSelector } from '@/app/store'
-import { useWorklistPool } from '@/app/store-worklist-pool'
+import { usePanelVisible } from '@/app/panel-visible'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
@@ -473,6 +474,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           />
           <FoldPanel
             open={!collapsed.has(band.foldKey)}
+            retain
             testId={band.startFirstTask ? `project-group-empty:${band.key}` : 'project-group-rows'}
             dragScope={band.startFirstTask ? undefined : `group:${band.key}`}
           >
@@ -608,6 +610,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
   const folded = lane === 'closed' || lane === 'snoozed'
+  const visible = usePanelVisible()
   const draw = useMemo(
     () =>
       computed<{
@@ -639,20 +642,37 @@ const PoolMotionRow = observer(function PoolMotionRow({
         { equals: (a, b) => compareStructural(a.paint, b.paint) },
       ),
     [pool, id, kind, folded, lane],
-  ).get()
-  const fresh = draw.value
+  )
+  // A visited group keeps its DOM across folds, while this projection releases
+  // tracking when hidden. Reuse equal paint on reveal so the leaf does not
+  // rebuild unchanged rows after MobX suspends its computed values.
+  const lastDraw = useRef<ReturnType<typeof draw.get> | undefined>(undefined)
+  const readDraw = useCallback(() => {
+    const next = draw.get()
+    const previous = lastDraw.current
+    if (previous && compareStructural(previous.paint, next.paint)) return previous
+    lastDraw.current = next
+    return next
+  }, [draw])
+  const paint = useWorklistPoolProjection(readDraw, undefined, visible) ?? {
+    value: LOADING,
+    now: 0,
+    paint: LOADING,
+  }
+  const fresh = paint.value
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   if (fresh !== undefined && fresh !== LOADING) previous.current = fresh
   const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh
   const draftPane = useRuntimeSelector(
     (s) =>
+      visible &&
       value !== undefined &&
       value !== LOADING &&
       value.draftAgentOnly &&
       s.paneA === value.firstSessionId,
   )
-  const active = kind === 'issue' && pool.selection.has(id)
-  const now = draw.now
+  const active = visible && kind === 'issue' && pool.selection.has(id)
+  const now = paint.now
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
   const draggable =
@@ -793,11 +813,12 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   path: string
   actions: PoolWorkActions
 }) {
+  const visible = usePanelVisible()
   const state = useRuntimeSelector((s) => {
-    const active = s.selectedIssueId === null && s.selectedWorktree === path
+    const active = visible && s.selectedIssueId === null && s.selectedWorktree === path
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)
-  const value = useMemo(
+  const projection = useMemo(
     () =>
       computed(() => pool.sidebar.worktree(path, state), {
         equals: (a, b) =>
@@ -837,7 +858,11 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
           ),
       }),
     [pool, path, state],
-  ).get()
+  )
+  const read = useCallback(() => projection.get(), [projection])
+  const value = useWorklistPoolProjection(read, undefined, visible)
+  const now = useRef(0)
+  if (visible) now.current = pool.clock.current
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(
@@ -862,7 +887,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
       issues={value.issues as unknown as IssueNavigationModel[]}
       active={value.active}
       paneA={state.paneA}
-      now={pool.clock.current}
+      now={now.current}
       partition={{ visible: value.visible as SessionView[], stale: value.stale as SessionView[] }}
       renderSession={renderSession}
       onSelect={select}
@@ -888,7 +913,8 @@ const PoolPanelRow = observer(function PoolPanelRow({
   issueDisplayRef?: string
   trailingMeta: ReactNode
 }) {
-  const value = useMemo(
+  const visible = usePanelVisible()
+  const projection = useMemo(
     () =>
       computed(() => pool.row('session', id) as SessionView | typeof LOADING | undefined, {
         equals: (a, b) =>
@@ -898,9 +924,11 @@ const PoolPanelRow = observer(function PoolPanelRow({
           ),
       }),
     [pool, id],
-  ).get()
+  )
+  const read = useCallback(() => projection.get(), [projection])
+  const value = useWorklistPoolProjection(read, undefined, visible)
   const select = useCallback(() => actions.selectPanel(path, id as SessionId), [actions, path, id])
-  const snoozeState = useMemo(
+  const snoozeProjection = useMemo(
     () =>
       computed(
         () => {
@@ -917,7 +945,9 @@ const PoolPanelRow = observer(function PoolPanelRow({
         { equals: compareStructural },
       ),
     [pool, value],
-  ).get()
+  )
+  const readSnooze = useCallback(() => snoozeProjection.get(), [snoozeProjection])
+  const snoozeState = useWorklistPoolProjection(readSnooze, undefined, visible)
   return value === LOADING ? (
     <div aria-busy="true" data-testid="pool-row-loading" className="min-h-6" />
   ) : value === undefined ? null : (

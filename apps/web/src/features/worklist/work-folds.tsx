@@ -11,6 +11,7 @@ import { Archive, ChevronRight, Pin } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useId, useRef, useState } from 'react'
+import { PanelVisible, usePanelVisible } from '@/app/panel-visible'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { NotSavedMark } from '@/components/NotSavedMark'
@@ -272,6 +273,7 @@ export function FoldPanel({
   id,
   testId,
   dragScope,
+  retain = false,
   children,
 }: {
   open: boolean
@@ -281,13 +283,18 @@ export function FoldPanel({
    *  children of this panel; useRowDrag relies on that boundary to exclude the
    *  nested snoozed/closed folds from the live-row order. */
   dragScope?: string
+  /** Keep a visited project group's DOM, with hidden readers and clocks paused. */
+  retain?: boolean
   children: ReactNode
 }): JSX.Element | null {
   const reduceMotion = useReducedMotion()
+  const parentVisible = usePanelVisible()
   // Derived during render, not in an effect: an effect would mount the rows one
   // frame after the press, and that frame is visible at the head of a gesture
   // whose whole job is to feel immediate.
   const [rendered, setRendered] = useState(open)
+  const visited = useRef(open)
+  if (open) visited.current = true
   if (open && !rendered) setRendered(true)
   // The first paint of a column is not a disclosure: an open fold on load must
   // simply BE open, or every reload plays thirty rows unrolling. Only a fold
@@ -296,14 +303,16 @@ export function FoldPanel({
   const settled = useRef(false)
   const firstPaint = !settled.current
   settled.current = true
-  if (!rendered) return null
+  if (!rendered && (!retain || !visited.current)) return null
   return (
     <m.div
       id={id}
       data-testid={testId}
       data-drag-scope={dragScope}
+      aria-hidden={!open}
+      inert={!open}
       className="min-w-0 overflow-hidden"
-      style={{ contain: 'layout paint' }}
+      style={{ contain: 'layout paint', ...(!rendered ? { display: 'none' } : {}) }}
       initial={firstPaint ? false : { height: 0, opacity: 0 }}
       animate={
         open
@@ -316,7 +325,7 @@ export function FoldPanel({
         if (!open) setRendered(false)
       }}
     >
-      {children}
+      <PanelVisible visible={parentVisible && open}>{children}</PanelVisible>
     </m.div>
   )
 }
