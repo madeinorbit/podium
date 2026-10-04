@@ -10,7 +10,13 @@ parser.add_argument('--new-sha', required=True)
 parser.add_argument('--deleted-sha', required=True)
 parser.add_argument('--current-sha', required=True)
 parser.add_argument('--home', type=pathlib.Path, default=pathlib.Path.home())
+parser.add_argument('--scope', choices=['original', 'coordinator-finish'], default='original')
+parser.add_argument('--scope-record', type=pathlib.Path)
 args = parser.parse_args()
+finish = args.scope == 'coordinator-finish'
+scope_record = json.loads(args.scope_record.read_text())['finishScope'] if finish and args.scope_record else None
+if finish and (not scope_record or scope_record.get('coordinatorMessage') != 'msg_0599a35e-780b-476a-8fad-9b3bce58885c'):
+    raise RuntimeError('The reduced audit requires the recorded coordinator scope change')
 checkouts = {arm: args.home / f'podium-test-5501-{arm}' for arm in ['old', 'new']}
 expected_sha = {'old': '5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb', 'new': args.new_sha, 'new-deleted': args.deleted_sha, 'new-current': args.current_sha}
 web = set('sidebar-select sidebar-collapse sidebar-expand sidebar-group-collapse sidebar-group-expand session-switch superagent-composer-typing flight-deck-collapse flight-deck-expand sidebar-drag-start sidebar-drag-drop mark-read mission-switch large-mission-switch command-palette issue-picker-search board-open dock-open dock-close issue-rename header-menu issue-page-open board-search'.split())
@@ -22,6 +28,8 @@ heaps = collections.Counter()
 backgrounds = collections.Counter()
 captures = []
 evidence_count = 0
+unattributed_profiles = []
+corpus_hashes = {}
 for checkout_arm, checkout in checkouts.items():
     root = checkout / '.artifacts/old-vs-new'
     for file in sorted(root.glob('*/run.json')):
@@ -35,8 +43,10 @@ for checkout_arm, checkout in checkouts.items():
         require(run['host'] == 'flatblock', 'wrong host')
         require(run['sha'] == expected_sha[run['arm']], 'wrong source SHA')
         require(run['durationTimeDomain'] == 'threadTicks', 'CPU wall clock substituted')
-        corpus = (root / f'corpus-{run["scale"]}x.json').read_bytes()
-        require(hashlib.sha256(corpus).hexdigest() == run['semanticSha256'], 'semantic corpus digest mismatch')
+        corpus_key = (checkout_arm, run['scale'])
+        if corpus_key not in corpus_hashes:
+            corpus_hashes[corpus_key] = hashlib.sha256((root / f'corpus-{run["scale"]}x.json').read_bytes()).hexdigest()
+        require(corpus_hashes[corpus_key] == run['semanticSha256'], 'semantic corpus digest mismatch')
         require(run['corpus']['syntheticIssues'] == 4867 * run['scale'], 'issue count mismatch')
         require(run['corpus']['syntheticSessions'] == 4304 * run['scale'], 'session count mismatch')
         require(run['preflightRows'] > run['corpus']['syntheticIssues'], 'production decoder did not validate full stream')
@@ -90,8 +100,14 @@ for checkout_arm, checkout in checkouts.items():
             expected_actions = set()
         actual_actions = {row['action'] for row in run['actions']}
         require(actual_actions == expected_actions, f'action coverage mismatch: {sorted(expected_actions ^ actual_actions)}')
-        attribution = json.loads((file.parent / 'cpu-attribution.json').read_text())
-        require(len(attribution['summaries']) == sum(row['profiled'] for row in run['actions']), 'profile attribution count mismatch')
+        attribution_file = file.parent / 'cpu-attribution.json'
+        if attribution_file.exists():
+            attribution = json.loads(attribution_file.read_text())
+            require(len(attribution['summaries']) == sum(row['profiled'] for row in run['actions']), 'profile attribution count mismatch')
+        elif finish:
+            unattributed_profiles.append(name)
+        else:
+            require(False, 'sampled source attribution missing')
         for row in run['actions']:
             require(row['inputToPaintMs'] > 0 and 0 <= row['selectedDomMs'] <= row['inputToPaintMs'], f'{row["action"]}: paint precedes input/DOM')
             if row.get('mainThreadCpuMs') is not None:
@@ -117,13 +133,14 @@ for checkout_arm, checkout in checkouts.items():
         for row in run['background']:
             require(row['taskMs'] >= 0 and (file.parent / row['trace']).is_file(), 'update CPU/evidence missing')
             evidence_count += 1
-for pair in ['new', 'new-deleted', 'new-current']:
+for pair in (['new-current'] if finish else ['new', 'new-deleted', 'new-current']):
     for surface in ['web', 'phone']:
         for scale in [1, 4]:
             key = (pair, surface, scale)
             for arm in ['old', pair]:
                 if arm == 'old' and surface == 'phone':
-                    if failures[('timing', *key)] < 2 or failures[('memory', *key)] < 1:
+                    available_failures = sum(n for (mode, p, s, z), n in failures.items() if mode == 'timing' and s == 'phone' and z == scale)
+                    if (available_failures < 1 if finish else failures[('timing', *key)] < 2 or failures[('memory', *key)] < 1):
                         errors.append(f'{key}: OLD boot failure evidence incomplete')
                     continue
                 arm_actions = web if surface == 'web' else phone
@@ -137,7 +154,8 @@ for pair in ['new', 'new-deleted', 'new-current']:
                         expected_n = 8
                     if counts[(*key, arm, action)] != expected_n:
                         errors.append(f'{key}/{arm}/{action}: sample count {counts[(*key, arm, action)]}, expected {expected_n}')
-                if heaps[(*key, arm)] != 1:
+                required_heaps = int(arm == 'new-current' and surface == 'web' and scale == 4) if finish else 1
+                if heaps[(*key, arm)] != required_heaps:
                     errors.append(f'{key}/{arm}: missing five-minute heap pair')
                 if backgrounds[(*key, arm)] != 2:
                     errors.append(f'{key}/{arm}: corrected background capture count {backgrounds[(*key,arm)]}, expected 2')
@@ -150,8 +168,18 @@ for run in sorted(captures, key=lambda row: row['captureStartedAt']):
 for key, arms in orders.items():
     repetitions=2 if key[0]=='timing' or (key[0]=='background' and key[3]==1) else 1
     expected = ['old', key[1]] * repetitions
+    if finish:
+        if key[1] == 'new-current' and key[0] == 'timing' and key[2] == 'phone':
+            expected = ['old', 'new-current', 'new-current'] if key[3] == 1 else ['new-current', 'new-current']
+        elif key[1] == 'new-current' and key[0] == 'memory':
+            expected = ['new-current']
+        elif key[1] != 'new-current':
+            expected = ['old', key[1]] * (len(arms) // 2)
     if arms != expected:
         errors.append(f'{key}: run order {arms}, expected {expected}')
-audit = {'ok': not errors, 'captures': len(captures), 'rawTraceAndProfileFiles': evidence_count, 'sampleCells': len(counts), 'errors': errors, 'sourceShas': expected_sha}
+audit = {'ok': not errors, 'scope': args.scope, 'originalRequestComplete': not finish and not errors,
+         'unmeasuredOriginalRequests': scope_record['unmeasured'] if finish else [],
+         'runsWithoutSampledAttribution': unattributed_profiles,
+         'captures': len(captures), 'rawTraceAndProfileFiles': evidence_count, 'sampleCells': len(counts), 'errors': errors, 'sourceShas': expected_sha}
 print(json.dumps(audit, indent=2))
 raise SystemExit(1 if errors else 0)

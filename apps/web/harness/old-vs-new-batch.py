@@ -11,6 +11,7 @@ parser.add_argument('--new-arm',default='new')
 parser.add_argument('--rounds',default='0,1')
 parser.add_argument('--samples',default='8')
 parser.add_argument('--background-only',action='store_true')
+parser.add_argument('--new-only',action='store_true',help='Explicit coordinator scope reduction; no matched OLD attempt')
 parser.add_argument('--start-at',help='Resume at arm:surface:scale:round, retaining completed earlier captures')
 args=parser.parse_args()
 started=not args.start_at
@@ -19,7 +20,7 @@ scales=['1','4'] if args.scale=='both' else [args.scale]
 for surface in surfaces:
     for scale in scales:
         for round in args.rounds.split(','):
-            for arm in ['old',args.new_arm]:
+            for arm in ([args.new_arm] if args.new_only else ['old',args.new_arm]):
                 if not started:
                     started=f'{arm}:{surface}:{scale}:{round}'==args.start_at
                     if not started:continue

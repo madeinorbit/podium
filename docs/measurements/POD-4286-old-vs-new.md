@@ -2,6 +2,8 @@
 
 CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08→0.63 s, mark-read 9.77→0.24 s, and busy live-update CPU 92%→23% of one renderer core. Startup costs more: cold 7.65→11.88 s and retained-data reload 4.43→8.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The first CURRENT phone 1x capture is complete; OLD has no matched phone result. The whole-app verdict still awaits the remaining phone captures, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.
 
+The coordinator reduced the remaining work on October 4 at 22:38 UTC to three CURRENT phone captures and one CURRENT web 4x heap capture, followed by the report and landing. The original full matrix is incomplete. The exact e22a8b6bd9 deletion snapshot, matched heap comparisons and sampled store/derive and React attribution were not completed. Later CURRENT phone repetitions have no interleaved OLD attempt; OLD startup failure is retained as a gap, not a latency win.
+
 ## Compared applications
 
 - **NEW**: `1aa0ec71f68c5c6569560798db00a82a1db9f82d`
@@ -12,13 +14,13 @@ OLD corpus seed 4443: 4,867 issues and 4,304 sessions at 1x; 19,468 issues and 1
 
 Performance evidence: 19 completed measurement runs and 5 failed measurement runs. 1 failed run(s) retain a separately completed action phase; their failed background preparation contributes no CPU windows. 43 calibration, superseded or diagnostic runs are retained separately and excluded from comparisons.
 
-This is a comparison of shipped application revisions, including their other changes and different data representations. It does not isolate MobX as the sole cause. The operator requested NEW be repinned from 22b676a741 to 1aa0ec71f6 during collection, and later requested the current dev/mw operator build be compared first; it is pinned at build time to 96f705cd4e. The deletion revision e22a8b6bd9 remains a separate named snapshot. The earlier 22b676 captures are retained as superseded evidence and do not enter the verdict.
+This is a comparison of shipped application revisions, including their other changes and different data representations. It does not isolate MobX as the sole cause. The operator requested NEW be repinned from 22b676a741 to 1aa0ec71f6 during collection, and later requested the current dev/mw operator build be compared first; it is pinned at build time to 96f705cd4e. The exact deletion revision e22a8b6bd9 was not captured before the coordinator narrowed the finish scope. The earlier 22b676 captures are retained as superseded evidence and do not enter the verdict.
 
 Phone uses Pixel 7 Chromium emulation on the same flatblock CPU. Ordinary phone controls are activated with Playwright click; long-press dispatches CDP touch input. Typing and picker-search samples insert a short complete draft or query with fill(), rather than replaying a particular human keystroke cadence.
 
 ## Latency, milliseconds
 
-Lower is better. Percent change is `(NEW / OLD − 1) × 100`. Percentiles use nearest rank; median averages the middle pair. Profiled samples are excluded. Cached phone Work can return using only composited pixels: its boundary is DrawFrame when no new raster Paint occurs, and its CPU boundary is the last completed main-thread trace event before that frame, a conservative lower bound if work overlaps the frame; wider CDP task CPU also remains raw. Differences within ±10% are labelled no clear improvement; this is a reporting band, not a statistical confidence interval. With 4, 8 or 16 observations, nearest-rank p95 equals the maximum; it is a limited tail estimate, not an independent tail measurement.
+Lower is better. Percent change is `(NEW / OLD − 1) × 100`. Percentiles use nearest rank; median averages the middle pair. Profiled samples are excluded. Cached phone Work can return using only composited pixels: its boundary is DrawFrame when no new raster Paint occurs, and an available CPU-boundary supplement uses the last completed main-thread trace event before that frame, a conservative lower bound if work overlaps the frame. Without that supplement the action CPU is unavailable; CPU sample counts below show the gap. Wider CDP task CPU remains raw. Differences within ±10% are labelled no clear improvement; this is a reporting band, not a statistical confidence interval. With 4, 8 or 16 observations, nearest-rank p95 equals the maximum; it is a limited tail estimate, not an independent tail measurement.
 
 | Surface | Scale | Action | NEW arm | OLD n | NEW n | OLD median | NEW median | OLD p95 | NEW p95 | Median change | p95 change | OLD max | NEW max | NEW boundary | Verdict |
 |---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|
@@ -170,153 +172,155 @@ Lower is better. Percent change is `(NEW / OLD − 1) × 100`. Percentiles use n
 
 Main-thread CPU uses Chromium trace thread timestamps (tts/tdur), from the trusted input handler to the qualifying Paint end. It excludes OS descheduling; click latency includes the event queue and waiting. Startup CPU starts at the initialization script, slightly after navigation begins. Layout CPU is the union of Layout and UpdateLayoutTree thread durations in that interval and overlaps total CPU. Task busy wall time and wider CDP polling-window deltas remain in raw data. Source-map profiles separately estimate store/derive and React work; never add overlapping categories. [Chromium performance-agent implementation](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/inspector/inspector_performance_agent.cc).
 
-| Surface | Scale | Action | NEW arm | OLD CPU median | NEW CPU median | Median change | OLD CPU p95 | NEW CPU p95 | OLD CPU max | NEW CPU max | OLD layout CPU | NEW layout CPU |
-|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| phone | 1 | app-cold-start | new-current | — | 2,889.1 | — | — | 3,092.6 | — | 3,092.6 | — | 36.1 |
-| phone | 1 | app-warm-start | new-current | — | 1,839.2 | — | — | 2,260.1 | — | 2,260.1 | — | 36.0 |
-| phone | 1 | phone-composer-typing | new-current | — | 12.7 | — | — | 17.9 | — | 17.9 | — | 1.3 |
-| phone | 1 | phone-inbox | new-current | — | — | — | — | — | — | — | — | — |
-| phone | 1 | phone-issue-open | new-current | — | 54.3 | — | — | 85.9 | — | 85.9 | — | 6.7 |
-| phone | 1 | phone-issue-picker-search | new-current | — | 16.7 | — | — | 19.4 | — | 19.4 | — | 1.0 |
-| phone | 1 | phone-issue-rename | new-current | — | 19.1 | — | — | 21.5 | — | 21.5 | — | 1.3 |
-| phone | 1 | phone-issue-screen | new-current | — | 368.1 | — | — | 417.3 | — | 417.3 | — | 0.3 |
-| phone | 1 | phone-long-press | new-current | — | 172.6 | — | — | 195.8 | — | 195.8 | — | 5.8 |
-| phone | 1 | phone-mission-details | new-current | — | 95.5 | — | — | 166.2 | — | 166.2 | — | 43.2 |
-| phone | 1 | phone-mission-open | new-current | — | 88.0 | — | — | 125.8 | — | 125.8 | — | 7.5 |
-| phone | 1 | phone-work-screen | new-current | — | 374.9 | — | — | 374.9 | — | 374.9 | — | 4.3 |
-| phone | 1 | phone-work-search | new-current | — | 12.6 | — | — | 14.1 | — | 14.1 | — | 1.6 |
-| web | 1 | app-cold-start | new-current | 1,671.8 | 2,780.7 | 66.3% | 1,957.0 | 3,005.3 | 1,957.0 | 3,005.3 | 81.8 | 82.4 |
-| web | 1 | app-warm-start | new-current | 776.4 | 1,720.6 | 121.6% | 915.9 | 1,932.5 | 915.9 | 1,932.5 | 62.6 | 55.5 |
-| web | 1 | board-open | new-current | 246.5 | 316.6 | 28.4% | 268.6 | 350.5 | 268.6 | 350.5 | 60.2 | 64.0 |
-| web | 1 | board-search | new-current | 55.9 | 89.1 | 59.2% | 84.7 | 141.6 | 84.7 | 141.6 | 8.6 | 8.5 |
-| web | 1 | command-palette | new-current | 87.3 | 120.1 | 37.6% | 253.9 | 363.8 | 253.9 | 363.8 | 6.2 | 6.7 |
-| web | 1 | dock-close | new-current | 60.1 | 52.0 | -13.5% | 89.1 | 57.9 | 89.1 | 57.9 | 3.3 | 3.2 |
-| web | 1 | dock-open | new-current | 74.4 | 60.6 | -18.6% | 97.5 | 83.8 | 97.5 | 83.8 | 3.7 | 3.8 |
-| web | 1 | flight-deck-collapse | new-current | 30.9 | 42.4 | 37.5% | 44.8 | 56.9 | 44.8 | 56.9 | 1.6 | 3.5 |
-| web | 1 | flight-deck-expand | new-current | 43.0 | 34.1 | -20.8% | 51.9 | 45.2 | 51.9 | 45.2 | 4.4 | 4.5 |
-| web | 1 | header-menu | new-current | 20.2 | 22.0 | 9.1% | 50.1 | 46.5 | 50.1 | 46.5 | 4.0 | 4.4 |
-| web | 1 | issue-page-open | new-current | 83.3 | 59.1 | -29.1% | 139.9 | 101.5 | 139.9 | 101.5 | 28.8 | 28.0 |
-| web | 1 | issue-picker-search | new-current | 20.7 | 30.3 | 46.6% | 34.5 | 54.7 | 34.5 | 54.7 | 3.6 | 4.7 |
-| web | 1 | issue-rename | new-current | 219.1 | 29.7 | -86.4% | 282.0 | 35.1 | 282.0 | 35.1 | 2.3 | 2.3 |
-| web | 1 | large-mission-switch | new-current | 664.8 | 539.8 | -18.8% | 1,197.9 | 1,178.1 | 1,197.9 | 1,178.1 | 139.4 | 161.3 |
-| web | 1 | mark-read | new-current | 839.2 | 79.2 | -90.6% | 1,541.6 | 107.4 | 1,541.6 | 107.4 | 5.8 | 3.8 |
-| web | 1 | mission-switch | new-current | 336.7 | 184.3 | -45.3% | 366.1 | 221.9 | 366.1 | 221.9 | 52.0 | 54.7 |
-| web | 1 | session-composer-typing | new-current | — | — | — | — | — | — | — | — | — |
-| web | 1 | session-switch | new-current | 746.3 | 149.7 | -79.9% | 867.5 | 360.8 | 867.5 | 360.8 | 31.6 | 33.7 |
-| web | 1 | sidebar-collapse | new-current | 79.5 | 92.9 | 16.9% | 104.4 | 139.6 | 104.4 | 139.6 | 18.1 | 16.5 |
-| web | 1 | sidebar-drag-drop | new-current | 27.3 | 29.3 | 7.6% | 40.1 | 115.4 | 40.1 | 115.4 | 3.6 | 3.9 |
-| web | 1 | sidebar-drag-start | new-current | 21.3 | 27.4 | 28.8% | 36.6 | 32.6 | 36.6 | 32.6 | 1.5 | 1.5 |
-| web | 1 | sidebar-expand | new-current | 162.5 | 184.4 | 13.5% | 199.4 | 242.3 | 199.4 | 242.3 | 43.4 | 42.1 |
-| web | 1 | sidebar-group-collapse | new-current | 34.9 | 53.1 | 52.3% | 45.0 | 66.5 | 45.0 | 66.5 | 1.4 | 1.5 |
-| web | 1 | sidebar-group-expand | new-current | 88.7 | 219.7 | 147.5% | 119.9 | 264.6 | 119.9 | 264.6 | 23.2 | 25.5 |
-| web | 1 | sidebar-select | new-current | 260.7 | 128.1 | -50.9% | 334.8 | 169.0 | 334.8 | 169.0 | 37.3 | 36.5 |
-| web | 1 | superagent-composer-typing | new-current | 11.5 | 10.6 | -8.0% | 18.4 | 28.9 | 18.4 | 28.9 | 2.1 | 2.7 |
-| web | 4 | app-cold-start | new-current | 5,874.1 | 10,344.8 | 76.1% | 6,637.5 | 11,016.3 | 6,637.5 | 11,016.3 | 239.3 | 166.0 |
-| web | 4 | app-warm-start | new-current | 3,777.3 | 7,116.4 | 88.4% | 5,938.3 | 7,465.2 | 5,938.3 | 7,465.2 | 184.5 | 150.2 |
-| web | 4 | board-open | new-current | 683.9 | 936.9 | 37.0% | 912.5 | 1,022.8 | 912.5 | 1,022.8 | 155.2 | 149.6 |
-| web | 4 | board-search | new-current | 146.6 | 346.1 | 136.1% | 242.2 | 1,039.3 | 242.2 | 1,039.3 | 10.9 | 18.3 |
-| web | 4 | command-palette | new-current | 261.5 | 384.2 | 46.9% | 618.7 | 1,158.1 | 618.7 | 1,158.1 | 8.9 | 8.5 |
-| web | 4 | dock-close | new-current | 182.6 | 98.8 | -45.9% | 224.3 | 257.0 | 224.3 | 257.0 | 5.6 | 5.2 |
-| web | 4 | dock-open | new-current | 219.7 | 120.9 | -45.0% | 286.9 | 192.0 | 286.9 | 192.0 | 5.3 | 5.3 |
-| web | 4 | flight-deck-collapse | new-current | 106.9 | 80.9 | -24.3% | 162.1 | 108.6 | 162.1 | 108.6 | 2.7 | 5.2 |
-| web | 4 | flight-deck-expand | new-current | 136.4 | 67.4 | -50.6% | 188.6 | 126.9 | 188.6 | 126.9 | 7.6 | 6.2 |
-| web | 4 | header-menu | new-current | 32.4 | 33.8 | 4.3% | 92.7 | 63.0 | 92.7 | 63.0 | 5.7 | 6.1 |
-| web | 4 | issue-page-open | new-current | 330.1 | 167.8 | -49.1% | 388.9 | 250.2 | 388.9 | 250.2 | 96.6 | 97.5 |
-| web | 4 | issue-picker-search | new-current | 49.0 | 73.5 | 49.8% | 63.0 | 102.0 | 63.0 | 102.0 | 7.8 | 8.7 |
-| web | 4 | issue-rename | new-current | 2,166.8 | 72.1 | -96.7% | 3,414.2 | 127.4 | 3,414.2 | 127.4 | 4.4 | 4.0 |
-| web | 4 | large-mission-switch | new-current | 2,978.8 | 1,041.8 | -65.0% | 4,547.3 | 2,421.2 | 4,547.3 | 2,421.2 | 215.2 | 306.9 |
-| web | 4 | mark-read | new-current | 9,268.0 | 166.2 | -98.2% | 14,962.3 | 225.8 | 14,962.3 | 225.8 | 35.2 | 7.6 |
-| web | 4 | mission-switch | new-current | 2,472.7 | 484.2 | -80.4% | 3,139.5 | 923.7 | 3,139.5 | 923.7 | 151.2 | 150.3 |
-| web | 4 | session-composer-typing | new-current | — | — | — | — | — | — | — | — | — |
-| web | 4 | session-switch | new-current | 6,009.4 | 472.4 | -92.1% | 11,304.2 | 670.9 | 11,304.2 | 670.9 | 111.9 | 109.8 |
-| web | 4 | sidebar-collapse | new-current | 329.6 | 384.0 | 16.5% | 480.8 | 485.2 | 480.8 | 485.2 | 62.2 | 60.0 |
-| web | 4 | sidebar-drag-drop | new-current | 96.2 | 53.5 | -44.4% | 253.2 | 119.9 | 253.2 | 119.9 | 12.5 | 7.6 |
-| web | 4 | sidebar-drag-start | new-current | 72.4 | 92.2 | 27.4% | 83.8 | 115.3 | 83.8 | 115.3 | 2.3 | 2.6 |
-| web | 4 | sidebar-expand | new-current | 802.6 | 844.5 | 5.2% | 1,235.7 | 1,402.8 | 1,235.7 | 1,402.8 | 157.6 | 152.4 |
-| web | 4 | sidebar-group-collapse | new-current | 100.8 | 126.3 | 25.3% | 112.2 | 162.9 | 112.2 | 162.9 | 2.8 | 2.8 |
-| web | 4 | sidebar-group-expand | new-current | 251.6 | 520.8 | 107.0% | 303.6 | 668.4 | 303.6 | 668.4 | 34.5 | 35.4 |
-| web | 4 | sidebar-select | new-current | 2,359.7 | 381.1 | -83.9% | 3,265.6 | 652.7 | 3,265.6 | 652.7 | 119.6 | 125.6 |
-| web | 4 | superagent-composer-typing | new-current | 28.6 | 19.6 | -31.4% | 37.6 | 26.9 | 37.6 | 26.9 | 4.9 | 4.5 |
-| phone | 1 | app-cold-start | new | — | 3,153.1 | — | — | 3,902.1 | — | 3,902.1 | — | 44.4 |
-| phone | 1 | app-warm-start | new | — | 2,015.8 | — | — | 2,258.4 | — | 2,258.4 | — | 57.3 |
-| phone | 1 | phone-composer-typing | new | — | 14.0 | — | — | 17.6 | — | 17.6 | — | 1.4 |
-| phone | 1 | phone-inbox | new | — | — | — | — | — | — | — | — | — |
-| phone | 1 | phone-issue-open | new | — | 67.1 | — | — | 104.1 | — | 104.1 | — | 12.3 |
-| phone | 1 | phone-issue-picker-search | new | — | 17.5 | — | — | 25.4 | — | 25.4 | — | 1.1 |
-| phone | 1 | phone-issue-rename | new | — | 20.6 | — | — | 40.8 | — | 40.8 | — | 1.4 |
-| phone | 1 | phone-issue-screen | new | — | 366.2 | — | — | 429.0 | — | 429.0 | — | 4.1 |
-| phone | 1 | phone-long-press | new | — | 469.7 | — | — | 515.1 | — | 515.1 | — | 86.4 |
-| phone | 1 | phone-mission-details | new | — | 113.0 | — | — | 191.5 | — | 191.5 | — | 52.4 |
-| phone | 1 | phone-mission-open | new | — | 113.9 | — | — | 159.8 | — | 159.8 | — | 14.0 |
-| phone | 1 | phone-work-screen | new | — | 370.5 | — | — | 370.5 | — | 370.5 | — | 22.4 |
-| phone | 1 | phone-work-search | new | — | 11.6 | — | — | 22.5 | — | 22.5 | — | 1.5 |
-| phone | 4 | app-cold-start | new | — | 10,415.7 | — | — | 10,927.2 | — | 10,927.2 | — | 61.6 |
-| phone | 4 | app-warm-start | new | — | 7,690.9 | — | — | 8,272.1 | — | 8,272.1 | — | 70.6 |
-| phone | 4 | phone-composer-typing | new | — | 13.6 | — | — | 17.2 | — | 17.2 | — | 1.3 |
-| phone | 4 | phone-inbox | new | — | — | — | — | — | — | — | — | — |
-| phone | 4 | phone-issue-open | new | — | 80.4 | — | — | 156.7 | — | 156.7 | — | 13.6 |
-| phone | 4 | phone-issue-picker-search | new | — | 22.8 | — | — | 25.8 | — | 25.8 | — | 1.1 |
-| phone | 4 | phone-issue-rename | new | — | 20.4 | — | — | 20.9 | — | 20.9 | — | 1.3 |
-| phone | 4 | phone-issue-screen | new | — | 1,576.9 | — | — | 1,598.9 | — | 1,598.9 | — | 6.8 |
-| phone | 4 | phone-long-press | new | — | 511.6 | — | — | 520.7 | — | 520.7 | — | 121.6 |
-| phone | 4 | phone-mission-details | new | — | 122.2 | — | — | 152.3 | — | 152.3 | — | 59.9 |
-| phone | 4 | phone-mission-open | new | — | 170.6 | — | — | 234.7 | — | 234.7 | — | 17.2 |
-| phone | 4 | phone-work-screen | new | — | 894.0 | — | — | 966.4 | — | 966.4 | — | 27.8 |
-| phone | 4 | phone-work-search | new | — | 15.5 | — | — | 17.1 | — | 17.1 | — | 1.5 |
-| web | 1 | app-cold-start | new | 1,789.0 | 2,918.7 | 63.1% | 2,590.9 | 3,512.8 | 2,590.9 | 3,512.8 | 93.8 | 91.3 |
-| web | 1 | app-warm-start | new | 813.0 | 1,786.5 | 119.7% | 875.3 | 2,148.2 | 875.3 | 2,148.2 | 68.0 | 57.1 |
-| web | 1 | board-open | new | 281.0 | 359.6 | 28.0% | 347.6 | 406.5 | 347.6 | 406.5 | 67.1 | 63.6 |
-| web | 1 | board-search | new | 56.8 | 117.1 | 106.3% | 106.5 | 161.4 | 106.5 | 161.4 | 8.2 | 8.7 |
-| web | 1 | command-palette | new | 100.2 | 148.7 | 48.4% | 427.2 | 397.0 | 427.2 | 397.0 | 7.5 | 7.2 |
-| web | 1 | dock-close | new | 60.0 | 48.8 | -18.7% | 74.5 | 99.7 | 74.5 | 99.7 | 3.3 | 3.0 |
-| web | 1 | dock-open | new | 76.1 | 70.9 | -6.8% | 90.2 | 181.8 | 90.2 | 181.8 | 3.8 | 3.6 |
-| web | 1 | flight-deck-collapse | new | 35.0 | 35.6 | 1.6% | 41.3 | 40.5 | 41.3 | 40.5 | 1.8 | 3.1 |
-| web | 1 | flight-deck-expand | new | 46.2 | 28.3 | -38.6% | 58.4 | 41.5 | 58.4 | 41.5 | 5.0 | 3.8 |
-| web | 1 | header-menu | new | 20.8 | 19.3 | -7.3% | 48.4 | 40.1 | 48.4 | 40.1 | 4.1 | 4.0 |
-| web | 1 | issue-page-open | new | 92.4 | 223.7 | 142.1% | 118.7 | 311.8 | 118.7 | 311.8 | 30.0 | 27.0 |
-| web | 1 | issue-picker-search | new | 23.9 | 27.5 | 15.1% | 37.7 | 37.8 | 37.7 | 37.8 | 4.6 | 4.7 |
-| web | 1 | issue-rename | new | 227.6 | 52.1 | -77.1% | 274.8 | 62.4 | 274.8 | 62.4 | 2.4 | 2.0 |
-| web | 1 | large-mission-switch | new | 712.1 | 783.1 | 10.0% | 1,561.0 | 1,548.3 | 1,561.0 | 1,548.3 | 148.2 | 257.4 |
-| web | 1 | mark-read | new | 905.5 | 96.7 | -89.3% | 984.3 | 116.5 | 984.3 | 116.5 | 6.7 | 3.7 |
-| web | 1 | mission-switch | new | 365.8 | 197.3 | -46.1% | 465.9 | 230.8 | 465.9 | 230.8 | 57.6 | 52.3 |
-| web | 1 | session-composer-typing | new | — | — | — | — | — | — | — | — | — |
-| web | 1 | session-switch | new | 685.9 | 185.7 | -72.9% | 856.8 | 443.6 | 856.8 | 443.6 | 33.6 | 30.1 |
-| web | 1 | sidebar-collapse | new | 79.3 | 95.1 | 19.9% | 102.4 | 115.7 | 102.4 | 115.7 | 18.1 | 17.5 |
-| web | 1 | sidebar-drag-drop | new | 27.1 | 24.3 | -10.0% | 49.6 | 38.5 | 49.6 | 38.5 | 3.8 | 3.6 |
-| web | 1 | sidebar-drag-start | new | 22.0 | 24.9 | 13.4% | 28.9 | 35.5 | 28.9 | 35.5 | 1.5 | 1.5 |
-| web | 1 | sidebar-expand | new | 166.0 | 187.4 | 12.9% | 195.0 | 229.1 | 195.0 | 229.1 | 43.2 | 43.2 |
-| web | 1 | sidebar-group-collapse | new | 37.0 | 49.4 | 33.3% | 45.3 | 74.9 | 45.3 | 74.9 | 1.5 | 1.3 |
-| web | 1 | sidebar-group-expand | new | 87.4 | 196.8 | 125.3% | 109.9 | 220.9 | 109.9 | 220.9 | 23.5 | 24.7 |
-| web | 1 | sidebar-select | new | 280.2 | 131.4 | -53.1% | 339.4 | 187.8 | 339.4 | 187.8 | 38.2 | 38.1 |
-| web | 1 | superagent-composer-typing | new | 12.9 | 14.1 | 9.5% | 22.7 | 17.6 | 22.7 | 17.6 | 2.5 | 3.5 |
-| web | 4 | app-cold-start | new | 6,041.2 | 10,536.1 | 74.4% | 7,007.8 | 14,856.1 | 7,007.8 | 14,856.1 | 226.1 | 176.5 |
-| web | 4 | app-warm-start | new | 3,399.7 | 7,697.5 | 126.4% | 3,644.6 | 8,475.5 | 3,644.6 | 8,475.5 | 187.5 | 140.1 |
-| web | 4 | board-open | new | 569.6 | 905.0 | 58.9% | 726.8 | 1,155.1 | 726.8 | 1,155.1 | 144.0 | 147.3 |
-| web | 4 | board-search | new | 157.9 | 284.9 | 80.5% | 274.8 | 441.2 | 274.8 | 441.2 | 13.3 | 14.6 |
-| web | 4 | command-palette | new | 294.2 | 420.2 | 42.8% | 624.1 | 1,333.4 | 624.1 | 1,333.4 | 58.9 | 8.4 |
-| web | 4 | dock-close | new | 180.7 | 175.2 | -3.0% | 301.5 | 307.3 | 301.5 | 307.3 | 5.4 | 5.6 |
-| web | 4 | dock-open | new | 228.9 | 627.3 | 174.1% | 2,044.6 | 975.1 | 2,044.6 | 975.1 | 5.2 | 5.5 |
-| web | 4 | flight-deck-collapse | new | 92.1 | 78.4 | -14.9% | 227.3 | 136.5 | 227.3 | 136.5 | 2.3 | 4.6 |
-| web | 4 | flight-deck-expand | new | 126.8 | 59.0 | -53.5% | 156.7 | 85.3 | 156.7 | 85.3 | 6.6 | 5.3 |
-| web | 4 | header-menu | new | 35.5 | 34.7 | -2.3% | 77.6 | 66.0 | 77.6 | 66.0 | 6.0 | 6.1 |
-| web | 4 | issue-page-open | new | 316.4 | 1,387.1 | 338.4% | 373.1 | 1,921.4 | 373.1 | 1,921.4 | 96.5 | 96.4 |
-| web | 4 | issue-picker-search | new | 41.5 | 77.9 | 87.5% | 60.9 | 101.2 | 60.9 | 101.2 | 6.7 | 7.8 |
-| web | 4 | issue-rename | new | 2,119.7 | 208.3 | -90.2% | 2,836.0 | 435.4 | 2,836.0 | 435.4 | 4.2 | 4.1 |
-| web | 4 | large-mission-switch | new | 3,143.9 | 1,425.9 | -54.6% | 4,374.0 | 3,451.2 | 4,374.0 | 3,451.2 | 235.5 | 406.9 |
-| web | 4 | mark-read | new | 7,496.1 | 1,217.2 | -83.8% | 8,933.3 | 1,556.3 | 8,933.3 | 1,556.3 | 31.5 | 15.9 |
-| web | 4 | mission-switch | new | 2,293.7 | 650.6 | -71.6% | 3,206.8 | 864.9 | 3,206.8 | 864.9 | 144.2 | 146.9 |
-| web | 4 | session-composer-typing | new | — | — | — | — | — | — | — | — | — |
-| web | 4 | session-switch | new | 5,476.1 | 713.8 | -87.0% | 8,413.1 | 1,253.3 | 8,413.1 | 1,253.3 | 106.9 | 108.8 |
-| web | 4 | sidebar-collapse | new | 277.7 | 361.5 | 30.2% | 405.8 | 482.7 | 405.8 | 482.7 | 57.8 | 60.7 |
-| web | 4 | sidebar-drag-drop | new | 94.2 | 54.5 | -42.2% | 496.7 | 94.9 | 496.7 | 94.9 | 12.3 | 7.4 |
-| web | 4 | sidebar-drag-start | new | 69.2 | 83.2 | 20.3% | 83.8 | 98.4 | 83.8 | 98.4 | 2.2 | 2.2 |
-| web | 4 | sidebar-expand | new | 716.3 | 957.8 | 33.7% | 1,183.4 | 1,429.7 | 1,183.4 | 1,429.7 | 156.8 | 160.0 |
-| web | 4 | sidebar-group-collapse | new | 89.0 | 124.7 | 40.1% | 111.4 | 168.5 | 111.4 | 168.5 | 2.6 | 2.6 |
-| web | 4 | sidebar-group-expand | new | 209.2 | 542.1 | 159.1% | 252.3 | 832.5 | 252.3 | 832.5 | 32.1 | 34.2 |
-| web | 4 | sidebar-select | new | 1,933.9 | 396.1 | -79.5% | 2,215.5 | 922.1 | 2,215.5 | 922.1 | 112.4 | 126.7 |
-| web | 4 | superagent-composer-typing | new | 24.9 | 28.8 | 15.9% | 32.9 | 54.8 | 32.9 | 54.8 | 4.2 | 7.6 |
+| Surface | Scale | Action | NEW arm | OLD CPU n | NEW CPU n | OLD CPU median | NEW CPU median | Median change | OLD CPU p95 | NEW CPU p95 | OLD CPU max | NEW CPU max | OLD layout CPU | NEW layout CPU |
+|---|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| phone | 1 | app-cold-start | new-current | 0 | 4 | — | 2,889.1 | — | — | 3,092.6 | — | 3,092.6 | — | 36.1 |
+| phone | 1 | app-warm-start | new-current | 0 | 4 | — | 1,839.2 | — | — | 2,260.1 | — | 2,260.1 | — | 36.0 |
+| phone | 1 | phone-composer-typing | new-current | 0 | 8 | — | 12.7 | — | — | 17.9 | — | 17.9 | — | 1.3 |
+| phone | 1 | phone-inbox | new-current | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| phone | 1 | phone-issue-open | new-current | 0 | 8 | — | 54.3 | — | — | 85.9 | — | 85.9 | — | 6.7 |
+| phone | 1 | phone-issue-picker-search | new-current | 0 | 8 | — | 16.7 | — | — | 19.4 | — | 19.4 | — | 1.0 |
+| phone | 1 | phone-issue-rename | new-current | 0 | 8 | — | 19.1 | — | — | 21.5 | — | 21.5 | — | 1.3 |
+| phone | 1 | phone-issue-screen | new-current | 0 | 8 | — | 368.1 | — | — | 417.3 | — | 417.3 | — | 0.3 |
+| phone | 1 | phone-long-press | new-current | 0 | 8 | — | 172.6 | — | — | 195.8 | — | 195.8 | — | 5.8 |
+| phone | 1 | phone-mission-details | new-current | 0 | 8 | — | 95.5 | — | — | 166.2 | — | 166.2 | — | 43.2 |
+| phone | 1 | phone-mission-open | new-current | 0 | 8 | — | 88.0 | — | — | 125.8 | — | 125.8 | — | 7.5 |
+| phone | 1 | phone-work-screen | new-current | 0 | 1 | — | 374.9 | — | — | 374.9 | — | 374.9 | — | 4.3 |
+| phone | 1 | phone-work-search | new-current | 0 | 8 | — | 12.6 | — | — | 14.1 | — | 14.1 | — | 1.6 |
+| web | 1 | app-cold-start | new-current | 8 | 8 | 1,671.8 | 2,780.7 | 66.3% | 1,957.0 | 3,005.3 | 1,957.0 | 3,005.3 | 81.8 | 82.4 |
+| web | 1 | app-warm-start | new-current | 8 | 8 | 776.4 | 1,720.6 | 121.6% | 915.9 | 1,932.5 | 915.9 | 1,932.5 | 62.6 | 55.5 |
+| web | 1 | board-open | new-current | 16 | 16 | 246.5 | 316.6 | 28.4% | 268.6 | 350.5 | 268.6 | 350.5 | 60.2 | 64.0 |
+| web | 1 | board-search | new-current | 16 | 16 | 55.9 | 89.1 | 59.2% | 84.7 | 141.6 | 84.7 | 141.6 | 8.6 | 8.5 |
+| web | 1 | command-palette | new-current | 16 | 16 | 87.3 | 120.1 | 37.6% | 253.9 | 363.8 | 253.9 | 363.8 | 6.2 | 6.7 |
+| web | 1 | dock-close | new-current | 16 | 16 | 60.1 | 52.0 | -13.5% | 89.1 | 57.9 | 89.1 | 57.9 | 3.3 | 3.2 |
+| web | 1 | dock-open | new-current | 16 | 16 | 74.4 | 60.6 | -18.6% | 97.5 | 83.8 | 97.5 | 83.8 | 3.7 | 3.8 |
+| web | 1 | flight-deck-collapse | new-current | 16 | 16 | 30.9 | 42.4 | 37.5% | 44.8 | 56.9 | 44.8 | 56.9 | 1.6 | 3.5 |
+| web | 1 | flight-deck-expand | new-current | 16 | 16 | 43.0 | 34.1 | -20.8% | 51.9 | 45.2 | 51.9 | 45.2 | 4.4 | 4.5 |
+| web | 1 | header-menu | new-current | 16 | 16 | 20.2 | 22.0 | 9.1% | 50.1 | 46.5 | 50.1 | 46.5 | 4.0 | 4.4 |
+| web | 1 | issue-page-open | new-current | 16 | 16 | 83.3 | 59.1 | -29.1% | 139.9 | 101.5 | 139.9 | 101.5 | 28.8 | 28.0 |
+| web | 1 | issue-picker-search | new-current | 16 | 16 | 20.7 | 30.3 | 46.6% | 34.5 | 54.7 | 34.5 | 54.7 | 3.6 | 4.7 |
+| web | 1 | issue-rename | new-current | 16 | 16 | 219.1 | 29.7 | -86.4% | 282.0 | 35.1 | 282.0 | 35.1 | 2.3 | 2.3 |
+| web | 1 | large-mission-switch | new-current | 16 | 16 | 664.8 | 539.8 | -18.8% | 1,197.9 | 1,178.1 | 1,197.9 | 1,178.1 | 139.4 | 161.3 |
+| web | 1 | mark-read | new-current | 16 | 16 | 839.2 | 79.2 | -90.6% | 1,541.6 | 107.4 | 1,541.6 | 107.4 | 5.8 | 3.8 |
+| web | 1 | mission-switch | new-current | 16 | 16 | 336.7 | 184.3 | -45.3% | 366.1 | 221.9 | 366.1 | 221.9 | 52.0 | 54.7 |
+| web | 1 | session-composer-typing | new-current | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| web | 1 | session-switch | new-current | 16 | 16 | 746.3 | 149.7 | -79.9% | 867.5 | 360.8 | 867.5 | 360.8 | 31.6 | 33.7 |
+| web | 1 | sidebar-collapse | new-current | 16 | 16 | 79.5 | 92.9 | 16.9% | 104.4 | 139.6 | 104.4 | 139.6 | 18.1 | 16.5 |
+| web | 1 | sidebar-drag-drop | new-current | 16 | 16 | 27.3 | 29.3 | 7.6% | 40.1 | 115.4 | 40.1 | 115.4 | 3.6 | 3.9 |
+| web | 1 | sidebar-drag-start | new-current | 16 | 16 | 21.3 | 27.4 | 28.8% | 36.6 | 32.6 | 36.6 | 32.6 | 1.5 | 1.5 |
+| web | 1 | sidebar-expand | new-current | 16 | 16 | 162.5 | 184.4 | 13.5% | 199.4 | 242.3 | 199.4 | 242.3 | 43.4 | 42.1 |
+| web | 1 | sidebar-group-collapse | new-current | 16 | 16 | 34.9 | 53.1 | 52.3% | 45.0 | 66.5 | 45.0 | 66.5 | 1.4 | 1.5 |
+| web | 1 | sidebar-group-expand | new-current | 16 | 16 | 88.7 | 219.7 | 147.5% | 119.9 | 264.6 | 119.9 | 264.6 | 23.2 | 25.5 |
+| web | 1 | sidebar-select | new-current | 16 | 16 | 260.7 | 128.1 | -50.9% | 334.8 | 169.0 | 334.8 | 169.0 | 37.3 | 36.5 |
+| web | 1 | superagent-composer-typing | new-current | 16 | 16 | 11.5 | 10.6 | -8.0% | 18.4 | 28.9 | 18.4 | 28.9 | 2.1 | 2.7 |
+| web | 4 | app-cold-start | new-current | 8 | 8 | 5,874.1 | 10,344.8 | 76.1% | 6,637.5 | 11,016.3 | 6,637.5 | 11,016.3 | 239.3 | 166.0 |
+| web | 4 | app-warm-start | new-current | 8 | 8 | 3,777.3 | 7,116.4 | 88.4% | 5,938.3 | 7,465.2 | 5,938.3 | 7,465.2 | 184.5 | 150.2 |
+| web | 4 | board-open | new-current | 16 | 16 | 683.9 | 936.9 | 37.0% | 912.5 | 1,022.8 | 912.5 | 1,022.8 | 155.2 | 149.6 |
+| web | 4 | board-search | new-current | 16 | 16 | 146.6 | 346.1 | 136.1% | 242.2 | 1,039.3 | 242.2 | 1,039.3 | 10.9 | 18.3 |
+| web | 4 | command-palette | new-current | 16 | 16 | 261.5 | 384.2 | 46.9% | 618.7 | 1,158.1 | 618.7 | 1,158.1 | 8.9 | 8.5 |
+| web | 4 | dock-close | new-current | 16 | 16 | 182.6 | 98.8 | -45.9% | 224.3 | 257.0 | 224.3 | 257.0 | 5.6 | 5.2 |
+| web | 4 | dock-open | new-current | 16 | 16 | 219.7 | 120.9 | -45.0% | 286.9 | 192.0 | 286.9 | 192.0 | 5.3 | 5.3 |
+| web | 4 | flight-deck-collapse | new-current | 16 | 16 | 106.9 | 80.9 | -24.3% | 162.1 | 108.6 | 162.1 | 108.6 | 2.7 | 5.2 |
+| web | 4 | flight-deck-expand | new-current | 16 | 16 | 136.4 | 67.4 | -50.6% | 188.6 | 126.9 | 188.6 | 126.9 | 7.6 | 6.2 |
+| web | 4 | header-menu | new-current | 16 | 16 | 32.4 | 33.8 | 4.3% | 92.7 | 63.0 | 92.7 | 63.0 | 5.7 | 6.1 |
+| web | 4 | issue-page-open | new-current | 16 | 16 | 330.1 | 167.8 | -49.1% | 388.9 | 250.2 | 388.9 | 250.2 | 96.6 | 97.5 |
+| web | 4 | issue-picker-search | new-current | 16 | 16 | 49.0 | 73.5 | 49.8% | 63.0 | 102.0 | 63.0 | 102.0 | 7.8 | 8.7 |
+| web | 4 | issue-rename | new-current | 16 | 16 | 2,166.8 | 72.1 | -96.7% | 3,414.2 | 127.4 | 3,414.2 | 127.4 | 4.4 | 4.0 |
+| web | 4 | large-mission-switch | new-current | 16 | 16 | 2,978.8 | 1,041.8 | -65.0% | 4,547.3 | 2,421.2 | 4,547.3 | 2,421.2 | 215.2 | 306.9 |
+| web | 4 | mark-read | new-current | 16 | 16 | 9,268.0 | 166.2 | -98.2% | 14,962.3 | 225.8 | 14,962.3 | 225.8 | 35.2 | 7.6 |
+| web | 4 | mission-switch | new-current | 16 | 16 | 2,472.7 | 484.2 | -80.4% | 3,139.5 | 923.7 | 3,139.5 | 923.7 | 151.2 | 150.3 |
+| web | 4 | session-composer-typing | new-current | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| web | 4 | session-switch | new-current | 16 | 16 | 6,009.4 | 472.4 | -92.1% | 11,304.2 | 670.9 | 11,304.2 | 670.9 | 111.9 | 109.8 |
+| web | 4 | sidebar-collapse | new-current | 16 | 16 | 329.6 | 384.0 | 16.5% | 480.8 | 485.2 | 480.8 | 485.2 | 62.2 | 60.0 |
+| web | 4 | sidebar-drag-drop | new-current | 16 | 16 | 96.2 | 53.5 | -44.4% | 253.2 | 119.9 | 253.2 | 119.9 | 12.5 | 7.6 |
+| web | 4 | sidebar-drag-start | new-current | 16 | 16 | 72.4 | 92.2 | 27.4% | 83.8 | 115.3 | 83.8 | 115.3 | 2.3 | 2.6 |
+| web | 4 | sidebar-expand | new-current | 16 | 16 | 802.6 | 844.5 | 5.2% | 1,235.7 | 1,402.8 | 1,235.7 | 1,402.8 | 157.6 | 152.4 |
+| web | 4 | sidebar-group-collapse | new-current | 16 | 16 | 100.8 | 126.3 | 25.3% | 112.2 | 162.9 | 112.2 | 162.9 | 2.8 | 2.8 |
+| web | 4 | sidebar-group-expand | new-current | 16 | 16 | 251.6 | 520.8 | 107.0% | 303.6 | 668.4 | 303.6 | 668.4 | 34.5 | 35.4 |
+| web | 4 | sidebar-select | new-current | 16 | 16 | 2,359.7 | 381.1 | -83.9% | 3,265.6 | 652.7 | 3,265.6 | 652.7 | 119.6 | 125.6 |
+| web | 4 | superagent-composer-typing | new-current | 16 | 16 | 28.6 | 19.6 | -31.4% | 37.6 | 26.9 | 37.6 | 26.9 | 4.9 | 4.5 |
+| phone | 1 | app-cold-start | new | 0 | 8 | — | 3,153.1 | — | — | 3,902.1 | — | 3,902.1 | — | 44.4 |
+| phone | 1 | app-warm-start | new | 0 | 8 | — | 2,015.8 | — | — | 2,258.4 | — | 2,258.4 | — | 57.3 |
+| phone | 1 | phone-composer-typing | new | 0 | 16 | — | 14.0 | — | — | 17.6 | — | 17.6 | — | 1.4 |
+| phone | 1 | phone-inbox | new | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| phone | 1 | phone-issue-open | new | 0 | 16 | — | 67.1 | — | — | 104.1 | — | 104.1 | — | 12.3 |
+| phone | 1 | phone-issue-picker-search | new | 0 | 16 | — | 17.5 | — | — | 25.4 | — | 25.4 | — | 1.1 |
+| phone | 1 | phone-issue-rename | new | 0 | 16 | — | 20.6 | — | — | 40.8 | — | 40.8 | — | 1.4 |
+| phone | 1 | phone-issue-screen | new | 0 | 16 | — | 366.2 | — | — | 429.0 | — | 429.0 | — | 4.1 |
+| phone | 1 | phone-long-press | new | 0 | 16 | — | 469.7 | — | — | 515.1 | — | 515.1 | — | 86.4 |
+| phone | 1 | phone-mission-details | new | 0 | 16 | — | 113.0 | — | — | 191.5 | — | 191.5 | — | 52.4 |
+| phone | 1 | phone-mission-open | new | 0 | 16 | — | 113.9 | — | — | 159.8 | — | 159.8 | — | 14.0 |
+| phone | 1 | phone-work-screen | new | 0 | 1 | — | 370.5 | — | — | 370.5 | — | 370.5 | — | 22.4 |
+| phone | 1 | phone-work-search | new | 0 | 16 | — | 11.6 | — | — | 22.5 | — | 22.5 | — | 1.5 |
+| phone | 4 | app-cold-start | new | 0 | 4 | — | 10,415.7 | — | — | 10,927.2 | — | 10,927.2 | — | 61.6 |
+| phone | 4 | app-warm-start | new | 0 | 4 | — | 7,690.9 | — | — | 8,272.1 | — | 8,272.1 | — | 70.6 |
+| phone | 4 | phone-composer-typing | new | 0 | 8 | — | 13.6 | — | — | 17.2 | — | 17.2 | — | 1.3 |
+| phone | 4 | phone-inbox | new | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| phone | 4 | phone-issue-open | new | 0 | 8 | — | 80.4 | — | — | 156.7 | — | 156.7 | — | 13.6 |
+| phone | 4 | phone-issue-picker-search | new | 0 | 8 | — | 22.8 | — | — | 25.8 | — | 25.8 | — | 1.1 |
+| phone | 4 | phone-issue-rename | new | 0 | 8 | — | 20.4 | — | — | 20.9 | — | 20.9 | — | 1.3 |
+| phone | 4 | phone-issue-screen | new | 0 | 8 | — | 1,576.9 | — | — | 1,598.9 | — | 1,598.9 | — | 6.8 |
+| phone | 4 | phone-long-press | new | 0 | 8 | — | 511.6 | — | — | 520.7 | — | 520.7 | — | 121.6 |
+| phone | 4 | phone-mission-details | new | 0 | 8 | — | 122.2 | — | — | 152.3 | — | 152.3 | — | 59.9 |
+| phone | 4 | phone-mission-open | new | 0 | 8 | — | 170.6 | — | — | 234.7 | — | 234.7 | — | 17.2 |
+| phone | 4 | phone-work-screen | new | 0 | 2 | — | 894.0 | — | — | 966.4 | — | 966.4 | — | 27.8 |
+| phone | 4 | phone-work-search | new | 0 | 8 | — | 15.5 | — | — | 17.1 | — | 17.1 | — | 1.5 |
+| web | 1 | app-cold-start | new | 8 | 8 | 1,789.0 | 2,918.7 | 63.1% | 2,590.9 | 3,512.8 | 2,590.9 | 3,512.8 | 93.8 | 91.3 |
+| web | 1 | app-warm-start | new | 8 | 8 | 813.0 | 1,786.5 | 119.7% | 875.3 | 2,148.2 | 875.3 | 2,148.2 | 68.0 | 57.1 |
+| web | 1 | board-open | new | 16 | 16 | 281.0 | 359.6 | 28.0% | 347.6 | 406.5 | 347.6 | 406.5 | 67.1 | 63.6 |
+| web | 1 | board-search | new | 16 | 16 | 56.8 | 117.1 | 106.3% | 106.5 | 161.4 | 106.5 | 161.4 | 8.2 | 8.7 |
+| web | 1 | command-palette | new | 16 | 16 | 100.2 | 148.7 | 48.4% | 427.2 | 397.0 | 427.2 | 397.0 | 7.5 | 7.2 |
+| web | 1 | dock-close | new | 16 | 16 | 60.0 | 48.8 | -18.7% | 74.5 | 99.7 | 74.5 | 99.7 | 3.3 | 3.0 |
+| web | 1 | dock-open | new | 16 | 16 | 76.1 | 70.9 | -6.8% | 90.2 | 181.8 | 90.2 | 181.8 | 3.8 | 3.6 |
+| web | 1 | flight-deck-collapse | new | 16 | 16 | 35.0 | 35.6 | 1.6% | 41.3 | 40.5 | 41.3 | 40.5 | 1.8 | 3.1 |
+| web | 1 | flight-deck-expand | new | 16 | 16 | 46.2 | 28.3 | -38.6% | 58.4 | 41.5 | 58.4 | 41.5 | 5.0 | 3.8 |
+| web | 1 | header-menu | new | 16 | 16 | 20.8 | 19.3 | -7.3% | 48.4 | 40.1 | 48.4 | 40.1 | 4.1 | 4.0 |
+| web | 1 | issue-page-open | new | 16 | 16 | 92.4 | 223.7 | 142.1% | 118.7 | 311.8 | 118.7 | 311.8 | 30.0 | 27.0 |
+| web | 1 | issue-picker-search | new | 16 | 16 | 23.9 | 27.5 | 15.1% | 37.7 | 37.8 | 37.7 | 37.8 | 4.6 | 4.7 |
+| web | 1 | issue-rename | new | 16 | 16 | 227.6 | 52.1 | -77.1% | 274.8 | 62.4 | 274.8 | 62.4 | 2.4 | 2.0 |
+| web | 1 | large-mission-switch | new | 8 | 8 | 712.1 | 783.1 | 10.0% | 1,561.0 | 1,548.3 | 1,561.0 | 1,548.3 | 148.2 | 257.4 |
+| web | 1 | mark-read | new | 16 | 16 | 905.5 | 96.7 | -89.3% | 984.3 | 116.5 | 984.3 | 116.5 | 6.7 | 3.7 |
+| web | 1 | mission-switch | new | 16 | 16 | 365.8 | 197.3 | -46.1% | 465.9 | 230.8 | 465.9 | 230.8 | 57.6 | 52.3 |
+| web | 1 | session-composer-typing | new | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| web | 1 | session-switch | new | 16 | 16 | 685.9 | 185.7 | -72.9% | 856.8 | 443.6 | 856.8 | 443.6 | 33.6 | 30.1 |
+| web | 1 | sidebar-collapse | new | 16 | 16 | 79.3 | 95.1 | 19.9% | 102.4 | 115.7 | 102.4 | 115.7 | 18.1 | 17.5 |
+| web | 1 | sidebar-drag-drop | new | 16 | 16 | 27.1 | 24.3 | -10.0% | 49.6 | 38.5 | 49.6 | 38.5 | 3.8 | 3.6 |
+| web | 1 | sidebar-drag-start | new | 16 | 16 | 22.0 | 24.9 | 13.4% | 28.9 | 35.5 | 28.9 | 35.5 | 1.5 | 1.5 |
+| web | 1 | sidebar-expand | new | 16 | 16 | 166.0 | 187.4 | 12.9% | 195.0 | 229.1 | 195.0 | 229.1 | 43.2 | 43.2 |
+| web | 1 | sidebar-group-collapse | new | 16 | 16 | 37.0 | 49.4 | 33.3% | 45.3 | 74.9 | 45.3 | 74.9 | 1.5 | 1.3 |
+| web | 1 | sidebar-group-expand | new | 16 | 16 | 87.4 | 196.8 | 125.3% | 109.9 | 220.9 | 109.9 | 220.9 | 23.5 | 24.7 |
+| web | 1 | sidebar-select | new | 16 | 16 | 280.2 | 131.4 | -53.1% | 339.4 | 187.8 | 339.4 | 187.8 | 38.2 | 38.1 |
+| web | 1 | superagent-composer-typing | new | 16 | 16 | 12.9 | 14.1 | 9.5% | 22.7 | 17.6 | 22.7 | 17.6 | 2.5 | 3.5 |
+| web | 4 | app-cold-start | new | 8 | 8 | 6,041.2 | 10,536.1 | 74.4% | 7,007.8 | 14,856.1 | 7,007.8 | 14,856.1 | 226.1 | 176.5 |
+| web | 4 | app-warm-start | new | 8 | 8 | 3,399.7 | 7,697.5 | 126.4% | 3,644.6 | 8,475.5 | 3,644.6 | 8,475.5 | 187.5 | 140.1 |
+| web | 4 | board-open | new | 16 | 16 | 569.6 | 905.0 | 58.9% | 726.8 | 1,155.1 | 726.8 | 1,155.1 | 144.0 | 147.3 |
+| web | 4 | board-search | new | 16 | 16 | 157.9 | 284.9 | 80.5% | 274.8 | 441.2 | 274.8 | 441.2 | 13.3 | 14.6 |
+| web | 4 | command-palette | new | 16 | 16 | 294.2 | 420.2 | 42.8% | 624.1 | 1,333.4 | 624.1 | 1,333.4 | 58.9 | 8.4 |
+| web | 4 | dock-close | new | 16 | 16 | 180.7 | 175.2 | -3.0% | 301.5 | 307.3 | 301.5 | 307.3 | 5.4 | 5.6 |
+| web | 4 | dock-open | new | 16 | 16 | 228.9 | 627.3 | 174.1% | 2,044.6 | 975.1 | 2,044.6 | 975.1 | 5.2 | 5.5 |
+| web | 4 | flight-deck-collapse | new | 16 | 16 | 92.1 | 78.4 | -14.9% | 227.3 | 136.5 | 227.3 | 136.5 | 2.3 | 4.6 |
+| web | 4 | flight-deck-expand | new | 16 | 16 | 126.8 | 59.0 | -53.5% | 156.7 | 85.3 | 156.7 | 85.3 | 6.6 | 5.3 |
+| web | 4 | header-menu | new | 16 | 16 | 35.5 | 34.7 | -2.3% | 77.6 | 66.0 | 77.6 | 66.0 | 6.0 | 6.1 |
+| web | 4 | issue-page-open | new | 16 | 16 | 316.4 | 1,387.1 | 338.4% | 373.1 | 1,921.4 | 373.1 | 1,921.4 | 96.5 | 96.4 |
+| web | 4 | issue-picker-search | new | 16 | 16 | 41.5 | 77.9 | 87.5% | 60.9 | 101.2 | 60.9 | 101.2 | 6.7 | 7.8 |
+| web | 4 | issue-rename | new | 16 | 16 | 2,119.7 | 208.3 | -90.2% | 2,836.0 | 435.4 | 2,836.0 | 435.4 | 4.2 | 4.1 |
+| web | 4 | large-mission-switch | new | 8 | 16 | 3,143.9 | 1,425.9 | -54.6% | 4,374.0 | 3,451.2 | 4,374.0 | 3,451.2 | 235.5 | 406.9 |
+| web | 4 | mark-read | new | 16 | 16 | 7,496.1 | 1,217.2 | -83.8% | 8,933.3 | 1,556.3 | 8,933.3 | 1,556.3 | 31.5 | 15.9 |
+| web | 4 | mission-switch | new | 16 | 16 | 2,293.7 | 650.6 | -71.6% | 3,206.8 | 864.9 | 3,206.8 | 864.9 | 144.2 | 146.9 |
+| web | 4 | session-composer-typing | new | 0 | 0 | — | — | — | — | — | — | — | — | — |
+| web | 4 | session-switch | new | 16 | 16 | 5,476.1 | 713.8 | -87.0% | 8,413.1 | 1,253.3 | 8,413.1 | 1,253.3 | 106.9 | 108.8 |
+| web | 4 | sidebar-collapse | new | 16 | 16 | 277.7 | 361.5 | 30.2% | 405.8 | 482.7 | 405.8 | 482.7 | 57.8 | 60.7 |
+| web | 4 | sidebar-drag-drop | new | 16 | 16 | 94.2 | 54.5 | -42.2% | 496.7 | 94.9 | 496.7 | 94.9 | 12.3 | 7.4 |
+| web | 4 | sidebar-drag-start | new | 16 | 16 | 69.2 | 83.2 | 20.3% | 83.8 | 98.4 | 83.8 | 98.4 | 2.2 | 2.2 |
+| web | 4 | sidebar-expand | new | 16 | 16 | 716.3 | 957.8 | 33.7% | 1,183.4 | 1,429.7 | 1,183.4 | 1,429.7 | 156.8 | 160.0 |
+| web | 4 | sidebar-group-collapse | new | 16 | 16 | 89.0 | 124.7 | 40.1% | 111.4 | 168.5 | 111.4 | 168.5 | 2.6 | 2.6 |
+| web | 4 | sidebar-group-expand | new | 16 | 16 | 209.2 | 542.1 | 159.1% | 252.3 | 832.5 | 252.3 | 832.5 | 32.1 | 34.2 |
+| web | 4 | sidebar-select | new | 8 | 16 | 1,933.9 | 396.1 | -79.5% | 2,215.5 | 922.1 | 2,215.5 | 922.1 | 112.4 | 126.7 |
+| web | 4 | superagent-composer-typing | new | 16 | 16 | 24.9 | 28.8 | 15.9% | 32.9 | 54.8 | 32.9 | 54.8 | 4.2 | 7.6 |
 
 ## Sampled store and React attribution
+
+Source profiles were captured, but attribution was not completed within the finish scope. No store/derive or React phase CPU totals are reported.
 
 Requested V8 sampling interval: 100 microseconds. Values below estimate CPU as measured renderer thread CPU multiplied by each category’s share of non-idle sampled stack wall time, during separately profiled handler-to-Paint windows. Stack slices start at the mark’s callTime (actual recorder execution), matching the thread-clock start; latency still begins at the backdated trusted-event timestamp and includes queueing. Any absent-callTime fallback is labelled in raw attribution. Sampling and OS descheduling can bias these allocations; they are not exclusive hardware counters. Profiled samples are excluded from latency statistics. Sampled wall durations also remain in raw attribution files. React render includes app derivations it calls; store/derive is an inclusive stack match and overlaps React. Commit includes layout effects and called native work; layout hardware CPU appears in the preceding table. Idle, unmapped and other samples are retained in cpu-attribution.json. No exact exclusive store or React hardware-CPU counters are claimed.
 
@@ -887,3 +891,9 @@ Download every numbered part of an archive, concatenate in order, verify the com
 |---|---|---:|---|---|
 | old | diagnostics | 297725845 | 7e59764f684305dcc87d23ac72072da97246f634df1b38f0d16086361e44730c | [part 1](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d704456a7cdd/old-diagnostics.tar.gz.part001), [part 2](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8e78b577b2ea/old-diagnostics.tar.gz.part002), [part 3](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/7c3927bea573/old-diagnostics.tar.gz.part003), [part 4](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d42c6074b385/old-diagnostics.tar.gz.part004) |
 | new | diagnostics | 750871948 | 2dfb9822703aee436ae7b177dbc2f16001e5be4ca5637f5642f15a63e7233868 | [part 1](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/bc93a62d034d/new-diagnostics.tar.gz.part001), [part 2](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d0fea706c71d/new-diagnostics.tar.gz.part002), [part 3](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/1c4a4292b783/new-diagnostics.tar.gz.part003), [part 4](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/f7343f550abb/new-diagnostics.tar.gz.part004), [part 5](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/e35f74dc902c/new-diagnostics.tar.gz.part005), [part 6](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8d1b6afd322d/new-diagnostics.tar.gz.part006), [part 7](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/83ff26e90ceb/new-diagnostics.tar.gz.part007), [part 8](/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/64ea319198fa/new-diagnostics.tar.gz.part008) |
+
+## Finish scope
+
+The coordinator reduced the remaining work on October 4 at 22:38 UTC to three CURRENT phone captures and one CURRENT web 4x heap capture, followed by the report and landing. The original full matrix is incomplete. The exact e22a8b6bd9 deletion snapshot, matched heap comparisons and sampled store/derive and React attribution were not completed. Later CURRENT phone repetitions have no interleaved OLD attempt; OLD startup failure is retained as a gap, not a latency win.
+
+Unmeasured original requests: Exact post-deletion e22a8b6bd93fb813ae63059e91e45169cb855bbb snapshot; Matched OLD/NEW startup and five-minute heap at all requested scales and surfaces; Sampled store/derive and React attribution; Remaining pre-deletion baseline phone/background repeats.

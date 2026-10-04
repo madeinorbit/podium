@@ -69,7 +69,8 @@ try:
                 subprocess.run(['podium','lock','release',name],check=True)
                 held=False
     code=child.wait()
-except Exception:
+except BaseException:
+    # Interruptions also reap the remote recorded processes.
     # A relay can disconnect after granting the lock but before printing JSON.
     # Release is ownership-checked by Podium; it cannot release another holder.
     if not held:

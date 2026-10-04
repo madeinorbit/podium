@@ -287,5 +287,27 @@
       "timingValuesChanged": false,
       "originalLedgersPreserved": true
     }
-  ]
+  ],
+  "finishScope": {
+    "coordinatorMessage": "msg_0599a35e-780b-476a-8fad-9b3bce58885c",
+    "receivedAt": "2026-10-04T22:38:55.263Z",
+    "remainingCaptures": [
+      "CURRENT phone 1x r31",
+      "CURRENT phone 4x r30",
+      "CURRENT phone 4x r31",
+      "CURRENT web 4x heap r30"
+    ],
+    "cancelled": [
+      "Repeated OLD phone startup captures",
+      "OLD direct-entry probes",
+      "CURRENT mobile source-map export"
+    ],
+    "unmeasured": [
+      "Exact post-deletion e22a8b6bd93fb813ae63059e91e45169cb855bbb snapshot",
+      "Matched OLD/NEW startup and five-minute heap at all requested scales and surfaces",
+      "Sampled store/derive and React attribution",
+      "Remaining pre-deletion baseline phone/background repeats"
+    ],
+    "comparisonLimit": "CURRENT phone repeats after r30 have no interleaved OLD attempt, following the coordinator scope reduction. OLD phone failures remain evidence of the corpus/Work startup boundary, not relative latency wins."
+  }
 }
