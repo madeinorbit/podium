@@ -185,9 +185,7 @@ async function launch(preferences = false, withRow = false) {
 
 const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 20)))
 
-/** "Nothing was built" means nothing even after the lazy graph import could
- * have landed: load that module in this app's graph first, then let any
- * waiting pool construction run. */
+/** Let the lazy graph import and provider-owned attachment finish. */
 async function graphSettled() {
   await act(async () => {
     await import('../../../../packages/client-graph/src/runtime-pool')

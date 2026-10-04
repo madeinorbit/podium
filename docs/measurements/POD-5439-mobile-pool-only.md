@@ -270,3 +270,17 @@ production phone screenshots/counters and accepted-ON timing comparison remain
 pending. The tracking baseline is byte-identical to the accepted integration;
 its SHA-256 is
 `5fedd4013ec75586abb07118146e9cf327744a091dfb4ecee4c9d00d3c3194e7`.
+
+The final counts-only private pool walk at `7faa528c5d` completed all 6,255
+planned questions and 28,537 positions on ludovico: 6,146 issues, 5,200 sessions
+and 2,083 roots, with pending loads and legacy issue-model row builds both zero.
+Sixty-three sequential pools shared the same captured replica/runtime. Six more
+roots in the newer live corpus explain the eighteen additional questions since
+the last independent green comparison. This walk proves completion and zero
+legacy work; it does not manufacture another legacy comparison.
+
+The canonical issue-page source is attached to the existing mobile host so
+displayed absent edges borrow the kernel's exit verdict. It owns one observable
+epoch and the existing addressed-batch subscription, with no row cache, relation
+index, exit ledger or writer. The bare-pool tracking baseline stays unchanged;
+the final measured census check remains pending.

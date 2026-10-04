@@ -21,7 +21,7 @@ const messages = (pool: Parameters<typeof noticeMessages>[0]) => noticeMessages(
 const recovery = (pool: Parameters<typeof noticeRecovery>[0]) => noticeRecovery(pool).deadLetters
 
 /** Shared notice views over the phone's existing runtime, including the host's
- * initial attachment and principal rebuild. Only enabled readers mount these. */
+ * initial attachment and principal rebuild. */
 export function usePoolMessageNotices(): readonly MessageNotice[] {
   return useMobilePoolProjection(messages, EMPTY_MESSAGES)
 }

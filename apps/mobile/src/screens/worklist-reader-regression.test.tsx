@@ -42,7 +42,7 @@ vi.mock('expo-router', async () => {
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),
   }
 })
-// One real host/latch per app load. The provider supplies its own runtime.
+// One real host per app load. The provider supplies its own runtime.
 vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
