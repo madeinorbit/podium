@@ -1,5 +1,11 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  registerReloadGuard,
+  registerReloadPreparation,
+  withReloadPreparation,
+} from '@/lib/reload-preparation'
 
 /**
  * THE WRAPPER AROUND vite-plugin-pwa, WHICH NOTHING ELSE TESTS (POD-3224).
@@ -20,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const navigateReload = vi.fn()
 vi.mock('@/lib/navigate', () => ({ navigateReload }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 const { registeredOptions: captured } = await import('./pwa-register-virtual.vitest')
 const { useRegisterSW } = await import('./pwa-register')
@@ -33,6 +40,8 @@ beforeEach(() => {
   addSink({ name: 'capture', write: (record) => logged.push(record) })
   captured.current = undefined
   navigateReload.mockClear()
+  vi.mocked(toast.error).mockClear()
+  registerReloadPreparation(async () => {})
 })
 
 afterEach(() => {
@@ -85,15 +94,35 @@ describe('the pwa-register wrapper', () => {
     expect(onRegisterError).toHaveBeenCalledWith(failure)
   })
 
-  it('performs the navigation the library would have performed itself', () => {
+  it('performs the navigation the library would have performed itself after preserving local work', async () => {
     useRegisterSW()
 
     captured.current?.onNeedReload?.()
+    await withReloadPreparation(vi.fn())
 
     expect(navigateReload).toHaveBeenCalledWith(
       'workbox-controlling',
       'a new worker took control of this page',
     )
+  })
+
+  it('visibly pauses a library reload when an editor cannot be preserved', async () => {
+    const detach = registerReloadGuard(() => 'Save or discard the unsaved file before reloading.')
+    useRegisterSW()
+    try {
+      captured.current?.onNeedReload?.()
+      await vi.waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(
+          'Save or discard the unsaved file before reloading.',
+        ),
+      )
+      expect(navigateReload).not.toHaveBeenCalled()
+    } finally {
+      detach()
+    }
+    captured.current?.onNeedReload?.()
+    await withReloadPreparation(vi.fn())
+    expect(navigateReload).toHaveBeenCalledOnce()
   })
 
   it('defers to a caller that supplies its own onNeedReload, and navigates nothing', () => {

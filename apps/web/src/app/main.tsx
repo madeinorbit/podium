@@ -8,16 +8,17 @@ import { startWebLogging } from '@/lib/logging'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { navigateReload } from '@/lib/navigate'
 import { startupPodiumHref, startupPodiumRouteHref } from '@/lib/podium-link'
+import { restoreReloadRoute } from '@/lib/reload-route'
 import { AppShell } from './AppShell'
 import { AppStarted } from './AppStarted'
 import { BootScreen } from './BootScreen'
 import '@/index.css'
 import '@/styles.css'
+import { DaemonPairingBanner } from './DaemonPairingBanner'
 import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { installVitePreloadErrorRecovery } from './preload-error-recovery'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
-import { DaemonPairingBanner } from './DaemonPairingBanner'
 
 const MotionDemo = lazy(() =>
   throughRestarts(() => import('@/lib/motion/MotionDemo')).then((module) => ({
@@ -140,6 +141,7 @@ function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Elemen
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
 installVitePreloadErrorRecovery()
 startWebLogging()
+restoreReloadRoute()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Podium web root was not found')

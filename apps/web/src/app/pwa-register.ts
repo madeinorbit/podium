@@ -1,7 +1,9 @@
 import { useRegisterSW as useRegisterSWVirtual } from 'virtual:pwa-register/react'
+import { toast } from 'sonner'
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { swLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
+import { withReloadPreparation } from '@/lib/reload-preparation'
 import { serviceWorkerContainer } from '@/lib/sw-container'
 import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
 
@@ -26,8 +28,8 @@ import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
  *  - `onNeedRefresh` — the latch that feeds the panel, with which worker set it.
  *  - `onNeedReload` — the library's OWN reload. Supplying this callback replaces
  *    the `window.location.reload()` the library would otherwise call, with a
- *    call that does the same thing one line later; the navigation, its timing
- *    and its target are unchanged, and it is now attributable.
+ *    call that first preserves local drafts and queue commits. The library and
+ *    the panel share a latch so takeover cannot navigate twice.
  *  - `onOfflineReady` — a first install rather than an update, which is the
  *    thing most easily mistaken for one.
  *
@@ -84,7 +86,12 @@ export function useRegisterSW(options?: RegisterSWOptions) {
       // `controlling` listener in vite-plugin-pwa's `register.ts` — with a line
       // in front of it. This is the second navigation actor the audit could
       // never see fire.
-      navigateReload('workbox-controlling', 'a new worker took control of this page')
+      void withReloadPreparation(() =>
+        navigateReload('workbox-controlling', 'a new worker took control of this page'),
+      ).catch((error) => {
+        swLog.warn('reload paused to preserve local changes', { err: error })
+        toast.error(error instanceof Error ? error.message : 'Save your changes before reloading.')
+      })
     },
   })
 }

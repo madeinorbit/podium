@@ -103,6 +103,7 @@ function harness(
     withRegistration?: boolean
     controlled?: boolean
     update?: () => void | Promise<void>
+    recover?: () => void | Promise<void>
   } = {},
 ) {
   const containerEvents = eventTarget()
@@ -131,6 +132,7 @@ function harness(
         : (reg.registration as unknown as ReloadHandshakeDeps['registration']),
     waitingWorker: options.withWaiting === false ? null : replacement.worker,
     reload,
+    recover: options.recover,
     onStatus: (status) => statuses.push(status),
     setTimer: (run, ms) => {
       expect(ms).toBe(RELOAD_HANDSHAKE_BUDGET_MS)
@@ -166,34 +168,88 @@ afterEach(() => {
 })
 
 describe('startReloadHandshake', () => {
-  it('waits for a slow replacement worker instead of reloading the old shell on a timer', async () => {
-    const run = harness()
+  it('ends a stalled handoff visibly when no recovery is available', async () => {
+    const run = harness({ controlled: true })
     await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
-
-    expect(run.replacement.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
     run.fireTimer()
-    expect(run.reload).not.toHaveBeenCalled()
-    expect(run.statuses.at(-1)).toMatchObject({ phase: 'waiting', canReset: true })
-    expect(
-      logged.some(
-        (record) => record.level === 'warn' && (record as { via?: unknown }).via === 'waiting',
-      ),
-    ).toBe(true)
-
-    run.replacement.setState('activating')
-    expect(run.reload).not.toHaveBeenCalled()
+    expect((await run.promise).outcome).toBe('failed')
+    expect(run.statuses.at(-1)).toMatchObject({ phase: 'failed', canReset: true })
+    run.setController(run.replacement.worker)
+    run.containerEvents.dispatch('controllerchange')
     run.replacement.setState('activated')
-    await run.promise
-    expect(run.reload).toHaveBeenCalledTimes(1)
-    expect(run.statuses.at(-1)).toMatchObject({ phase: 'reloading', canReset: false })
-    // The OUTCOME carries WHAT and HOW in one record (POD-3224).
-    expect(logged.at(-1)).toMatchObject({
-      level: 'info',
-      outcome: 'reloading',
-      trigger: 'panel',
-      via: 'handshake',
-      signal: 'activated',
+    expect(run.reload).not.toHaveBeenCalled()
+  })
+
+  it('recovers after the deadline even if revalidation never resolves', async () => {
+    const recover = vi.fn()
+    let release!: () => void
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve
     })
+    const run = harness({ controlled: true, update: () => stalled, recover })
+    await vi.waitFor(() => expect(run.registration.update).toHaveBeenCalled())
+    run.fireTimer()
+    expect((await run.promise).outcome).toBe('reloading')
+    expect(recover).toHaveBeenCalledOnce()
+    expect(run.reload).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
+    expect(run.replacement.postMessage).not.toHaveBeenCalled()
+    run.containerEvents.dispatch('controllerchange')
+    expect(recover).toHaveBeenCalledOnce()
+  })
+
+  it('recovers an installed worker that never takes control', async () => {
+    const recover = vi.fn()
+    const run = harness({ controlled: true, recover })
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
+    expect(run.replacement.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
+    run.replacement.setState('activated')
+    expect(recover).not.toHaveBeenCalled()
+    run.fireTimer()
+    expect((await run.promise).outcome).toBe('reloading')
+    run.setController(run.replacement.worker)
+    run.containerEvents.dispatch('controllerchange')
+    expect(recover).toHaveBeenCalledOnce()
+    expect(run.reload).not.toHaveBeenCalled()
+  })
+
+  it('covers a registration lookup that never resolves with the same deadline', async () => {
+    const recover = vi.fn()
+    let deadline!: () => void
+    const events = eventTarget()
+    const promise = startReloadHandshake({
+      serviceWorker: { ...events, getRegistration: () => new Promise(() => {}) },
+      reload: vi.fn(),
+      recover,
+      setTimer: (callback) => {
+        deadline = callback
+      },
+    })
+    deadline()
+    expect((await promise).outcome).toBe('reloading')
+    expect(recover).toHaveBeenCalledOnce()
+  })
+
+  it('loads current server HTML when there is no replacement worker', async () => {
+    const recover = vi.fn()
+    const run = harness({ withWaiting: false, controlled: true, recover })
+    expect((await run.promise).outcome).toBe('reloading')
+    expect(recover).toHaveBeenCalledOnce()
+  })
+
+  it('reports a refused local save instead of hanging or navigating again', async () => {
+    const run = harness({
+      recover: () => Promise.reject(new Error('Changes are still being saved')),
+    })
+    run.fireTimer()
+    expect((await run.promise).outcome).toBe('failed')
+    expect(run.statuses.at(-1)).toMatchObject({
+      phase: 'failed',
+      detail: 'Changes are still being saved',
+    })
+    run.replacement.setState('activated')
+    expect(run.reload).not.toHaveBeenCalled()
   })
 
   it('reloads when the browser reports that the replacement controls the page', async () => {
@@ -461,7 +517,7 @@ describe('a reload the browser refuses', () => {
       waitingWorker: replacement.worker,
       onStatus: (status) => statuses.push(status),
       reload: () => {
-        expect(logged.at(-1)).toMatchObject({ revalidated: true, outcome: 'reloading' })
+        expect(statuses.at(-1)).toMatchObject({ phase: 'saving' })
         throw refusal
       },
       setTimer: () => {},

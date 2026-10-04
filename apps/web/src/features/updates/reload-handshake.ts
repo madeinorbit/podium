@@ -28,7 +28,7 @@ export type ReloadPath = 'handshake' | 'direct' | 'waiting'
 /** Who asked for this handshake. Carried on every record it writes. */
 export type ReloadTrigger = 'panel' | 'library' | 'recovery'
 
-/** A diagnostic threshold, never a navigation deadline. */
+/** Maximum wait for discovery, revalidation and worker takeover together. */
 export const RELOAD_HANDSHAKE_BUDGET_MS = 2_000
 
 /** `performance.now()` where it exists, so `elapsedMs` is not a wall-clock delta. */
@@ -38,6 +38,7 @@ function nowMs(): number {
 
 export type ReloadHandshakePhase =
   | 'checking'
+  | 'saving'
   | 'waiting'
   | 'activating'
   | 'reloading'
@@ -102,7 +103,9 @@ export interface ReloadHandshakeDeps {
   /** A replacement worker already reported by the PWA hook. */
   waitingWorker?: Worker | null
   /** Reload the document after a safe takeover, or for an uncontrolled page. */
-  reload: () => void
+  reload: () => void | Promise<void>
+  /** Load through the network entry after a failed or stalled handoff. */
+  recover?: () => void | Promise<void>
   /** Called whenever the observed service-worker facts change. */
   onStatus?: (status: ReloadHandshakeStatus) => void
   /** Injected for tests; production uses `window.setTimeout`. */
@@ -154,6 +157,8 @@ function snapshotDetail(snapshot: ServiceWorkerSnapshot): string {
 
 function statusMessage(phase: ReloadHandshakePhase): string {
   switch (phase) {
+    case 'saving':
+      return 'Saving your changes before reloading…'
     case 'checking':
       return 'Checking for a service-worker replacement…'
     case 'waiting':
@@ -167,7 +172,7 @@ function statusMessage(phase: ReloadHandshakePhase): string {
     case 'failed':
       return 'The interface update could not take over.'
     case 'resetting':
-      return 'Resetting the cached interface…'
+      return 'Saving your changes and loading the current interface…'
   }
 }
 
@@ -175,227 +180,120 @@ function resetAllowed(phase: ReloadHandshakePhase): boolean {
   return phase === 'no-replacement' || phase === 'failed'
 }
 
-/**
- * Observe the browser's actual service-worker lifecycle before navigating.
- *
- * Revalidate before selecting a replacement. Installation outranks a parked
- * waiting worker. Controlled pages require identity proof of control; activation
- * alone only completes an initially uncontrolled page's handoff. The timer is
- * diagnostic and never authorizes navigation.
- */
-export async function startReloadHandshake(
-  deps: ReloadHandshakeDeps,
-): Promise<ReloadHandshakeResult> {
+/** Revalidate and prefer the newest installing worker. Every browser wait is
+ * bounded, including getRegistration and update. Recovery stops observation
+ * before navigating, so late worker events cannot trigger another reload. */
+export function startReloadHandshake(deps: ReloadHandshakeDeps): Promise<ReloadHandshakeResult> {
   const serviceWorker = deps.serviceWorker
   const initialController = serviceWorker?.controller ?? null
-  const setTimer = deps.setTimer ?? ((run, ms) => void window.setTimeout(run, ms))
-  const trigger: ReloadTrigger = deps.trigger ?? 'panel'
+  const initialWaiting = deps.registration?.waiting ?? null
+  const trigger = deps.trigger ?? 'panel'
   const startedAt = nowMs()
   let registration = deps.registration ?? null
-  log.debug('reload handshake started', {
-    trigger,
-    ...snapshotOf(serviceWorker, deps.registration ?? null, deps.waitingWorker),
+  let revalidated = false
+  let installing: Worker | null = null
+  let selected: Worker | null = null
+  let stopped = false
+  let takeoverStarted = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const cleanups: (() => void)[] = []
+  const watched = new Set<Worker>()
+  let resolveResult!: (result: ReloadHandshakeResult) => void
+  const promise = new Promise<ReloadHandshakeResult>((resolve) => {
+    resolveResult = resolve
   })
-
-  const emit = (
-    phase: ReloadHandshakePhase,
-    detail?: string,
-    canReset = resetAllowed(phase),
-  ): ReloadHandshakeStatus => {
-    const snapshot = snapshotOf(serviceWorker, registration, deps.waitingWorker)
-    const status: ReloadHandshakeStatus = {
+  const snapshot = () => snapshotOf(serviceWorker, registration, deps.waitingWorker)
+  const emit = (phase: ReloadHandshakePhase, detail?: string, canReset = resetAllowed(phase)) => {
+    const facts = snapshot()
+    deps.onStatus?.({
       phase,
       message: statusMessage(phase),
       ...(detail ? { detail } : {}),
       canReset,
-      snapshot,
-    }
-    deps.onStatus?.(status)
-    // A PHASE IS PROGRESS, NOT NEWS: `debug`, so the flight recorder and a raise
-    // keep it and the steady forwarded stream stays one record per click.
-    log.debug('service-worker reload handshake state', {
-      trigger,
-      phase,
-      detail: detail ?? snapshotDetail(snapshot),
-      ...snapshot,
+      snapshot: facts,
     })
-    return status
+    log.debug('service-worker reload handshake state', { trigger, phase, detail, ...facts })
   }
-
-  /**
-   * THE OUTCOME, and the only line this function forwards by default.
-   *
-   * `no-replacement` and `failed` are `warn` because both are a Reload that did
-   * not reload — the reported symptom — and an operator must not have to raise a
-   * client to find out that it happened.
-   */
+  const stop = () => {
+    stopped = true
+    if (timer !== undefined) clearTimeout(timer)
+    for (const off of cleanups.splice(0)) off()
+  }
   const result = (
     outcome: ReloadHandshakeOutcome,
     detail?: string,
-    how?: { via: ReloadPath; signal?: 'controllerchange' | 'activated' },
-  ): ReloadHandshakeResult => {
-    const snapshot = snapshotOf(serviceWorker, registration, deps.waitingWorker)
-    const fields = {
+    fields: Record<string, unknown> = {},
+  ) => {
+    const facts = snapshot()
+    const record = {
       trigger,
       outcome,
-      ...(how ? { via: how.via } : {}),
-      ...(how?.signal ? { signal: how.signal } : {}),
-      ...(detail ? { detail } : {}),
       elapsedMs: Math.round(nowMs() - startedAt),
-      ...snapshot,
-    }
-    if (outcome === 'reloading') log.info('reload handshake finished', fields)
-    else log.warn('reload handshake finished without navigating', fields)
-    return {
-      outcome,
-      snapshot,
+      ...fields,
       ...(detail ? { detail } : {}),
+      ...facts,
     }
+    if (outcome === 'reloading') log.info('reload handshake navigating', record)
+    else log.warn('reload handshake finished without navigating', record)
+    resolveResult({ outcome, snapshot: facts, ...(detail ? { detail } : {}) })
   }
-
-  const navigateDirect = (detail?: string): ReloadHandshakeResult => {
-    log.info('reload handshake navigating', {
-      trigger,
-      outcome: 'reloading',
-      via: 'direct',
-      path: 'direct',
-      revalidated: false,
-      superseded: false,
-      initiallyControlled: initialController !== null,
-      selectedControlsPage: false,
-      ...snapshotOf(serviceWorker, registration),
-    })
+  const navigate = async (
+    recovery: boolean,
+    detail?: string,
+    signal?: 'controllerchange' | 'activated',
+  ) => {
+    if (stopped) return
+    stop()
+    emit(recovery ? 'resetting' : 'saving', detail, false)
     try {
-      deps.reload()
-      return {
-        outcome: 'reloading',
-        snapshot: snapshotOf(serviceWorker, registration),
-        ...(detail ? { detail } : {}),
-      }
+      await (recovery && deps.recover ? deps.recover() : deps.reload())
+      emit('reloading', detail, false)
+      result('reloading', detail, {
+        via: recovery || !selected ? 'direct' : 'handshake',
+        ...(signal ? { signal } : {}),
+        revalidated,
+        superseded: initialWaiting !== null && selected !== initialWaiting,
+        initiallyControlled: initialController !== null,
+        selectedControlsPage: selected !== null && serviceWorker?.controller === selected,
+        ...(recovery ? { recovery: true } : {}),
+      })
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error)
       emit('failed', failure)
-      return result('failed', failure)
+      result('failed', failure)
     }
   }
-
-  if (!serviceWorker) {
-    emit('reloading', 'This page has no service-worker context; a direct reload is safe.', false)
-    return navigateDirect()
-  }
-
-  emit('checking')
-
-  if (!registration && serviceWorker.getRegistration) {
-    try {
-      registration = (await serviceWorker.getRegistration()) ?? null
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      if (serviceWorker.controller) {
-        emit('failed', `The controlled page could not inspect its registration: ${detail}`)
-        return result('failed', detail)
-      }
-      emit('reloading', `No registration was found; a direct reload is safe. ${detail}`, false)
-      return navigateDirect(detail)
+  const fail = (detail: string, phase: 'failed' | 'no-replacement' = 'failed') => {
+    if (stopped) return
+    if (deps.recover) {
+      void navigate(true, detail)
+      return
     }
+    stop()
+    emit(phase, detail)
+    result(phase, detail)
   }
-
-  if (!registration) {
-    if (serviceWorker.controller) {
-      const detail = 'A service worker controls this page, but no registration was available.'
-      emit('failed', detail)
-      return result('failed', detail)
-    }
-    emit(
-      'reloading',
-      'No service-worker registration controls this page; a direct reload is safe.',
-      false,
-    )
-    return navigateDirect()
+  const watch = (worker: Worker) => {
+    if (watched.has(worker)) return
+    watched.add(worker)
+    worker.addEventListener('statechange', progress)
+    cleanups.push(() => worker.removeEventListener?.('statechange', progress))
   }
-
-  return discoverReplacement(
-    deps,
-    serviceWorker,
-    registration,
-    emit,
-    result,
-    setTimer,
-    initialController,
-  )
-}
-
-async function discoverReplacement(
-  deps: ReloadHandshakeDeps,
-  serviceWorker: Container,
-  registration: Registration,
-  emit: (phase: ReloadHandshakePhase, detail?: string, canReset?: boolean) => ReloadHandshakeStatus,
-  result: (
-    outcome: ReloadHandshakeOutcome,
-    detail?: string,
-    how?: { via: ReloadPath; signal?: 'controllerchange' | 'activated' },
-  ) => ReloadHandshakeResult,
-  setTimer: (run: () => void, ms: number) => void,
-  initialController: Worker | null,
-): Promise<ReloadHandshakeResult> {
-  const initialWaiting = registration.waiting
-  let revalidated = false
-  let installing: Worker | null = null
-  let selected: Worker | null = null
-  let settled = false
-  let takeoverStarted = false
-  const cleanups: (() => void)[] = []
-  const watched = new Set<Worker>()
-  let resolveResult!: (value: ReloadHandshakeResult) => void
-  const promise = new Promise<ReloadHandshakeResult>((resolve) => {
-    resolveResult = resolve
-  })
-  const settle = (value: ReloadHandshakeResult): void => {
-    if (settled) return
-    settled = true
-    for (const cleanup of cleanups) cleanup()
-    resolveResult(value)
-  }
-  const fail = (detail: string): void => {
-    emit('failed', detail)
-    settle(result('failed', detail))
-  }
-  const finish = (signal: 'controllerchange' | 'activated'): void => {
-    if (settled || !selected) return
-    // Latch before calling the navigation seam, which can synchronously dispatch.
-    settled = true
-    for (const cleanup of cleanups) cleanup()
-    emit('reloading', `Takeover observed through ${signal}.`, false)
-    log.info('reload handshake navigating', {
-      trigger: deps.trigger ?? 'panel',
-      outcome: 'reloading',
-      via: 'handshake',
-      path: 'handshake',
-      signal,
-      revalidated,
-      superseded: initialWaiting !== null && selected !== initialWaiting,
-      initiallyControlled: initialController !== null,
-      selectedState: selected.state,
-      selectedScriptURL: selected.scriptURL,
-      selectedControlsPage: serviceWorker.controller === selected,
-      ...snapshotOf(serviceWorker, registration),
-    })
-    try {
-      deps.reload()
-      resolveResult({ outcome: 'reloading', snapshot: snapshotOf(serviceWorker, registration) })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      emit('failed', `The new interface activated, but reload failed: ${detail}`)
-      resolveResult(result('failed', detail))
-    }
-  }
-  const progress = (): void => {
-    if (settled || !revalidated) return
+  function progress(): void {
+    if (stopped || !revalidated || !registration) return
     if (selected) {
-      if (selected.state === 'redundant')
-        return fail('The replacement worker became redundant before takeover.')
-      if (serviceWorker.controller === selected) return finish('controllerchange')
-      if (!initialController && selected.state === 'activated') return finish('activated')
+      if (selected.state === 'redundant') {
+        fail('The replacement worker became redundant before takeover.')
+        return
+      }
+      if (serviceWorker?.controller === selected) {
+        void navigate(false, undefined, 'controllerchange')
+        return
+      }
+      if (!initialController && selected.state === 'activated') {
+        void navigate(false, undefined, 'activated')
+        return
+      }
       emit(
         selected.state === 'activating' || selected.state === 'activated'
           ? 'activating'
@@ -404,86 +302,98 @@ async function discoverReplacement(
       return
     }
     if (installing) {
-      if (installing.state === 'redundant')
-        return fail('The replacement worker became redundant before takeover.')
-      if (installing.state === 'installing') return
-      // Re-read the waiting slot. Never message an object displaced from it.
-      if (registration.waiting && registration.waiting !== initialWaiting) {
-        selected = registration.waiting
-      } else if (
-        serviceWorker.controller === installing ||
-        (!initialController && installing.state === 'activated')
-      ) {
-        selected = installing
-      } else if (installing.state === 'activating' || installing.state === 'activated') {
-        selected = installing
-      } else {
-        return fail('The installed replacement left the waiting slot before takeover.')
+      if (installing.state === 'redundant') {
+        fail('The replacement worker became redundant before takeover.')
+        return
       }
-    } else if (serviceWorker.controller && serviceWorker.controller !== initialController) {
+      if (installing.state === 'installing') return
+      if (registration.waiting && registration.waiting !== initialWaiting)
+        selected = registration.waiting
+      else if (
+        ['activating', 'activated'].includes(installing.state) ||
+        serviceWorker?.controller === installing
+      )
+        selected = installing
+      else {
+        fail('The installed replacement left the waiting slot before takeover.')
+        return
+      }
+    } else if (serviceWorker?.controller && serviceWorker.controller !== initialController) {
       selected = serviceWorker.controller
     } else {
       selected = registration.waiting
     }
     if (!selected) {
-      const detail = 'The registration update check found no waiting or installing replacement.'
-      emit('no-replacement', detail)
-      return settle(result('no-replacement', detail))
+      fail(
+        'The registration update check found no waiting or installing replacement.',
+        'no-replacement',
+      )
+      return
     }
     watch(selected)
-    if (selected.state === 'redundant')
-      return fail('The replacement worker became redundant before takeover.')
+    if (selected.state === 'redundant') {
+      fail('The replacement worker became redundant before takeover.')
+      return
+    }
     emit('waiting')
     if (!takeoverStarted && registration.waiting === selected && selected.state === 'installed') {
       takeoverStarted = true
       try {
         selected.postMessage({ type: 'SKIP_WAITING' })
       } catch (error) {
-        return fail(error instanceof Error ? error.message : String(error))
+        fail(error instanceof Error ? error.message : String(error))
+        return
       }
     }
     progress()
   }
-  const watch = (worker: Worker): void => {
-    if (watched.has(worker)) return
-    watched.add(worker)
-    worker.addEventListener('statechange', progress)
-    cleanups.push(() => worker.removeEventListener?.('statechange', progress))
-  }
-  const onUpdateFound = (): void => {
+  function onUpdateFound(): void {
+    if (stopped || !registration) return
     if (registration.installing) {
       installing = registration.installing
       watch(installing)
     }
     progress()
   }
-  registration.addEventListener('updatefound', onUpdateFound)
-  serviceWorker.addEventListener('controllerchange', progress)
-  cleanups.push(
-    () => registration.removeEventListener?.('updatefound', onUpdateFound),
-    () => serviceWorker.removeEventListener?.('controllerchange', progress),
-  )
-  if (initialWaiting) watch(initialWaiting)
-  onUpdateFound()
-  setTimer(() => {
-    if (settled) return
-    const snapshot = snapshotOf(serviceWorker, registration)
-    const detail = `Still waiting after ${RELOAD_HANDSHAKE_BUDGET_MS} ms. ${snapshotDetail(snapshot)}`
-    log.warn('service worker takeover is still pending; waiting for a safe handoff', {
-      via: 'waiting',
-      budgetMs: RELOAD_HANDSHAKE_BUDGET_MS,
-      ...snapshot,
-    })
-    emit(revalidated ? 'waiting' : 'checking', detail, true)
-  }, RELOAD_HANDSHAKE_BUDGET_MS)
-  try {
+  const discover = async () => {
+    if (!serviceWorker) {
+      await navigate(false)
+      return
+    }
+    emit('checking')
+    if (!registration && serviceWorker.getRegistration) {
+      registration = (await serviceWorker.getRegistration()) ?? null
+      if (stopped) return
+    }
+    if (!registration) {
+      if (serviceWorker.controller)
+        fail('A service worker controls this page, but no registration was available.')
+      else await navigate(false)
+      return
+    }
+    registration.addEventListener('updatefound', onUpdateFound)
+    serviceWorker.addEventListener('controllerchange', progress)
+    cleanups.push(
+      () => registration?.removeEventListener?.('updatefound', onUpdateFound),
+      () => serviceWorker.removeEventListener?.('controllerchange', progress),
+    )
+    if (initialWaiting) watch(initialWaiting)
+    onUpdateFound()
     await registration.update()
+    if (stopped) return
     revalidated = true
     onUpdateFound()
-  } catch (error) {
+  }
+  const onDeadline = () =>
+    fail(
+      `The interface update did not finish within ${RELOAD_HANDSHAKE_BUDGET_MS} ms. ${snapshotDetail(snapshot())}`,
+    )
+  if (deps.setTimer) deps.setTimer(onDeadline, RELOAD_HANDSHAKE_BUDGET_MS)
+  else timer = setTimeout(onDeadline, RELOAD_HANDSHAKE_BUDGET_MS)
+  void discover().catch((error) =>
     fail(
       `The service-worker update check failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
+    ),
+  )
   return promise
 }

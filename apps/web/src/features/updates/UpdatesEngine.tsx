@@ -33,6 +33,7 @@ import { serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
+import { withReloadPreparation } from '@/lib/reload-preparation'
 import { serviceWorkerContainer } from '@/lib/sw-container'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
@@ -123,9 +124,8 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    *
    * The handshake owns the browser lifecycle: it checks the registration,
    * observes updatefound/statechange/controllerchange, and reports the exact
-   * state to the panel. Its diagnostic budget never navigates through an old
-   * worker. Cache eviction is deliberately separate, behind the explicit reset
-   * action below.
+   * state to the panel. A stalled handoff loads through the network entry after
+   * preserving drafts and local queue commits, without clearing their storage.
    */
   const reload = useCallback(async () => {
     const serviceWorker = serviceWorkerContainer()
@@ -138,7 +138,8 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       onStatus: setReloadStatus,
       // Through the one navigation seam, so a click that ends in a reload and a
       // click that ends anywhere else are the same file's two possible endings.
-      reload: () => navigateReload('handshake', 'replacement-ready'),
+      reload: () => withReloadPreparation(() => navigateReload('handshake', 'replacement-ready')),
+      recover: () => forceReload('service-worker-handoff-incomplete', false),
     })
   }, [registration])
 
@@ -265,7 +266,19 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
           }
         : status,
     )
-    void forceReload('reset-cached-interface')
+    void forceReload('reset-cached-interface').catch((error) => {
+      setReloadStatus((status) =>
+        status
+          ? {
+              ...status,
+              phase: 'failed',
+              message: 'Your changes could not be saved before reloading.',
+              detail: error instanceof Error ? error.message : String(error),
+              canReset: true,
+            }
+          : status,
+      )
+    })
   }, [])
 
   // The skew banner and anything else outside this tree open the panel through

@@ -162,6 +162,7 @@ function submit(
 }
 
 class KernelEngineOutbox implements EngineOutbox {
+  private readonly localWrites = new Set<Promise<unknown>>()
   private readonly metadata = new Map<string, { baseline?: string; chained?: boolean }>()
   /**
    * Queued entries an in-flight enqueue may collapse (POD-4554). The kernel
@@ -276,7 +277,28 @@ class KernelEngineOutbox implements EngineOutbox {
       }))
   }
 
-  async enqueue<K extends keyof OutboxKinds & string>(
+  enqueue<K extends keyof OutboxKinds & string>(
+    kind: K,
+    input: OutboxKinds[K],
+    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
+  ): Promise<OutboxEntry> {
+    return this.trackLocalWrite(this.enqueueDurably(kind, input, opts))
+  }
+
+  private trackLocalWrite<T>(commit: Promise<T>): Promise<T> {
+    this.localWrites.add(commit)
+    void commit.then(
+      () => this.localWrites.delete(commit),
+      () => this.localWrites.delete(commit),
+    )
+    return commit
+  }
+
+  async flushLocalWrites(): Promise<void> {
+    while (this.localWrites.size > 0) await Promise.all(this.localWrites)
+  }
+
+  private async enqueueDurably<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
     opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
@@ -330,17 +352,17 @@ class KernelEngineOutbox implements EngineOutbox {
   }
 
   async retry(mutationId: MutationId, satisfaction: RetrySatisfaction): Promise<void> {
-    await this.kernel.retry(mutationId as MutationId, satisfaction)
+    await this.trackLocalWrite(this.kernel.retry(mutationId as MutationId, satisfaction))
     if (this.isOnline()) await this.drain()
   }
 
   async edit(mutationId: MutationId, input: unknown): Promise<void> {
-    await this.kernel.edit(mutationId as MutationId, { input })
+    await this.trackLocalWrite(this.kernel.edit(mutationId as MutationId, { input }))
     if (this.isOnline()) await this.drain()
   }
 
   async discard(mutationId: MutationId): Promise<void> {
-    await this.kernel.discard(mutationId as MutationId)
+    await this.trackLocalWrite(this.kernel.discard(mutationId as MutationId))
     await this.kernel.purgeCancelled(mutationId as MutationId)
     this.metadata.delete(mutationId)
     // A cancelled entry releases its partition (R1, ADR 3 amendment 2). When it

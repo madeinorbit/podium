@@ -1,5 +1,6 @@
 import { flushLogsBeforeUnload } from '@podium/client-core/logging'
 import { reloadLog } from '@/lib/logging/update-logs'
+import { freshInterfaceUrl } from './reload-route'
 
 /**
  * EVERY NAVIGATION THIS APP TRIGGERS ITSELF GOES THROUGH HERE (POD-3224).
@@ -55,6 +56,17 @@ export type NavigationSite =
 
 interface ReloadWindow {
   location: { reload(): void }
+}
+
+/** Network-only recovery also works while the old worker is still busy. */
+export function navigateFreshInterface(reason: string, fields: Record<string, unknown> = {}): void {
+  reloadLog.info('loading the current interface from the server', {
+    site: 'force-reload',
+    reason,
+    ...fields,
+  })
+  flushLogsBeforeUnload()
+  window.location.replace(freshInterfaceUrl(window.location.href))
 }
 
 /**

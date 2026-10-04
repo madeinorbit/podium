@@ -363,6 +363,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
   init.storageEventApi?.addEventListener('storage', onStorage)
   const uiState: UiState = {
     get: (key) => ui[key] ?? null,
+    flush: () => storage.setItem(uiKey, JSON.stringify(ui)),
     set: (key, value) => {
       if (value === null) {
         if (!(key in ui)) return

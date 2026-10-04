@@ -3,6 +3,7 @@ import { type FileScope, scopeKey } from '@podium/client-core/values'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
+import { registerReloadGuard } from '@/lib/reload-preparation'
 import { canSave } from './editor-save'
 
 export interface FileDocument {
@@ -34,6 +35,7 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   const [message, setMessage] = useState('')
   const [content, setContentState] = useState('')
   const contentRef = useRef('')
+  const savedContentRef = useRef('')
   const [baseHash, setBaseHash] = useState<string | undefined>(undefined)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -45,6 +47,16 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   const [reloadNonce, setReloadNonce] = useState(0)
   // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — no save path.
   const editable = scope.kind !== 'artifact'
+
+  useEffect(
+    () =>
+      registerReloadGuard(() =>
+        editable && (savingRef.current || contentRef.current !== savedContentRef.current)
+          ? `Save or discard your edits to "${path}" before reloading.`
+          : undefined,
+      ),
+    [editable, path],
+  )
 
   const setContent = useCallback((next: string) => {
     contentRef.current = next
@@ -74,8 +86,9 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
     savingRef.current = false
     setSaving(false)
     if (r.ok) {
+      savedContentRef.current = body
       setBaseHash(r.baseHash)
-      setDirty(false)
+      setDirty(contentRef.current !== body)
       setSaveFeedback({ kind: 'success', message: 'Saved' })
       toast.success('Saved')
     } else if (r.conflict) {
@@ -86,15 +99,17 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
             if (savingRef.current) return
             savingRef.current = true
             setSaving(true)
+            const body = contentRef.current
             try {
               const r2 = await writeFileScoped({
                 scope: scopeRef.current,
                 path,
-                content: contentRef.current,
+                content: body,
               })
               if (r2.ok) {
+                savedContentRef.current = body
                 setBaseHash(r2.baseHash)
-                setDirty(false)
+                setDirty(contentRef.current !== body)
                 setSaveFeedback({ kind: 'success', message: 'Saved' })
                 toast.success('Saved (overwritten)')
               } else {
@@ -119,8 +134,9 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
       setSaveFeedback({ kind: 'error', message })
       toast.error(message)
     }
-  }, [key, path, writeFileScoped, baseHash, dirty, saving, editable, reload])
+  }, [path, writeFileScoped, baseHash, dirty, saving, editable, reload])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Scope identity and an explicit reload must refetch even when the path is unchanged.
   useEffect(() => {
     let cancelled = false
     setStatus('loading')
@@ -138,6 +154,7 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
         return
       }
       contentRef.current = r.content ?? ''
+      savedContentRef.current = contentRef.current
       setContentState(r.content ?? '')
       setBaseHash(r.baseHash)
       setStatus('ready')

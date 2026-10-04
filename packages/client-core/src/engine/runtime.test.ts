@@ -1,7 +1,6 @@
-
-import type { IssueViewModel } from '../values/issue-type'
-import type { SessionView, SessionViewInput } from '../session-values'
 import { fixtureNavigation } from '../../test-support/navigation'
+import type { SessionView, SessionViewInput } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 // @vitest-environment happy-dom
 // (terminal-client's index pulls xterm addons that need a browser-ish global
 // at import time; the engine itself is DOM-optional.)
@@ -40,9 +39,16 @@ import { render, act as testingAct } from '@testing-library/react'
 import { act, createElement, Profiler, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import {
+  type AwaitingTruth,
+  insertOverlay,
+  type OverlayEntity,
+  type OverlayTarget,
+  type PendingOverlay,
+  pruneAwaiting,
+} from '../command-reducers'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
-
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { createReplica, memoryStorage, type Replica, type StorageApi } from '../replica/replica'
 import { sessionById } from '../session-index'
@@ -55,14 +61,6 @@ import {
   SUPERAGENT_MODE_KEY,
 } from '../ui-state'
 import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
-import {
-  type AwaitingTruth,
-  insertOverlay,
-  type OverlayEntity,
-  type OverlayTarget,
-  type PendingOverlay,
-  pruneAwaiting,
-} from '../command-reducers'
 import { Reactions } from './reactions'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 import type { EngineState } from './state'
@@ -310,12 +308,14 @@ function makeEngine(
       : {}),
     ...(opts.coarseClock !== undefined ? { coarseClock: opts.coarseClock } : {}),
   })
-  engine.setNavigationProvider(fixtureNavigation({
-    issues: () => engine.replica.rows('issueProjections'),
-    sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
-    markers: () => engine.replica.rows('issueUserStates'),
-    follow: changed => engine.replica.subscribeRows('sessions', changed),
-  }))
+  engine.setNavigationProvider(
+    fixtureNavigation({
+      issues: () => engine.replica.rows('issueProjections'),
+      sessions: () => engine.replica.rows('sessions') as unknown as SessionView[],
+      markers: () => engine.replica.rows('issueUserStates'),
+      follow: (changed) => engine.replica.subscribeRows('sessions', changed),
+    }),
+  )
   return { engine, hub, rw, fatals, errors }
 }
 
@@ -904,12 +904,10 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
     const { engine } = makeEngine({ url: '/issues' })
     engine.start()
     await settle()
-    engine.access
-      .openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'a.md', permanent: false })
     // What `usePreviewPromotion` fires when the operator types into the panel.
     engine.access.promoteWorkspaceTab('file:w:/tmp/known-repo:a.md')
-    engine.access
-      .openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
+    engine.access.openFileInWorktree({ root: '/tmp/known-repo', path: 'b.md', permanent: false })
     const st = engine.access
     const ws = st.workspaces[st.workspaceKey()]
     expect(ws ? allTabIds(ws) : []).toEqual([
@@ -1115,6 +1113,39 @@ describe('offline-first composer drafts (POD-2045)', () => {
     })
     engine.dispose()
     await settle()
+  })
+
+  it('prepares the last draft keystroke for reload before its debounce, without teardown', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftPersistDebounceMs: 60_000 })
+    first.hub.connected = false
+    first.engine.access.setSessionDraft(SID, 'the last unsent keystroke')
+    await first.engine.prepareReload()
+    const restored = makeEngine({ storage })
+    expect(restored.engine.access.drafts[SID]).toBe('the last unsent keystroke')
+    expect(first.engine.access.drafts[SID]).toBe('the last unsent keystroke')
+    expect(first.hub.draftEdits).toEqual([])
+    first.engine.dispose()
+    restored.engine.dispose()
+  })
+
+  it('reload preparation preserves a keystroke typed during local queue commit', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage, draftPersistDebounceMs: 60_000 })
+    let release!: () => void
+    const commit = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    first.engine.outbox.flushLocalWrites = () => commit
+    first.engine.access.setSessionDraft(SID, 'before commit')
+    const prepared = first.engine.prepareReload()
+    first.engine.access.setSessionDraft(SID, 'typed during commit')
+    release()
+    await prepared
+    const restored = makeEngine({ storage })
+    expect(restored.engine.access.drafts[SID]).toBe('typed during commit')
+    first.engine.dispose()
+    restored.engine.dispose()
   })
 
   it('keeps a draft across a reload with no server in reach', async () => {

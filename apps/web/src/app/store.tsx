@@ -15,15 +15,15 @@ import {
   type StoreNotices,
   useRuntimeSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
-import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { elidePathHead, looksLikePath } from '@/lib/notice-path'
+import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { formatAppError } from './AppErrorPage'
-import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 import { attachWorklistPool } from './store-worklist-pool'
+import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
@@ -32,7 +32,6 @@ export type { UserFocus } from '@podium/client-core/react'
 export type { IssueViewModel } from '@podium/client-core/replica'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/values'
-
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),
@@ -109,9 +108,14 @@ export function StoreProvider({
       createOutboxFn={createOutboxFn}
       onServerRelocation={onServerRelocation}
       makeSocket={makeSocket}
-      attachRuntime={(runtime) =>
-        attachWorklistPool(runtime, (error) => onFatalError(error.message))
-      }
+      attachRuntime={(runtime) => {
+        const detachPool = attachWorklistPool(runtime, (error) => onFatalError(error.message))
+        const detachReload = registerReloadPreparation(runtime.prepareReload)
+        return () => {
+          detachReload()
+          detachPool()
+        }
+      }}
     >
       {children}
     </CoreStoreProvider>
@@ -119,7 +123,10 @@ export function StoreProvider({
 }
 
 /** Runtime actions and keyed local controls; records are read through the pool. */
-export function useRuntimeSelector<T>(selector: (s: Store) => T, isEqual?: (a: T, b: T) => boolean): T {
+export function useRuntimeSelector<T>(
+  selector: (s: Store) => T,
+  isEqual?: (a: T, b: T) => boolean,
+): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
 }
 export { useHostMetrics } from '@podium/client-core/react'

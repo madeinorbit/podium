@@ -110,10 +110,15 @@ describe('update prompt', () => {
     expect(src).toContain('onRegisteredSW')
     expect(src).toContain('registration.update()')
     expect(src).toContain('visibilitychange')
-    expect(src).toContain('updateServiceWorker(true)')
-    // Reload must be driven by controllerchange, not the library's isUpdate-gated
-    // auto-reload (which no-ops on uncontrolled normal-browser tabs).
-    expect(src).toContain('controllerchange')
+    // The shared handshake owns takeover and a bounded network recovery. Both
+    // navigation actors must preserve local work; activation alone cannot
+    // establish that the new worker controls an already controlled page.
+    expect(src).toContain('startReloadHandshake({')
+    expect(src).toContain('withReloadPreparation(')
+    expect(src).toContain("recover: () => forceReload('service-worker-handoff-incomplete', false)")
+    const handshake = readWeb('src/features/updates/reload-handshake.ts')
+    expect(handshake).toContain("addEventListener('controllerchange'")
+    expect(handshake).toContain("postMessage({ type: 'SKIP_WAITING' })")
   })
 
   /**

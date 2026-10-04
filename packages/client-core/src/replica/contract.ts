@@ -204,11 +204,14 @@ export interface TranscriptWindow {
   savedAt: number
 }
 
-/** Synchronous UI-state kv over the ui-state collection. Never throws. */
+/** Synchronous UI-state kv over the ui-state collection. Ordinary writes are
+ * best effort; the explicit flush reports a durability failure before reload. */
 export interface UiState {
   get(key: string): string | null
   /** `null` deletes the key. */
   set(key: string, value: string | null): void
+  /** Explicit durability checkpoint; unlike ordinary writes, reports storage refusal. */
+  flush?(): void | Promise<void>
   /** Changed keys, including cross-tab storage events. */
   subscribe(cb: (keys: ReadonlySet<string>) => void): () => void
 }

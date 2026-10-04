@@ -173,6 +173,8 @@ export interface EngineOutbox {
      */
     opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
   ): OutboxEntry | Promise<OutboxEntry>
+  /** Wait for local queue commits only; pending network delivery may survive reload. */
+  flushLocalWrites?(): Promise<void>
   retireAwaiting(mutationId: MutationId): void
   retry(mutationId: MutationId, satisfaction: RetrySatisfaction): unknown
   edit(mutationId: MutationId, input: unknown): unknown
