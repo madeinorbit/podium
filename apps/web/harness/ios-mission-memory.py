@@ -13,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--udid', required=True)
@@ -21,6 +22,9 @@ parser.add_argument('--out', required=True)
 parser.add_argument('--driver', default='http://127.0.0.1:19689')
 parser.add_argument('--seconds', type=int, default=60)
 parser.add_argument('--openurl', action='store_true', help='Capture normal Safari opened by simctl, without WebDriver')
+parser.add_argument('--expect-working', action='store_true')
+parser.add_argument('--expect-static', action='store_true')
+parser.add_argument('--desktop', action='store_true', help='Capture native desktop Safari instead of an iPhone webview')
 args = parser.parse_args()
 out = pathlib.Path(args.out)
 out.mkdir(parents=True, exist_ok=True)
@@ -73,8 +77,9 @@ def sample():
             if len(parts) != 4:
                 continue
             pid, parent, rss, command = parts
-            if 'CoreSimulator' not in command or not any(
-                    name in command for name in ('WebContent', 'GPU', 'MobileSafari')):
+            simulator = 'CoreSimulator' in command
+            if simulator == args.desktop or not any(
+                    name in command for name in ('WebContent', 'WebKit.GPU', 'MobileSafari', 'Safari.app/Contents/MacOS/Safari')):
                 continue
             usage = ctypes.create_string_buffer(512)
             status = libproc.proc_pid_rusage(int(pid), 2, usage)
@@ -112,12 +117,35 @@ def memory_categories():
                 append('page.ndjson', {'vmmapTimeout': process['pid']})
 
 
+def preflight():
+    if not args.expect_working and not args.expect_static:
+        return
+    endpoint = urllib.parse.urljoin(args.url, '/__latest')
+    deadline = time.monotonic() + 60
+    last = None
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(endpoint, timeout=5) as response:
+                last = json.load(response)
+            if (last and last.get('url') == args.url and last.get('rows', 0) > 0 and
+                    any(count.get('items', 0) >= 80 for count in (last.get('retained') or {}).values()) and
+                    (not args.expect_working or last.get('working')) and
+                    (not args.expect_static or last.get('markAnimations') == 0)):
+                append('page.ndjson', {'preflight': last})
+                return
+        except (OSError, ValueError):
+            pass
+        stop.wait(1)
+    raise RuntimeError({'preflightFailed': last})
+
+
 thread = threading.Thread(target=sample, daemon=True)
 thread.start()
 session = None
 try:
     if args.openurl:
         subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True)
+        preflight()
         stop.wait(args.seconds)
         stop.set()
         thread.join(3)
@@ -131,6 +159,8 @@ try:
         raise SystemExit(0)
     capabilities = {'browserName': 'Safari', 'platformName': 'iOS',
                     'safari:useSimulator': True, 'safari:deviceUDID': args.udid}
+    if args.desktop:
+        capabilities = {'browserName': 'Safari'}
     value = request('POST', '/session', {'capabilities': {'alwaysMatch': capabilities}}, 90)
     session = value['sessionId']
     (out / 'session.json').write_text(json.dumps(value, indent=2))
@@ -140,6 +170,7 @@ try:
         request('POST', base + '/url', {'url': args.url}, 75)
     except Exception as error:
         append('page.ndjson', {'navigationError': str(error)})
+    preflight()
     end = time.monotonic() + args.seconds
     script = """
       return {url:location.href, age:performance.now(),
@@ -179,9 +210,14 @@ finally:
             append('page.ndjson', {'cleanupError': str(error)})
     with (out / 'native.log').open('w') as native:
         try:
-            subprocess.run(['xcrun', 'simctl', 'spawn', args.udid, 'log', 'show', '--last', '5m',
+            log_prefix = [] if args.desktop else ['xcrun', 'simctl', 'spawn', args.udid]
+            subprocess.run([*log_prefix, 'log', 'show', '--last', '5m',
                             '--style', 'compact', '--predicate',
-                            'process == "MobileSafari" OR process CONTAINS "WebContent"'],
+                            'eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "memorystatus" OR '
+                            '((process == "MobileSafari" OR process CONTAINS "WebContent" OR process == "runningboardd") AND '
+                            '(eventMessage CONTAINS[c] "exit" OR eventMessage CONTAINS[c] "crash" OR '
+                            'eventMessage CONTAINS[c] "terminated" OR eventMessage CONTAINS[c] "termination" OR '
+                            'eventMessage CONTAINS[c] "memory pressure" OR eventMessage CONTAINS[c] "memory limit"))'],
                            stdout=native, stderr=subprocess.STDOUT, timeout=30)
         except subprocess.TimeoutExpired:
             append('page.ndjson', {'nativeLogError': 'log show timed out'})

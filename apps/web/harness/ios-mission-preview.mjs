@@ -2,9 +2,11 @@
  * Run on the Mac from the issue-owned directory. No upstream or operator RPC.
  * ablation.txt can contain "no-mark" for a diagnostic-only overlay ablation.
  */
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 const root = process.env.IOS_PREVIEW_ROOT
 if (!root) throw Error('Set IOS_PREVIEW_ROOT to the owned runner directory')
+const evidence = process.env.IOS_EVIDENCE_DIR ?? `${root}/evidence`
+mkdirSync(evidence,{recursive:true})
 const mobileRoot = `${root}/dist-${process.env.IOS_MOBILE_ARM ?? 'mobile'}`
 const manifest = await Bun.file(`${root}/manifest.json`).json()
 const api = await Bun.file(`${root}/fixture-api.json`).json()
@@ -15,6 +17,7 @@ const sessionId = manifest.control
 const template = structuredClone(transcript)
 const fixedNow = manifest.fixedNow ?? 1789905600000
 const workingBootstrap = new Map()
+let latestTelemetry = null
 let generation = 0
 let nextItem = transcript.length
 function copyTurn() {
@@ -113,6 +116,9 @@ const telemetry = `<script>
       canvases:Array.from(document.querySelectorAll('canvas')).map(c=>[c.width,c.height]),
       images:document.images.length,errors:window.__fixtureErrors,
       retained:window.__fixtureTranscriptCounts??null,worker:workerCounts,
+      working:!!document.querySelector('[data-tail="working"]')||
+        (!!document.querySelector('.podium-mobile-working-mark')&&!!document.body?.innerText.includes('Working')),
+      markAnimations:Array.from(document.querySelectorAll('.pod-mark,.podium-mobile-working-mark')).reduce((sum,mark)=>sum+mark.getAnimations({subtree:true}).length,0),
       scroll:Array.from(document.querySelectorAll('[data-testid="transcript-scroller"]')).map(s=>({top:s.scrollTop,height:s.scrollHeight,viewport:s.clientHeight})),
       rowPaint:Array.from(document.querySelectorAll('[data-block]')).slice(-4).map(row=>{
         const box=row.getBoundingClientRect(),child=row.firstElementChild;
@@ -142,9 +148,11 @@ const server = Bun.serve({
       if (server.upgrade(request,{data:{subscribed:false}})) return
     }
     if (url.pathname === '/__diag' && request.method === 'POST') {
-      appendFileSync(`${root}/evidence/telemetry.ndjson`, JSON.stringify({time:Date.now(),...await request.json()})+'\n')
+      latestTelemetry={time:Date.now(),...await request.json()}
+      appendFileSync(`${evidence}/telemetry.ndjson`, JSON.stringify(latestTelemetry)+'\n')
       return new Response(null, {status:204})
     }
+    if (url.pathname === '/__latest') return Response.json(latestTelemetry)
     if (url.pathname === '/__fixture') return Response.json(manifest)
     if (url.pathname === '/sync/bootstrap') {
       const file = Bun.file(`${root}/scale.txt`)
@@ -183,7 +191,7 @@ const server = Bun.serve({
         return procedures.get(name) ?? {error:{message:`Missing synthetic RPC: ${name}`,code:-32601,
           data:{code:'NOT_FOUND',httpStatus:404}}}
       })
-      appendFileSync(`${root}/evidence/api.ndjson`,JSON.stringify({time:Date.now(),names,
+      appendFileSync(`${evidence}/api.ndjson`,JSON.stringify({time:Date.now(),names,
         missing:names.filter(name=>name !== 'sessions.transcriptRead' && request.method !== 'POST' && !procedures.has(name))})+'\n')
       return Response.json(batch ? results : results[0])
     }
@@ -216,7 +224,7 @@ const server = Bun.serve({
       if (streamMode && frame.type === 'transcriptSubscribe' && frame.sessionId === sessionId) {
         subscribers.add(client)
         client.data.subscribed = true
-        appendFileSync(`${root}/evidence/stream.ndjson`,JSON.stringify({time:Date.now(),event:'subscribe',items:transcript.length,since:frame.since})+'\n')
+        appendFileSync(`${evidence}/stream.ndjson`,JSON.stringify({time:Date.now(),event:'subscribe',items:transcript.length,since:frame.since})+'\n')
       }
       if (frame.type === 'transcriptUnsubscribe') subscribers.delete(client)
     },

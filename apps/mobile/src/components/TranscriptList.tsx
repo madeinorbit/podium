@@ -73,9 +73,9 @@ import { pendingFailure, pendingMetaLine } from './pending-delivery'
 import { RichMarkdown } from './RichMarkdown'
 import { SharedFiles } from './SharedFiles'
 import { ToolDescription } from './ToolDescription'
-import { WorkingMark } from './WorkingMark'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
+import { WorkingMark } from './WorkingMark'
 
 /**
  * Flat Field rows (POD-159, adapted for mobile in POD-176): the agent's work
@@ -908,6 +908,7 @@ export function TranscriptList({
   moreAbove = onLoadOlder !== undefined,
   loadingOlder = false,
   onFollowChange,
+  onSearchChange,
   onRefPress,
   assetContext,
   collapseContext = false,
@@ -940,6 +941,8 @@ export function TranscriptList({
   moreAbove?: boolean
   loadingOlder?: boolean
   onFollowChange?: (following: boolean) => void
+  /** Keep loaded search history while live output continues to arrive. */
+  onSearchChange?: (searching: boolean) => void
   /** Tap handler for POD-refs in message text (opens the task peek sheet). */
   onRefPress?: (ref: string) => void
   /** Session-scoped server route context for transferred files and image previews. */
@@ -999,6 +1002,11 @@ export function TranscriptList({
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const searching = findOpen && query.trim().length > 0
+  useLayoutEffect(() => {
+    onSearchChange?.(searching)
+    return () => onSearchChange?.(false)
+  }, [onSearchChange, searching])
   const [cursor, setCursor] = useState(0)
   const [actionText, setActionText] = useState<string | null>(null)
   const [atTail, setAtTail] = useState(true)
@@ -1151,6 +1159,7 @@ export function TranscriptList({
     setAtTail(following)
     followChangeRef.current?.(following)
   }, [])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing session resets unread state before its first rows arrive
   useLayoutEffect(() => {
     setUnread(0)
   }, [transcriptId])

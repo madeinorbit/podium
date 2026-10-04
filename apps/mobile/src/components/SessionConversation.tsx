@@ -221,8 +221,12 @@ export function SessionConversation({
   const keyboardLift = useKeyboardLift()
 
   const followingTranscript = useRef(true)
+  const searchingTranscript = useRef(false)
   const followTranscript = useCallback((following: boolean) => {
     followingTranscript.current = following
+  }, [])
+  const searchTranscript = useCallback((searching: boolean) => {
+    searchingTranscript.current = searching
   }, [])
   const transcriptController = useMemo(
     () =>
@@ -230,7 +234,7 @@ export function SessionConversation({
         sessionId,
         initialLimit: 80,
         pageLimit: 80,
-        retainHistory: () => !followingTranscript.current,
+        retainHistory: () => !followingTranscript.current || searchingTranscript.current,
         source: {
           read: (request) => trpc.sessions.transcriptRead.query(request),
           subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
@@ -720,6 +724,7 @@ export function SessionConversation({
               moreAbove={transcript.hasMoreOlder}
               loadingOlder={transcript.loadingOlder}
               onFollowChange={followTranscript}
+              onSearchChange={searchTranscript}
               onRefPress={setRequestedRef}
               footer={
                 offer ? (

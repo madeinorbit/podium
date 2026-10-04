@@ -56,10 +56,12 @@ vi.mock('./TranscriptList', async () => {
       items,
       onLoadOlder,
       onFollowChange,
+      onSearchChange,
     }: {
       items: readonly TranscriptItem[]
       onLoadOlder?: () => void
       onFollowChange?: (following: boolean) => void
+      onSearchChange?: (searching: boolean) => void
     }) => (
       <View>
         <Pressable accessibilityLabel="Read history" onPress={() => onFollowChange?.(false)}>
@@ -70,6 +72,12 @@ vi.mock('./TranscriptList', async () => {
         </Pressable>
         <Pressable accessibilityLabel="Follow newest" onPress={() => onFollowChange?.(true)}>
           <Text>Follow</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="Find history" onPress={() => onSearchChange?.(true)}>
+          <Text>Find</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="Finish find" onPress={() => onSearchChange?.(false)}>
+          <Text>Finish</Text>
         </Pressable>
         {items.map((entry) => (
           <Text key={entry.id}>{entry.text}</Text>
@@ -144,6 +152,24 @@ async function mount(initial?: TranscriptItem[]) {
 }
 
 describe('phone transcript over a live stream that went quiet', () => {
+  it('retains find history before a match moves the viewport, then resumes the newest window', async () => {
+    const initial = Array.from({ length: 180 }, (_, index) =>
+      entry(`i${index}`, `c${index}`, 'assistant', `Message ${index}`),
+    )
+    const io = await mount(initial)
+    fireEvent.click(screen.getByLabelText('Find history'))
+    fireEvent.click(screen.getByLabelText('Load history'))
+    expect(await screen.findByText('Message 20')).toBeTruthy()
+    io.written.push(entry('new', 'c180', 'assistant', 'New while finding'))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:49:00.000Z' } as SessionView))
+    expect(await screen.findByText('New while finding')).toBeTruthy()
+    expect(screen.getByText('Message 20')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Finish find'))
+    io.written.push(entry('later', 'c181', 'assistant', 'After finding'))
+    act(() => moveRow({ ...working, lastActiveAt: '2026-09-23T07:50:00.000Z' } as SessionView))
+    expect(await screen.findByText('After finding')).toBeTruthy()
+    expect(screen.queryByText('Message 20')).toBeNull()
+  })
   it('retains paged history during activity refresh while reading, then permits trimming on follow', async () => {
     const initial = Array.from({ length: 180 }, (_, index) =>
       entry(`i${index}`, `c${index}`, 'assistant', `Message ${index}`),

@@ -48,6 +48,39 @@ operator's repeated device reload has not been reproduced conclusively on the
 simulator. SafariDriver automation suppresses the software keyboard, so these
 captures do not validate the separate keyboard-focus issue.
 
+The earlier fixture showed a live tail, but did not verify a Working agent
+phase. Its captured DOM contained transcript text while the screenshot showed
+a blank transcript region. Follow-up uses an explicit Working-state bootstrap,
+same-ID partial output between tool-turn appends, and row paint geometry.
+Those earlier observations prove DOM growth; they do not establish a complete
+reproduction of the coordinator's actively working chat.
+
+## Shared transcript work
+
+At the coordinator's direction, `865b00d22b` landed on the pilot branch before
+the queued native follow-up. While following, the shared controller retains
+160 mobile or 400 desktop items and pages older history from the first retained
+item's native cursor. Reading and searching retain their loaded history. The
+merge keeps an ID-position index across frames. The desktop worker has one
+transcript request in flight and only the latest queued request per pane;
+changed item content crosses as a delta. Hidden panes cancel presentation
+requests until reveal. Conversation updates skip unchanged transcript
+membership, and completed sends stay completed after their history rows leave
+the following window.
+
+Focused foreground validation on flatblock passed 114 regressions in seven
+files and scoped client-core/web/mobile typecheck (16 tasks). Four existing
+hidden-pane assertions were updated to check deferred presentation and their
+33-test file reran green. A production comparison build contains temporary
+numeric counters and a `retainAll` switch, allowing a comparison of retention
+with the same static marks and viewport cap. Native CPU/heap results for that
+comparison are still pending the exclusive runner queue.
+
+A mobile follow-up explicitly retains Find history before a matching row moves
+the viewport. Its three-file Biome check, scoped mobile typecheck (14 tasks)
+and four conversation/healing cases passed on flatblock. One cold fixture
+attachment timeout was retried; the complete four-case file then passed.
+
 ## Validation and reproduction
 
 Product validation ran foreground on flatblock in `~/podium-test-5517`, with
@@ -58,7 +91,11 @@ The production client build succeeded. No broad suite result is claimed.
 The reusable capture and isolated preview are
 `apps/web/harness/ios-mission-memory.py` and `ios-mission-preview.mjs`. The
 preview reads only the synthetic fixture in `IOS_PREVIEW_ROOT`, binds loopback
-port 19687, and streams for at most three minutes with `IOS_STREAM=1`.
+port 19687, and streams for three minutes by default with `IOS_STREAM=1`.
+`IOS_STREAM_SECONDS` changes the bounded capture interval. The native sampler
+records physical footprint and CPU deltas converted from the host's Mach time
+base, then captures `vmmap` region summaries after the timing interval. Those
+summaries describe resident backing stores, not a GC snapshot's live JS heap.
 `IOS_MOBILE_ARM=mobile-window` selects the comparison export. Capture evidence
 and the baseline screenshot are attached to POD-5517. Landing is ff-only on
 `integrate/4286-pilot`; neither main nor dev/mw is advanced.
