@@ -227,6 +227,7 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/docs/measurements/click-speed-baseline.json",
         "$TURBO_ROOT$/apps/server/src/features.ts",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
