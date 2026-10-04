@@ -1,5 +1,6 @@
 /** Cookie, metadata, and IndexedDB adapters for the shared accounts layer. */
 import {
+  browserProfileMetadataStorage,
   cookieCredentials,
   createAccountEraser,
   createAuthClient,
@@ -52,10 +53,7 @@ export function webAccounts(httpOrigin: string) {
     accounts = createSingleServerAccounts({
       httpOrigin,
       metadataPrefix: `podium.accounts.web.${encodeURIComponent(scope)}`,
-      storage: {
-        getItem: async (key) => globalThis.localStorage.getItem(key),
-        setItem: async (key, value) => globalThis.localStorage.setItem(key, value),
-      },
+      storage: browserProfileMetadataStorage,
       erasePrincipal: webAccountEraser.erase,
     })
     instances.set(scope, accounts)

@@ -1,4 +1,4 @@
-/** Build-failing ownership guard for the sole UI persistence module. */
+/** Build-failing ownership guard for the client persistence boundaries. */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import {
@@ -31,8 +31,8 @@ const PRODUCT_ROOTS = [
 
 /**
  * ONLY these product sources may call localStorage / AsyncStorage directly
- * (POD-329). Theme raw access is inside ui-state via read/writePreAuthTheme;
- * everything else is the replica persistence adapter family.
+ * (POD-329). Theme raw access is inside ui-state via read/writePreAuthTheme.
+ * Other owners are replica persistence and installation-level account metadata.
  */
 const SANCTIONED_STORAGE_FILES = new Set([
   relative(ROOT, UI_STATE_SOURCE),
@@ -43,6 +43,8 @@ const SANCTIONED_STORAGE_FILES = new Set([
   'packages/client-core/src/replica/kernel/side-cache.ts',
   'packages/client-core/src/replica/kernel/facade.ts',
   'packages/client-core/src/replica/legacy-snapshot.ts',
+  // The shared account metadata port, used before a principal replica can open.
+  'packages/client-core/src/accounts/storage.ts',
   // Platform composition roots that *inject* storage into the replica factory.
   'apps/web/src/lib/kernelReplica.ts',
   'apps/web/src/lib/use-kernel-replica.ts',
@@ -72,6 +74,19 @@ const DECLARED_STORAGE_EXCEPTIONS: ReadonlyMap<string, string> = new Map([
       'device-local read that resolves late degrades to silence, which is the exact failure ' +
       'the handoff exists to prevent. POD-2225 owns the resolution; the file states the full ' +
       'argument above its two accessors.',
+  ],
+])
+
+/**
+ * Synthetic-lane resets, separate from product owners and temporary debt.
+ * This is an exact file and operation allowance, never a perf-directory exclusion.
+ */
+const SYNTHETIC_STORAGE_RESETS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
+    'POD-4311 owns this synthetic frontend-perf lane. Each cold sample resets its ' +
+      'test environment before mounting the shipped runtime; only the browser clear ' +
+      'operation is allowed, with no product reads or writes exempted.',
   ],
 ])
 
@@ -106,6 +121,23 @@ function directOwnedStorage(source: string): string[] {
     }
   }
   return keys
+}
+
+// Method access only — comments naming storage without an access are not findings.
+const RAW_STORAGE_ACCESS =
+  /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/g
+
+function rawStorageAccesses(source: string): string[] {
+  return [...source.matchAll(RAW_STORAGE_ACCESS)].map((match) =>
+    match[0].replace(/^(?:globalThis|window)\./, '').replace(/[\s?]/g, ''),
+  )
+}
+
+function unownedStorageAccesses(rel: string, source: string): string[] {
+  if (SANCTIONED_STORAGE_FILES.has(rel) || DECLARED_STORAGE_EXCEPTIONS.has(rel)) return []
+  return rawStorageAccesses(source).filter(
+    (access) => !(SYNTHETIC_STORAGE_RESETS.has(rel) && access === 'localStorage.clear'),
+  )
 }
 
 describe('UI persistence ownership lint', () => {
@@ -226,21 +258,48 @@ describe('UI persistence ownership lint', () => {
     ])
   })
 
-  it('no product file outside ui-state and the replica adapter touches localStorage/AsyncStorage', () => {
-    // Method access only — comments naming localStorage are not a finding.
-    const CALL =
-      /(?:(?:globalThis|window)\.)?localStorage\s*\??\.(?:getItem|setItem|removeItem|clear)\b|\bAsyncStorage\s*\??\.(?:getItem|setItem|removeItem|multiGet|multiSet|getAllKeys|clear)\b/
+  it('no product file outside the persistence owners touches localStorage/AsyncStorage', () => {
     const offenders = PRODUCT_ROOTS.flatMap(sources)
       .map((path) => ({ path, rel: relative(ROOT, path), text: readFileSync(path, 'utf8') }))
-      .filter(
-        ({ rel, text }) =>
-          !SANCTIONED_STORAGE_FILES.has(rel) &&
-          !DECLARED_STORAGE_EXCEPTIONS.has(rel) &&
-          CALL.test(text),
-      )
+      .filter(({ rel, text }) => unownedStorageAccesses(rel, text).length > 0)
       .map(({ rel }) => rel)
       .sort()
     expect(offenders).toEqual([])
+  })
+
+  it('the account storage owner exposes only browser metadata reads and writes', () => {
+    expect(
+      rawStorageAccesses(
+        readFileSync(join(ROOT, 'packages/client-core/src/accounts/storage.ts'), 'utf8'),
+      ),
+    ).toEqual(['localStorage.getItem', 'localStorage.setItem'])
+  })
+
+  it('the named synthetic reset still owns exactly one browser clear', () => {
+    expect([...SYNTHETIC_STORAGE_RESETS.keys()]).toEqual([
+      'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
+    ])
+    for (const [rel, reason] of SYNTHETIC_STORAGE_RESETS) {
+      const source = readFileSync(join(ROOT, rel), 'utf8')
+      expect(rawStorageAccesses(source), rel).toEqual(['localStorage.clear'])
+      expect(unownedStorageAccesses(rel, source), rel).toEqual([])
+      expect(reason).toContain('POD-4311')
+    }
+  })
+
+  it.each([
+    ['apps/mobile/src/client/browser-accounts.ts', "localStorage.setItem('unrelated', value)"],
+    ['apps/web/src/lib/accounts.ts', "localStorage.getItem('unrelated')"],
+    ['apps/web/src/features/other.ts', 'window.localStorage.clear()'],
+    ['apps/web/src/perf/other.frontend-perf.tsx', 'localStorage.clear()'],
+    [
+      'apps/web/src/perf/kernel-scenarios.frontend-perf.tsx',
+      "localStorage.setItem('unrelated', value)",
+    ],
+    ['apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', "localStorage.getItem('unrelated')"],
+    ['apps/web/src/perf/kernel-scenarios.frontend-perf.tsx', 'AsyncStorage.clear()'],
+  ])('rejects an unrelated storage access in %s: %s', (rel, source) => {
+    expect(unownedStorageAccesses(rel, source)).toHaveLength(1)
   })
 
   it('the declared exceptions are exactly the ledger, and each one still holds its key', () => {

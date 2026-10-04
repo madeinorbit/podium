@@ -1,4 +1,7 @@
-import { createSingleServerAccounts } from '@podium/client-core/accounts'
+import {
+  browserProfileMetadataStorage,
+  createSingleServerAccounts,
+} from '@podium/client-core/accounts'
 import { mobileAccountEraser } from './account-data'
 
 const instances = new Map<string, ReturnType<typeof createSingleServerAccounts>>()
@@ -13,10 +16,7 @@ export function mobileBrowserAccounts(
     accounts = createSingleServerAccounts({
       httpOrigin: origin,
       metadataPrefix: `podium.accounts.mobile-web.${encodeURIComponent(scope)}`,
-      storage: {
-        getItem: async (key) => globalThis.localStorage.getItem(key),
-        setItem: async (key, value) => globalThis.localStorage.setItem(key, value),
-      },
+      storage: browserProfileMetadataStorage,
       erasePrincipal: mobileAccountEraser.erase,
     })
     instances.set(scope, accounts)

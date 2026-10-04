@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   activateServerProfile,
+  browserProfileMetadataStorage,
   canOpenProfileOffline,
   clearProfileIdentity,
   cookieCredentials,
@@ -58,6 +59,57 @@ const nativeCredentials = (): AccountCredentials => ({
   get: vi.fn(async () => 'token'),
   set: vi.fn(async () => {}),
   remove: vi.fn(async () => {}),
+})
+
+describe('browser account metadata storage', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('keeps scoped profiles and cleanup journals separate without clearing UI state', async () => {
+    const values = new Map([['podium.view', 'sessions']])
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    })
+    const erase = vi.fn(async () => {})
+    const accounts = (metadataPrefix: string) =>
+      createSingleServerAccounts({
+        httpOrigin: 'https://a.example',
+        metadataPrefix,
+        storage: browserProfileMetadataStorage,
+        erasePrincipal: erase,
+      })
+    const blue = accounts('podium.accounts.web.blue')
+    const green = accounts('podium.accounts.web.green')
+    await blue.recordPrincipal(ALICE)
+    await green.recordPrincipal(BOB)
+    const greenRecord = values.get('podium.accounts.web.green.profiles.v1')
+    await blue.remove()
+    expect(erase).toHaveBeenCalledExactlyOnceWith(ALICE)
+    expect((await blue.profiles.loadServerProfiles()).profiles).toEqual([])
+    expect(await blue.profiles.loadPendingProfileCleanups()).toEqual([])
+    expect(values.get('podium.accounts.web.blue.cleanups.v1')).toBe('[]')
+    expect(values.get('podium.accounts.web.green.profiles.v1')).toBe(greenRecord)
+    expect((await green.profiles.loadServerProfiles()).profiles).toMatchObject([
+      { memberId: 'bob' },
+    ])
+    expect(values.get('podium.view')).toBe('sessions')
+  })
+
+  it.each([
+    'getItem',
+    'setItem',
+  ] as const)('rejects browser %s failures through the async port', async (method) => {
+    vi.stubGlobal('localStorage', {
+      [method]: () => {
+        throw new Error('storage unavailable')
+      },
+    })
+    const result =
+      method === 'getItem'
+        ? browserProfileMetadataStorage.getItem('profiles')
+        : browserProfileMetadataStorage.setItem('profiles', 'value')
+    await expect(result).rejects.toThrow('storage unavailable')
+  })
 })
 
 describe('one sign-in decision for both credential deliveries', () => {
