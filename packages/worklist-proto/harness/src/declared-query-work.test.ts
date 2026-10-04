@@ -367,7 +367,9 @@ describe('pool screens work ratios: declared query screen counters', () => {
     const judged = verdicts.filter((value) =>
       /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
         value.reader,
-      ),
+      ) ||
+      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-root' && value.action === 'select') ||
+      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-child' && value.action === 'navigate-by-ref'),
     )
     for (const pattern of [
       /IssuePage@summaries/,

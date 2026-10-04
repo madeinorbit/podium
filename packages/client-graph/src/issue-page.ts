@@ -7,6 +7,7 @@ import { residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface IssuePageData {
@@ -31,6 +32,7 @@ const byId = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0
  * them comes through this pool's one reader and its declared relationships. */
 export function createIssuePageViews(pool: MobxPool) {
   const cache = new Map<string, IComputedValue<unknown>>()
+  const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const stats = { issues: 0, pages: 0, panels: 0 }
   let disposed = false
   function memo<T>(key: string, read: () => T): T {
@@ -61,14 +63,26 @@ export function createIssuePageViews(pool: MobxPool) {
     })
   }
   function memberSessions(id: string): Loaded<SessionView[]> {
-    const result: SessionView[] = []
-    let pending = false
-    for (const sid of [...pool.graph.many('issue', id, 'pageSessions')].sort(byId)) {
-      const seat = session(sid)
-      if (seat === LOADING) pending = true
-      else if (seat) result.push(seat)
+    if (disposed) return LOADING
+    let result = rosters.get(id)
+    if (!result) {
+      result = createQueryResult<SessionView>({
+        name: `IssuePage@page-members:${id}`,
+        ids: () => pool.graph.many('issue', id, 'pageSessions'),
+        has: sid => pool.queries.hasMember('issue', id, 'pageSessions', sid),
+        read: session,
+        subscribe: changed => pool.queries.onMembers('issue', id, 'pageSessions', changed),
+        released: () => rosters.delete(id),
+      })
+      rosters.set(id, result)
     }
-    return pending ? LOADING : result
+    return result.get()
+  }
+  function worktreePaths(): string[] {
+    return memo('worktree-paths', () => residentWorktreeIds(pool).flatMap(path => {
+      const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
+      return lane?.path && !lane.projectRoot ? [lane.path] : []
+    }))
   }
   function bySessionOrder(a: string, b: string): number {
     return byId(pool.queries.orderKey(a), pool.queries.orderKey(b)) || byId(a, b)
@@ -240,20 +254,22 @@ export function createIssuePageViews(pool: MobxPool) {
       if (pending || value === LOADING || members === LOADING || own === LOADING) return LOADING
       const world = issues()
       if (!world || world === LOADING) return world
-      const worldById = new Map(world.map(row => [row.id as string, row]))
+      const worldById = new Map<string, IssueViewModel>()
       const exits: Record<string, ReferentExit | undefined> = {}
-      for (const neighbour of neighbours) if (!worldById.has(neighbour)) {
-        const exit = pool.row('issueExit', neighbour)
-        if (exit === LOADING) return LOADING
-        exits[neighbour] = exit?.kind
+      for (const neighbour of neighbours) {
+        const target = summary(neighbour)
+        if (target === LOADING) return LOADING
+        if (target) worldById.set(neighbour, target)
+        else {
+          const exit = pool.row('issueExit', neighbour)
+          if (exit === LOADING) return LOADING
+          exits[neighbour] = exit?.kind
+        }
       }
-      const worktreePaths = residentWorktreeIds(pool).flatMap(path => {
-        const lane = pool.row('worktree', path) as { path?: string; projectRoot?: boolean } | undefined
-        return lane?.path && !lane.projectRoot ? [lane.path] : []
-      })
+      const paths = worktreePaths()
       return { issue: value, issues: world, children, memberSessions: members ?? [], sessions,
-        relations: groupRelations(value), title: issueDisplayTitle(value, sessions, worktreePaths),
-        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths, exits,
+        relations: groupRelations(value), title: issueDisplayTitle(value, sessions, paths),
+        presence: presenceNote(value, own ?? [], worldById, sessions), worktreePaths: paths, exits,
       }
     })
   }
@@ -316,7 +332,12 @@ export function createIssuePageViews(pool: MobxPool) {
     })
   }
   return { issue, summary, issues, menuIssues, data, panel, destination, explorer, memberSessions, attachedSessions, stats,
-    dispose() { disposed = true; cache.clear() },
+    dispose() {
+      disposed = true
+      cache.clear()
+      for (const roster of rosters.values()) roster.dispose()
+      rosters.clear()
+    },
   }
 }
 
