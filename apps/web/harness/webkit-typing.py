@@ -83,7 +83,8 @@ def main():
     parser.add_argument("--css", default="")
     args = parser.parse_args()
     session = args.session or request(args.driver, "POST", "/session", {
-        "capabilities": {"alwaysMatch": {"browserName": "safari",
+        "capabilities": {"alwaysMatch": {"browserName": "safari", "pageLoadStrategy": "eager",
+            "timeouts": {"pageLoad": 30000, "script": 30000},
             "safari:automaticProfiling": args.profile}}})["sessionId"]
     base = args.driver + "/session/" + session
     execute = lambda script, *values: request(base, "POST", "/execute/sync", {"script": script, "args": values})
