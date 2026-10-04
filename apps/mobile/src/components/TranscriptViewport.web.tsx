@@ -5,13 +5,14 @@ import {
   type ReactElement,
   type RefAttributes,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
-import { ScrollView } from 'react-native'
+import { Keyboard, ScrollView } from 'react-native'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
 
 const noOperation = () => {}
@@ -34,6 +35,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     loadingOlder = false,
     onLoadOlder = noOperation,
     onFollowChange,
+    keyboardDismissMode,
     ...props
   }: TranscriptViewportProps<Item>,
   ref: ForwardedRef<TranscriptViewportHandle>,
@@ -93,6 +95,19 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     rowsToRender: visibleRows,
     onFollowChange: followChanged,
   })
+  useEffect(() => {
+    const element = scrollerRef.current
+    if (!element || keyboardDismissMode !== 'on-drag') return
+    // RN Web dismisses from every scroll event, including Safari's keyboard
+    // adjustment and our live-content following. Dismiss only for reader input.
+    const dismiss = () => Keyboard.dismiss()
+    element.addEventListener('touchmove', dismiss, { passive: true })
+    element.addEventListener('wheel', dismiss, { passive: true })
+    return () => {
+      element.removeEventListener('touchmove', dismiss)
+      element.removeEventListener('wheel', dismiss)
+    }
+  }, [identity, keyboardDismissMode])
   useLayoutEffect(() => {
     const target = pendingTarget.current
     if (!target) return
@@ -133,6 +148,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   return (
     <ScrollView
       {...props}
+      keyboardDismissMode="none"
       testID="transcript-scroller"
       ref={setScrollView}
       onScroll={scroll.onScroll}

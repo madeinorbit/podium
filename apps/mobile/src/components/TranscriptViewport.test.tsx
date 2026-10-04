@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createRef, type ReactElement, type Ref } from 'react'
+import { Keyboard } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
@@ -7,6 +8,7 @@ import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 let viewportHeight = 400
 let heights = new Map<string, number>()
 let observers: Array<{ notify: () => void; targets: Set<Element> }> = []
+let eventTime = 10_000
 const keys = Array.from({ length: 12 }, (_, index) => `row-${index}`)
 const rect = (top: number, height: number) =>
   ({
@@ -22,6 +24,8 @@ const rect = (top: number, height: number) =>
   }) as DOMRect
 
 beforeEach(() => {
+  eventTime = 10_000
+  vi.spyOn(Date, 'now').mockImplementation(() => eventTime)
   viewportHeight = 400
   heights = new Map()
   observers = []
@@ -105,6 +109,7 @@ function content(
     onFollowChange?: (following: boolean) => void
     onLoadOlder?: () => void
     viewportRef?: Ref<TranscriptViewportHandle>
+    keyboardDismissMode?: 'on-drag' | 'none'
   } = {},
 ): ReactElement {
   return (
@@ -119,10 +124,13 @@ function content(
       loadingOlder={options.loadingOlder}
       onFollowChange={options.onFollowChange}
       onLoadOlder={options.onLoadOlder}
+      keyboardDismissMode={options.keyboardDismissMode}
     />
   )
 }
 function read(scroller: HTMLElement, top: number): void {
+  // Distinct reader gestures must cross RN Web's 16ms scroll-event throttle.
+  eventTime += 20
   fireEvent.wheel(scroller, { deltaY: top - scroller.scrollTop })
   scroller.scrollTop = top
   fireEvent.scroll(scroller)
@@ -135,6 +143,32 @@ function resized(): void {
 }
 
 describe('phone web viewport', () => {
+  it('dismisses the keyboard for reader gestures, preserving focus on viewport and scroll events', () => {
+    const dismiss = vi.spyOn(Keyboard, 'dismiss')
+    const { getByTestId, container } = render(
+      <>
+        {content(keys, { keyboardDismissMode: 'on-drag' })}
+        <textarea />
+      </>,
+    )
+    resized()
+    const scroller = getByTestId('transcript-scroller')
+    const textarea = container.querySelector('textarea')!
+    act(() => textarea.focus())
+    viewportHeight = 220
+    resized()
+    fireEvent.scroll(scroller)
+    expect(dismiss).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(textarea)
+    fireEvent.wheel(scroller, { deltaY: 40 })
+    expect(dismiss).toHaveBeenCalledTimes(1)
+    const touch = { identifier: 1, target: scroller, clientY: 180, pageY: 180, force: 1 }
+    fireEvent.touchStart(scroller, { touches: [touch], changedTouches: [touch] })
+    fireEvent.touchMove(scroller, { touches: [touch], changedTouches: [touch] })
+    expect(dismiss).toHaveBeenCalledTimes(2)
+    fireEvent.touchEnd(scroller, { touches: [], changedTouches: [touch] })
+  })
+
   it('bounds mounted rows and observed elements during a marathon live feed', () => {
     const initial = Array.from({ length: 3_000 }, (_, index) => `row-${index}`)
     const { container, getByTestId, rerender } = render(content(initial))
@@ -185,6 +219,32 @@ describe('phone web viewport', () => {
     expect(container.querySelectorAll('[data-block]')).toHaveLength(81)
     expect(scroller.scrollTop).toBe(scroller.scrollHeight - scroller.clientHeight)
   })
+  it('keeps the focused composer and offset through a keyboard viewport resize at the bottom', () => {
+    const { getByTestId, container } = render(
+      <>
+        {content()}
+        <textarea />
+      </>,
+    )
+    resized()
+    const scroller = getByTestId('transcript-scroller')
+    expect(scroller.scrollTop).toBe(840)
+    const textarea = container.querySelector('textarea')!
+    act(() => textarea.focus())
+    const offset = vi.spyOn(scroller, 'scrollTop', 'set')
+    scroller.scrollTo = vi.fn()
+    scroller.scrollIntoView = vi.fn()
+    viewportHeight = 220
+    resized()
+    resized()
+    fireEvent.scroll(scroller)
+    expect(document.activeElement).toBe(textarea)
+    expect(scroller.scrollTop).toBe(840)
+    expect(offset).not.toHaveBeenCalled()
+    expect(scroller.scrollTo).not.toHaveBeenCalled()
+    expect(scroller.scrollIntoView).not.toHaveBeenCalled()
+  })
+
   it('retains the latest reader position through loading and actual prepend commits', () => {
     const mode = vi.fn()
     const { getByTestId, container, rerender } = render(content(keys, { onFollowChange: mode }))

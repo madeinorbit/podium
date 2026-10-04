@@ -76,6 +76,7 @@ export function useDomTranscriptScroll(
   const writtenTop = useRef<number | null>(null)
   const lastTop = useRef(0)
   const geometry = useRef({ height: 0, viewport: 0 })
+  const rowHeights = useRef(new WeakMap<Element, number>())
   const readingAnchor = useRef<ReadingAnchor | null>(null)
   const selectionPaused = useRef(false)
 
@@ -142,9 +143,27 @@ export function useDomTranscriptScroll(
     [scrollerRef],
   )
 
-  const reconcileLayout = useCallback(() => {
+  const reconcileLayout = useCallback((rowsResized = false) => {
     const scroller = scrollerRef.current
     if (!active || !scroller || scroller.clientHeight === 0) return
+    const height = scroller.scrollHeight
+    const viewport = scroller.clientHeight
+    const focused = scroller.ownerDocument.activeElement
+    const editing =
+      focused?.matches('textarea, input') ||
+      (focused as HTMLElement | null)?.isContentEditable
+    // Safari pans/resizes the viewport as its keyboard opens. Writing a new
+    // tail offset during that transition can cancel focus and close it again.
+    // Keep geometry current, but wait for an observed row change before moving
+    // the offset. Keyboard chrome can change content padding as well as the
+    // viewport; neither is new transcript content. This also covers duplicate
+    // deliveries and a scroll event arriving before the row observation.
+    if (editing && !rowsResized) {
+      geometry.current = { height, viewport }
+      lastTop.current = scroller.scrollTop
+      writtenTop.current = null
+      return
+    }
     const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
     // A browser clamp can happen before its scroll event. If the previously
     // observed offset is now outside the legal range, reaching the new maximum
@@ -194,6 +213,7 @@ export function useDomTranscriptScroll(
     selectionPaused.current = false
     userScrolling.current = false
     writtenTop.current = null
+    rowHeights.current = new WeakMap()
     setFollowing(true)
   }, [sessionId, setFollowing])
 
@@ -203,7 +223,16 @@ export function useDomTranscriptScroll(
     // Read geometry after the browser's natural layout, before paint, rather
     // than forcing the whole page to lay out during React's commit. Reobserve
     // on row changes to reconcile replacement/prepend and net-zero reflows.
-    const observer = new ResizeObserver(reconcileLayout)
+    const observer = new ResizeObserver((entries) => {
+      let rowsResized = false
+      for (const entry of entries) {
+        if (!entry.target.hasAttribute('data-block')) continue
+        const previous = rowHeights.current.get(entry.target)
+        if (previous !== entry.contentRect.height) rowsResized = true
+        rowHeights.current.set(entry.target, entry.contentRect.height)
+      }
+      reconcileLayout(rowsResized)
+    })
     observer.observe(content)
     observer.observe(scroller)
     // Two rows can resize in opposite directions without changing the content

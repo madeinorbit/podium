@@ -60,25 +60,28 @@ function Harness({
     onFollowChange,
   })
   return (
-    <div
-      data-scroller
-      ref={api.setScrollerRef}
-      onScroll={api.onScroll}
-      onPointerUp={api.onPointerUp}
-    >
-      <div ref={api.setContentRef}>
-        {keys.map((key, index) => (
-          <div
-            key={key}
-            data-row-key={key}
-            data-row-aliases={aliases?.[key] ? JSON.stringify(aliases[key]) : undefined}
-            data-block={index}
-          >
-            {key}
-          </div>
-        ))}
+    <>
+      <div
+        data-scroller
+        ref={api.setScrollerRef}
+        onScroll={api.onScroll}
+        onPointerUp={api.onPointerUp}
+      >
+        <div ref={api.setContentRef}>
+          {keys.map((key, index) => (
+            <div
+              key={key}
+              data-row-key={key}
+              data-row-aliases={aliases?.[key] ? JSON.stringify(aliases[key]) : undefined}
+              data-block={index}
+            >
+              {key}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+      <textarea data-composer />
+    </>
   )
 }
 
@@ -122,7 +125,14 @@ beforeEach(() => {
       constructor(callback: ResizeObserverCallback) {
         observers.push({
           targets: this.targets,
-          notify: () => callback([], this as unknown as ResizeObserver),
+          notify: () =>
+            callback(
+              [...this.targets].map((target) => ({
+                target,
+                contentRect: target.getBoundingClientRect(),
+              }) as ResizeObserverEntry),
+              this as unknown as ResizeObserver,
+            ),
         })
       }
       observe(element: Element) {
@@ -176,6 +186,76 @@ afterEach(() => {
 })
 
 describe('transcript scrolling', () => {
+  it('keeps composer focus without scrolling for keyboard viewport resizes at the tail', () => {
+    renderHarness(<Harness />)
+    expect(scroller().scrollTop).toBe(840)
+    const textarea = host.querySelector('textarea')!
+    act(() => textarea.focus())
+    const offset = vi.spyOn(scroller(), 'scrollTop', 'set')
+    scroller().scrollTo = vi.fn()
+    scroller().scrollIntoView = vi.fn()
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    const blur = vi.spyOn(HTMLElement.prototype, 'blur')
+    viewport = 220
+    resize()
+    resize()
+    act(() => scroller().dispatchEvent(new Event('scroll', { bubbles: true })))
+    viewport = 260
+    act(() => scroller().dispatchEvent(new Event('scroll', { bubbles: true })))
+    resize()
+    expect(document.activeElement).toBe(textarea)
+    expect(scroller().scrollTop).toBe(840)
+    expect(offset).not.toHaveBeenCalled()
+    expect(scroller().scrollTo).not.toHaveBeenCalled()
+    expect(scroller().scrollIntoView).not.toHaveBeenCalled()
+    expect(focus).not.toHaveBeenCalled()
+    expect(blur).not.toHaveBeenCalled()
+    expect(api.atBottom).toBe(true)
+  })
+
+  it('continues following real content growth while the composer is focused', () => {
+    renderHarness(<Harness />)
+    const textarea = host.querySelector('textarea')!
+    act(() => textarea.focus())
+    viewport = 220
+    resize()
+    heights.set('row-0', 150)
+    resize()
+    expect(scroller().scrollTop).toBe(1070)
+    expect(document.activeElement).toBe(textarea)
+    expect(api.atBottom).toBe(true)
+  })
+
+  it('does not re-anchor for keyboard viewport and content padding changes', () => {
+    renderHarness(<Harness />)
+    const textarea = host.querySelector('textarea')!
+    act(() => textarea.focus())
+    const offset = vi.spyOn(scroller(), 'scrollTop', 'set')
+    viewport = 220
+    tail = 6
+    act(() => scroller().dispatchEvent(new Event('scroll', { bubbles: true })))
+    resize()
+    resize()
+    expect(document.activeElement).toBe(textarea)
+    expect(scroller().scrollTop).toBe(840)
+    expect(offset).not.toHaveBeenCalled()
+    expect(api.atBottom).toBe(true)
+  })
+
+  it('preserves a reading anchor through net-zero row reflows while the composer is focused', () => {
+    renderHarness(<Harness />)
+    scrollTo(320)
+    const textarea = host.querySelector('textarea')!
+    act(() => textarea.focus())
+    heights.set('row-0', 150)
+    heights.set('row-11', 50)
+    resize()
+    expect(scroller().scrollTop).toBe(370)
+    expect(top('row-3')).toBe(-20)
+    expect(document.activeElement).toBe(textarea)
+    expect(api.atBottom).toBe(false)
+  })
+
   it('opens and reconciles new row identities without reading geometry during a commit', () => {
     const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
     const viewportReads = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get')
