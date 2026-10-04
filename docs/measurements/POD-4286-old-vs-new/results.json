@@ -1,6 +1,6 @@
 {
-  "runs": 63,
-  "completeRuns": 16,
+  "runs": 65,
+  "completeRuns": 18,
   "partialActionRuns": 1,
   "failedRuns": 4,
   "calibrationOrDiagnosticRuns": 43,
@@ -997,37 +997,37 @@
       "scale": 4,
       "action": "app-cold-start",
       "old": {
-        "n": 4,
-        "median": 6895.011,
-        "p95": 7583.038,
-        "max": 7583.038,
-        "cpuN": 4,
-        "cpuMedian": 5514.994500000001,
-        "cpuP95": 5742.213,
-        "cpuMax": 5742.213,
-        "layoutCpuMedian": 216.91199999999998,
+        "n": 8,
+        "median": 7652.1825,
+        "p95": 9910.029,
+        "max": 9910.029,
+        "cpuN": 8,
+        "cpuMedian": 5874.0740000000005,
+        "cpuP95": 6637.5,
+        "cpuMax": 6637.5,
+        "layoutCpuMedian": 239.337,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 7121.869
+        "taskWindowMedian": 7747.603
       },
       "new": {
-        "n": 4,
-        "median": 11862.4155,
+        "n": 8,
+        "median": 11878.0995,
         "p95": 14251.339,
         "max": 14251.339,
-        "cpuN": 4,
-        "cpuMedian": 10254.3675,
-        "cpuP95": 10900.282,
-        "cpuMax": 10900.282,
-        "layoutCpuMedian": 164.989,
+        "cpuN": 8,
+        "cpuMedian": 10344.8305,
+        "cpuP95": 11016.328,
+        "cpuMax": 11016.328,
+        "layoutCpuMedian": 166.02300000000002,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 14595.009999999998
+        "taskWindowMedian": 14593.126
       },
-      "changePercent": 72.04346011920791,
-      "p95ChangePercent": 87.93706427423945,
+      "changePercent": 55.224989733321195,
+      "p95ChangePercent": 43.807238101926835,
       "verdict": "slower"
     },
     {
@@ -1036,37 +1036,37 @@
       "scale": 4,
       "action": "app-warm-start",
       "old": {
-        "n": 4,
-        "median": 4002.0755,
-        "p95": 4425.746,
-        "max": 4425.746,
-        "cpuN": 4,
-        "cpuMedian": 3228.312,
-        "cpuP95": 3846.212,
-        "cpuMax": 3846.212,
-        "layoutCpuMedian": 169.80849999999998,
+        "n": 8,
+        "median": 4432.273999999999,
+        "p95": 7504.428,
+        "max": 7504.428,
+        "cpuN": 8,
+        "cpuMedian": 3777.312,
+        "cpuP95": 5938.335,
+        "cpuMax": 5938.335,
+        "layoutCpuMedian": 184.4515,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 3914.9555000000005
+        "taskWindowMedian": 4511.514000000001
       },
       "new": {
-        "n": 4,
+        "n": 8,
         "median": 8444.715499999998,
         "p95": 8921.491,
         "max": 8921.491,
-        "cpuN": 4,
+        "cpuN": 8,
         "cpuMedian": 7116.4155,
-        "cpuP95": 7454.151,
-        "cpuMax": 7454.151,
-        "layoutCpuMedian": 152.9425,
+        "cpuP95": 7465.228,
+        "cpuMax": 7465.228,
+        "layoutCpuMedian": 150.2005,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 9605.5575
+        "taskWindowMedian": 9473.341
       },
-      "changePercent": 111.00840051618212,
-      "p95ChangePercent": 101.58163166164526,
+      "changePercent": 90.52783063501938,
+      "p95ChangePercent": 18.883024795494087,
       "verdict": "slower"
     },
     {
@@ -1075,37 +1075,37 @@
       "scale": 4,
       "action": "board-open",
       "old": {
-        "n": 8,
-        "median": 749.2375,
-        "p95": 3183.687,
-        "max": 3183.687,
-        "cpuN": 8,
+        "n": 16,
+        "median": 784.3815,
+        "p95": 4701.79,
+        "max": 4701.79,
+        "cpuN": 16,
         "cpuMedian": 683.876,
         "cpuP95": 912.513,
         "cpuMax": 912.513,
-        "layoutCpuMedian": 154.1525,
+        "layoutCpuMedian": 155.1755,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 6389.049999999997
+        "taskWindowMedian": 6341.773500000045
       },
       "new": {
-        "n": 8,
-        "median": 980.3444999999999,
-        "p95": 1061.859,
-        "max": 1061.859,
-        "cpuN": 8,
-        "cpuMedian": 902.2015,
-        "cpuP95": 982.645,
-        "cpuMax": 982.645,
-        "layoutCpuMedian": 146.4105,
+        "n": 16,
+        "median": 1039.6565,
+        "p95": 1097.945,
+        "max": 1097.945,
+        "cpuN": 16,
+        "cpuMedian": 936.865,
+        "cpuP95": 1022.761,
+        "cpuMax": 1022.761,
+        "layoutCpuMedian": 149.5805,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1430.8059999999898
+        "taskWindowMedian": 1452.7274999999804
       },
-      "changePercent": 30.845626386826595,
-      "p95ChangePercent": -66.64687828922882,
+      "changePercent": 32.544750226771036,
+      "p95ChangePercent": -76.64836158144026,
       "verdict": "slower"
     },
     {
@@ -1114,37 +1114,37 @@
       "scale": 4,
       "action": "board-search",
       "old": {
-        "n": 8,
-        "median": 142.346,
-        "p95": 187.181,
-        "max": 187.181,
-        "cpuN": 8,
-        "cpuMedian": 141.5225,
-        "cpuP95": 185.706,
-        "cpuMax": 185.706,
-        "layoutCpuMedian": 11.007,
+        "n": 16,
+        "median": 150.036,
+        "p95": 267.643,
+        "max": 267.643,
+        "cpuN": 16,
+        "cpuMedian": 146.61599999999999,
+        "cpuP95": 242.19,
+        "cpuMax": 242.19,
+        "layoutCpuMedian": 10.943,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 203.2725000000255
+        "taskWindowMedian": 221.38150000000678
       },
       "new": {
-        "n": 8,
+        "n": 16,
         "median": 353.2215,
         "p95": 1045.905,
         "max": 1045.905,
-        "cpuN": 8,
-        "cpuMedian": 352.4495,
+        "cpuN": 16,
+        "cpuMedian": 346.09000000000003,
         "cpuP95": 1039.294,
         "cpuMax": 1039.294,
-        "layoutCpuMedian": 19.9805,
+        "layoutCpuMedian": 18.2635,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 644.212500000009
+        "taskWindowMedian": 666.5310000000204
       },
-      "changePercent": 148.14290531521786,
-      "p95ChangePercent": 458.7666483243491,
+      "changePercent": 135.4244981204511,
+      "p95ChangePercent": 290.78361847685164,
       "verdict": "slower"
     },
     {
@@ -1153,37 +1153,37 @@
       "scale": 4,
       "action": "command-palette",
       "old": {
-        "n": 8,
-        "median": 276.0895,
+        "n": 16,
+        "median": 278.43449999999996,
         "p95": 654.444,
         "max": 654.444,
-        "cpuN": 8,
+        "cpuN": 16,
         "cpuMedian": 261.51300000000003,
         "cpuP95": 618.69,
         "cpuMax": 618.69,
-        "layoutCpuMedian": 8.9495,
+        "layoutCpuMedian": 8.895,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 335.3324999999927
+        "taskWindowMedian": 333.936499999993
       },
       "new": {
-        "n": 8,
-        "median": 527.8365,
-        "p95": 959.462,
-        "max": 959.462,
-        "cpuN": 8,
-        "cpuMedian": 512.793,
-        "cpuP95": 939.087,
-        "cpuMax": 939.087,
-        "layoutCpuMedian": 8.15,
+        "n": 16,
+        "median": 399.5,
+        "p95": 1221.002,
+        "max": 1221.002,
+        "cpuN": 16,
+        "cpuMedian": 384.223,
+        "cpuP95": 1158.126,
+        "cpuMax": 1158.126,
+        "layoutCpuMedian": 8.5165,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 597.3795000000024
+        "taskWindowMedian": 564.2894999999868
       },
-      "changePercent": 91.18311272250486,
-      "p95ChangePercent": 46.60719633765456,
+      "changePercent": 43.48078273346157,
+      "p95ChangePercent": 86.57089071028233,
       "verdict": "slower"
     },
     {
@@ -1192,36 +1192,36 @@
       "scale": 4,
       "action": "dock-close",
       "old": {
-        "n": 8,
-        "median": 219.796,
+        "n": 16,
+        "median": 232.15949999999998,
         "p95": 2015.425,
         "max": 2015.425,
-        "cpuN": 8,
-        "cpuMedian": 179.781,
+        "cpuN": 16,
+        "cpuMedian": 182.6165,
         "cpuP95": 224.255,
         "cpuMax": 224.255,
-        "layoutCpuMedian": 5.457000000000001,
+        "layoutCpuMedian": 5.577,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 381.7354999999907
+        "taskWindowMedian": 802.4445000000355
       },
       "new": {
-        "n": 8,
-        "median": 128.631,
+        "n": 16,
+        "median": 137.59050000000002,
         "p95": 408.38,
         "max": 408.38,
-        "cpuN": 8,
-        "cpuMedian": 93.8845,
+        "cpuN": 16,
+        "cpuMedian": 98.83,
         "cpuP95": 257.045,
         "cpuMax": 257.045,
-        "layoutCpuMedian": 5.215,
+        "layoutCpuMedian": 5.236,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 278.3240000000262
+        "taskWindowMedian": 305.2184999999952
       },
-      "changePercent": -41.47709694443938,
+      "changePercent": -40.73449503466365,
       "p95ChangePercent": -79.73727625686891,
       "verdict": "faster"
     },
@@ -1231,37 +1231,37 @@
       "scale": 4,
       "action": "dock-open",
       "old": {
-        "n": 8,
-        "median": 265.3005,
-        "p95": 324.322,
-        "max": 324.322,
-        "cpuN": 8,
-        "cpuMedian": 225.4895,
+        "n": 16,
+        "median": 274.265,
+        "p95": 358.588,
+        "max": 358.588,
+        "cpuN": 16,
+        "cpuMedian": 219.7165,
         "cpuP95": 286.914,
         "cpuMax": 286.914,
-        "layoutCpuMedian": 5.429,
+        "layoutCpuMedian": 5.3205,
         "boundary": [
           "Paint"
         ],
         "taskWindowMedian": 927.9640000000313
       },
       "new": {
-        "n": 8,
-        "median": 147.36399999999998,
-        "p95": 184.731,
-        "max": 184.731,
-        "cpuN": 8,
-        "cpuMedian": 112.0085,
-        "cpuP95": 144.11,
-        "cpuMax": 144.11,
-        "layoutCpuMedian": 5.1695,
+        "n": 16,
+        "median": 165.745,
+        "p95": 254.338,
+        "max": 254.338,
+        "cpuN": 16,
+        "cpuMedian": 120.943,
+        "cpuP95": 192.021,
+        "cpuMax": 192.021,
+        "layoutCpuMedian": 5.3185,
         "boundary": [
           "Paint"
         ],
         "taskWindowMedian": 392.2089999999798
       },
-      "changePercent": -44.453930542912666,
-      "p95ChangePercent": -43.04086679287869,
+      "changePercent": -39.56757150930669,
+      "p95ChangePercent": -29.072361596037798,
       "verdict": "faster"
     },
     {
@@ -1270,38 +1270,38 @@
       "scale": 4,
       "action": "flight-deck-collapse",
       "old": {
-        "n": 8,
-        "median": 127.78800000000001,
-        "p95": 177.207,
-        "max": 177.207,
-        "cpuN": 8,
-        "cpuMedian": 110.0355,
-        "cpuP95": 141.043,
-        "cpuMax": 141.043,
-        "layoutCpuMedian": 2.6805,
+        "n": 16,
+        "median": 123.304,
+        "p95": 194.579,
+        "max": 194.579,
+        "cpuN": 16,
+        "cpuMedian": 106.872,
+        "cpuP95": 162.069,
+        "cpuMax": 162.069,
+        "layoutCpuMedian": 2.6814999999999998,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 877.3585000000139
+        "taskWindowMedian": 726.9275000000164
       },
       "new": {
-        "n": 8,
-        "median": 121.2045,
+        "n": 16,
+        "median": 123.111,
         "p95": 207.883,
         "max": 207.883,
-        "cpuN": 8,
-        "cpuMedian": 80.0975,
-        "cpuP95": 95.599,
-        "cpuMax": 95.599,
-        "layoutCpuMedian": 5.592499999999999,
+        "cpuN": 16,
+        "cpuMedian": 80.944,
+        "cpuP95": 108.604,
+        "cpuMax": 108.604,
+        "layoutCpuMedian": 5.223,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 723.0545000000035
+        "taskWindowMedian": 716.6005000000055
       },
-      "changePercent": -5.1518921964503805,
-      "p95ChangePercent": 17.310828579006476,
-      "verdict": "similar median, worse tail"
+      "changePercent": -0.15652371374813567,
+      "p95ChangePercent": 6.837325713463427,
+      "verdict": "no clear improvement"
     },
     {
       "newArm": "new-current",
@@ -1309,37 +1309,37 @@
       "scale": 4,
       "action": "flight-deck-expand",
       "old": {
-        "n": 8,
-        "median": 175.23000000000002,
-        "p95": 215.16,
-        "max": 215.16,
-        "cpuN": 8,
-        "cpuMedian": 131.4085,
-        "cpuP95": 152.528,
-        "cpuMax": 152.528,
-        "layoutCpuMedian": 7.231999999999999,
+        "n": 16,
+        "median": 176.876,
+        "p95": 552.598,
+        "max": 552.598,
+        "cpuN": 16,
+        "cpuMedian": 136.382,
+        "cpuP95": 188.579,
+        "cpuMax": 188.579,
+        "layoutCpuMedian": 7.5855,
         "boundary": [
           "Paint"
         ],
         "taskWindowMedian": 1146.856999999983
       },
       "new": {
-        "n": 8,
-        "median": 115.88399999999999,
+        "n": 16,
+        "median": 108.25450000000001,
         "p95": 175.059,
         "max": 175.059,
-        "cpuN": 8,
-        "cpuMedian": 75.93549999999999,
+        "cpuN": 16,
+        "cpuMedian": 67.362,
         "cpuP95": 126.865,
         "cpuMax": 126.865,
-        "layoutCpuMedian": 6.626,
+        "layoutCpuMedian": 6.205500000000001,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 833.8990000000024
+        "taskWindowMedian": 835.2420000000009
       },
-      "changePercent": -33.86748844375964,
-      "p95ChangePercent": -18.637757947573895,
+      "changePercent": -38.79638843031275,
+      "p95ChangePercent": -68.3207322502072,
       "verdict": "faster"
     },
     {
@@ -1348,37 +1348,37 @@
       "scale": 4,
       "action": "header-menu",
       "old": {
-        "n": 8,
-        "median": 59.5265,
+        "n": 16,
+        "median": 59.74250000000001,
         "p95": 147.328,
         "max": 147.328,
-        "cpuN": 8,
-        "cpuMedian": 32.581,
+        "cpuN": 16,
+        "cpuMedian": 32.373000000000005,
         "cpuP95": 92.65,
         "cpuMax": 92.65,
         "layoutCpuMedian": 5.739000000000001,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 134.01050000004489
+        "taskWindowMedian": 142.36099999993712
       },
       "new": {
-        "n": 8,
-        "median": 58.6225,
-        "p95": 92.889,
-        "max": 92.889,
-        "cpuN": 8,
-        "cpuMedian": 32.4675,
-        "cpuP95": 54.934,
-        "cpuMax": 54.934,
-        "layoutCpuMedian": 5.6185,
+        "n": 16,
+        "median": 59.045500000000004,
+        "p95": 97.841,
+        "max": 97.841,
+        "cpuN": 16,
+        "cpuMedian": 33.7565,
+        "cpuP95": 63.022,
+        "cpuMax": 63.022,
+        "layoutCpuMedian": 6.0835,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 131.27749999998173
+        "taskWindowMedian": 153.33900000001677
       },
-      "changePercent": -1.5186513569586557,
-      "p95ChangePercent": -36.95088509991312,
+      "changePercent": -1.1666736410428147,
+      "p95ChangePercent": -33.58967745438749,
       "verdict": "no clear improvement"
     },
     {
@@ -1387,37 +1387,37 @@
       "scale": 4,
       "action": "issue-page-open",
       "old": {
-        "n": 8,
-        "median": 348.827,
-        "p95": 406.456,
-        "max": 406.456,
-        "cpuN": 8,
-        "cpuMedian": 305.0245,
-        "cpuP95": 366.915,
-        "cpuMax": 366.915,
-        "layoutCpuMedian": 92.8805,
+        "n": 16,
+        "median": 385.82,
+        "p95": 498.129,
+        "max": 498.129,
+        "cpuN": 16,
+        "cpuMedian": 330.072,
+        "cpuP95": 388.898,
+        "cpuMax": 388.898,
+        "layoutCpuMedian": 96.592,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 506.97250000007443
+        "taskWindowMedian": 545.8634999999958
       },
       "new": {
-        "n": 8,
-        "median": 192.1465,
-        "p95": 246.278,
-        "max": 246.278,
-        "cpuN": 8,
-        "cpuMedian": 156.527,
-        "cpuP95": 198.316,
-        "cpuMax": 198.316,
-        "layoutCpuMedian": 92.9735,
+        "n": 16,
+        "median": 211.689,
+        "p95": 293.335,
+        "max": 293.335,
+        "cpuN": 16,
+        "cpuMedian": 167.8475,
+        "cpuP95": 250.207,
+        "cpuMax": 250.207,
+        "layoutCpuMedian": 97.4565,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 313.85450000001924
+        "taskWindowMedian": 332.27600000000734
       },
-      "changePercent": -44.91639121971637,
-      "p95ChangePercent": -39.40844765485071,
+      "changePercent": -45.132704369913434,
+      "p95ChangePercent": -41.112643512022,
       "verdict": "faster"
     },
     {
@@ -1426,37 +1426,37 @@
       "scale": 4,
       "action": "issue-picker-search",
       "old": {
-        "n": 8,
-        "median": 53.2285,
+        "n": 16,
+        "median": 56.501999999999995,
         "p95": 91.979,
         "max": 91.979,
-        "cpuN": 8,
-        "cpuMedian": 48.558,
-        "cpuP95": 60.144,
-        "cpuMax": 60.144,
-        "layoutCpuMedian": 7.811,
+        "cpuN": 16,
+        "cpuMedian": 49.022499999999994,
+        "cpuP95": 63.037,
+        "cpuMax": 63.037,
+        "layoutCpuMedian": 7.7545,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 117.58400000002212
+        "taskWindowMedian": 123.82700000000568
       },
       "new": {
-        "n": 8,
+        "n": 16,
         "median": 74.118,
-        "p95": 94.246,
-        "max": 94.246,
-        "cpuN": 8,
+        "p95": 102.176,
+        "max": 102.176,
+        "cpuN": 16,
         "cpuMedian": 73.45400000000001,
-        "cpuP95": 93.892,
-        "cpuMax": 93.892,
-        "layoutCpuMedian": 9.1385,
+        "cpuP95": 102.009,
+        "cpuMax": 102.009,
+        "layoutCpuMedian": 8.741499999999998,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 229.40199999999322
+        "taskWindowMedian": 181.48550000000796
       },
-      "changePercent": 39.24495336145111,
-      "p95ChangePercent": 2.4646930277563373,
+      "changePercent": 31.17765742805565,
+      "p95ChangePercent": 11.086226203807392,
       "verdict": "slower"
     },
     {
@@ -1465,37 +1465,37 @@
       "scale": 4,
       "action": "issue-rename",
       "old": {
-        "n": 8,
-        "median": 2288.7855,
-        "p95": 3424.639,
-        "max": 3424.639,
-        "cpuN": 8,
-        "cpuMedian": 2060.047,
+        "n": 16,
+        "median": 2423.531,
+        "p95": 4388.426,
+        "max": 4388.426,
+        "cpuN": 16,
+        "cpuMedian": 2166.8125,
         "cpuP95": 3414.164,
         "cpuMax": 3414.164,
-        "layoutCpuMedian": 4.0745000000000005,
+        "layoutCpuMedian": 4.3975,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 5576.989499999968
+        "taskWindowMedian": 5080.36699999991
       },
       "new": {
-        "n": 8,
-        "median": 85.2045,
-        "p95": 131.358,
-        "max": 131.358,
-        "cpuN": 8,
-        "cpuMedian": 70.38550000000001,
-        "cpuP95": 81.879,
-        "cpuMax": 81.879,
-        "layoutCpuMedian": 3.904,
+        "n": 16,
+        "median": 87.5955,
+        "p95": 188.841,
+        "max": 188.841,
+        "cpuN": 16,
+        "cpuMedian": 72.1055,
+        "cpuP95": 127.361,
+        "cpuMax": 127.361,
+        "layoutCpuMedian": 3.977,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 190.84899999998584
+        "taskWindowMedian": 201.36999999999716
       },
-      "changePercent": -96.27730514720581,
-      "p95ChangePercent": -96.16432564133038,
+      "changePercent": -96.38562494145938,
+      "p95ChangePercent": -95.69683982366342,
       "verdict": "faster"
     },
     {
@@ -1504,37 +1504,37 @@
       "scale": 4,
       "action": "large-mission-switch",
       "old": {
-        "n": 8,
-        "median": 3485.0829999999996,
-        "p95": 4254.984,
-        "max": 4254.984,
-        "cpuN": 8,
-        "cpuMedian": 3423.9449999999997,
-        "cpuP95": 4121.826,
-        "cpuMax": 4121.826,
+        "n": 16,
+        "median": 3024.5924999999997,
+        "p95": 4619.145,
+        "max": 4619.145,
+        "cpuN": 16,
+        "cpuMedian": 2978.8230000000003,
+        "cpuP95": 4547.339,
+        "cpuMax": 4547.339,
         "layoutCpuMedian": 215.244,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 6276.859000000002
+        "taskWindowMedian": 5979.532500000005
       },
       "new": {
-        "n": 8,
-        "median": 1011.368,
-        "p95": 1755.665,
-        "max": 1755.665,
-        "cpuN": 8,
-        "cpuMedian": 969.3544999999999,
-        "cpuP95": 1675.319,
-        "cpuMax": 1675.319,
-        "layoutCpuMedian": 300.307,
+        "n": 16,
+        "median": 1081.537,
+        "p95": 2592.149,
+        "max": 2592.149,
+        "cpuN": 16,
+        "cpuMedian": 1041.828,
+        "cpuP95": 2421.178,
+        "cpuMax": 2421.178,
+        "layoutCpuMedian": 306.93600000000004,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1750.0479999999925
+        "taskWindowMedian": 1907.3225000000066
       },
-      "changePercent": -70.98008856603988,
-      "p95ChangePercent": -58.738622753928105,
+      "changePercent": -64.24189374271079,
+      "p95ChangePercent": -43.882493405164816,
       "verdict": "faster"
     },
     {
@@ -1543,37 +1543,37 @@
       "scale": 4,
       "action": "mark-read",
       "old": {
-        "n": 8,
-        "median": 10021.699,
+        "n": 16,
+        "median": 9769.03,
         "p95": 15590.698,
         "max": 15590.698,
-        "cpuN": 8,
-        "cpuMedian": 9812.068,
+        "cpuN": 16,
+        "cpuMedian": 9268.0045,
         "cpuP95": 14962.293,
         "cpuMax": 14962.293,
-        "layoutCpuMedian": 34.819,
+        "layoutCpuMedian": 35.162000000000006,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 10264.016
+        "taskWindowMedian": 9845.668499999989
       },
       "new": {
-        "n": 8,
-        "median": 212.4155,
-        "p95": 257.75,
-        "max": 257.75,
-        "cpuN": 8,
-        "cpuMedian": 166.7455,
-        "cpuP95": 191.604,
-        "cpuMax": 191.604,
-        "layoutCpuMedian": 8.147,
+        "n": 16,
+        "median": 240.30200000000002,
+        "p95": 426.234,
+        "max": 426.234,
+        "cpuN": 16,
+        "cpuMedian": 166.1995,
+        "cpuP95": 225.811,
+        "cpuMax": 225.811,
+        "layoutCpuMedian": 7.5695,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 281.87800000000607
+        "taskWindowMedian": 277.14000000000283
       },
-      "changePercent": -97.88044422407818,
-      "p95ChangePercent": -98.34677061925001,
+      "changePercent": -97.54016519552094,
+      "p95ChangePercent": -97.26610059408502,
       "verdict": "faster"
     },
     {
@@ -1582,37 +1582,37 @@
       "scale": 4,
       "action": "mission-switch",
       "old": {
-        "n": 8,
-        "median": 2512.3435,
-        "p95": 2810.39,
-        "max": 2810.39,
-        "cpuN": 8,
-        "cpuMedian": 2423.913,
-        "cpuP95": 2716.266,
-        "cpuMax": 2716.266,
+        "n": 16,
+        "median": 2586.029,
+        "p95": 3590.148,
+        "max": 3590.148,
+        "cpuN": 16,
+        "cpuMedian": 2472.7455,
+        "cpuP95": 3139.489,
+        "cpuMax": 3139.489,
         "layoutCpuMedian": 151.1565,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 3212.116999999978
+        "taskWindowMedian": 3330.506000000014
       },
       "new": {
-        "n": 8,
-        "median": 526.5765,
-        "p95": 746.626,
-        "max": 746.626,
-        "cpuN": 8,
-        "cpuMedian": 472.28499999999997,
-        "cpuP95": 602.531,
-        "cpuMax": 602.531,
-        "layoutCpuMedian": 141.7855,
+        "n": 16,
+        "median": 548.252,
+        "p95": 1971.539,
+        "max": 1971.539,
+        "cpuN": 16,
+        "cpuMedian": 484.188,
+        "cpuP95": 923.697,
+        "cpuMax": 923.697,
+        "layoutCpuMedian": 150.34199999999998,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 903.8789999999892
+        "taskWindowMedian": 994.9849999999998
       },
-      "changePercent": -79.04042580164695,
-      "p95ChangePercent": -73.43336689925597,
+      "changePercent": -78.79946435248793,
+      "p95ChangePercent": -45.08474302452156,
       "verdict": "faster"
     },
     {
@@ -1632,37 +1632,37 @@
       "scale": 4,
       "action": "session-switch",
       "old": {
-        "n": 8,
-        "median": 5537.198,
-        "p95": 6177.336,
-        "max": 6177.336,
-        "cpuN": 8,
-        "cpuMedian": 5455.7445,
-        "cpuP95": 6101.474,
-        "cpuMax": 6101.474,
+        "n": 16,
+        "median": 6080.351500000001,
+        "p95": 11512.099,
+        "max": 11512.099,
+        "cpuN": 16,
+        "cpuMedian": 6009.4310000000005,
+        "cpuP95": 11304.227,
+        "cpuMax": 11304.227,
         "layoutCpuMedian": 111.90899999999999,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 9947.85300000001
+        "taskWindowMedian": 10708.084499999997
       },
       "new": {
-        "n": 8,
+        "n": 16,
         "median": 630.3645,
-        "p95": 744.431,
-        "max": 744.431,
-        "cpuN": 8,
-        "cpuMedian": 501.3935,
-        "cpuP95": 634.074,
-        "cpuMax": 634.074,
-        "layoutCpuMedian": 112.9005,
+        "p95": 766.753,
+        "max": 766.753,
+        "cpuN": 16,
+        "cpuMedian": 472.35749999999996,
+        "cpuP95": 670.893,
+        "cpuMax": 670.893,
+        "layoutCpuMedian": 109.78399999999999,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 966.6319999999971
+        "taskWindowMedian": 976.720499999999
       },
-      "changePercent": -88.61582157618348,
-      "p95ChangePercent": -87.94899613684605,
+      "changePercent": -89.63276218488355,
+      "p95ChangePercent": -93.33958993924566,
       "verdict": "faster"
     },
     {
@@ -1671,37 +1671,37 @@
       "scale": 4,
       "action": "sidebar-collapse",
       "old": {
-        "n": 8,
-        "median": 351.94100000000003,
+        "n": 16,
+        "median": 347.851,
         "p95": 497.655,
         "max": 497.655,
-        "cpuN": 8,
-        "cpuMedian": 332.475,
+        "cpuN": 16,
+        "cpuMedian": 329.57550000000003,
         "cpuP95": 480.787,
         "cpuMax": 480.787,
-        "layoutCpuMedian": 59.003,
+        "layoutCpuMedian": 62.209,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1218.461000000012
+        "taskWindowMedian": 1267.0530000000042
       },
       "new": {
-        "n": 8,
+        "n": 16,
         "median": 393.778,
-        "p95": 443.099,
-        "max": 443.099,
-        "cpuN": 8,
+        "p95": 498.837,
+        "max": 498.837,
+        "cpuN": 16,
         "cpuMedian": 383.96299999999997,
-        "cpuP95": 427.984,
-        "cpuMax": 427.984,
-        "layoutCpuMedian": 63.54900000000001,
+        "cpuP95": 485.227,
+        "cpuMax": 485.227,
+        "layoutCpuMedian": 59.9555,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1055.7659999999985
+        "taskWindowMedian": 1067.946499999998
       },
-      "changePercent": 11.887503871387528,
-      "p95ChangePercent": -10.962614662768377,
+      "changePercent": 13.203066830338273,
+      "p95ChangePercent": 0.23751394038038498,
       "verdict": "slower"
     },
     {
@@ -1710,37 +1710,37 @@
       "scale": 4,
       "action": "sidebar-drag-drop",
       "old": {
-        "n": 8,
-        "median": 2299.7255,
-        "p95": 2587.367,
-        "max": 2587.367,
-        "cpuN": 8,
-        "cpuMedian": 94.0835,
-        "cpuP95": 183.932,
-        "cpuMax": 183.932,
-        "layoutCpuMedian": 12.354,
+        "n": 16,
+        "median": 2357.4170000000004,
+        "p95": 3933.529,
+        "max": 3933.529,
+        "cpuN": 16,
+        "cpuMedian": 96.172,
+        "cpuP95": 253.242,
+        "cpuMax": 253.242,
+        "layoutCpuMedian": 12.533999999999999,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 4629.0829999999805
+        "taskWindowMedian": 4847.814999999997
       },
       "new": {
-        "n": 8,
-        "median": 243.739,
+        "n": 16,
+        "median": 233.953,
         "p95": 624.068,
         "max": 624.068,
-        "cpuN": 8,
-        "cpuMedian": 54.962999999999994,
+        "cpuN": 16,
+        "cpuMedian": 53.5105,
         "cpuP95": 119.912,
         "cpuMax": 119.912,
-        "layoutCpuMedian": 6.5685,
+        "layoutCpuMedian": 7.563000000000001,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 457.1784999999977
+        "taskWindowMedian": 440.32300000000646
       },
-      "changePercent": -89.40138725252208,
-      "p95ChangePercent": -75.88019017016141,
+      "changePercent": -90.07587541788322,
+      "p95ChangePercent": -84.134653640535,
       "verdict": "faster"
     },
     {
@@ -1749,36 +1749,36 @@
       "scale": 4,
       "action": "sidebar-drag-start",
       "old": {
-        "n": 8,
-        "median": 85.646,
+        "n": 16,
+        "median": 84.6035,
         "p95": 101.995,
         "max": 101.995,
-        "cpuN": 8,
-        "cpuMedian": 72.063,
-        "cpuP95": 83.576,
-        "cpuMax": 83.576,
-        "layoutCpuMedian": 2.278,
+        "cpuN": 16,
+        "cpuMedian": 72.362,
+        "cpuP95": 83.81,
+        "cpuMax": 83.81,
+        "layoutCpuMedian": 2.2960000000000003,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 136.80500000003804
+        "taskWindowMedian": 127.26050000000555
       },
       "new": {
-        "n": 8,
-        "median": 108.4265,
+        "n": 16,
+        "median": 113.5795,
         "p95": 148.533,
         "max": 148.533,
-        "cpuN": 8,
-        "cpuMedian": 97.22999999999999,
+        "cpuN": 16,
+        "cpuMedian": 92.19550000000001,
         "cpuP95": 115.283,
         "cpuMax": 115.283,
-        "layoutCpuMedian": 2.4845,
+        "layoutCpuMedian": 2.59,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 162.58349999999666
+        "taskWindowMedian": 154.9724999999995
       },
-      "changePercent": 26.598440090605525,
+      "changePercent": 34.249174088542446,
       "p95ChangePercent": 45.62772684935534,
       "verdict": "slower"
     },
@@ -1788,38 +1788,38 @@
       "scale": 4,
       "action": "sidebar-expand",
       "old": {
-        "n": 8,
-        "median": 830.8800000000001,
+        "n": 16,
+        "median": 830.2729999999999,
         "p95": 1244.102,
         "max": 1244.102,
-        "cpuN": 8,
-        "cpuMedian": 809.992,
+        "cpuN": 16,
+        "cpuMedian": 802.6424999999999,
         "cpuP95": 1235.66,
         "cpuMax": 1235.66,
-        "layoutCpuMedian": 150.2745,
+        "layoutCpuMedian": 157.5565,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1178.2910000000015
+        "taskWindowMedian": 1207.5180000000003
       },
       "new": {
-        "n": 8,
-        "median": 807.06,
-        "p95": 1265.689,
-        "max": 1265.689,
-        "cpuN": 8,
-        "cpuMedian": 796.5125,
-        "cpuP95": 1222.796,
-        "cpuMax": 1222.796,
-        "layoutCpuMedian": 158.6255,
+        "n": 16,
+        "median": 861.4105,
+        "p95": 1412.825,
+        "max": 1412.825,
+        "cpuN": 16,
+        "cpuMedian": 844.5335,
+        "cpuP95": 1402.799,
+        "cpuMax": 1402.799,
+        "layoutCpuMedian": 152.386,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 1277.9084999999989
+        "taskWindowMedian": 1306.3784999999975
       },
-      "changePercent": -2.8668399768919883,
-      "p95ChangePercent": 1.735147118162339,
-      "verdict": "no clear improvement"
+      "changePercent": 3.7502725007316995,
+      "p95ChangePercent": 13.561830139329413,
+      "verdict": "similar median, worse tail"
     },
     {
       "newArm": "new-current",
@@ -1827,36 +1827,36 @@
       "scale": 4,
       "action": "sidebar-group-collapse",
       "old": {
-        "n": 8,
-        "median": 126.2185,
+        "n": 16,
+        "median": 121.616,
         "p95": 148.212,
         "max": 148.212,
-        "cpuN": 8,
-        "cpuMedian": 98.863,
-        "cpuP95": 109.624,
-        "cpuMax": 109.624,
+        "cpuN": 16,
+        "cpuMedian": 100.8135,
+        "cpuP95": 112.22,
+        "cpuMax": 112.22,
         "layoutCpuMedian": 2.7584999999999997,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 229.6775000000082
+        "taskWindowMedian": 229.7074999999893
       },
       "new": {
-        "n": 8,
-        "median": 145.214,
+        "n": 16,
+        "median": 143.68099999999998,
         "p95": 197.257,
         "max": 197.257,
-        "cpuN": 8,
+        "cpuN": 16,
         "cpuMedian": 126.2795,
         "cpuP95": 162.873,
         "cpuMax": 162.873,
-        "layoutCpuMedian": 3.0374999999999996,
+        "layoutCpuMedian": 2.822,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 258.9784999999978
+        "taskWindowMedian": 243.9940000000007
       },
-      "changePercent": 15.049695567606957,
+      "changePercent": 18.143171951059056,
       "p95ChangePercent": 33.09111273041321,
       "verdict": "slower"
     },
@@ -1866,37 +1866,37 @@
       "scale": 4,
       "action": "sidebar-group-expand",
       "old": {
-        "n": 8,
-        "median": 279.61699999999996,
-        "p95": 350.063,
-        "max": 350.063,
-        "cpuN": 8,
-        "cpuMedian": 252.222,
+        "n": 16,
+        "median": 273.88800000000003,
+        "p95": 354.816,
+        "max": 354.816,
+        "cpuN": 16,
+        "cpuMedian": 251.647,
         "cpuP95": 303.628,
         "cpuMax": 303.628,
-        "layoutCpuMedian": 33.63,
+        "layoutCpuMedian": 34.466,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 361.89099999999996
+        "taskWindowMedian": 381.3349999999929
       },
       "new": {
-        "n": 8,
-        "median": 533.565,
+        "n": 16,
+        "median": 541.0395000000001,
         "p95": 691.208,
         "max": 691.208,
-        "cpuN": 8,
-        "cpuMedian": 513.914,
-        "cpuP95": 664.608,
-        "cpuMax": 664.608,
+        "cpuN": 16,
+        "cpuMedian": 520.808,
+        "cpuP95": 668.409,
+        "cpuMax": 668.409,
         "layoutCpuMedian": 35.3555,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 643.0615000000017
+        "taskWindowMedian": 647.5559999999945
       },
-      "changePercent": 90.8199429934518,
-      "p95ChangePercent": 97.45245855745965,
+      "changePercent": 97.54041798107255,
+      "p95ChangePercent": 94.80744949494951,
       "verdict": "slower"
     },
     {
@@ -1905,37 +1905,37 @@
       "scale": 4,
       "action": "sidebar-select",
       "old": {
-        "n": 8,
-        "median": 2109.434,
-        "p95": 2510.358,
-        "max": 2510.358,
-        "cpuN": 8,
-        "cpuMedian": 2072.8045,
-        "cpuP95": 2442.6,
-        "cpuMax": 2442.6,
-        "layoutCpuMedian": 113.436,
+        "n": 16,
+        "median": 2413.411,
+        "p95": 3503.74,
+        "max": 3503.74,
+        "cpuN": 16,
+        "cpuMedian": 2359.7394999999997,
+        "cpuP95": 3265.585,
+        "cpuMax": 3265.585,
+        "layoutCpuMedian": 119.636,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 7436.042
+        "taskWindowMedian": 8055.585500000001
       },
       "new": {
-        "n": 8,
-        "median": 410.10749999999996,
+        "n": 16,
+        "median": 427.23,
         "p95": 847.529,
         "max": 847.529,
-        "cpuN": 8,
-        "cpuMedian": 368.5005,
+        "cpuN": 16,
+        "cpuMedian": 381.0735,
         "cpuP95": 652.712,
         "cpuMax": 652.712,
-        "layoutCpuMedian": 123.15899999999999,
+        "layoutCpuMedian": 125.5505,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 785.327500000001
+        "taskWindowMedian": 790.2595000000013
       },
-      "changePercent": -80.55841045512683,
-      "p95ChangePercent": -66.23871973638819,
+      "changePercent": -82.29766914959781,
+      "p95ChangePercent": -75.81073367316068,
       "verdict": "faster"
     },
     {
@@ -1944,37 +1944,37 @@
       "scale": 4,
       "action": "superagent-composer-typing",
       "old": {
-        "n": 8,
-        "median": 32.789500000000004,
+        "n": 16,
+        "median": 29.811500000000002,
         "p95": 41.741,
         "max": 41.741,
-        "cpuN": 8,
-        "cpuMedian": 31.359,
+        "cpuN": 16,
+        "cpuMedian": 28.564,
         "cpuP95": 37.603,
         "cpuMax": 37.603,
-        "layoutCpuMedian": 5.1015,
+        "layoutCpuMedian": 4.855,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 48.1565000000046
+        "taskWindowMedian": 44.20450000000642
       },
       "new": {
-        "n": 8,
-        "median": 20.603,
-        "p95": 25.589,
-        "max": 25.589,
-        "cpuN": 8,
-        "cpuMedian": 19.511,
-        "cpuP95": 25.401,
-        "cpuMax": 25.401,
-        "layoutCpuMedian": 4.518000000000001,
+        "n": 16,
+        "median": 21.3535,
+        "p95": 29.563,
+        "max": 29.563,
+        "cpuN": 16,
+        "cpuMedian": 19.595,
+        "cpuP95": 26.92,
+        "cpuMax": 26.92,
+        "layoutCpuMedian": 4.4835,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 30.063999999995872
+        "taskWindowMedian": 33.46599999999711
       },
-      "changePercent": -37.16586102258345,
-      "p95ChangePercent": -38.69576675211424,
+      "changePercent": -28.371601563155156,
+      "p95ChangePercent": -29.175151529671073,
       "verdict": "faster"
     },
     {
@@ -4602,22 +4602,22 @@
       "surface": "web",
       "scale": 4,
       "profile": "observed",
-      "oldN": 1,
-      "newN": 1,
-      "oldPercentOneCore": 43.85629718514075,
-      "newPercentOneCore": 18.70181990900455,
-      "changePercent": -57.356591620003336
+      "oldN": 2,
+      "newN": 2,
+      "oldPercentOneCore": 43.47447800394295,
+      "newPercentOneCore": 17.85351140438145,
+      "changePercent": -58.933350728760416
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "profile": "busy",
-      "oldN": 1,
-      "newN": 1,
-      "oldPercentOneCore": 94.68245283647758,
-      "newPercentOneCore": 24.278985700476643,
-      "changePercent": -74.3574601490226
+      "oldN": 2,
+      "newN": 2,
+      "oldPercentOneCore": 92.41288711318087,
+      "newPercentOneCore": 23.383504282428436,
+      "changePercent": -74.6967062572237
     },
     {
       "newArm": "new",
@@ -4753,12 +4753,12 @@
       "surface": "web",
       "scale": 4,
       "kind": "quiet",
-      "oldN": 8,
-      "newN": 8,
+      "oldN": 16,
+      "newN": 16,
       "oldMedianMs": 820.1805000000002,
-      "newMedianMs": 13.771499999999826,
-      "changePercent": -98.32091838320957,
-      "oldP95Ms": 1479.4620000000016,
+      "newMedianMs": 19.65299999999992,
+      "changePercent": -97.60382013471425,
+      "oldP95Ms": 2363.4710000000005,
       "newP95Ms": 143.5669999999991,
       "oldWindowMedianMs": 833.858999889344,
       "newWindowMedianMs": 226.0724997613579
@@ -4768,45 +4768,45 @@
       "surface": "web",
       "scale": 4,
       "kind": "heartbeat",
-      "oldN": 10,
-      "newN": 10,
-      "oldMedianMs": 1316.0460000000019,
-      "newMedianMs": 116.39500000000069,
-      "changePercent": -91.15570428389277,
-      "oldP95Ms": 3022.9009999999976,
+      "oldN": 20,
+      "newN": 20,
+      "oldMedianMs": 1295.1520000000016,
+      "newMedianMs": 128.760999999999,
+      "changePercent": -90.05823254722235,
+      "oldP95Ms": 1569.3720000000012,
       "newP95Ms": 207.48799999999966,
-      "oldWindowMedianMs": 1353.6229999735951,
-      "newWindowMedianMs": 233.16950001753867
+      "oldWindowMedianMs": 1371.04000011459,
+      "newWindowMedianMs": 234.4034998677671
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "kind": "session-output",
-      "oldN": 10,
-      "newN": 10,
-      "oldMedianMs": 42.816000000001964,
-      "newMedianMs": 40.77450000000127,
-      "changePercent": -4.768077354261491,
-      "oldP95Ms": 73.98300000000546,
-      "newP95Ms": 129.44299999999842,
-      "oldWindowMedianMs": 226.46800009533763,
-      "newWindowMedianMs": 223.46650017425418
+      "oldN": 20,
+      "newN": 20,
+      "oldMedianMs": 37.806500000002075,
+      "newMedianMs": 41.18749999999771,
+      "changePercent": 8.94290664302555,
+      "oldP95Ms": 98.23899999999952,
+      "newP95Ms": 118.80700000000033,
+      "oldWindowMedianMs": 227.28700004518032,
+      "newWindowMedianMs": 227.50800009816885
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "kind": "issue-change",
-      "oldN": 10,
-      "newN": 10,
+      "oldN": 20,
+      "newN": 20,
       "oldMedianMs": 1322.267,
-      "newMedianMs": 47.406999999999755,
-      "changePercent": -96.41471805618686,
-      "oldP95Ms": 1430.5570000000002,
-      "newP95Ms": 160.54199999999952,
-      "oldWindowMedianMs": 1361.2905000336468,
-      "newWindowMedianMs": 231.10450012609363
+      "newMedianMs": 55.777000000000854,
+      "changePercent": -95.78171428312127,
+      "oldP95Ms": 1412.345000000002,
+      "newP95Ms": 155.91500000000025,
+      "oldWindowMedianMs": 1371.1949998978525,
+      "newWindowMedianMs": 231.90100002102554
     },
     {
       "newArm": "new",
