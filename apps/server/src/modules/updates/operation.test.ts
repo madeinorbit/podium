@@ -4828,7 +4828,7 @@ describe('coordinator snapshot activation boundary', () => {
       await f.receiptSettled.promise
       await runnerReported.promise
       const canceled = f.reports.findLast(status => status.phaseDetail === 'canceled')!
-      await f.h.updates.onStatus('host', canceled)
+      await f.h.updates.onStatus(asMachineId('host'), canceled)
       report.mockRestore()
       await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()
       await f.h.engine.whenSettled('op_1')
