@@ -242,7 +242,6 @@ try {
     })
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(10_000)
-  if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
   if (process.argv.includes('--expand-closed')) {
     const closed = page.getByTestId('closed-fold-toggle')
     if (
@@ -276,6 +275,10 @@ try {
     await writeFile(resolve(root, 'idle.json'), JSON.stringify({ idleMs, before, after }))
     console.log(JSON.stringify({ idleMs, profiled: Boolean(profile) }))
   }
+  const initialCounters = await page.evaluate(() => (window as any).__podiumSidebarPerf?.read())
+  if (initialCounters?.pool?.rows != null)
+    console.log(JSON.stringify({ poolRowsAtStart: initialCounters.pool.rows }))
+  if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
   const rows = await page.locator('[data-issue-row]').evaluateAll((nodes) =>
     nodes.map((n) => ({
       id: n.getAttribute('data-issue-row')!,

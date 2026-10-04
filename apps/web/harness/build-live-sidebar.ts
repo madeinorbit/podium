@@ -66,6 +66,15 @@ await build({
             code.slice(at)
           )
         }
+        if (off === 'chat' && id.endsWith('/apps/web/src/features/chat/ChatView.tsx')) {
+          const start = code.indexOf('export function ChatView(')
+          const boundary = code.indexOf('}): JSX.Element {', start)
+          if (start < 0 || boundary < 0) throw new Error('Chat control boundary changed')
+          const at = boundary + '}): JSX.Element {'.length
+          return (
+            code.slice(0, at) + '\n  return <div data-testid="chat-surface" />' + code.slice(at)
+          )
+        }
         if (id.endsWith('/packages/client-graph/src/chat-context.ts')) {
           if (!code.includes('  return {\n    counts,'))
             throw new Error('Chat census boundary changed')
