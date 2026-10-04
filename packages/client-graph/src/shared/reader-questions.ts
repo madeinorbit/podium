@@ -94,7 +94,13 @@ export function createReaderIndex() {
   let replacement = 0
   let repoRevision = 0
   let version = 0
-  const touch = (key: string) => revisions.set(key, ++version)
+  const touch = (key: string) => {
+    const revision = ++version
+    // Text postings invalidate through mobileTargets:issue:path. Keep the
+    // publication clock advancing without retaining their unread revisions.
+    if (!key.startsWith('issue:targetGram:') && !key.startsWith('issue:targetSequenceStart:'))
+      revisions.set(key, revision)
+  }
   const compareTargets = (a: string, b: string) =>
     (targetOrder.get(b) ?? 0) - (targetOrder.get(a) ?? 0) || byId(a, b)
   const orderedTargetKey = (key: string) =>

@@ -32,7 +32,7 @@ const issue = (id: string, seq: number, extra: object = {}): RowRecord => ({
 })
 
 describe('mobile target identity question', () => {
-  it('never stores or reads full-title membership or revision entries', () => {
+  it('keeps text membership and postings without unread title or text revisions', () => {
     const index = createReaderIndex()
     // Exhaustive so a new reader must join this check. Map keys expose both
     // membership and revision entries; filed retains titles inside Set values.
@@ -66,7 +66,14 @@ describe('mobile target identity question', () => {
     const reads = vi.spyOn(Map.prototype, 'get')
     const isTitle = ([key]: [unknown, ...unknown[]]) =>
       typeof key === 'string' && key.startsWith('issue:targetTitle:')
+    const isText = ([key]: [unknown, ...unknown[]]) =>
+      typeof key === 'string' &&
+      (key.startsWith('issue:targetGram:') || key.startsWith('issue:targetSequenceStart:'))
     let titleWrites: unknown[] = [], titleReads: unknown[] = []
+    let textRevisionWrites: unknown[] = [], textRevisionReads: unknown[] = []
+    let textMembershipWrites: [unknown, ...unknown[]][] = []
+    let textPostingWrites: [unknown, ...unknown[]][] = []
+    let revisionMap: unknown
     try {
       index.apply({ type: 'replace', rows: [issue('a', 17)] })
       for (const reader of Object.values(readers)) {
@@ -77,14 +84,74 @@ describe('mobile target identity question', () => {
       index.ids(question('renamed target'))
       index.apply({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: undefined }] })
       index.apply({ type: 'replace', rows: [issue('b', 18)] })
+      index.apply({ type: 'update', rows: [issue('b', 19, { repoPath: '/other' })] })
+      for (const reader of Object.values(readers)) {
+        index.ids(reader)
+        index.revision(reader)
+      }
       titleWrites = writes.mock.calls.filter(isTitle)
       titleReads = reads.mock.calls.filter(isTitle)
+      revisionMap = writes.mock.contexts[
+        writes.mock.calls.findIndex(([key]) => key === 'mobileTargets:issue:path:/phone')
+      ]
+      textRevisionWrites = writes.mock.calls.filter(
+        (call) => isText(call) && typeof call[1] === 'number',
+      )
+      textRevisionReads = reads.mock.calls.filter(
+        (call, at) => isText(call) && reads.mock.contexts[at] === revisionMap,
+      )
+      textMembershipWrites = writes.mock.calls.filter(
+        (call) => isText(call) && call[1] instanceof Set,
+      )
+      textPostingWrites = writes.mock.calls.filter(
+        (call) => isText(call) && Array.isArray(call[1]),
+      )
     } finally {
       writes.mockRestore()
       reads.mockRestore()
     }
     expect(titleWrites).toEqual([])
     expect(titleReads).toEqual([])
+    expect(revisionMap).toBeInstanceOf(Map)
+    expect(textRevisionWrites).toEqual([])
+    expect(textRevisionReads).toEqual([])
+    for (const prefix of ['issue:targetGram:title:', 'issue:targetGram:ref:', 'issue:targetSequenceStart:']) {
+      expect(textMembershipWrites.some(([key]) => typeof key === 'string' && key.startsWith(prefix))).toBe(true)
+      expect(textPostingWrites.some(([key]) => typeof key === 'string' && key.startsWith(prefix))).toBe(true)
+    }
+  })
+
+  it('preserves the publication clock while text edits invalidate only their target path', () => {
+    const index = createReaderIndex()
+    const search = question('x')
+    const other = { ...search, repoPath: '/other' }
+    index.apply({ type: 'replace', rows: [issue('a', 7, { title: 'x' })] })
+    const before = index.version
+    const otherRevision = index.revision(other)
+    const board = { kind: 'boardIssues', projectPaths: ['/phone'] } as const
+    const boardRevision = index.revision(board)
+    expect(index.ids(search)).toEqual(['a'])
+    index.apply({ type: 'update', rows: [issue('a', 7, { title: 'y' })] })
+    // One path publication and the removed/added one-character title grams.
+    expect(index.version).toBe(before + 3)
+    expect(index.revision(search)).toBe(before + 1)
+    expect(index.revision(other)).toBe(otherRevision)
+    expect(index.revision(board)).toBe(boardRevision)
+    expect(index.ids(search)).toEqual([])
+    expect(index.ids(question('y'))).toEqual(['a'])
+
+    const renamed = index.version
+    index.apply({ type: 'update', rows: [issue('a', 8, { title: 'y' })] })
+    // A path publication plus removed/added reference grams and prefixes.
+    expect(index.version).toBe(renamed + 5)
+    expect(index.revision(search)).toBe(renamed + 1)
+    expect(index.revision(other)).toBe(otherRevision)
+    expect(index.ids(question('POD-7'))).toEqual([])
+    expect(index.ids(question('POD-8'))).toEqual(['a'])
+
+    const edited = index.version
+    index.apply({ type: 'update', rows: [issue('a', 8, { title: 'y' })] })
+    expect(index.version).toBe(edited)
   })
 
   it('invalidates title-only renames even when every gram posting stays the same', () => {
@@ -196,27 +263,51 @@ describe('mobile target identity question', () => {
 
   it('updates order and matching from effective publications, then evicts every facet', () => {
     const index = createReaderIndex()
+    const other = { ...question('renamed'), repoPath: '/other', prefixes: { other: 'OTHER' } }
     index.apply({ type: 'replace', rows: [issue('a', 1), issue('b', 2)] })
     expect(index.repoIds('/phone')).toEqual(['phone'])
     const first = index.revision(question())
-    index.apply({ type: 'update', rows: [issue('unrelated', 99, { repoPath: '/other' })] })
+    index.apply({ type: 'update', rows: [issue('unrelated', 99, { repoPath: '/other', repoId: 'other' })] })
     expect(index.revision(question())).toBe(first)
     index.apply({ type: 'update', rows: [issue('a', 3, { title: 'Renamed target' })] })
     expect(index.revision(question())).toBeGreaterThan(first)
     expect(index.ids(question())).toEqual(['a', 'b'])
     expect(index.ids(question('renamed'))).toEqual(['a'])
     expect(index.ids(question('candidate 1'))).toEqual([])
+    const beforeMove = index.revision(question())
+    const otherBeforeMove = index.revision(other)
     index.apply({
       type: 'update',
-      rows: [issue('a', 3, { repoPath: '/other', title: 'Renamed target' })],
+      rows: [issue('a', 3, { repoPath: '/other', repoId: 'other', title: 'Renamed target' })],
     })
+    expect(index.revision(question())).toBeGreaterThan(beforeMove)
+    expect(index.revision(other)).toBeGreaterThan(otherBeforeMove)
     expect(index.ids(question('renamed'))).toEqual([])
+    expect(index.ids(other)).toEqual(['a'])
+    expect(index.ids({ ...other, query: 'OTHER-3' })).toEqual(['a'])
+    expect(index.ids(question('POD-3'))).toEqual([])
+    const beforeRemove = index.revision(question())
+    const otherBeforeRemove = index.revision(other)
     index.apply({ type: 'update', rows: [{ kind: 'issue', id: 'b', value: undefined }] })
+    expect(index.revision(question())).toBeGreaterThan(beforeRemove)
+    expect(index.revision(other)).toBe(otherBeforeRemove)
     expect(index.ids(question())).toEqual([])
     expect(index.repoIds('/phone')).toEqual([])
+    const beforeReplace = index.version
     index.apply({ type: 'replace', rows: [issue('principal-b', 8)] })
+    expect(index.revision(question())).toBeGreaterThan(beforeReplace)
+    expect(index.revision(other)).toBeGreaterThan(beforeReplace)
     expect(index.ids(question())).toEqual(['principal-b'])
     expect(index.ids(question('renamed'))).toEqual([])
+    expect(index.ids(other)).toEqual([])
+    expect(index.repoIds('/other')).toEqual([])
+    const beforeClear = index.version
+    index.apply({ type: 'replace', rows: [] })
+    expect(index.version).toBe(beforeClear + 1)
+    expect(index.revision(question())).toBe(index.version)
+    expect(index.revision(other)).toBe(index.version)
+    expect(index.ids(question())).toEqual([])
+    expect(index.repoIds()).toEqual([])
   })
 
   it('uses the same joined prefix as visible rows, including two repositories at one path', () => {
