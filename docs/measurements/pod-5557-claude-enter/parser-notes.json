@@ -1,0 +1,20 @@
+{
+  "version": "2.1.283",
+  "source": "Installed binary embedded JavaScript, inspected locally; behavior checked through the native PTY",
+  "binarySHA256": "1859583ce32920595c61ef868bee52e1b1594f7486db209935e01f1e5e804ae2",
+  "symbols": {
+    "Xy_terminal_parser": 209235726,
+    "hd_reader": 209244956,
+    "qt_return_handler": 212908177,
+    "gje_paste_handler": 212913845,
+    "ker_AppleTerminal_shift": 212904818
+  },
+  "rules": [
+    "Bracketed paste begins IN_PASTE; the closing bracket emits paste text and ends that mode.",
+    "CR outside paste maps to Return; LF maps to Enter and inserts a newline.",
+    "Return during pending paste processing is deferred until the UI commit, rather than treated as a newline.",
+    "Plain Return invokes onSubmit; modifiers or the configured backslash continuation insert a newline.",
+    "Reader timeouts are 50 ms for incomplete key/byte input and 2000 ms for unfinished bracketed paste; neither is a mandatory wait after a completed closing marker."
+  ],
+  "historicalCause": "The live incident did not capture native stdin bytes or key-handler state. No natural fast-CR failure was reproduced."
+}

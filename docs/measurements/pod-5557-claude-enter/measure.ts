@@ -80,6 +80,7 @@ let lastOutput = Date.now()
 let phase = 'idle'
 let writes: any[] = []
 let faultArmed = false
+let firstEnterEvidence: unknown
 const burners: ReturnType<typeof Bun.spawn>[] = []
 const flush = () => new Promise<void>(resolve => terminal.write('', resolve))
 function screen() {
@@ -99,10 +100,21 @@ function inject(text: string, delay: number, withRetries = false) {
   const ports: TerminalInjectionPorts = {
     now: Date.now, running: () => running, live: () => true, phase: () => phase, lastOutputAtMs: () => lastOutput,
     write(bytes, origin) {
-      const actual = faultArmed && bytes === '\r' && fault === 'lf' ? '\n' : bytes
+      const captureFault = faultArmed && bytes === '\r' && verifyInput
+      const delayedPasteEnd = faultArmed && bytes === '\r' && fault === 'inside-paste'
+      const actual = faultArmed && bytes.startsWith('\x1b[200~') && fault === 'inside-paste' ? bytes.slice(0, -6)
+        : faultArmed && bytes === '\r' && fault === 'lf' ? '\n' : bytes
       if (bytes === '\r') faultArmed = false
       writes.push({ at: Date.now(), mono: performance.now(), bytes: actual, intended: bytes, origin })
       pty!.write(actual)
+      if (delayedPasteEnd) setTimeout(() => {
+        writes.push({ at: Date.now(), mono: performance.now(), bytes: '\x1b[201~', origin: 'fault-paste-end' })
+        pty!.write('\x1b[201~')
+      }, 100)
+      if (captureFault) setTimeout(async () => {
+        await flush()
+        firstEnterEvidence = { at: Date.now(), screen: screen(), records: accepted(text.split('\n')[0]) }
+      }, 150)
     },
     setTimer(callback, ms) { return setTimeout(callback, ms === SUBMIT_CR_DELAY_MS ? delay : ms) },
     clearTimer(handle) { clearTimeout(handle as ReturnType<typeof setTimeout>) },
@@ -189,6 +201,7 @@ try {
     await flush()
     const before = screen()
     writes = []
+    firstEnterEvidence = undefined
     const started = Date.now()
     faultArmed = fault !== 'none'
     if (stall) { process.kill(pty.pid, 'SIGSTOP'); setTimeout(() => process.kill(pty!.pid, 'SIGCONT'), stall) }
@@ -215,7 +228,7 @@ try {
     const firstPaste = beforeRecovery.writes.find(row => row.bytes !== '\r')
     const row = { case: id, version, state, body: kind, delay, load, stall, retries, bg, fault, verifyInput, iteration, started, text, recordedEventually,
       observedDelay: firstCR && firstPaste ? firstCR.mono - firstPaste.mono : null,
-      firstCRSubmitted: didSubmit, before, beforeRecovery, final: { at: Date.now(), screen: screen(), records: finalRecords, writes }, setupRecords }
+      firstCRSubmitted: didSubmit, before, firstEnterEvidence, beforeRecovery, final: { at: Date.now(), screen: screen(), records: finalRecords, writes }, setupRecords }
     appendFileSync(output, `${JSON.stringify(row)}\n`)
     console.log(JSON.stringify({ case: id, delay, observedDelay: row.observedDelay, submitted: didSubmit,
       recordTypes: afterRecords.map(record => `${record.type}:${record.operation ?? ''}`), cursor: afterCR.cursor }))

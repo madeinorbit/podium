@@ -14,5 +14,27 @@
     "msg_6fe30ce0-aa03-4327-805a-3904f2adeff8",
     "msg_b784c688-6fb1-4e6e-a96a-3b574ee02527"
   ],
-  "evidence": "One user entry contains all three copies; no inference from absence alone."
+  "evidence": "One user entry contains all three copies; no inference from absence alone.",
+  "copyLengths": [
+    219,
+    219,
+    218
+  ],
+  "copiesEquivalentIgnoringWhitespace": true,
+  "normalizedCopySHA256": "a77d73ea16ddb18177f9a4a4d4402b21d0631a0c17c02dda6a9218386cb9b7e6",
+  "copiesOutsideMailFrames": [
+    true,
+    true,
+    true
+  ],
+  "mailFrameRanges": [
+    [
+      251,
+      1819
+    ],
+    [
+      2323,
+      4244
+    ]
+  ]
 }

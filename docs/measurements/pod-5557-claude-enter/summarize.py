@@ -59,7 +59,12 @@ def audit(row, require_native=False):
         assert unframe(content(record)) == actual, (row["case"], "merged queue")
     pastes = [w for w in row["final"]["writes"] if w["bytes"].startswith("\x1b[200~")]
     assert len(pastes) == 1, (row["case"], "paste count", len(pastes))
-    assert pastes[0]["bytes"] == "\x1b[200~" + row["text"] + "\x1b[201~"
+    expected = "\x1b[200~" + row["text"] + "\x1b[201~"
+    if row.get("fault") == "inside-paste":
+        assert pastes[0]["bytes"] == expected[:-6]
+        assert sum(w["bytes"] == "\x1b[201~" for w in row["final"]["writes"]) == 1
+    else:
+        assert pastes[0]["bytes"] == expected
     return native, enqueues
 
 
@@ -97,13 +102,15 @@ for version in ("2.1.283", "2.1.289"):
                        "nativeRecords": collections.Counter(r["type"] for x in selected for r in x["final"]["records"] if r["type"] in ("user", "attachment"))})
 
 faults = []
-for path in sorted(HERE.glob("*-missed-enter-*.jsonl")):
+for path in sorted([*HERE.glob("*-missed-enter-*.jsonl"), *HERE.glob("*-paste-end-*.jsonl")]):
     rows = read(path.name)
     for row in rows:
         audit(row, require_native="-after" in path.name)
     faults.append({"file": path.name, "cases": len(rows), "verifiedBeforeManualRecovery": sum(r["firstCRSubmitted"] for r in rows),
                    "singlePastePerCase": True,
-                   "messageCRCounts": dict(collections.Counter(sum(w["bytes"] == "\r" and w["origin"] == "message" for w in r["final"]["writes"]) for r in rows))})
+                   "messageCRCounts": dict(collections.Counter(sum(w["bytes"] == "\r" and w["origin"] == "message" for w in r["final"]["writes"]) for r in rows)),
+                   "intendedEnterCounts": dict(collections.Counter(sum(w.get("intended") == "\r" for w in r["final"]["writes"]) for r in rows)),
+                   "manualRecoveryCases": sum(any(w["origin"] == "recovery" for w in r["final"]["writes"]) for r in rows)})
 
 summary = {"baselineCases": len(baseline), "baselineSubmitted": len(baseline), "groups": groups,
            "proofSnapshotLag": lagged, "coalescedCases": len(coalesced), "coalescedSubmitted": len(coalesced),
