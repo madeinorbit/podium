@@ -74,7 +74,9 @@ const machine = (id: MachineId): MachineWire => ({
   serviceAssignment: { server: false, agentExecution: true },
   availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
   inventory: {
-    os: 'linux', arch: 'x64', tools: [],
+    os: 'linux',
+    arch: 'x64',
+    tools: [],
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   },
 })

@@ -184,8 +184,7 @@ function UnifiedIssueRowInner({
   const timing = display?.timing ?? rowMotionTiming(row)
   // The published row carries the Flight Deck's child-task rollup. Direct
   // component fixtures can supply the same rollup on their addressed row.
-  const progress =
-    progressProp ?? row.missionRollup?.progress ?? fallbackEmptyProgress()
+  const progress = progressProp ?? row.missionRollup?.progress ?? fallbackEmptyProgress()
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the

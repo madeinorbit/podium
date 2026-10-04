@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
-import { cleanup, render, screen } from '@testing-library/react'
 import { issueDisplayRef } from '@podium/protocol'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
@@ -40,7 +40,12 @@ describe('UnifiedIssueRow handoff copy', () => {
       <UnifiedIssueRow
         row={row}
         active={false}
-        origin={{ id: origin.id, seq: origin.seq, title: origin.title, ref: issueDisplayRef(origin) }}
+        origin={{
+          id: origin.id,
+          seq: origin.seq,
+          title: origin.title,
+          ref: issueDisplayRef(origin),
+        }}
         now={Date.parse('2026-08-12T12:00:00.000Z')}
         onSelectIssue={vi.fn()}
         onSelectPanelForIssue={vi.fn()}

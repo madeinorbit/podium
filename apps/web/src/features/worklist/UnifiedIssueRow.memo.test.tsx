@@ -181,7 +181,6 @@ function FixedList({
 
 describe('worklist row memo (POD-4421)', () => {
   it('commits only the changed row on an unrelated publish with the last green text', () => {
-
     shellCounts.clear()
     fixedResolvers.clear()
     const fixedIssues = baseIssues()
@@ -227,7 +226,9 @@ describe('worklist row memo (POD-4421)', () => {
     expect(fixedAfter.get('c') ?? 0).toBe(0)
 
     // Frozen output from the last green parity control.
-    expect(fixedText).toBe("POD-11Alphain progressPOD-22Bravo!in progress⤷ 1POD-33Charliein progress")
+    expect(fixedText).toBe(
+      'POD-11Alphain progressPOD-22Bravo!in progress⤷ 1POD-33Charliein progress',
+    )
     for (const title of ['Alpha', 'Bravo!', 'Charlie']) {
       expect(fixedText).toContain(title)
     }

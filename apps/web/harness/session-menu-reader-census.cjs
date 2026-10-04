@@ -56,20 +56,33 @@ function readers(before) {
 }
 
 function rowAdapter(before) {
-  const counts = { legacyOriginReaders: 0, legacyOriginCalls: 0, wholeArrayProps: 0, legacySelectionProps: 0, legacyDerivations: 0 }
-  const visit = node => {
+  const counts = {
+    legacyOriginReaders: 0,
+    legacyOriginCalls: 0,
+    wholeArrayProps: 0,
+    legacySelectionProps: 0,
+    legacyDerivations: 0,
+  }
+  const visit = (node) => {
     if (ts.isFunctionDeclaration(node)) {
       if (node.name?.text === 'legacyOriginTick') counts.legacyOriginReaders++
       if (node.name?.text === 'UnifiedIssueRowInner') {
         for (const member of node.parameters[0].type.members) {
-          if (['sessions', 'issues', 'allWorktreePaths'].includes(member.name.getText())) counts.wholeArrayProps++
-          if (['selectedIssueId', 'paneA'].includes(member.name.getText())) counts.legacySelectionProps++
+          if (['sessions', 'issues', 'allWorktreePaths'].includes(member.name.getText()))
+            counts.wholeArrayProps++
+          if (['selectedIssueId', 'paneA'].includes(member.name.getText()))
+            counts.legacySelectionProps++
         }
       }
     }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       if (node.expression.text === 'legacyOriginTick') counts.legacyOriginCalls++
-      if (['issueDisplayTitle', 'missionProgress', 'draftActiveFallback'].includes(node.expression.text)) counts.legacyDerivations++
+      if (
+        ['issueDisplayTitle', 'missionProgress', 'draftActiveFallback'].includes(
+          node.expression.text,
+        )
+      )
+        counts.legacyDerivations++
     }
     ts.forEachChild(node, visit)
   }
@@ -214,7 +227,7 @@ console.log(JSON.stringify(report))
 if (
   !process.argv.includes('--record-before') &&
   (Object.values(report.after).some((value) => value !== 0) ||
-    Object.values(report.rowAdapter.after).some(value => value !== 0) ||
+    Object.values(report.rowAdapter.after).some((value) => value !== 0) ||
     missingMenuInputs.length ||
     missingIssueMenuInputs.length ||
     missingGuardInputs.length ||
