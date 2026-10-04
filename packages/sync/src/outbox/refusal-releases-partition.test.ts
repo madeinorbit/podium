@@ -307,20 +307,4 @@ describe('D12 — a send that never settles holds only its own partition (POD-54
     expect(stateOf(outbox, behind.mutationId)).toBe('queued')
     expect(authority.attempts(behind.mutationId)).toBe(0)
   })
-
-  it('a drain call for another partition resolves while the hung send is still out', async () => {
-    const { outbox } = await harness((envelope) =>
-      label(envelope) === 'rename A' ? new Promise<OutboxSubmitOutcome>(() => {}) : applied,
-    )
-    await outbox.enqueue(rename('A'))
-    void outbox.drain()
-    for (let i = 0; i < 20; i++) await Promise.resolve()
-    await outbox.enqueue(chat('other'))
-    let done = false
-    void outbox.drain().then(() => {
-      done = true
-    })
-    for (let i = 0; i < 50; i++) await Promise.resolve()
-    expect(done).toBe(true)
-  })
 })

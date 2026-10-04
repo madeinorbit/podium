@@ -610,12 +610,14 @@ export class Outbox {
    * never read. Now each partition has its own drainer; a hung send holds only
    * its own partition.
    *
-   * The promise settles when every partition that had queued work at the call
-   * has finished its pass. A partition whose only work is in flight is not
-   * waited for: nothing in it is this caller's to send.
+   * The promise settles when every partition that had queued work at the call,
+   * and every partition drainer already running, has finished its pass — the
+   * same "nothing left unserved" a caller awaited before (a caller that awaits
+   * a drain started elsewhere still sees that send's outcome). So an awaiting
+   * caller still waits on a hung partition; the other partitions do not.
    */
   async drain(): Promise<void> {
-    const keys = new Set<string>()
+    const keys = new Set<string>(this.drainers.keys())
     for (const record of this.mine()) {
       if (record.state === 'queued') keys.add(record.partitionKey)
     }
