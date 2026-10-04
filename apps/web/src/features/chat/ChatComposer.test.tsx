@@ -539,3 +539,15 @@ describe('ChatComposer height across warm-panel visibility', () => {
     expect(ta.style.height).toBe('24px')
   })
 })
+
+describe('native composer sizing', () => {
+  it('keeps height measurement off the keystroke path when field-sizing is supported', async () => {
+    vi.spyOn(CSS, 'supports').mockImplementation((property, value) => property === 'field-sizing' && value === 'content')
+    const measure = vi.spyOn(Element.prototype, 'scrollHeight', 'get')
+    await mount({ compact: false, draft: 'x' })
+    measure.mockClear()
+    for (let i = 2; i <= 60; i++) await mount({ compact: false, draft: 'x'.repeat(i) })
+    expect(measure).not.toHaveBeenCalled()
+    expect(container.querySelector('textarea')?.className).toContain('[field-sizing:content]')
+  })
+})

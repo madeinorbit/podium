@@ -562,3 +562,55 @@ it('renders the real composer and artifact strip identically and keeps artifact 
     ),
   ).toEqual([])
 })
+
+it('types 60 characters with zero renders outside the composer and zero outbox or order scans', async () => {
+  const corpus = f.fixture!
+  await corpus.load()
+  corpus.discardHeld()
+  const id = corpus.sessions[0]!.sessionId
+  const outside = { shell: 0, transcript: 0 }
+  let send!: ReturnType<typeof useChatSend>
+  const blocks: [] = []
+  const options = {
+    sessionId: id, observeDraft: false,
+    store: handle,
+    trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
+    sendChat: vi.fn(async () => ({ state: 'sent' as const })),
+    discardChat: vi.fn(async () => {}), dismissOffer: vi.fn(async () => {}),
+    setPanelMode: vi.fn(), setSessionDraft: (id: import('@podium/model').SessionId, text: string) => corpus.state().setSessionDraft(id, text),
+    getUserFocus: () => ({}) as never, attachedSessionId: null, clearAttachedSession: vi.fn(),
+    getIssueSeq: () => null, headless: false, superThread: undefined, compact: false,
+    composer: { sendable: true, canResume: false }, ownThreadIds: undefined, blocks, session: undefined,
+    headlessTurn: { sendTurn: vi.fn(), interrupt: vi.fn() } as never,
+    canInterrupt: false, latestOperatorPrompt: null, pinToBottom: vi.fn(), initialPendingText: undefined,
+  }
+  function Transcript() { outside.transcript++; return <div>Transcript</div> }
+  function Composer() {
+    const draft = useChatDraft(id)
+    return <ChatComposer taRef={createRef()} draft={draft} onDraftChange={text => send.setDraft(text)}
+      deliverable placeholder="Message agent" compact={false} isMobile={false} onSend={() => {}}
+      voice={{ supported: false, listening: false, toggle: () => {} } as never} attachments={attachments as never}
+      turnRunning={false} canInterrupt={false} onInterrupt={() => {}} offer={null}
+      onOfferAction={async () => {}} onOfferDismiss={async () => {}} session={undefined}
+      turnError={null} transcriptFreshness={null} offlineAsOf={null} autoFocusKey={id} transcriptSettled />
+  }
+  function Shell() {
+    outside.shell++
+    send = useChatSend(options)
+    return <><Transcript /><Composer /></>
+  }
+  const mounted = render(<Shell />)
+  await act(async () => { await Promise.resolve() })
+  outside.shell = outside.transcript = 0
+  const work = { ...corpus.source.counts }
+  const textarea = mounted.container.querySelector('textarea')!
+  for (let i = 1; i <= 60; i++) {
+    await act(async () => { fireEvent.input(textarea, { target: { value: 'x'.repeat(i) } }); await Promise.resolve() })
+    expect(textarea.value).toBe('x'.repeat(i))
+    expect(outside).toEqual({ shell: 0, transcript: 0 })
+  }
+  expect(corpus.state().drafts[id]).toBe('x'.repeat(60))
+  expect(corpus.source.counts.outboxReads).toBe(work.outboxReads)
+  expect(corpus.source.counts.orderLists).toBe(work.orderLists)
+  expect(corpus.source.counts.orderIds).toBe(work.orderIds)
+})

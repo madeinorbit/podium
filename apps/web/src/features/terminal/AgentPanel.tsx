@@ -36,7 +36,7 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { usePendingSpawnPrompt, useRuntimeActions, useRuntimeDraft } from '@/app/keyed-runtime'
+import { usePendingSpawnPrompt, useRuntimeActions, useRuntimeDraftRef } from '@/app/keyed-runtime'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
@@ -187,19 +187,6 @@ export function modelToken(session: {
   const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
   if (!label) return effort ?? null
   return effort ? `${label} · ${effort}` : label
-}
-
-/** The native draft bridge is deliberately its own leaf: chat typing updates
- * the latest-value ref without re-running the terminal panel. */
-function SessionDraftRef({
-  sessionId,
-  valueRef,
-}: {
-  sessionId: SessionId
-  valueRef: { current: string }
-}): null {
-  valueRef.current = useRuntimeDraft(sessionId)
-  return null
 }
 
 type DesktopSessionGlobals = {
@@ -545,6 +532,7 @@ export function AgentPanel({
   // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
+  useRuntimeDraftRef(sessionId, draftRef)
   // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
   // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
   // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
@@ -848,7 +836,6 @@ export function AgentPanel({
   // positions its own overlays against itself, so nothing else moves).
   const panel = (
     <div ref={panelRootRef} className="relative flex min-w-0 flex-1 flex-col">
-      <SessionDraftRef sessionId={sessionId} valueRef={draftRef} />
       {/* Session header [POD-121, remetered POD-725]: 36px, no surface of its own
           — the sheet's card tone runs straight through it and a soft hairline is
           the only thing under it. It was a 24%-issue-tinted band, which made

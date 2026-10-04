@@ -66,6 +66,8 @@ export interface UseChatSendOptions {
   setPanelMode: Store['setPanelMode']
   setSessionDraft: Store['setSessionDraft']
   initialDraft?: string
+  /** The chat shell reads drafts in its composer leaf instead of this subscription. */
+  observeDraft?: boolean
   getUserFocus: Store['getUserFocus']
   attachedSessionId: Store['attachedSessionId']
   clearAttachedSession: Store['clearAttachedSession']
@@ -356,7 +358,10 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     })
   }, [sessionId, ports.ready])
 
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot)
+  const state = useSyncExternalStore(
+    opts.observeDraft === false ? controller.subscribeSurface : controller.subscribe,
+    opts.observeDraft === false ? controller.getSurfaceSnapshot : controller.getSnapshot,
+  )
   useEffect(() => {
     controller.start()
     return () => controller.stop()
@@ -439,7 +444,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     ),
     justSent: state.justSent,
     ctxSeq,
-    draft: state.draft,
+    draft: controller.getSnapshot().draft,
     setDraft: controller.setDraft.bind(controller),
     send,
     sendOfferPrompt,

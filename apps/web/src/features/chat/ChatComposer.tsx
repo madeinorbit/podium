@@ -244,39 +244,14 @@ export function ChatComposer({
     taRef.current?.focus()
   }, [autoFocusKey, transcriptSettled, isMobile])
 
-  // Auto-grow the composer with its content, capped by the max-height (~8
-  // lines), after which it scrolls. Runs on every draft change.
-  //
-  // THE MAIN CHAT'S OWN MEASUREMENT, and only the main chat's: under `compact`
-  // the Superagent's box is sized by <PromptAutoGrow> below, which derives its
-  // cap from the field's own line-height instead of a hard 176px, so the two
-  // must never both write `style.height`.
-  //
-  // ---------------------------------------------------------------------------
-  // THIS EFFECT IS ON THE KEYSTROKE PATH, SO IT PAYS FOR ITSELF TWICE (POD-2045)
-  // ---------------------------------------------------------------------------
-  //
-  // Reading `scrollHeight` after setting `height:auto` forces a synchronous
-  // layout of the whole document. On a long transcript that is the single most
-  // expensive thing between pressing a key and seeing the character, and this
-  // effect used to do it TWICE per keystroke — once to measure, once more to
-  // pin the transition's start value — plus a full computed-style parse. On the
-  // overwhelming majority of keystrokes the height does not change at all, so
-  // all of that bought nothing.
-  //
-  // Two things are cached, and neither is a guess about the DOM:
-  //
-  //   the LINE BOX  is a function of font and padding, which are set by the
-  //                 class list and cannot change while this composer is mounted;
-  //   the TARGET    is compared before writing, and the transition-pinning
-  //                 reflow is owed only when the height is genuinely about to
-  //                 move — there is nothing to interpolate from otherwise.
-  //
-  // The measurement itself stays: reading the content height IS the feature.
+  // Modern browsers size the main field to its content without the temporary
+  // height reset that forced document layout and woke the transcript minimap
+  // on every character. Keep the pixel-sizing fallback for older webviews;
+  // compact prompts still use their separate pane-relative sizing policy.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure on draft changes and warm-panel reveal
   useEffect(() => {
     // Warm panels remain mounted under display:none; their layout is not measurable.
-    if (compact || !panelVisible) return
+    if (compact || !panelVisible || globalThis.CSS?.supports?.('field-sizing', 'content')) return
     const ta = taRef.current
     if (!ta) return
     let cache = growCache.current
@@ -673,8 +648,8 @@ export function ChatComposer({
                 // and cannot do that with this class also in play: both are
                 // single-class selectors, so the winner is whichever Tailwind
                 // emits last rather than whichever we meant.
-                'min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
-                compact && 'shell-type-primary',
+                'min-h-0 resize-none rounded-none border-0 bg-transparent text-foreground caret-foreground outline-none focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                compact && 'shell-type-primary [field-sizing:fixed]',
                 compact
                   ? // `.prompt-input` owns the height transition, the padding and
                     // the cap (in px, from usePromptAutoGrow) — so no `max-h-*`
@@ -691,7 +666,7 @@ export function ChatComposer({
                     // to do that centring is gone. What remains is a plain
                     // 14/24 line box: the same reading size as the transcript
                     // above it, so what you type looks like what you sent.
-                    'block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
+                    '[field-sizing:content] placeholder-shown:[field-sizing:fixed] block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
               )}
               value={draft}
               onChange={(e) => {

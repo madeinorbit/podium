@@ -8,7 +8,7 @@ import type {
 } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionId } from '@podium/model/browser'
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import type { Store } from './store'
 import type { Trpc } from './trpc'
 
@@ -83,4 +83,14 @@ export function useRuntimeUiValue(key: string): string | null {
   const subscribe = useCallback((notify: () => void) => ui?.subscribe(notify) ?? (() => {}), [ui])
   const read = useCallback(() => ui?.get(key) ?? null, [ui, key])
   return useSyncExternalStore(subscribe, read)
+}
+
+/** Mirror a keyed draft into an imperative bridge without scheduling a render. */
+export function useRuntimeDraftRef(id: SessionId, valueRef: { current: string }): void {
+  const inputs = useInputs()
+  useLayoutEffect(() => {
+    const update = () => { valueRef.current = inputs.readLocal('drafts')?.[id] ?? '' }
+    update()
+    return inputs.onDraft(changed => { if (changed === id) update() })
+  }, [inputs, id, valueRef])
 }

@@ -142,6 +142,9 @@ export interface ConversationState {
   interruptMessageId: string | null
 }
 
+/** Conversation changes observed by the transcript shell; the addressed composer owns drafts. */
+export type ConversationSurfaceState = Omit<ConversationState, 'draft'>
+
 interface OpenSend {
   seq: number
   since: string | null
@@ -162,8 +165,10 @@ function errorText(error: unknown): string {
 
 export class ConversationController {
   private readonly listeners = new Set<Listener>()
+  private readonly surfaceListeners = new Set<Listener>()
   private readonly clock: ConversationClock
   private state: ConversationState
+  private surfaceState: ConversationSurfaceState
   private disposed = false
   private started = false
   private pendingSeq = 0
@@ -226,10 +231,19 @@ export class ConversationController {
       interruptError: null,
       interruptMessageId: null,
     }
+    const { draft: _draft, ...surface } = this.state
+    this.surfaceState = surface
     this.observeRecords(false)
   }
 
   getSnapshot = (): ConversationState => this.state
+
+  getSurfaceSnapshot = (): ConversationSurfaceState => this.surfaceState
+
+  subscribeSurface = (listener: Listener): (() => void) => {
+    this.surfaceListeners.add(listener)
+    return () => this.surfaceListeners.delete(listener)
+  }
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener)
@@ -274,13 +288,13 @@ export class ConversationController {
       this.options.onDraftChange?.(text)
       return
     }
-    this.patch({ draft: text })
+    this.updateDraft(text)
     this.options.onDraftChange?.(text)
   }
 
   /** Adopt a draft supplied by another surface without echoing it back. */
   replaceDraft(text: string): void {
-    if (this.state.draft !== text) this.patch({ draft: text })
+    if (this.state.draft !== text) this.updateDraft(text)
   }
 
   updateContext(context: ConversationContext): void {
@@ -547,6 +561,7 @@ export class ConversationController {
     this.stop()
     this.disposed = true
     this.listeners.clear()
+    this.surfaceListeners.clear()
   }
 
   private bubble(id: string): ConversationBubble | undefined {
@@ -986,6 +1001,13 @@ export class ConversationController {
     this.sendTimer = null
   }
 
+  /** A key changes no bubbles, records, offers or transcript geometry. Keep
+   * existing full-state consumers informed without projecting or waking the shell. */
+  private updateDraft(text: string): void {
+    this.state = { ...this.state, draft: text }
+    for (const listener of this.listeners) listener()
+  }
+
   private patch(patch: Partial<ConversationState>): void {
     const pending = patch.pending ?? this.state.pending
     const bubbles = projectConversation({
@@ -1004,7 +1026,10 @@ export class ConversationController {
         ? null
         : latest.deliveryId
     this.state = { ...this.state, ...patch, bubbles, interruptMessageId }
+    const { draft: _draft, ...surface } = this.state
+    this.surfaceState = surface
     for (const listener of this.listeners) listener()
+    for (const listener of this.surfaceListeners) listener()
   }
 }
 

@@ -1128,3 +1128,42 @@ describe('conversation controller catching up by id', () => {
     controller.dispose()
   })
 })
+
+describe('composer draft work', () => {
+  it('keeps 60 keys out of conversation projections and surface publications', () => {
+    const feed = transcript()
+    const synced = records([record('held')])
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      records: synced.port,
+      createDeliveryId: () => 'msg-typing',
+      deliver: async () => ({ state: 'sent' }),
+      onDraftChange: vi.fn(),
+    })
+    controller.start()
+    const readTranscript = vi.spyOn(feed.port, 'getSnapshot')
+    const readRecords = vi.spyOn(synced.port, 'getSnapshot')
+    const surfaceChanged = vi.fn(), draftChanged = vi.fn()
+    const stopSurface = controller.subscribeSurface(surfaceChanged)
+    const stopDraft = controller.subscribe(draftChanged)
+    const surface = controller.getSurfaceSnapshot(), bubbles = controller.getSnapshot().bubbles
+    for (let i = 1; i <= 60; i++) {
+      controller.setDraft('x'.repeat(i))
+      expect(controller.getSnapshot().draft).toBe('x'.repeat(i))
+      expect(controller.getSnapshot().bubbles).toBe(bubbles)
+      expect(controller.getSurfaceSnapshot()).toBe(surface)
+    }
+    expect(draftChanged).toHaveBeenCalledTimes(60)
+    expect(surfaceChanged).not.toHaveBeenCalled()
+    expect(readTranscript).not.toHaveBeenCalled()
+    expect(readRecords).not.toHaveBeenCalled()
+    controller.replaceDraft('remote draft')
+    expect(controller.getSnapshot().draft).toBe('remote draft')
+    expect(surfaceChanged).not.toHaveBeenCalled()
+    synced.set([record('held', { status: 'typed' })])
+    expect(surfaceChanged).toHaveBeenCalledTimes(1)
+    expect(controller.getSurfaceSnapshot()).not.toBe(surface)
+    stopSurface(); stopDraft(); controller.dispose()
+  })
+})
