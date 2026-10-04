@@ -6,7 +6,7 @@ The candidate removes those paths. It also isolates the mission root with `conta
 
 ## Reproduction and privacy
 
-The original runtime source is **`1aa0ec71f6` (dev.246)**. The final runtime candidate is `8af510497b`, rebased onto POD-5497 (`e22a8b6bd9`) and POD-5443 (`9f9be4d761`). Production React **19.2.7**, Bun **1.4.2**, headless Chromium **148.0.7778.96**, viewport **1600 × 1000**, reduced-motion preference, and blocked service workers were used on **ludovico**. An owned loopback production preview on `55606` proxies the existing local backend on `18787`. The operator’s server, daemon and installed dist were untouched.
+The original runtime source is **`1aa0ec71f6` (dev.246)**. The final runtime candidate is `1140016cea`, rebased onto POD-5497 (`e22a8b6bd9`), POD-5443 (`9f9be4d761`) and the lazy status menus (`6009e5acaa`). Production React **19.2.7**, Bun **1.4.2**, headless Chromium **148.0.7778.96**, viewport **1600 × 1000**, reduced-motion preference, and blocked service workers were used on **ludovico**. An owned loopback production preview on `55606` proxies the existing local backend on `18787`. The operator’s server, daemon and installed dist were untouched.
 
 This follows [POD-4286’s reproduction prerequisites](POD-4286-baseline.md#evidence-and-reproduction): production bundles, checkout-local dependencies, real live hydration followed by settling, and an isolated browser with an in-memory session cookie. `podium auth mint-session --print-only --ttl 30m` is consumed through a pipe in the collector; the token is never printed or saved. Live records, draft strings, cookie data, DOM dumps and screenshots are excluded from evidence. Only numerical measurements, source function names and build provenance are exported. Original drafts are restored and the completed captures verify the ledger is acknowledged after reconnect.
 
@@ -64,8 +64,21 @@ All tests, typechecks and lint run **foreground on flatblock** in `~/podium-test
 
 The new real-composer regression types **60 characters** and checks on every key: **zero shell/transcript renders, zero programmatic value restores, unchanged outbox/order-scan counters**, and the final authoritative saved draft. Restoring the old `patch({draft})` behavior in a throwaway negative control fails on **key 1**, with **shell=1 / transcript=1**. The source is restored in `finally`.
 
-The focused files cover controller draft isolation, ledger revision arbitration, keyed native-ref updates and session switches, native/fallback autosize, send/IME/Escape behavior, draft retry/clear, native warm-toggle injection and drop handling. The runtime’s `offline-first composer drafts` group executes **12 cases** (38 unrelated cases skipped). Final post-rebase checks and live timing are appended below; these are focused results, not a suite result.
+The focused files cover controller draft isolation, ledger revision arbitration, keyed native-ref updates and session switches, native/fallback autosize, send/IME/Escape behavior, draft retry/clear, native warm-toggle injection and drop handling. They execute **134 cases in eight named files**. The runtime’s `offline-first composer drafts` group adds **12 cases** (38 unrelated cases skipped). Failed fixture files were corrected and rerun individually; the final native/fallback composer run is **34/34 green**. After rebasing onto the observer change, the pool regression and drop files execute **16/16 green**. The scoped web/client-core typecheck finishes **15/15 tasks, eight cached**, and scoped lint is green. These are focused results, not a suite result.
 
 ## Final production observation
 
-Pending the final production capture of the committed, rebased candidate. The issue remains open until the measured frame-budget result and any required adjacent work are explicit.
+The committed candidate’s frozen production capture records **45,880 DOM elements, 407 session buttons and 6,884 elements in the visible chat surface**. Native field sizing and mission paint containment are both verified active. This live view has grown since the original matched ablation; the following is an acceptance observation, not another matched causal comparison.
+
+| Metric, 60 keys | Median / p95 / max, ms |
+| --- | ---: |
+| Input-to-paint | **8.03 / 18.35 / 22.45** |
+| Complete-frame main-thread elapsed work | **20.53 / 39.41 / 60.27** |
+| Whole-task thread-clock CPU upper bound | **19.45 / 35.91 / 44.95** |
+| Style/layout | **4.19 / 10.09 / 14.49** |
+| Paint/prepaint | **1.18 / 9.80 / 10.63** |
+| Layerization | **5.86 / 9.42 / 16.74** |
+
+There are **zero controlled-value restores, autosize reads, MobX reactions/derivations, issue/session collection scans, issue-chip liveness queries, or outbox publishes**. There are **60 local ledger edits and addressed draft publishes, ten device saves and one debounced draft offer**. The original draft is restored and its acknowledgement verified. Thread-clock CPU excludes host preemption but conservatively includes complete boundary tasks, including the start of the task before the input event.
+
+The **16 ms p95 acceptance fails** in this observation. The residual is chiefly native page layout/layerization, with sampled React render and commit together below 1 ms per key on average. A matched local layout-containment experiment and final render census follow. The issue stays open; the proven composer improvements can land independently of claiming the remaining target achieved.
