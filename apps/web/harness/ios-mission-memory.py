@@ -21,7 +21,9 @@ parser.add_argument('--url', required=True)
 parser.add_argument('--out', required=True)
 parser.add_argument('--driver', default='http://127.0.0.1:19689')
 parser.add_argument('--seconds', type=int, default=60)
+parser.add_argument('--ready-seconds', type=int, default=180)
 parser.add_argument('--openurl', action='store_true', help='Capture normal Safari opened by simctl, without WebDriver')
+parser.add_argument('--existing', action='store_true', help='Capture the existing normal Safari tab after preview navigation')
 parser.add_argument('--expect-working', action='store_true')
 parser.add_argument('--expect-static', action='store_true')
 parser.add_argument('--desktop', action='store_true', help='Capture native desktop Safari instead of an iPhone webview')
@@ -61,7 +63,8 @@ def request(method, path, value=None, timeout=30):
 
 def append(name, value):
     with (out / name).open('a') as stream:
-        stream.write(json.dumps({'elapsed': round(time.monotonic() - start, 3), **value}) + '\n')
+        stream.write(json.dumps({'elapsed': round(time.monotonic() - start, 3),
+                                 'time': round(time.time() * 1000), **value}) + '\n')
 
 
 def sample():
@@ -71,7 +74,12 @@ def sample():
     previous = {}
     while not stop.is_set():
         processes = []
-        listing = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,rss=,command='], text=True)
+        try:
+            listing = subprocess.check_output(['ps', '-axo', 'pid=,ppid=,rss=,command='], text=True, timeout=5)
+        except subprocess.TimeoutExpired:
+            append('memory.ndjson', {'sampleError': 'ps timed out', 'processes': []})
+            stop.wait(1)
+            continue
         for line in listing.splitlines():
             parts = line.strip().split(None, 3)
             if len(parts) != 4:
@@ -98,7 +106,7 @@ def sample():
                               'footprintBytes': footprint, 'cpuNs': cpu_ns,
                               'cpuPercent': cpu_percent, 'command': command})
         latest_processes = processes
-        append('memory.ndjson', {'processes': processes})
+        append('memory.ndjson', {'time': round(time.time() * 1000), 'processes': processes})
         stop.wait(1)
 
 
@@ -120,41 +128,62 @@ def memory_categories():
 def preflight():
     if not args.expect_working and not args.expect_static:
         return
-    endpoint = urllib.parse.urljoin(args.url, '/__latest')
-    deadline = time.monotonic() + 60
+    endpoint = urllib.parse.urljoin(args.url, '/__status')
+    deadline = time.monotonic() + args.ready_seconds
     last = None
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen(endpoint, timeout=5) as response:
-                last = json.load(response)
-            if (last and last.get('url') == args.url and last.get('rows', 0) > 0 and
+                status = json.load(response)
+                last = status.get('page')
+            if (status.get('subscribers') == 1 and (not status.get('seedItems') or status.get('seedDelivered')) and last and last.get('url') == args.url and last.get('rows', 0) > 0 and
                     any(count.get('items', 0) >= 80 for count in (last.get('retained') or {}).values()) and
                     (not args.expect_working or last.get('working')) and
                     (not args.expect_static or last.get('markAnimations') == 0)):
-                append('page.ndjson', {'preflight': last})
+                append('page.ndjson', {'preflight': last, 'fixture': status})
                 return
         except (OSError, ValueError):
             pass
         stop.wait(1)
-    raise RuntimeError({'preflightFailed': last})
+    append('page.ndjson', {'preflightFailed': last})
+    raise RuntimeError('Synthetic Working chat did not pass native preflight')
+
+
+def observe_normal():
+    endpoint = urllib.parse.urljoin(args.url, '/__status')
+    end = time.monotonic() + args.seconds
+    while time.monotonic() < end:
+        try:
+            with urllib.request.urlopen(endpoint, timeout=5) as response:
+                status = json.load(response)
+            append('page.ndjson', {'page': status.get('page'),
+                                  'subscribers': status.get('subscribers'),
+                                  'serverItems': status.get('items')})
+        except (OSError, ValueError) as error:
+            append('page.ndjson', {'telemetryError': str(error)})
+        stop.wait(2)
 
 
 thread = threading.Thread(target=sample, daemon=True)
 thread.start()
 session = None
 try:
-    if args.openurl:
-        subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True)
+    if args.openurl or args.existing:
+        if args.openurl:
+            subprocess.run(['xcrun', 'simctl', 'openurl', args.udid, args.url], check=True, timeout=30)
         preflight()
-        stop.wait(args.seconds)
+        observe_normal()
         stop.set()
         thread.join(3)
         memory_categories()
-        subprocess.run(['xcrun', 'simctl', 'io', args.udid, 'screenshot', str(out / 'phone.png')], check=True,
-                       stdout=subprocess.DEVNULL)
+        try:
+            subprocess.run(['xcrun', 'simctl', 'io', args.udid, 'screenshot', str(out / 'phone.png')], check=True,
+                           stdout=subprocess.DEVNULL, timeout=30)
+        except subprocess.TimeoutExpired:
+            append('page.ndjson', {'screenshotError': 'simctl screenshot timed out'})
     else:
         pass
-    if args.openurl:
+    if args.openurl or args.existing:
         # Normal Safari telemetry is written by the isolated preview.
         raise SystemExit(0)
     capabilities = {'browserName': 'Safari', 'platformName': 'iOS',
@@ -184,13 +213,16 @@ try:
         images:document.images.length, errors:window.__fixtureErrors || [],
         text:document.body.innerText.slice(-700)};
     """
-    while time.monotonic() < end:
-        try:
-            append('page.ndjson', {'page': request('POST', base + '/execute/sync',
-                                                  {'script': script, 'args': []}, 20)})
-        except Exception as error:
-            append('page.ndjson', {'error': str(error)})
-        stop.wait(2)
+    if args.desktop:
+        observe_normal()
+    else:
+        while time.monotonic() < end:
+            try:
+                append('page.ndjson', {'page': request('POST', base + '/execute/sync',
+                                                      {'script': script, 'args': []}, 20)})
+            except Exception as error:
+                append('page.ndjson', {'error': str(error)})
+            stop.wait(2)
     screenshot = request('GET', base + '/screenshot', timeout=20)
     stop.set()
     thread.join(3)
