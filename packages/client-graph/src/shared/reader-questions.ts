@@ -159,12 +159,17 @@ export function createReaderIndex() {
   function keys(kind: string, row: Row): Set<string> {
     const out = new Set<string>([`${kind}:all`])
     if (kind === 'issue') {
-      out.add(`issue:repo:${row.repoId ?? ''}`)
-      out.add(`issue:path:${row.repoPath ?? ''}`)
-      const title = String(row.title ?? '').toLocaleLowerCase()
-      const ref = String(row.seq ?? '')
+      // Publication reads each scalar once. In particular, a path must not be
+      // read again for every text gram; the source may be a counted row proxy.
+      const { repoId, repoPath, seq, priority, stage, closedReason, blocked, archived,
+        deletedAt, worktreePath } = row
+      const path = String(repoPath ?? ''),
+        title = String(row.title ?? '').toLocaleLowerCase(),
+        ref = String(seq ?? '')
+      out.add(`issue:repo:${repoId ?? ''}`)
+      out.add(`issue:path:${path}`)
       for (let length = 1; length <= ref.length; length++)
-        out.add(targetSequenceStart(ref.slice(0, length), String(row.repoPath ?? '')))
+        out.add(targetSequenceStart(ref.slice(0, length), path))
       out.add(`${targetTitle}${title}`)
       for (const [field, text] of [
         ['title', title],
@@ -172,33 +177,34 @@ export function createReaderIndex() {
       ] as const)
         for (let length = 1; length <= Math.min(3, text.length); length++)
           for (const gram of grams(text, length))
-            out.add(targetGram(field, gram, String(row.repoPath ?? '')))
-      out.add(`issue:priority:${row.priority}`)
+            out.add(targetGram(field, gram, path))
+      out.add(`issue:priority:${priority}`)
       out.add(
-        `issue:status:${issueStatusOf({ stage: row.stage, closedReason: row.closedReason } as Parameters<typeof issueStatusOf>[0])}`,
+        `issue:status:${issueStatusOf({ stage, closedReason } as Parameters<typeof issueStatusOf>[0])}`,
       )
-      out.add(row.stage === 'done' || row.closedReason != null ? 'issue:closed' : 'issue:open')
-      if (row.blocked) out.add('issue:blocked')
-      if (!row.archived && !row.deletedAt) out.add('issue:live')
-      if (!row.archived || row.deletedAt) out.add('issue:unarchived')
-      if (!row.deletedAt) out.add('issue:undeleted')
-      if (row.stage === 'proposed') out.add('issue:proposed')
-      if (typeof row.worktreePath === 'string' && row.worktreePath) {
-        out.add(`issue:root:${row.worktreePath}`)
-        if (!row.deletedAt && (row.stage === 'done' || row.closedReason)) out.add('issue:reclaim')
+      out.add(stage === 'done' || closedReason != null ? 'issue:closed' : 'issue:open')
+      if (blocked) out.add('issue:blocked')
+      if (!archived && !deletedAt) out.add('issue:live')
+      if (!archived || deletedAt) out.add('issue:unarchived')
+      if (!deletedAt) out.add('issue:undeleted')
+      if (stage === 'proposed') out.add('issue:proposed')
+      if (typeof worktreePath === 'string' && worktreePath) {
+        out.add(`issue:root:${worktreePath}`)
+        if (!deletedAt && (stage === 'done' || closedReason)) out.add('issue:reclaim')
       }
     } else if (kind === 'session') {
-      if (!row.archived) out.add('session:unarchived')
-      if (!row.archived && !row.headless && row.agentKind !== 'shell') out.add('session:inbox')
-      if (['live', 'starting', 'reconnecting'].includes(row.status as string))
+      const { archived, headless, agentKind, status, displayRef, issueId } = row
+      if (!archived) out.add('session:unarchived')
+      if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
+      if (['live', 'starting', 'reconnecting'].includes(status as string))
         out.add('session:host')
-      if (typeof row.displayRef === 'string') out.add(`session:ref:${row.displayRef}`)
-      if (typeof row.issueId === 'string') {
-        out.add(`session:commandIssueWithShells:${row.issueId}`)
-        if (row.agentKind !== 'shell') out.add(`session:commandIssue:${row.issueId}`)
-        if (!row.archived) {
-          out.add(`session:commandIssueLiveWithShells:${row.issueId}`)
-          if (row.agentKind !== 'shell') out.add(`session:commandIssueLive:${row.issueId}`)
+      if (typeof displayRef === 'string') out.add(`session:ref:${displayRef}`)
+      if (typeof issueId === 'string') {
+        out.add(`session:commandIssueWithShells:${issueId}`)
+        if (agentKind !== 'shell') out.add(`session:commandIssue:${issueId}`)
+        if (!archived) {
+          out.add(`session:commandIssueLiveWithShells:${issueId}`)
+          if (agentKind !== 'shell') out.add(`session:commandIssueLive:${issueId}`)
         }
       }
     }
