@@ -281,7 +281,14 @@ console.log(`Attributed ${summaries.length} action profiles`)
 
 }
 if(process.argv.includes('--all')) {
-  const surface=arg('surface','web'),sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+  const surface=arg('surface','web'),head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+  const sha=arg('source-sha',head)
+  if(sha!==head) {
+    // A later checkout can analyze preserved older builds without rebuilding
+    // them or disturbing a pinned timing arm. The maps contain their source.
+    const manifest=await read<{sha:string}>(resolve(buildDirectory,'..','manifest.json'))
+    if(manifest.sha!==sha)throw Error('Preserved build manifest does not match requested source SHA')
+  }
   let analyzed=0
   for(const entry of await readdir(root,{withFileTypes:true})) {
     if(!entry.isDirectory() || !entry.name.startsWith('timing-'))continue
@@ -290,6 +297,6 @@ if(process.argv.includes('--all')) {
     if(run.mode!=='timing' || run.purpose!=='measurement' || (run.status!=='complete' && !run.actionPhaseComplete) || run.surface!==surface || run.sha!==sha)continue
     await analyze(path);analyzed++
   }
-  if(!analyzed)throw Error('No completed measurement captures for current build and surface')
+  if(!analyzed)throw Error('No completed measurement captures for requested source and surface')
   console.log(`Analyzed ${analyzed} runs with reused matching source maps`)
 } else await analyze(resolve(arg('run','run.json')))
