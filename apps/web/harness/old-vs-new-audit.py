@@ -59,7 +59,7 @@ for checkout_arm, checkout in checkouts.items():
             require(run['heapUse']['actions'] == len(run['heapUse']['stepsCompleted']), 'workload count mismatch')
             heaps[(*key, run['arm'])] += 1
             continue
-        expected_actions = (web if run['surface'] == 'web' else phone) | {'cold-start', 'warm-start'}
+        expected_actions = (web if run['surface'] == 'web' else phone) | {'app-cold-start', 'app-warm-start'}
         actual_actions = {row['action'] for row in run['actions']}
         require(actual_actions == expected_actions, f'action coverage mismatch: {sorted(expected_actions ^ actual_actions)}')
         attribution = json.loads((file.parent / 'cpu-attribution.json').read_text())
@@ -92,8 +92,8 @@ for pair in ['new', 'new-deleted']:
                     if failures[('timing', *key)] < 2 or failures[('memory', *key)] < 1:
                         errors.append(f'{key}: OLD boot failure evidence incomplete')
                     continue
-                for action in (web if surface == 'web' else phone) | {'cold-start', 'warm-start'}:
-                    expected_n = 8 if action in ['cold-start', 'warm-start'] else 16
+                for action in (web if surface == 'web' else phone) | {'app-cold-start', 'app-warm-start'}:
+                    expected_n = 8 if action in ['app-cold-start', 'app-warm-start'] else 16
                     if counts[(*key, arm, action)] != expected_n:
                         errors.append(f'{key}/{arm}/{action}: sample count {counts[(*key, arm, action)]}, expected {expected_n}')
                 if heaps[(*key, arm)] != 1:
