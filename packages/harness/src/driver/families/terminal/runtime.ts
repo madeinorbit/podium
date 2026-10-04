@@ -2089,6 +2089,9 @@ export function createTerminalRuntime(
         running: () => session.alive && terminalFor(session) !== undefined,
         live: () => session.live && session.alive && terminalFor(session) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
+        ...(host.readInput ? { readInput: () => host.readInput!(session.sessionId) } : {}),
+        foreignWriteCount: () => host.foreignWrites?.orderTrustworthy(session.sessionId)
+          ? host.foreignWrites.count(session.sessionId) : undefined,
         lastOutputAtMs: () => session.lastOutputAtMs,
         now: host.now,
         setTimer: host.setTimer,

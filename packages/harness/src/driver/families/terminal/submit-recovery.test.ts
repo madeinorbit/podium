@@ -10,10 +10,10 @@ import { injectionPayload } from './paste.js'
 // The live failure left the pasted text in Claude's input while a turn ran.
 // Model that external result: the first Enter adds a newline; a later Enter
 // queues the same input. The regression must exercise deliver(), not a helper.
-function retainedInput(phase: string, recover = true) {
+function retainedInput(phase: string, recover = true, initialDraft = '') {
   const text = 'Retained prompt\nwith a second line'
   const writes: string[] = []
-  let draft = ''
+  let draft = initialDraft
   let foreignWrites = 0
   let held!: () => void
   const heldProof = new Promise<void>((resolve) => { held = resolve })
@@ -39,7 +39,7 @@ function retainedInput(phase: string, recover = true) {
     foreignWriteCount: () => foreignWrites,
     write(bytes) {
       writes.push(bytes)
-      if (bytes !== '\r') draft = text
+      if (bytes !== '\r') draft += bytes.slice('\x1b[200~'.length, -'\x1b[201~'.length)
       else if (writes.filter((write) => write === '\r').length === 1) draft += '\n'
       else if (recover) { draft = ''; held() }
     },
@@ -47,7 +47,7 @@ function retainedInput(phase: string, recover = true) {
   const machine = createTerminalInjection(ports)
   const delivery = machine.deliver(text, { origin: 'human', delivery: 'when-ready', signal: controller.signal })
   return {
-    ports, writes, text, delivery,
+    ports, writes, text, delivery, machine, signal: controller.signal, queue: held,
     draft: () => draft,
     edit: (value: string) => { draft = value; foreignWrites += 1 },
     async close() {
@@ -106,9 +106,9 @@ describe('retained input submit recovery', () => {
     } finally { await run.close(); vi.useRealTimers() }
   })
 
-  it.each(['', 'An unrelated human edit'])('leaves a cleared or changed input alone (%j)', async (draft) => {
+  it.each([['idle', ''], ['working', ''], ['working', 'An unrelated human edit']])('leaves a cleared or changed input alone (%s, %j)', async (phase, draft) => {
     vi.useFakeTimers()
-    const run = retainedInput('working')
+    const run = retainedInput(phase)
     try {
       await vi.advanceTimersByTimeAsync(100)
       run.ports.readInput = async () => draft
@@ -136,6 +136,40 @@ describe('retained input submit recovery', () => {
       run.ports.readInput = async () => { run.edit(run.text); return run.text }
       await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
       expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('leaves input that was already occupied before its paste alone', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working', false, 'Existing human draft')
+    try {
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('does not recover an earlier paste after another send writes into the same box', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working', false)
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      const second = run.machine.deliver('Next message', { origin: 'human', delivery: 'when-ready', signal: run.signal })
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS * 2)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(2)
+      await run.close()
+      expect(await second).toMatchObject({ outcome: 'unverified' })
+    } finally { await run.close(); vi.useRealTimers() }
+  })
+
+  it('does not send a recovery CR when native queue proof arrives during the screen read', async () => {
+    vi.useFakeTimers()
+    const run = retainedInput('working')
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      run.ports.readInput = async () => { run.queue(); return run.text }
+      await vi.advanceTimersByTimeAsync(SUBMIT_VERIFY_DELAY_MS)
+      expect(run.writes.filter((write) => write === '\r')).toHaveLength(1)
+      expect(await run.delivery).toMatchObject({ outcome: 'accepted', held: 'memory' })
     } finally { await run.close(); vi.useRealTimers() }
   })
 })

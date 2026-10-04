@@ -140,6 +140,8 @@ export interface TerminalHostPorts {
   stageAttachment: AttachmentStager
   /** The observers' current folded state for a session. */
   trackedState(sessionId: SessionId): AgentRuntimeState | undefined
+  /** Flush and read the current harness input box, without changing tracked state. */
+  readInput?(sessionId: SessionId): Promise<string | undefined>
   /** Whether composer sync is running (Draft Sync v2) for this session. */
   draftSyncing(sessionId: SessionId): boolean
   setDraftTarget(sessionId: SessionId, text: string): boolean
