@@ -1,0 +1,1962 @@
+{
+  "version": 1,
+  "issue": "POD-5514",
+  "protocol": {
+    "percentiles": "sorted[min(n-1,floor(q*n))]",
+    "interval": "trusted input event timestamp -> semantic DOM -> actual Chromium Paint end",
+    "cpu": "Chrome thread timestamps; profile samples are extra and excluded",
+    "oldHistoricalMediansMs": {
+      "command-palette": 111,
+      "sidebar-group-expand": 101
+    },
+    "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e"
+  },
+  "captures": [
+    {
+      "path": "pilot-run.json",
+      "arm": "pilot",
+      "source": "9f9be4d76190645db7e3b4c81c9624ba6ac12670",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T15:53:32.723Z",
+      "endedAt": "2026-10-04T15:56:52.581Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        8.06,
+        8.59,
+        7.49
+      ],
+      "hostLoadEnd": [
+        5.95,
+        7.09,
+        7.09
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 24,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 73.422,
+              "0.95": 101.114
+            },
+            "selectedDomMs": {
+              "0.5": 33.467,
+              "0.95": 52.339
+            },
+            "mainThreadCpuMs": {
+              "0.5": 61.103,
+              "0.95": 82.04
+            },
+            "layoutCpuMs": {
+              "0.5": 1.523,
+              "0.95": 2.361
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.83,
+              7.18,
+              7.12
+            ],
+            "last": [
+              5.6,
+              7.11,
+              7.1
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 208.143,
+              "0.95": 237.327
+            },
+            "selectedDomMs": {
+              "0.5": 155.873,
+              "0.95": 186.704
+            },
+            "mainThreadCpuMs": {
+              "0.5": 191.925,
+              "0.95": 213.528
+            },
+            "layoutCpuMs": {
+              "0.5": 27.461,
+              "0.95": 38.054
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.83,
+              7.18,
+              7.12
+            ],
+            "last": [
+              5.6,
+              7.11,
+              7.1
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 150.587,
+              "0.95": 377.895
+            },
+            "selectedDomMs": {
+              "0.5": 144.224,
+              "0.95": 364.863
+            },
+            "mainThreadCpuMs": {
+              "0.5": 139.862,
+              "0.95": 272.588
+            },
+            "layoutCpuMs": {
+              "0.5": 5.788,
+              "0.95": 10.342
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.47,
+              7.06,
+              7.08
+            ],
+            "last": [
+              5.6,
+              7.06,
+              7.08
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "pilot-meter-off-run.json",
+      "arm": "pilot-meter-off",
+      "source": "9f9be4d76190645db7e3b4c81c9624ba6ac12670",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T16:01:05.109Z",
+      "endedAt": "2026-10-04T16:15:48.789Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        11.23,
+        9.16,
+        7.92
+      ],
+      "hostLoadEnd": [
+        16.02,
+        10.51,
+        8.56
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 22,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 81.594,
+              "0.95": 124.585
+            },
+            "selectedDomMs": {
+              "0.5": 37.164,
+              "0.95": 54.259
+            },
+            "mainThreadCpuMs": {
+              "0.5": 52.46,
+              "0.95": 73.85
+            },
+            "layoutCpuMs": {
+              "0.5": 1.524,
+              "0.95": 2.099
+            }
+          },
+          "loadRange": {
+            "first": [
+              16.14,
+              10.09,
+              8.38
+            ],
+            "last": [
+              15.73,
+              10.1,
+              8.39
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 213.28,
+              "0.95": 300.351
+            },
+            "selectedDomMs": {
+              "0.5": 164.128,
+              "0.95": 240.949
+            },
+            "mainThreadCpuMs": {
+              "0.5": 172.094,
+              "0.95": 210.894
+            },
+            "layoutCpuMs": {
+              "0.5": 26.635,
+              "0.95": 29.212
+            }
+          },
+          "loadRange": {
+            "first": [
+              16.14,
+              10.09,
+              8.38
+            ],
+            "last": [
+              15.73,
+              10.1,
+              8.39
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 141.582,
+              "0.95": 363.689
+            },
+            "selectedDomMs": {
+              "0.5": 134.445,
+              "0.95": 354.979
+            },
+            "mainThreadCpuMs": {
+              "0.5": 116.345,
+              "0.95": 190.947
+            },
+            "layoutCpuMs": {
+              "0.5": 5.314,
+              "0.95": 9.425
+            }
+          },
+          "loadRange": {
+            "first": [
+              15.83,
+              10.22,
+              8.44
+            ],
+            "last": [
+              15.2,
+              10.18,
+              8.44
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "pilot-latest-run.json",
+      "arm": "pilot-latest",
+      "source": "6009e5acaa259609bb6723e0f6985725c2dde51d",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T16:37:45.191Z",
+      "endedAt": "2026-10-04T16:45:35.362Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        8.94,
+        10.27,
+        10.21
+      ],
+      "hostLoadEnd": [
+        8.96,
+        11.38,
+        11.11
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 38,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 69.206,
+              "0.95": 99.366
+            },
+            "selectedDomMs": {
+              "0.5": 33.549,
+              "0.95": 51.815
+            },
+            "mainThreadCpuMs": {
+              "0.5": 60.669,
+              "0.95": 82.664
+            },
+            "layoutCpuMs": {
+              "0.5": 1.761,
+              "0.95": 2.381
+            }
+          },
+          "loadRange": {
+            "first": [
+              9.44,
+              11.64,
+              11.19
+            ],
+            "last": [
+              9.24,
+              11.56,
+              11.16
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 186.046,
+              "0.95": 271.913
+            },
+            "selectedDomMs": {
+              "0.5": 138.991,
+              "0.95": 219.316
+            },
+            "mainThreadCpuMs": {
+              "0.5": 176.589,
+              "0.95": 254.642
+            },
+            "layoutCpuMs": {
+              "0.5": 26.109,
+              "0.95": 30.58
+            }
+          },
+          "loadRange": {
+            "first": [
+              9.44,
+              11.64,
+              11.19
+            ],
+            "last": [
+              9.24,
+              11.56,
+              11.16
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 68.567,
+              "0.95": 354.428
+            },
+            "selectedDomMs": {
+              "0.5": 61.365,
+              "0.95": 346.739
+            },
+            "mainThreadCpuMs": {
+              "0.5": 61.126,
+              "0.95": 277.895
+            },
+            "layoutCpuMs": {
+              "0.5": 6.483,
+              "0.95": 9.651
+            }
+          },
+          "loadRange": {
+            "first": [
+              9.06,
+              11.48,
+              11.14
+            ],
+            "last": [
+              9.22,
+              11.48,
+              11.14
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "palette-only-run.json",
+      "arm": "palette-only",
+      "source": "0eff02acb9a91fc6f165818aa1ee87d2df07d82b",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T16:58:57.886Z",
+      "endedAt": "2026-10-04T17:03:13.840Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        10.95,
+        11.84,
+        11.47
+      ],
+      "hostLoadEnd": [
+        9.39,
+        9.32,
+        10.44
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 22,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 74.868,
+              "0.95": 101.843
+            },
+            "selectedDomMs": {
+              "0.5": 33.899,
+              "0.95": 43.949
+            },
+            "mainThreadCpuMs": {
+              "0.5": 53.016,
+              "0.95": 74.55
+            },
+            "layoutCpuMs": {
+              "0.5": 1.556,
+              "0.95": 2.546
+            }
+          },
+          "loadRange": {
+            "first": [
+              8.22,
+              9.12,
+              10.41
+            ],
+            "last": [
+              8.44,
+              9.15,
+              10.41
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 192.376,
+              "0.95": 239.016
+            },
+            "selectedDomMs": {
+              "0.5": 147.904,
+              "0.95": 176.969
+            },
+            "mainThreadCpuMs": {
+              "0.5": 158.716,
+              "0.95": 180.27
+            },
+            "layoutCpuMs": {
+              "0.5": 23.466,
+              "0.95": 29.31
+            }
+          },
+          "loadRange": {
+            "first": [
+              8.22,
+              9.12,
+              10.41
+            ],
+            "last": [
+              8.44,
+              9.15,
+              10.41
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 86.889,
+              "0.95": 349.603
+            },
+            "selectedDomMs": {
+              "0.5": 80.311,
+              "0.95": 341.665
+            },
+            "mainThreadCpuMs": {
+              "0.5": 70.267,
+              "0.95": 199.263
+            },
+            "layoutCpuMs": {
+              "0.5": 5.938,
+              "0.95": 9.296
+            }
+          },
+          "loadRange": {
+            "first": [
+              9.05,
+              9.26,
+              10.44
+            ],
+            "last": [
+              8.57,
+              9.16,
+              10.4
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "old-run.json",
+      "arm": "old",
+      "source": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T17:15:19.664Z",
+      "endedAt": "2026-10-04T17:16:02.041Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issue": 4869,
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueProjection": 4869,
+        "repo": 9,
+        "session": 4309,
+        "userLayout": 2
+      },
+      "hostLoadStart": [
+        9.65,
+        8.79,
+        9.23
+      ],
+      "hostLoadEnd": [
+        14.99,
+        10.38,
+        9.75
+      ],
+      "sidebarRowCount": 112,
+      "errorCount": 18,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 68.974,
+              "0.95": 124.177
+            },
+            "selectedDomMs": {
+              "0.5": 37.617,
+              "0.95": 98.147
+            },
+            "mainThreadCpuMs": {
+              "0.5": 42.39,
+              "0.95": 63.02
+            },
+            "layoutCpuMs": {
+              "0.5": 1.517,
+              "0.95": 2.509
+            }
+          },
+          "loadRange": {
+            "first": [
+              14.08,
+              9.9,
+              9.58
+            ],
+            "last": [
+              14.8,
+              10.12,
+              9.66
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 116.138,
+              "0.95": 193.757
+            },
+            "selectedDomMs": {
+              "0.5": 59.156,
+              "0.95": 133.36
+            },
+            "mainThreadCpuMs": {
+              "0.5": 93.539,
+              "0.95": 111.191
+            },
+            "layoutCpuMs": {
+              "0.5": 27.096,
+              "0.95": 38.139
+            }
+          },
+          "loadRange": {
+            "first": [
+              14.08,
+              9.9,
+              9.58
+            ],
+            "last": [
+              14.8,
+              10.12,
+              9.66
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 85.426,
+              "0.95": 393.907
+            },
+            "selectedDomMs": {
+              "0.5": 77.763,
+              "0.95": 384.113
+            },
+            "mainThreadCpuMs": {
+              "0.5": 67.995,
+              "0.95": 169.003
+            },
+            "layoutCpuMs": {
+              "0.5": 7.566,
+              "0.95": 10.903
+            }
+          },
+          "loadRange": {
+            "first": [
+              14.17,
+              10.07,
+              9.64
+            ],
+            "last": [
+              14.64,
+              10.23,
+              9.7
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "no-dom-run.json",
+      "arm": "no-dom",
+      "source": "e47e4067c2fa6637b70af69204232a6c8d8ee2d0",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T18:09:53.712Z",
+      "endedAt": "2026-10-04T18:10:22.938Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        3.57,
+        7.18,
+        9.22
+      ],
+      "hostLoadEnd": [
+        5.73,
+        7.4,
+        9.24
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 22,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 83.983,
+              "0.95": 107.484
+            },
+            "selectedDomMs": {
+              "0.5": 35.241,
+              "0.95": 44.274
+            },
+            "mainThreadCpuMs": {
+              "0.5": 75.782,
+              "0.95": 93.016
+            },
+            "layoutCpuMs": {
+              "0.5": 17.28,
+              "0.95": 20.426
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.17,
+              7.36,
+              9.25
+            ],
+            "last": [
+              5.17,
+              7.36,
+              9.25
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 189.647,
+              "0.95": 208.336
+            },
+            "selectedDomMs": {
+              "0.5": 138.466,
+              "0.95": 159.682
+            },
+            "mainThreadCpuMs": {
+              "0.5": 183.389,
+              "0.95": 200.091
+            },
+            "layoutCpuMs": {
+              "0.5": 26.541,
+              "0.95": 33.967
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.17,
+              7.36,
+              9.25
+            ],
+            "last": [
+              5.17,
+              7.36,
+              9.25
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "dom-only-run.json",
+      "arm": "dom-only",
+      "source": "8f279f6649f23a80601c99ca904f91eab15c2516",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T18:18:48.101Z",
+      "endedAt": "2026-10-04T18:19:17.002Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        4.36,
+        4.45,
+        6.92
+      ],
+      "hostLoadEnd": [
+        5.85,
+        4.81,
+        6.97
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 34,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 69.712,
+              "0.95": 90.764
+            },
+            "selectedDomMs": {
+              "0.5": 52.327,
+              "0.95": 70.481
+            },
+            "mainThreadCpuMs": {
+              "0.5": 57.98,
+              "0.95": 75.594
+            },
+            "layoutCpuMs": {
+              "0.5": 6.572,
+              "0.95": 7.15
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.57,
+              4.72,
+              6.96
+            ],
+            "last": [
+              5.57,
+              4.72,
+              6.96
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 136.28,
+              "0.95": 157.086
+            },
+            "selectedDomMs": {
+              "0.5": 90.348,
+              "0.95": 108.185
+            },
+            "mainThreadCpuMs": {
+              "0.5": 131.641,
+              "0.95": 151.321
+            },
+            "layoutCpuMs": {
+              "0.5": 25.287,
+              "0.95": 27.241
+            }
+          },
+          "loadRange": {
+            "first": [
+              5.57,
+              4.72,
+              6.96
+            ],
+            "last": [
+              5.57,
+              4.72,
+              6.96
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "lazy-run.json",
+      "arm": "lazy",
+      "source": "84abd076188205ff1601f9ba2d1686fd70a896d6",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T18:20:40.982Z",
+      "endedAt": "2026-10-04T18:21:53.727Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        5.92,
+        4.94,
+        6.81
+      ],
+      "hostLoadEnd": [
+        11.99,
+        6.84,
+        7.32
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 32,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 52.924,
+              "0.95": 88.549
+            },
+            "selectedDomMs": {
+              "0.5": 37.049,
+              "0.95": 70.067
+            },
+            "mainThreadCpuMs": {
+              "0.5": 42.215,
+              "0.95": 63.378
+            },
+            "layoutCpuMs": {
+              "0.5": 5.569,
+              "0.95": 6.94
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.45,
+              5.32,
+              6.91
+            ],
+            "last": [
+              8.03,
+              5.53,
+              6.96
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 81.977,
+              "0.95": 122.139
+            },
+            "selectedDomMs": {
+              "0.5": 38.127,
+              "0.95": 77.767
+            },
+            "mainThreadCpuMs": {
+              "0.5": 75.297,
+              "0.95": 90.148
+            },
+            "layoutCpuMs": {
+              "0.5": 24.148,
+              "0.95": 27.444
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.45,
+              5.32,
+              6.91
+            ],
+            "last": [
+              8.03,
+              5.53,
+              6.96
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 160.289,
+              "0.95": 431.528
+            },
+            "selectedDomMs": {
+              "0.5": 152.892,
+              "0.95": 419.933
+            },
+            "mainThreadCpuMs": {
+              "0.5": 136.833,
+              "0.95": 380.007
+            },
+            "layoutCpuMs": {
+              "0.5": 5.835,
+              "0.95": 35.228
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.95,
+              5.55,
+              6.96
+            ],
+            "last": [
+              8.13,
+              5.67,
+              6.98
+            ]
+          }
+        },
+        "command-palette-eager-menus": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 177.637,
+              "0.95": 412.841
+            },
+            "selectedDomMs": {
+              "0.5": 170.842,
+              "0.95": 403.33
+            },
+            "mainThreadCpuMs": {
+              "0.5": 131.857,
+              "0.95": 267.777
+            },
+            "layoutCpuMs": {
+              "0.5": 5.659,
+              "0.95": 10.987
+            }
+          },
+          "loadRange": {
+            "first": [
+              8.11,
+              5.74,
+              6.99
+            ],
+            "last": [
+              9.73,
+              6.16,
+              7.11
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "palette-off-final-run.json",
+      "arm": "palette-off-final",
+      "source": "341aa58a727d6cd5b63ab56cb39ef7ab75da6020",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T19:02:24.548Z",
+      "endedAt": "2026-10-04T19:03:10.201Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        12.34,
+        10.25,
+        9.78
+      ],
+      "hostLoadEnd": [
+        9.75,
+        9.92,
+        9.69
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 36,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 56.797,
+              "0.95": 122.646
+            },
+            "selectedDomMs": {
+              "0.5": 38.07,
+              "0.95": 77.717
+            },
+            "mainThreadCpuMs": {
+              "0.5": 41.175,
+              "0.95": 61.77
+            },
+            "layoutCpuMs": {
+              "0.5": 5.487,
+              "0.95": 7.399
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.09,
+              10.29,
+              9.8
+            ],
+            "last": [
+              11.79,
+              10.28,
+              9.8
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 83.715,
+              "0.95": 117.771
+            },
+            "selectedDomMs": {
+              "0.5": 35.153,
+              "0.95": 60.692
+            },
+            "mainThreadCpuMs": {
+              "0.5": 71.682,
+              "0.95": 95.328
+            },
+            "layoutCpuMs": {
+              "0.5": 24.795,
+              "0.95": 36.005
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.09,
+              10.29,
+              9.8
+            ],
+            "last": [
+              11.79,
+              10.28,
+              9.8
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 146.836,
+              "0.95": 364.594
+            },
+            "selectedDomMs": {
+              "0.5": 138.861,
+              "0.95": 351.709
+            },
+            "mainThreadCpuMs": {
+              "0.5": 117.587,
+              "0.95": 221.417
+            },
+            "layoutCpuMs": {
+              "0.5": 5.351,
+              "0.95": 10.571
+            }
+          },
+          "loadRange": {
+            "first": [
+              11,
+              10.14,
+              9.76
+            ],
+            "last": [
+              11.08,
+              10.17,
+              9.77
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "palette-retained-final-run.json",
+      "arm": "palette-retained-final",
+      "source": "a99e1a067df8e97e264c36ac3c094c0466043c73",
+      "host": "flatblock",
+      "browser": "153.0.8010.12",
+      "startedAt": "2026-10-04T20:57:48.495Z",
+      "endedAt": "2026-10-04T20:58:26.673Z",
+      "status": "complete",
+      "corpusSha256": "2458ea73e0e6182b8f67ae7b0aa618e882fcb60bc9dd9eaf5778e42e1261363e",
+      "population": {
+        "issueDep": 3594,
+        "issueEvent": 4,
+        "issueGitState": 5,
+        "issueProjection": 4869,
+        "issueUserState": 4868,
+        "machine": 8,
+        "repo": 9,
+        "session": 4310,
+        "sessionUserState": 4305,
+        "userLayout": 3
+      },
+      "hostLoadStart": [
+        7.05,
+        10.21,
+        9.83
+      ],
+      "hostLoadEnd": [
+        7.9,
+        10.03,
+        9.78
+      ],
+      "sidebarRowCount": 117,
+      "errorCount": 24,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 45.058,
+              "0.95": 90.066
+            },
+            "selectedDomMs": {
+              "0.5": 31.229,
+              "0.95": 69.344
+            },
+            "mainThreadCpuMs": {
+              "0.5": 37.362,
+              "0.95": 57.584
+            },
+            "layoutCpuMs": {
+              "0.5": 5.049,
+              "0.95": 6.924
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.6,
+              10.18,
+              9.82
+            ],
+            "last": [
+              7.63,
+              10.15,
+              9.81
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 79.411,
+              "0.95": 107.996
+            },
+            "selectedDomMs": {
+              "0.5": 31.611,
+              "0.95": 59.275
+            },
+            "mainThreadCpuMs": {
+              "0.5": 72.201,
+              "0.95": 90.476
+            },
+            "layoutCpuMs": {
+              "0.5": 24.452,
+              "0.95": 27.462
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.6,
+              10.18,
+              9.82
+            ],
+            "last": [
+              7.63,
+              10.15,
+              9.81
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 64.876,
+              "0.95": 372.25
+            },
+            "selectedDomMs": {
+              "0.5": 58.434,
+              "0.95": 364.489
+            },
+            "mainThreadCpuMs": {
+              "0.5": 58.819,
+              "0.95": 274.367
+            },
+            "layoutCpuMs": {
+              "0.5": 5.246,
+              "0.95": 10
+            }
+          },
+          "loadRange": {
+            "first": [
+              7.42,
+              10.06,
+              9.79
+            ],
+            "last": [
+              7.07,
+              9.94,
+              9.75
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-pilot-latest-r7/run.json",
+      "arm": "pilot-latest",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+6009e5a",
+        "sourceSha": "6009e5a",
+        "bundleVersion": "bundle+DxVDqC9d"
+      },
+      "host": "ludovico",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T17:16:03.266Z",
+      "endedAt": "2026-10-04T17:18:08.467Z",
+      "status": "complete",
+      "corpusSha256": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2373,
+        "issueDep": 4643,
+        "issueEvent": 200,
+        "issueGitState": 17,
+        "issueProjection": 6224,
+        "issueUserState": 1383,
+        "machine": 6,
+        "message": 184,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5224,
+        "sessionUserState": 1378,
+        "userLayout": 33
+      },
+      "hostLoadStart": [
+        13.91,
+        13.59,
+        13.38
+      ],
+      "hostLoadEnd": [
+        17.27,
+        15.2,
+        14.01
+      ],
+      "sidebarRowCount": 197,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 167.567,
+              "0.95": 226.434
+            },
+            "selectedDomMs": {
+              "0.5": 56.368,
+              "0.95": 135.803
+            },
+            "mainThreadCpuMs": {
+              "0.5": 74.8,
+              "0.95": 103.604
+            },
+            "layoutCpuMs": {
+              "0.5": 1.675,
+              "0.95": 2.254
+            }
+          },
+          "loadRange": {
+            "first": [
+              17.39,
+              14.73,
+              13.8
+            ],
+            "last": [
+              18.91,
+              15.22,
+              13.97
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 511.426,
+              "0.95": 769.174
+            },
+            "selectedDomMs": {
+              "0.5": 391.201,
+              "0.95": 613.612
+            },
+            "mainThreadCpuMs": {
+              "0.5": 350.903,
+              "0.95": 412.564
+            },
+            "layoutCpuMs": {
+              "0.5": 56.311,
+              "0.95": 77.33
+            }
+          },
+          "loadRange": {
+            "first": [
+              17.39,
+              14.73,
+              13.8
+            ],
+            "last": [
+              18.91,
+              15.22,
+              13.97
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 377.898,
+              "0.95": 548.841
+            },
+            "selectedDomMs": {
+              "0.5": 365.743,
+              "0.95": 531.201
+            },
+            "mainThreadCpuMs": {
+              "0.5": 122.369,
+              "0.95": 402.193
+            },
+            "layoutCpuMs": {
+              "0.5": 38.093,
+              "0.95": 46.102
+            }
+          },
+          "loadRange": {
+            "first": [
+              17.84,
+              15.11,
+              13.95
+            ],
+            "last": [
+              17.09,
+              15.09,
+              13.96
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-palette-only-r7/run.json",
+      "arm": "palette-only",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+0eff02a",
+        "sourceSha": "0eff02a",
+        "bundleVersion": "bundle+DtMKv-1f"
+      },
+      "host": "ludovico",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T17:18:15.181Z",
+      "endedAt": "2026-10-04T17:22:19.084Z",
+      "status": "complete",
+      "corpusSha256": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2375,
+        "issueDep": 4643,
+        "issueEvent": 200,
+        "issueGitState": 45,
+        "issueProjection": 6224,
+        "issueUserState": 1383,
+        "machine": 6,
+        "message": 184,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5226,
+        "sessionUserState": 1378,
+        "userLayout": 34
+      },
+      "hostLoadStart": [
+        16.62,
+        15.13,
+        14
+      ],
+      "hostLoadEnd": [
+        19.2,
+        17.85,
+        15.41
+      ],
+      "sidebarRowCount": 197,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 349.514,
+              "0.95": 809.26
+            },
+            "selectedDomMs": {
+              "0.5": 290.973,
+              "0.95": 682.27
+            },
+            "mainThreadCpuMs": {
+              "0.5": 73.775,
+              "0.95": 119.206
+            },
+            "layoutCpuMs": {
+              "0.5": 1.411,
+              "0.95": 1.754
+            }
+          },
+          "loadRange": {
+            "first": [
+              18.02,
+              16.19,
+              14.48
+            ],
+            "last": [
+              18.93,
+              16.96,
+              14.9
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 635.488,
+              "0.95": 776.771
+            },
+            "selectedDomMs": {
+              "0.5": 504.78,
+              "0.95": 650.432
+            },
+            "mainThreadCpuMs": {
+              "0.5": 281.283,
+              "0.95": 320.702
+            },
+            "layoutCpuMs": {
+              "0.5": 44.47,
+              "0.95": 53.637
+            }
+          },
+          "loadRange": {
+            "first": [
+              18.64,
+              16.39,
+              14.57
+            ],
+            "last": [
+              19.16,
+              17.06,
+              14.95
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 408.826,
+              "0.95": 6406.78
+            },
+            "selectedDomMs": {
+              "0.5": 401.206,
+              "0.95": 6398.014
+            },
+            "mainThreadCpuMs": {
+              "0.5": 150.247,
+              "0.95": 4813.562
+            },
+            "layoutCpuMs": {
+              "0.5": 36.322,
+              "0.95": 48.376
+            }
+          },
+          "loadRange": {
+            "first": [
+              23.92,
+              18.48,
+              15.51
+            ],
+            "last": [
+              18.84,
+              17.72,
+              15.33
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-no-dom-r8/run.json",
+      "arm": "no-dom",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+e47e406",
+        "sourceSha": "e47e406",
+        "bundleVersion": "bundle+B8JbrYq5"
+      },
+      "host": "ludovico",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T18:17:34.614Z",
+      "endedAt": "2026-10-04T18:18:39.902Z",
+      "status": "complete",
+      "corpusSha256": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2375,
+        "issueDep": 4660,
+        "issueEvent": 200,
+        "issueGitState": 45,
+        "issueProjection": 6253,
+        "issueUserState": 1385,
+        "machine": 6,
+        "message": 188,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5234,
+        "sessionUserState": 1379,
+        "userLayout": 32
+      },
+      "hostLoadStart": [
+        9.16,
+        11.59,
+        12.3
+      ],
+      "hostLoadEnd": [
+        11.04,
+        11.65,
+        12.27
+      ],
+      "sidebarRowCount": 197,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 119.131,
+              "0.95": 221.417
+            },
+            "selectedDomMs": {
+              "0.5": 54.105,
+              "0.95": 86.019
+            },
+            "mainThreadCpuMs": {
+              "0.5": 103.801,
+              "0.95": 131.803
+            },
+            "layoutCpuMs": {
+              "0.5": 27.305,
+              "0.95": 34.182
+            }
+          },
+          "loadRange": {
+            "first": [
+              10.61,
+              11.6,
+              12.26
+            ],
+            "last": [
+              10,
+              11.45,
+              12.21
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 288.251,
+              "0.95": 400.84
+            },
+            "selectedDomMs": {
+              "0.5": 216.537,
+              "0.95": 322.157
+            },
+            "mainThreadCpuMs": {
+              "0.5": 282.597,
+              "0.95": 309.667
+            },
+            "layoutCpuMs": {
+              "0.5": 46.292,
+              "0.95": 59.318
+            }
+          },
+          "loadRange": {
+            "first": [
+              10.61,
+              11.6,
+              12.26
+            ],
+            "last": [
+              10,
+              11.45,
+              12.21
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-dom-only-r8/run.json",
+      "arm": "dom-only",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+8f279f6",
+        "sourceSha": "8f279f6",
+        "bundleVersion": "bundle+CeqXqepx"
+      },
+      "host": "ludovico",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T18:19:28.179Z",
+      "endedAt": "2026-10-04T18:20:33.367Z",
+      "status": "complete",
+      "corpusSha256": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2375,
+        "issueDep": 4660,
+        "issueEvent": 200,
+        "issueGitState": 45,
+        "issueProjection": 6253,
+        "issueUserState": 1385,
+        "machine": 6,
+        "message": 188,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5234,
+        "sessionUserState": 1379,
+        "userLayout": 32
+      },
+      "hostLoadStart": [
+        12.6,
+        11.89,
+        12.31
+      ],
+      "hostLoadEnd": [
+        14.38,
+        12.58,
+        12.52
+      ],
+      "sidebarRowCount": 197,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 116.007,
+              "0.95": 184.556
+            },
+            "selectedDomMs": {
+              "0.5": 97.736,
+              "0.95": 137.975
+            },
+            "mainThreadCpuMs": {
+              "0.5": 77.126,
+              "0.95": 113.599
+            },
+            "layoutCpuMs": {
+              "0.5": 7.877,
+              "0.95": 24.123
+            }
+          },
+          "loadRange": {
+            "first": [
+              14.42,
+              12.47,
+              12.48
+            ],
+            "last": [
+              14.59,
+              12.59,
+              12.52
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 8,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 365.865,
+              "0.95": 481.345
+            },
+            "selectedDomMs": {
+              "0.5": 214.126,
+              "0.95": 319.807
+            },
+            "mainThreadCpuMs": {
+              "0.5": 231.563,
+              "0.95": 279.754
+            },
+            "layoutCpuMs": {
+              "0.5": 53.646,
+              "0.95": 59.247
+            }
+          },
+          "loadRange": {
+            "first": [
+              14.42,
+              12.47,
+              12.48
+            ],
+            "last": [
+              14.59,
+              12.59,
+              12.52
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-palette-off-final-r11/run.json",
+      "arm": "palette-off-final",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+341aa58",
+        "sourceSha": "341aa58",
+        "bundleVersion": "bundle+hM0viYmy"
+      },
+      "host": "ludovico",
+      "browser": null,
+      "startedAt": "2026-10-04T20:58:37.806Z",
+      "endedAt": "2026-10-04T20:58:39.979Z",
+      "status": "failed",
+      "corpusSha256": null,
+      "population": null,
+      "hostLoadStart": [
+        12.44,
+        10.78,
+        9.66
+      ],
+      "hostLoadEnd": [
+        12.44,
+        10.78,
+        9.66
+      ],
+      "sidebarRowCount": null,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": null,
+      "actions": {}
+    }
+  ]
+}
