@@ -76,6 +76,7 @@ let realWS: typeof WebSocket
 
 beforeEach(() => {
   localStorage.clear()
+  window.history.replaceState(null, '', '/issues')
   renders = {}
   latestStore = null
   realWS = globalThis.WebSocket

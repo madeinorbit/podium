@@ -83,8 +83,10 @@ vi.mock('./trpc', () => ({
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
 const { StoreProvider, useRuntimeSelector } = await import('./store')
+const { useWorklistPool } = await import('./store-worklist-pool')
 
 let renderCount = 0
+let poolReady = false
 let snapshot: {
   selectedWorktree: string | null
   paneA: string | null
@@ -92,6 +94,7 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
+  poolReady = useWorklistPool() !== null
   const s = useRuntimeSelector(s => ({ selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }))
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
@@ -106,6 +109,7 @@ let root: Root
 
 beforeEach(() => {
   renderCount = 0
+  poolReady = false
   snapshot = null
   try {
     localStorage.clear()
@@ -150,6 +154,10 @@ async function mountAt(url: string): Promise<void> {
   })
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20))
+  })
+  await vi.waitFor(async () => {
+    await act(async () => { await Promise.resolve() })
+    expect(poolReady).toBe(true)
   })
 }
 
