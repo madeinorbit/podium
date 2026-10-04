@@ -74,7 +74,8 @@ interface RepoState {
   holders: Map<string, StoredRow>
 }
 function repoState(table: WritableTable): RepoState {
-  return table.repoState ??= { inputs: new Map(), holders: new Map() }
+  if (!table.repoState) table.repoState = { inputs: new Map(), holders: new Map() }
+  return table.repoState
 }
 
 /** Replace staging transfers only its resident repo ownership bookkeeping. */
