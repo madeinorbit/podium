@@ -163,11 +163,13 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
     }
     const options = { compact, fromRuntime: true, onDraftChange }
     try {
-      const { ta } = await mount(options)
-      expect(ta.value).toBe('old message')
       const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
       if (!nativeSet) throw new Error('Missing native textarea setter')
+      // Install before React captures the prototype setter for its input tracker.
       const writes = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
+      const { ta } = await mount(options)
+      expect(ta.value).toBe('old message')
+      writes.mockClear()
       act(() => {
         ta.focus()
         ta.setSelectionRange(0, ta.value.length)
