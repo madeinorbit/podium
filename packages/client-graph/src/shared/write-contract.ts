@@ -172,7 +172,7 @@ export interface OutboxPendingWrite {
  * never reads the outbox, the ledger or the folded snapshot directly.
  */
 export interface WriteTransport {
-  /** Enqueue `command` under `txId` through the runtime's `enqueueOverlayed`
+  /** Enqueue `command` under `txId` through the outbox
    *  seam with `opts.mutationId = txId` (W2). Fire-and-forget: an enqueue
    *  failure comes back as a `rejected` event for the same txId. */
   send(txId: TxId, command: KernelCommand): void

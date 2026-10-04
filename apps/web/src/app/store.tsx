@@ -17,7 +17,6 @@ import {
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
-import type { SessionId} from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
