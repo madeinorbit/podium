@@ -41,7 +41,8 @@ const server = spawn(process.execPath, ['--conditions=@podium/source','tests/e2e
 result.pids.push({ role:'harness', pid:server.pid })
 const serverLog = []
 for (const stream of [server.stdout, server.stderr]) stream.on('data', data => { serverLog.push(data); writeFileSync(resolve(out,'server.log'), Buffer.concat(serverLog)) })
-let browser
+let browser, fixture
+const cpuTicks = () => readFileSync('/proc/stat','utf8').split('\n')[0].trim().split(/\s+/).slice(1).map(Number)
 const pause = ms => new Promise(done => setTimeout(done, ms))
 const rpc = async (path, input) => {
   const response = await fetch(`${base}/trpc/${path}`, input === undefined ? {} : {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)})
@@ -69,6 +70,7 @@ function intervalMs(events, names, pid, tid, begin, end) {
 const live = []
 const outputEpochs = new Map()
 let outputSeq = 0
+const traffic = {feedDeltas:0,outputFrames:0,syntheticHeartbeat:0,syntheticIssue:0,syntheticOutput:0}
 let meta, seq=0, memberId, controls, seeded=false
 async function bindContext(context) {
   await context.route('**/sync/bootstrap*',async route=>{
@@ -76,7 +78,11 @@ async function bindContext(context) {
     const first=records[0], complete=records.at(-1)
     if(first.type!=='syncMeta' || first.mode!=='snapshot') { await route.fulfill({response}); return }
     const chunks=records.filter(x=>x.type==='feedBootstrap')
+    // The isolated keyecho agent has no transcript provider. Advertise an empty
+    // transcript on the comparison sessions so both production chat composers
+    // can be exercised; this is identical fixture data, not product code.
     const changes=chunks.flatMap(x=>x.changes)
+    for(const change of changes) if(change.entity==='session' && change.value?.title?.startsWith('Comparison session')) change.value.transcriptAvailable=true
     const rows=synthetic.map(row=>{
       const value={...row.value}
       if(['issueUserState','sessionUserState'].includes(row.entity)) value.userId=memberId
@@ -113,8 +119,11 @@ async function bindContext(context) {
       if(typeof message!=='string') return client.send(message)
       let frame; try{frame=JSON.parse(message)}catch{return client.send(message)}
       if(frame.type==='attached') outputEpochs.set(frame.sessionId,frame.epoch)
+      if(frame.type==='outputFrame')traffic.outputFrames++
       if(frame.type==='machinesChanged') frame.machines=[...corpus.machines,...frame.machines]
       if(frame.type==='feedDelta' && seeded) {
+        traffic.feedDeltas++
+        for(const change of frame.changes)if(change.entity==='session' && change.value?.title?.startsWith('Comparison session'))change.value.transcriptAvailable=true
         const size=Math.max(1,frame.seq-frame.fromSeq), start=seq
         seq+=size; frame={...frame,fromSeq:start,seq,changes:frame.changes.map((row,index)=>({...row,seq:start+index+1}))}
       }
@@ -122,6 +131,13 @@ async function bindContext(context) {
       client.send(JSON.stringify(frame))
     })
   })
+}
+function output(sessionId,text) {
+  const epoch=outputEpochs.get(sessionId)
+  if(epoch===undefined || !live.length)throw Error('Visible terminal has not attached; output would be ignored')
+  const frame={type:'outputFrame',sessionId,epoch,seq:++outputSeq,data:Buffer.from(text).toString('base64')}
+  for(const socket of live)socket.client.send(JSON.stringify(frame))
+  traffic.syntheticOutput++
 }
 function push(entity, entityId, value) {
   if(!meta || !live.length) throw Error('No initialized live feed')
@@ -134,6 +150,7 @@ async function makePage() {
   await bindContext(context)
   const page=await context.newPage(); page.setDefaultTimeout(10000)
   page.on('pageerror',error=>result.errors.push(error.message))
+  page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
   await page.addInitScript(({now})=>{
     const start=performance.now(); Date.now=()=>now+Math.floor(performance.now()-start)
     localStorage.setItem('podium.panelModeDefault','chat')
@@ -159,7 +176,7 @@ async function makePage() {
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable')
   return {page,context,cdp}
 }
-const url=()=>surface==='phone'?`${base}/mobile/work?server=${relay}`:`${base}/?server=${relay}&e2e=1`
+const url=()=>surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`
 async function ready(page) {
   if(surface==='phone') await page.getByRole('button',{name:'Search work',exact:true}).waitFor({timeout:120000})
   else await page.locator('aside').first().waitFor({timeout:120000})
@@ -169,6 +186,22 @@ async function ready(page) {
 async function inspect(page,label) {
   const dom=await page.evaluate(()=>({url:location.href,buttons:[...document.querySelectorAll('button,[role="button"],[role="tab"]')].filter(x=>x.getClientRects().length).map(x=>({text:x.textContent?.trim().slice(0,140),label:x.getAttribute('aria-label'),title:x.getAttribute('title'),testid:x.getAttribute('data-testid'),issue:x.getAttribute('data-issue-row'),session:x.getAttribute('data-session'),html:x.outerHTML.slice(0,900)})),inputs:[...document.querySelectorAll('input,textarea,[contenteditable]')].filter(x=>x.getClientRects().length).map(x=>({placeholder:x.getAttribute('placeholder'),label:x.getAttribute('aria-label'),html:x.outerHTML.slice(0,900)})),rows:document.querySelectorAll('[data-issue-row],[data-issue-id]').length,text:document.body.innerText.slice(0,5000)}))
   writeFileSync(resolve(out,`${label}.json`),JSON.stringify(dom,null,2)); await page.screenshot({path:resolve(out,`${label}.png`)})
+}
+async function population(page) {
+  const counts=await page.evaluate(async()=>{
+    const counts={}
+    for(const info of await indexedDB.databases()) {
+      const db=await new Promise((yes,no)=>{const request=indexedDB.open(info.name);request.onsuccess=()=>yes(request.result);request.onerror=()=>no(request.error)})
+      if(db.objectStoreNames.contains('entities'))await new Promise((yes,no)=>{
+        const request=db.transaction('entities','readonly').objectStore('entities').openCursor()
+        request.onsuccess=()=>{const cursor=request.result;if(!cursor)return yes();const kind=cursor.value.entity;counts[kind]=(counts[kind]??0)+1;cursor.continue()};request.onerror=()=>no(request.error)
+      })
+      db.close()
+    }
+    return counts
+  })
+  result.population=counts;save()
+  if((counts.issue??0)<corpus.issues.length || (counts.session??0)<corpus.sessions.length)throw Error('Full shared corpus did not reach durable client storage: '+JSON.stringify(counts))
 }
 async function attempt(name,fn) {
   try {await fn()} catch(error) {result.unavailable.push({action:name,reason:String(error),load:loadavg()}); console.log(`UNAVAILABLE ${name}: ${String(error).slice(0,240)}`); save()}
@@ -241,11 +274,17 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-fold',async()=>{
-      const collapsed=page.locator('aside button[aria-label^="Collapse "]').first()
-      const label=await collapsed.getAttribute('aria-label'), expandedLabel=label.replace('Collapse ','Expand ')
+      const label='Collapse sidebar', expandedLabel='Expand sidebar'
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'sidebar-collapse',()=>page.getByRole('button',{name:label,exact:true}).click(),`aside button[aria-label="${expandedLabel}"]`)
-        await capture(f,'sidebar-expand',()=>page.getByRole('button',{name:expandedLabel,exact:true}).click(),`aside button[aria-label="${label}"]`)
+        await capture(f,'sidebar-collapse',()=>page.getByRole('button',{name:label,exact:true}).click(),`button[aria-label="${expandedLabel}"]`)
+        await capture(f,'sidebar-expand',()=>page.getByRole('button',{name:expandedLabel,exact:true}).click(),`button[aria-label="${label}"]`)
+      }
+    })
+    await attempt('sidebar-group-fold',async()=>{
+      const button=page.getByTestId('project-group-label').filter({hasText:'zz-podium-e2e-repo-'}).first()
+      for(let i=0;i<samples+2;i++) {
+        await capture(f,'sidebar-group-collapse',()=>button.click(),`()=>document.querySelector('aside [data-issue-row="${other.id}"]')===null`)
+        await capture(f,'sidebar-group-expand',()=>button.click(),`aside [data-issue-row="${other.id}"]`)
       }
     })
     await attempt('session-switch',async()=>{
@@ -262,6 +301,8 @@ async function runActions(f) {
       await inspect(page,'session')
     })
     await attempt('composer-typing',async()=>{
+      const chat=page.locator('[data-panel-resident][data-pane] [data-testid="mode-chat"]').last()
+      await chat.click()
       const input=page.locator('[data-panel-resident][data-pane] textarea.prompt-input').last()
       await input.focus();await input.fill('')
       for(let i=0;i<samples+2;i++) {
@@ -294,6 +335,7 @@ async function runActions(f) {
     })
     const control=()=>page.getByText(title,{exact:true}).first()
     await attempt('mission-open',async()=>{
+      await page.getByTestId('topbar-nav-issues').click();await page.getByRole('region',{name:'Tasks'}).waitFor()
       await control().click({trial:true})
       for(let i=0;i<samples+2;i++) {
         const name=i%2?otherTitle:title
@@ -308,6 +350,16 @@ async function runActions(f) {
         await page.keyboard.press('Escape');await pause(100)
       }
     })
+    await attempt('issue-picker-search',async()=>{
+      await page.keyboard.press('Control+k')
+      const input=page.getByRole('combobox')
+      await input.fill(otherTitle);await pause(300)
+      for(let i=0;i<samples+2;i++) {
+        const wanted=i%2?otherTitle:title, unwanted=i%2?title:otherTitle
+        await capture(f,'issue-picker-search',()=>input.fill(wanted),`()=>document.querySelector('[role="combobox"]')?.value===${JSON.stringify(wanted)} && document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(wanted)}) && !document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(unwanted)})`)
+      }
+      await page.keyboard.press('Escape')
+    })
     await attempt('issue-board',async()=>{
       for(let i=0;i<samples+2;i++) {
         const home=page.getByTestId('topbar-nav-workspace')
@@ -317,30 +369,28 @@ async function runActions(f) {
       }
     })
     await attempt('dock-open',async()=>{
+      await page.getByTestId('topbar-nav-workspace').click();await row(issue.id).click()
+      const close=page.locator('button[title^="Close "][title$=" panel"]')
+      if(await close.count())await close.last().click()
       for(let i=0;i<samples+2;i++) {
-        await page.getByTestId('topbar-nav-issues').click()
-        await page.getByRole('textbox',{name:'Search tasks'}).fill(title)
-        const close=page.locator('button[title^="Close "][title$=" panel"]')
-        if(await close.count())await close.last().click()
-        await capture(f,'dock-open',()=>page.locator('[data-issue-id]').filter({hasText:title}).first().click(),'[data-testid="dock-title"]')
-        await close.last().click()
+        await capture(f,'dock-open',()=>page.getByRole('button',{name:'Tasks',exact:true}).click(),'[data-right-dock-panel="issue"]')
+        await capture(f,'dock-close',()=>page.locator('button[title="Close tasks panel"]').click(),()=>!document.querySelector('[data-right-dock-panel="issue"]'))
       }
     })
     await attempt('issue-rename',async()=>{
-      await page.getByTestId('topbar-nav-issues').click()
-      await page.getByRole('textbox',{name:'Search tasks'}).fill('Comparison')
-      await page.locator('[data-issue-id]').filter({hasText:title}).first().click()
+      await page.getByTestId('topbar-nav-workspace').click()
       for(let i=0;i<samples+2;i++) {
         const renamed=`Comparison target A revision ${i}`
-        await page.getByTestId('dock-title').dblclick()
-        await page.getByTestId('dock-inspect-head').locator('input').fill(renamed)
-        await capture(f,'issue-rename',()=>page.keyboard.press('Enter'),`()=>document.querySelector('[data-testid="dock-title"]')?.textContent?.trim()===${JSON.stringify(renamed)}`)
+        await row(issue.id).locator('.shell-work-row-title').dblclick()
+        await row(issue.id).locator('input').fill(renamed)
+        await capture(f,'issue-rename',()=>page.keyboard.press('Enter'),`()=>document.querySelector('aside [data-issue-row="${issue.id}"] .shell-work-row-title')?.textContent?.trim()===${JSON.stringify(renamed)}`)
       }
       await rpc('issues.update',{id:issue.id,patch:{title}})
     })
     await attempt('header-menu',async()=>{
+      await row(issue.id).click()
       for(let i=0;i<samples+2;i++) {
-        const trigger=page.locator('[data-testid="desktop-topbar"] button').filter({has:page.locator('svg')}).last()
+        const trigger=page.locator('[data-panel-resident][data-pane] [data-testid="header-menu"]').last()
         await capture(f,'header-menu',()=>trigger.click(),'[role="menu"]')
         await page.keyboard.press('Escape')
       }
@@ -352,7 +402,16 @@ async function runActions(f) {
       await inspect(page,'board')
       for(let i=0;i<samples+2;i++) {
         await capture(f,'issue-page-open',()=>page.locator('[data-issue-id]').filter({hasText:title}).first().click(),()=>!!document.querySelector('[data-testid="issue-page"]'))
-        await page.getByTestId('topbar-nav-issues').click()
+        await page.locator('[data-testid="issue-page"] button[title="Back"]').click()
+      }
+    })
+    await attempt('board-search',async()=>{
+      await page.getByTestId('topbar-nav-issues').click()
+      const input=page.getByRole('textbox',{name:'Search tasks'})
+      await input.fill('unflake');await pause(300)
+      for(let i=0;i<samples+2;i++){
+        const wanted=i%2?'unflake':'Comparison', unwanted=i%2?'Comparison':'unflake'
+        await capture(f,'board-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search tasks"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[data-issue-id]')].some(x=>x.textContent?.includes(${JSON.stringify(wanted)})) && ![...document.querySelectorAll('[data-issue-id]')].some(x=>x.textContent?.includes(${JSON.stringify(unwanted)}))`)
       }
     })
   } else {
@@ -361,7 +420,7 @@ async function runActions(f) {
     const target=()=>page.getByRole('button',{name:new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`)})
     await attempt('phone-navigation',async()=>{
       for(let i=0;i<samples+2;i++) {
-        await capture(f,'phone-issue-screen',()=>tasks().click(),()=>location.pathname==='/mobile/issues' && !!document.querySelector('[aria-label="New task"]'))
+        await capture(f,'phone-issue-screen',()=>tasks().click(),()=>location.pathname==='/mobile/issues' && !!document.querySelector('[aria-label="Search tasks"]'))
         await capture(f,'phone-work-screen',()=>work().click(),'[aria-label="Search work"]')
       }
     })
@@ -373,6 +432,7 @@ async function runActions(f) {
       }
     })
     await attempt('phone-inbox',async()=>{
+      if(!await page.getByRole('tab',{name:'Inbox',exact:true}).count())throw Error('No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement')
       for(let i=0;i<samples+2;i++) {
         await capture(f,'phone-inbox',()=>page.getByRole('tab',{name:'Inbox',exact:true}).click(),()=>location.pathname.includes('/inbox'))
         await work().click()
@@ -387,31 +447,109 @@ async function runActions(f) {
         await page.getByRole('button',{name:'Cancel',exact:true}).click().catch(()=>page.keyboard.press('Escape'))
       }
     })
+    await attempt('phone-mission-details',async()=>{
+      await work().click();await target().click()
+      for(let i=0;i<samples+2;i++){
+        await capture(f,'phone-mission-details',()=>page.getByRole('button',{name:'Mission details',exact:true}).click(),()=>location.pathname.endsWith('/details') && !!document.querySelector('[aria-label="Launch an agent on this mission"]'))
+        await page.getByRole('button',{name:'Back',exact:true}).click()
+      }
+    })
+    await attempt('phone-composer-typing',async()=>{
+      await work().click();await target().click()
+      const input=page.locator('textarea').last()
+      await input.focus();await input.fill('')
+      for(let i=0;i<samples+2;i++)await capture(f,'phone-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.value===${JSON.stringify('x'.repeat(i+1))})`)
+      await input.fill('')
+    })
+    await attempt('phone-issue-open',async()=>{
+      await tasks().click()
+      const input=page.getByRole('textbox',{name:'Search tasks',exact:true})
+      await input.fill(title);await pause(250)
+      await inspect(page,'phone-board')
+      const task=()=>page.getByRole('button',{name:new RegExp(`^Task .*${title}`)}).first()
+      for(let i=0;i<samples+2;i++) {
+        await capture(f,'phone-issue-open',()=>task().click(),'[data-testid="issue-keyboard-avoider"]')
+        await page.getByRole('button',{name:'Back',exact:true}).click()
+      }
+      await task().click();await inspect(page,'phone-issue')
+    })
+    await attempt('phone-issue-picker',async()=>{
+      const details=page.getByRole('button',{name:'Details',exact:true})
+      if(await details.count() && !await page.getByRole('button',{name:'Set parent',exact:true}).count())await details.click()
+      await page.getByRole('button',{name:'Set parent',exact:true}).click()
+      const input=page.getByRole('textbox',{name:'Search parent',exact:true})
+      await input.fill(otherTitle);await pause(350)
+      for(let i=0;i<samples+2;i++){
+        const wanted=i%2?otherTitle:'Comparison', text=i%2?otherTitle:'Comparison target'
+        await capture(f,'phone-issue-picker-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search parent"]')?.value===${JSON.stringify(wanted)} && document.body.textContent.includes(${JSON.stringify(text)})`)
+      }
+      await page.getByRole('button',{name:'Cancel',exact:true}).click()
+    })
+    await attempt('phone-search',async()=>{
+      await work().click();await page.getByRole('button',{name:'Search work',exact:true}).click()
+      const input=page.getByRole('textbox',{name:'Search work',exact:true})
+      await input.fill(otherTitle);await pause(300)
+      for(let i=0;i<samples+2;i++){
+        const wanted=i%2?otherTitle:title
+        await capture(f,'phone-work-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search work"][role="textbox"],input[aria-label="Search work"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[role="button"]')].some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(wanted)}))`)
+      }
+      await page.getByRole('button',{name:'Close search',exact:true}).click()
+    })
   }
   await inspect(page,'after-actions')
 }
 async function background(f) {
   const heartbeat=synthetic.find(x=>x.entity==='session' && x.value.status==='live'), issue=synthetic.find(x=>x.entity==='issueProjection' && !x.value.closedAt)
+  const targetSession=controls[0].secondSession.sessionId
+  await attempt('background-output-setup',async()=>{
+    if(surface==='web') {
+      await f.page.getByTestId('topbar-nav-workspace').click()
+      await f.page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().click()
+      const expand=f.page.getByRole('button',{name:'Expand Flight Deck',exact:true})
+      if(await expand.isVisible().catch(()=>false))await expand.click()
+      await f.page.locator(`[data-flight-session="${targetSession}"] button.deck-agent`).first().click()
+      const native=f.page.locator('[data-panel-resident][data-pane] [data-testid="mode-native"]').last()
+      if(await native.count())await native.click()
+      await f.page.locator('[data-panel-resident][data-pane] .xterm').waitFor()
+    } else {
+      await f.page.goto(`${base}/mobile/session/${targetSession}/terminal?server=${encodeURIComponent(relay)}`,{waitUntil:'domcontentloaded'})
+      await f.page.locator('iframe').waitFor({timeout:30000})
+    }
+    for(let i=0;i<100 && !outputEpochs.has(targetSession);i++)await pause(100)
+    if(!outputEpochs.has(targetSession))throw Error('No output subscription on visible comparison terminal')
+    await pause(1000)
+  })
+  const outputAvailable=outputEpochs.has(targetSession)
+  const metricWindow=async(kind,perform)=>{
+    const before=await metrics(f.cdp), load=loadavg(), stop=await trace(f.cdp)
+    await perform();await pause(200);await frames(f.page)
+    const after=await metrics(f.cdp), events=await stop()
+    const index=result.background.length, name=`background-${index}-${kind}.trace.json.gz`
+    writeFileSync(resolve(out,name),gzipSync(JSON.stringify(events)))
+    const row={kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:kind==='quiet'?0:1,windowMs:200,trace:name}
+    result.background.push(row);save()
+    return row
+  }
+  for(let i=0;i<samples;i++)await metricWindow('quiet',async()=>{})
   for(const [kind,row] of [['heartbeat',heartbeat],['issue-change',issue]]) {
     if(!row){result.unavailable.push({action:`background-${kind}`,reason:'No fixture target'});continue}
     for(let i=0;i<samples+2;i++) {
-      const before=await metrics(f.cdp), load=loadavg()
       const value={...row.value,...(kind==='heartbeat'?{lastActiveAt:new Date(corpus.fixedNow+10000+i*1000).toISOString()}:{title:`Background issue revision ${i}`})}
-      push(row.entity,row.entityId,value)
-      await f.page.waitForTimeout(200);await frames(f.page)
-      const after=await metrics(f.cdp)
-      result.background.push({kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:1})
+      await metricWindow(kind,async()=>push(row.entity,row.entityId,value))
     }
   }
-  const start=await metrics(f.cdp), load=loadavg(), began=Date.now(), delivered={heartbeat:0,issueChange:0}
-  // Explicit synthetic cadence: one heartbeat/s and one issue change/5s.
-  for(let second=0;second<60;second++) {
-    if(heartbeat){push(heartbeat.entity,heartbeat.entityId,{...heartbeat.value,lastActiveAt:new Date(corpus.fixedNow+second*1000).toISOString()});delivered.heartbeat++}
-    if(issue && second%5===0){push(issue.entity,issue.entityId,{...issue.value,title:`Live idle revision ${second}`});delivered.issueChange++}
-    await pause(Math.max(0,began+(second+1)*1000-Date.now()))
+  if(outputAvailable)for(let i=0;i<samples+2;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
+  const start=await metrics(f.cdp), load=loadavg(), began=Date.now(), delivered={heartbeat:0,issueChange:0,sessionOutput:0}, upstreamStart={...traffic}
+  // Activity-window replay: 30 heartbeats/min and 10 issue changes/min;
+  // output is an explicitly synthetic assumption of two terminal frames/sec.
+  for(let tick=0;tick<120;tick++) {
+    if(heartbeat && tick%4===0){push(heartbeat.entity,heartbeat.entityId,{...heartbeat.value,lastActiveAt:new Date(corpus.fixedNow+20000+tick*500).toISOString()});delivered.heartbeat++;traffic.syntheticHeartbeat++}
+    if(issue && tick%12===0){push(issue.entity,issue.entityId,{...issue.value,title:`Live idle revision ${tick}`});delivered.issueChange++;traffic.syntheticIssue++}
+    if(outputAvailable){output(targetSession,`operator output frame ${tick}\r\n`);delivered.sessionOutput++}
+    await pause(Math.max(0,began+(tick+1)*500-Date.now()))
   }
   const end=await metrics(f.cdp)
-  result.idle={seconds:(Date.now()-began)/1000,loadStart:load,loadEnd:loadavg(),delivered,taskMs:(end.TaskDuration-start.TaskDuration)*1000,scriptMs:(end.ScriptDuration-start.ScriptDuration)*1000,layoutMs:(end.LayoutDuration-start.LayoutDuration)*1000}
+  result.idle={seconds:(Date.now()-began)/1000,loadStart:load,loadEnd:loadavg(),delivered,upstreamStart,upstreamEnd:{...traffic},taskMs:(end.TaskDuration-start.TaskDuration)*1000,scriptMs:(end.ScriptDuration-start.ScriptDuration)*1000,layoutMs:(end.LayoutDuration-start.LayoutDuration)*1000}
   save()
 }
 try {
@@ -444,10 +582,20 @@ try {
     const expected=mode==='timing'?'bench:flatblock':'meter:flatblock'
     if(result.lease.name!==expected || result.lease.host!=='ludovico')throw Error('Wrong capture lease')
   }
-  const f=await makePage()
-  if(mode==='timing') {await startup(f,'app-cold-start');await startup(f,'app-warm-start')}
-  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(f.page)}
+  result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
+  const f=fixture=await makePage()
+  if(mode==='timing') {
+    // Each cold sample owns a new browser context; the paired warm sample
+    // reloads it, retaining HTTP cache, durable rows and preferences.
+    for(let i=0;i<4;i++) {
+      const sample=i===0?f:await makePage()
+      await startup(sample,'app-cold-start');await startup(sample,'app-warm-start')
+      if(i!==0)await sample.context.close()
+    }
+  }
+  else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}
   await inspect(f.page,'startup')
+  await population(f.page)
   if(mode==='probe') {
     // Untimed controls only: retain selectors for the complete timing action map.
     if(surface==='web'){await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
@@ -468,8 +616,9 @@ try {
   result.status='complete'
 } catch(error) {
   result.status='failed';result.failure=String(error);console.error(error)
+  if(fixture)await inspect(fixture.page,'failure').catch(()=>{})
 } finally {
-  result.endedAt=new Date().toISOString();result.loadEnd=loadavg();save()
+  result.endedAt=new Date().toISOString();result.loadEnd=loadavg();result.hostCpuEnd=cpuTicks();result.traffic=traffic;save()
   console.log('CAPTURE_FINISHED '+result.status)
   await browser?.close()
   if(server.exitCode===null) {
