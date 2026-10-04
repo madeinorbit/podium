@@ -133,7 +133,9 @@ describe('declared command and launch targets', () => {
       f.parity('branch rename')
       expect(f.source.counts.sessionLinks).toBe(before)
       const at = repos.findIndex((repo) => repo.worktrees.length > 0)
-      await discover(repos.map((repo, i) => (i === at ? { ...repo, worktrees: repo.worktrees.slice(1) } : repo)))
+      await discover(
+        repos.map((repo, i) => (i === at ? { ...repo, worktrees: repo.worktrees.slice(1) } : repo)),
+      )
       f.parity('worktree removed')
       await discover(repos)
       f.parity('worktree restored')
@@ -282,7 +284,11 @@ describe('declared command and launch targets', () => {
       f.parity()
       expect(views.counts.coldSessionVisits).toBeGreaterThan(0)
       const globals = () => {
-        const { addressedSessionReads: _addressed, ...counts } = views.counts
+        const {
+          addressedSessionReads: _sessions,
+          addressedIssueReads: _issues,
+          ...counts
+        } = views.counts
         return counts
       }
       const before = globals(),
@@ -309,8 +315,9 @@ describe('declared command and launch targets', () => {
       f.parity('session mark-read')
       expect(globals()).toEqual(before)
       expect(views.counts.addressedSessionReads).toBeGreaterThan(addressed)
-      const marked = referenceState(f.ctx.engine)
-        .sessions.find((session) => session.sessionId === id)!
+      const marked = referenceState(f.ctx.engine).sessions.find(
+        (session) => session.sessionId === id,
+      )!
       expect(typeof marked.readAt).toBe('string')
       const homeId = sessionUserStateRowId(asUserId('u-bench'), id)
       const home = f.ctx.cache.read('sessionUserState', homeId)!.value as object
@@ -340,6 +347,46 @@ describe('declared command and launch targets', () => {
     } finally {
       census.mockRestore()
       for (const stop of stops) stop()
+      f.close()
+    }
+  }, 120_000)
+
+  it('reopens without revisiting issue summaries and refreshes addressed changes made while closed', async () => {
+    const f = await fixture(),
+      views = commandLaunchViews(f.pool)
+    let stop = autorun(() => views.palette())
+    const rows = vi.spyOn(f.pool, 'row')
+    try {
+      f.parity()
+      stop()
+      const builds = views.counts.issueBuilds
+      rows.mockClear()
+      for (let i = 0; i < 4; i++) {
+        stop = autorun(() => views.palette())
+        stop()
+      }
+      expect(rows.mock.calls.filter(([entity]) => entity === 'commandIssue')).toEqual([])
+      expect(views.counts.issueBuilds).toBe(builds)
+      const addressed = views.counts.addressedIssueReads
+      await writeTitleRename(f.ctx, f.ctx.targets.stageMoveId)
+      // The closed palette has no derivation to refresh.
+      expect(views.counts.addressedIssueReads).toBe(addressed)
+      rows.mockClear()
+      stop = autorun(() => views.palette())
+      expect(rows.mock.calls.filter(([entity]) => entity === 'commandIssue')).toEqual([
+        ['commandIssue', f.ctx.targets.stageMoveId],
+      ])
+      expect(views.counts.addressedIssueReads).toBe(addressed + 1)
+      expect(views.counts.issueBuilds).toBe(builds)
+      f.parity('title changed while closed')
+      stop()
+      await writeNewIssue(f.ctx)
+      stop = autorun(() => views.palette())
+      expect(views.counts.issueBuilds).toBe(builds + 1)
+      f.parity('membership changed while closed')
+    } finally {
+      rows.mockRestore()
+      stop()
       f.close()
     }
   }, 120_000)

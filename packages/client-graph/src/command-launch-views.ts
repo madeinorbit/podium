@@ -4,14 +4,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
-import {
-  compareStructural,
-  computed,
-  type IComputedValue,
-  observable,
-  runInAction,
-  untracked,
-} from 'mobx'
+import { compareStructural, computed, observable, runInAction, untracked } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -47,6 +40,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
     coldSessionVisits: 0,
     usageQueries: 0,
     addressedSessionReads: 0,
+    addressedIssueReads: 0,
   }
   type Window = CommandLaunchRows['commandWindow']
   function windowField<K extends keyof Window>(key: K): Loaded<Window[K]> {
@@ -215,53 +209,112 @@ export function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  const issueSummaries = new Map<string, IComputedValue<Loaded<IssueViewModel>>>()
+  // The dialog releases its reactions when it closes. Retain only its small
+  // browsing values, with addressed invalidation, so reopening does not rebuild
+  // every cold summary or keep hidden issue derivations observed.
+  type IssueRows = { issues: IssueViewModel[]; pending: number }
+  let issueOrder: readonly string[] | undefined
+  let issueSlots: Loaded<IssueViewModel>[] = []
+  let issueSnapshot: IssueRows = { issues: [], pending: 0 }
+  const issuePositions = new Map<string, number>()
+  const dirtyIssues = new Set<string>()
+  const issueVersion = observable.box(0)
+  const issueRepos = new Map<string, string>()
+  const repoIssues = new Map<string, Set<string>>()
+  const repoPrefixes = new Map<string, string | undefined>()
   function issueSummary(id: string): Loaded<IssueViewModel> {
-    let summary = issueSummaries.get(id)
-    if (!summary) {
-      summary = computed(
-        () => {
-          const value = pool.row('commandIssue', id)
-          if (!value || value === LOADING) return value
-          const row = Object.fromEntries(
-            COMMAND_SUMMARIES.issue.map((field) => [
-              field,
-              (value as unknown as Record<string, unknown>)[field],
-            ]),
-          ) as unknown as IssueViewModel
-          const repoId = pool.graph.one('issue', id, 'repo'),
-            repo = repoId
-              ? (pool.row('repo', repoId) as { prefix?: string } | undefined)
-              : undefined
-          return {
-            ...row,
-            displayRef:
-              row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`),
-          } as IssueViewModel
-        },
-        { equals: compareStructural },
-      )
-      issueSummaries.set(id, summary)
+    const value = pool.row('commandIssue', id)
+    const previousRepo = issueRepos.get(id)
+    if (previousRepo) repoIssues.get(previousRepo)?.delete(id)
+    issueRepos.delete(id)
+    if (!value || value === LOADING) return value
+    const row = Object.fromEntries(
+      COMMAND_SUMMARIES.issue.map((field) => [
+        field,
+        (value as unknown as Record<string, unknown>)[field],
+      ]),
+    ) as unknown as IssueViewModel
+    const repoId = pool.graph.one('issue', id, 'repo')
+    const repo = repoId ? (pool.row('repo', repoId) as { prefix?: string } | undefined) : undefined
+    if (repoId) {
+      issueRepos.set(id, repoId)
+      let members = repoIssues.get(repoId)
+      if (!members) repoIssues.set(repoId, (members = new Set()))
+      members.add(id)
+      repoPrefixes.set(repoId, repo?.prefix)
     }
-    return summary.get()
+    return {
+      ...row,
+      displayRef: row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`),
+    } as IssueViewModel
   }
+  function issueSnapshotFromSlots(): IssueRows {
+    const issues: IssueViewModel[] = []
+    let pending = 0
+    for (const value of issueSlots) {
+      if (value === LOADING) pending++
+      else if (value) issues.push(value)
+    }
+    return { issues, pending }
+  }
+  const stopIssues = pool.queries.onChange((event) => {
+    if (!issueOrder) return
+    if (event.type === 'replace') {
+      issueOrder = undefined
+      dirtyIssues.clear()
+      runInAction(() => issueVersion.set(issueVersion.get() + 1))
+      return
+    }
+    let changed = false
+    for (const row of event.rows) {
+      if (row.kind === 'issue' && issuePositions.has(row.id)) {
+        dirtyIssues.add(row.id)
+        changed = true
+      } else if (row.kind === 'repo' && repoIssues.has(row.id)) {
+        const prefix = untracked(
+          () => (pool.row('repo', row.id) as { prefix?: string } | undefined)?.prefix,
+        )
+        if (prefix === repoPrefixes.get(row.id)) continue
+        repoPrefixes.set(row.id, prefix)
+        for (const id of repoIssues.get(row.id)!) dirtyIssues.add(id)
+        changed = true
+      }
+    }
+    if (changed) runInAction(() => issueVersion.set(issueVersion.get() + 1))
+  })
   const browsing = computed(
-    (): Loaded<{ issues: IssueViewModel[]; pending: number }> => {
+    (): Loaded<IssueRows> => {
+      issueVersion.get()
       const data = common.get()
       if (!data || data === LOADING) return data
-      counts.issueBuilds++
-      let pending = 0
-      const issues: IssueViewModel[] = []
-      for (const id of data.issueIds) {
-        const value = issueSummary(id)
-        if (value === LOADING) {
-          pending++
-          continue
+      if (!issueOrder || !compareStructural(issueOrder, data.issueIds)) {
+        counts.issueBuilds++
+        issueOrder = data.issueIds
+        issuePositions.clear()
+        issueRepos.clear()
+        repoIssues.clear()
+        repoPrefixes.clear()
+        issueSlots = untracked(() =>
+          data.issueIds.map((id, position) => {
+            issuePositions.set(id, position)
+            return issueSummary(id)
+          }),
+        )
+        issueSnapshot = issueSnapshotFromSlots()
+      } else if (dirtyIssues.size) {
+        let changed = false
+        for (const id of dirtyIssues) {
+          counts.addressedIssueReads++
+          const position = issuePositions.get(id)!
+          const value = untracked(() => issueSummary(id))
+          if (compareStructural(issueSlots[position], value)) continue
+          issueSlots[position] = value
+          changed = true
         }
-        if (!value) continue
-        issues.push(value)
+        if (changed) issueSnapshot = issueSnapshotFromSlots()
       }
-      return { issues, pending }
+      dirtyIssues.clear()
+      return issueSnapshot
     },
     { equals: compareStructural },
   )
@@ -408,7 +461,10 @@ export function createCommandLaunchViews(pool: MobxPool) {
       return data && data !== LOADING ? data.sessions : data
     },
     counts,
-    dispose: stopSessions,
+    dispose: () => {
+      stopSessions()
+      stopIssues()
+    },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {
