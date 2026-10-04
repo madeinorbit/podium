@@ -216,7 +216,13 @@ describe('real sidebar oracle (POD-4953)', () => {
       locals.flush()
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
       replay.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
+      // POD-5437 (83df844916, repeated-read probe 2a84baadce): the eviction
+      // signal persists until the selection moves, so every reader sees it
+      // until the clear-selection commits. A one-shot read here pinned the bug.
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(true)
+      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(true)
+      locals.set({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+      locals.flush()
       expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
     } finally {
       handle.dispose()
