@@ -94,7 +94,9 @@ it('retains visited summaries, reads no closed changes and refreshes only the ch
   expect(await screen.findByRole('combobox')).toBeTruthy()
   const row = vi.spyOn(pool!, 'row')
   const views = commandLaunchViews(pool!)
-  const summaryReads = () => row.mock.calls.filter(([kind]) => kind === 'commandIssue').length
+  // spyOn exposes the last base-entity overload; this source adds string kinds.
+  const isSummary = (kind: string) => kind === 'commandIssue'
+  const summaryReads = () => row.mock.calls.filter(([kind]) => isSummary(kind)).length
 
   await act(async () => { referenceState(runtime).setPaletteOpen(false) })
   expect(screen.queryByRole('combobox')).toBeNull()
