@@ -297,6 +297,7 @@ try {
       className: n.className,
       phase: n.getAttribute('data-phase'),
       selected: n.getAttribute('data-selected') === 'true',
+      visible: n instanceof HTMLElement && n.getClientRects().length > 0,
       numbered: /^\d+$/.test(
         n
           .querySelector('[data-testid="row-id-number"] [aria-hidden="true"]')
@@ -356,11 +357,23 @@ try {
       ),
     ]
     const anchor: string =
-      (anchorNumber ? rows.find((r) => r.number === anchorNumber)?.id : saved?.anchor) ??
+      (anchorNumber === 'auto'
+        ? rows.find(
+            (r) =>
+              r.numbered &&
+              r.visible &&
+              !r.selected &&
+              r.phase === 'working' &&
+              !saved?.targets?.includes(r.id),
+          )?.id
+        : anchorNumber
+          ? rows.find((r) => r.number === anchorNumber)?.id
+          : saved?.anchor) ??
       rows.find((r) => r.numbered && !r.selected && r.phase === 'working')?.id ??
       unique[0]!
-    if (anchorNumber && !rows.some((r) => r.number === anchorNumber))
+    if (anchorNumber && anchorNumber !== 'auto' && !rows.some((r) => r.number === anchorNumber))
       throw new Error('Requested capture anchor is absent from the sidebar')
+    if (saved?.targets?.includes(anchor)) throw new Error('Capture anchor overlaps a target')
     const targets: string[] = saved?.targets ?? unique.filter((id) => id !== anchor).slice(0, limit)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
     const labels = { ...saved?.labels }
