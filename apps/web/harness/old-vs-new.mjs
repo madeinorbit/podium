@@ -222,7 +222,10 @@ async function makePage() {
   // A newly spawned cross-site renderer can join global tracing after its
   // earliest initialization mark. Arm it on a neutral same-origin response;
   // the app's assets, storage and code remain untouched before cold navigation.
-  await page.goto(`${base}/health`,{waitUntil:'domcontentloaded',timeout:120000})
+  const blank=`${base}/__benchmark_blank`
+  await context.route(blank,route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Benchmark preparation</title>'}))
+  await page.goto(blank,{waitUntil:'domcontentloaded',timeout:120000})
+  await context.unroute(blank)
   page.on('pageerror',error=>result.errors.push(error.message))
   page.on('console',message=>{if(['error','warning'].includes(message.type()))result.errors.push(`${message.type()}: ${message.text().slice(0,1000)}`)})
   await page.addInitScript(({now})=>{
