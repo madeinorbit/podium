@@ -1,9 +1,9 @@
-import { poolRouteFixture } from '../../test/pool-routes'
 import type { PodiumTarget } from '@podium/protocol'
 // @vitest-environment happy-dom
-import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
+import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { poolRouteFixture } from '../../test/pool-routes'
 import type { ServerProfileContextValue } from '../client/server-profile-context'
 import type { ServerProfile } from '../client/server-profiles'
 
@@ -44,11 +44,17 @@ vi.mock('../client/use-inbox-data', () => ({
     const route = target ? fixture.route(target) : null
     const session = target?.kind === 'session' ? fixture.views.session(target.session) : undefined
     fixture.dispose()
-    return { booting: seams.booting, route,
+    return {
+      booting: seams.booting,
+      route,
       sessions: session && typeof session !== 'symbol' ? [session] : [],
       resolveRoute: (next: PodiumTarget) => {
         const current = poolRouteFixture({ issues: seams.issues, sessions: seams.sessions })
-        try { return current.route(next) } finally { current.dispose() }
+        try {
+          return current.route(next)
+        } finally {
+          current.dispose()
+        }
       },
     }
   },

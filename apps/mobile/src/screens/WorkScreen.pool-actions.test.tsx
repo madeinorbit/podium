@@ -1,5 +1,7 @@
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
+
+import { createHash } from 'node:crypto'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -20,7 +22,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { poolMobileSnapshot } from '../../../../packages/worklist-proto/harness/src/oracle/mobile-snapshot'
-import { createHash } from 'node:crypto'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'

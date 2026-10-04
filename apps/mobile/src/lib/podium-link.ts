@@ -27,8 +27,6 @@ import {
 } from '@podium/protocol'
 import { Linking } from 'react-native'
 
-
-
 /**
  * TWO SLOTS, NOT ONE LIST. The paired profiles and the active server are
  * written by two different components whose effects run in an order neither

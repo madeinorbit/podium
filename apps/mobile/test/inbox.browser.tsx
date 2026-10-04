@@ -9,11 +9,8 @@ import type { PodiumTarget } from '@podium/protocol'
 import { Profiler, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AuthStatusContext } from '../src/client/auth-context'
+import { attachMobilePool, useMobilePool } from '../src/client/mobile-pool'
 import { MobileShellProvider } from '../src/client/shell'
-import {
-  attachMobilePool,
-  useMobilePool,
-} from '../src/client/mobile-pool'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
 import { followPodiumLink } from '../src/lib/podium-link'
@@ -151,7 +148,8 @@ const driver = {
   ready: () =>
     pulseReady &&
     !!document.querySelector('[data-testid="screening-card"]') &&
-    !!pool && !mobileInboxViews(pool)?.inbox().booting,
+    !!pool &&
+    !mobileInboxViews(pool)?.inbox().booting,
   reset() {
     storeStats.reset()
     commits = 0
@@ -189,7 +187,9 @@ const driver = {
   outputs() {
     if (!pool) return null
     const views = mobileInboxViews(pool)
-    return views ? { routes: targets.map(target => views.route(target)), queue: views.screening().queue } : null
+    return views
+      ? { routes: targets.map((target) => views.route(target)), queue: views.screening().queue }
+      : null
   },
   close: () => root.unmount(),
 }

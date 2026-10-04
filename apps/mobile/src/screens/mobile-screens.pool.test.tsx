@@ -458,30 +458,26 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
       0,
     )
     const missions = missionLegacyStats.read()
-    {
-      expect(chatContextReadStats(state.pool!), phase).toEqual({
-        mentionBuilds: 0,
-        mentionIssueReads: 0,
-        referenceBuilds: 0,
-        referenceSessionReads: 0,
-      })
-      expect(rows, phase).toBe(0)
-      expect(missions.indexMissionSessions, phase).toBe(0)
-      expect(missions.missionIssueIds, phase).toBe(0)
-    }
+    expect(chatContextReadStats(state.pool!), phase).toEqual({
+      mentionBuilds: 0,
+      mentionIssueReads: 0,
+      referenceBuilds: 0,
+      referenceSessionReads: 0,
+    })
+    expect(rows, phase).toBe(0)
+    expect(missions.indexMissionSessions, phase).toBe(0)
+    expect(missions.missionIssueIds, phase).toBe(0)
     expect(state.errors).toEqual([])
     if (parity) {
       const ids = ['tasks', 'mission', 'details']
       const text = ids.map((id) => screen.getByTestId(id).textContent)
-      {
-        // Exact outputs frozen after the accepted OFF/ON comparison passed.
-        for (const [index, id] of ids.entries()) {
-          expect(
-            createHash('sha256')
-              .update(text[index] ?? '')
-              .digest('hex'),
-          ).toMatchSnapshot(`${phase} ${id}`)
-        }
+      // Exact outputs frozen after the accepted OFF/ON comparison passed.
+      for (const [index, id] of ids.entries()) {
+        expect(
+          createHash('sha256')
+            .update(text[index] ?? '')
+            .digest('hex'),
+        ).toMatchSnapshot(`${phase} ${id}`)
       }
     }
     phases.push({ phase, legacy, rows })

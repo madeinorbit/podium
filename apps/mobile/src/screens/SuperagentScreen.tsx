@@ -1,16 +1,14 @@
 import type { SuperagentTurnFailure } from '@podium/client-core/api'
-import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
 import { useModelCatalog } from '@podium/client-core/react'
-import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
-import type { MobxPool } from '@podium/client-graph'
-import type { SuperagentSliceValue } from '@podium/client-core/viewmodels'
-import { useMobilePoolProjection } from '../client/mobile-pool'
 import {
   mergeTranscriptFrame,
   prependTranscriptItems,
   reconcileTranscriptSnapshot,
 } from '@podium/client-core/transcript'
-import { buildImagePrompt } from '@podium/client-core/viewmodels'
+import type { SuperagentSliceValue } from '@podium/client-core/viewmodels'
+import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph'
+import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,6 +21,7 @@ import {
   useStoreActions,
   useTrpc,
 } from '../client/hooks'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
@@ -71,9 +70,15 @@ const THREAD_ID = asThreadId('global')
 type LocalPendingTurn = PendingTurn & { wire: string }
 
 const EMPTY_SUPERAGENT: SuperagentSliceValue & { booting: boolean; loading: boolean } = {
-  threads: [], active: undefined, activeSessionId: undefined, booting: true, loading: true,
+  threads: [],
+  active: undefined,
+  activeSessionId: undefined,
+  booting: true,
+  loading: true,
 }
-function usePoolSuperagent() { return useMobilePoolProjection(superagentState, EMPTY_SUPERAGENT) }
+function usePoolSuperagent() {
+  return useMobilePoolProjection(superagentState, EMPTY_SUPERAGENT)
+}
 function usePoolQuestion(id: SessionId | undefined) {
   const read = useCallback((pool: MobxPool) => superagentQuestion(pool, id).question, [id])
   return useMobilePoolProjection(read, undefined)

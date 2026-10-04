@@ -1,10 +1,10 @@
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { useMissionScreenData, useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck } from '../components/MissionDeck'
@@ -29,7 +29,7 @@ export function MissionDetailsScreen() {
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
-    (pool: MobxPool) => menuIssueId ? pool.graph.size('issue', menuIssueId, 'pageSessions') : 0,
+    (pool: MobxPool) => (menuIssueId ? pool.graph.size('issue', menuIssueId, 'pageSessions') : 0),
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)

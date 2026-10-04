@@ -68,11 +68,15 @@ test('the production phone preserves its pool screens with zero legacy derivatio
     agentKind: 'claude-code',
     title: 'Phone reader retirement task',
   })
-  await expect.poll(async () =>
-    (await rpc<{ sessionId: string; status: string }[]>(page, 'sessions.list'))
-      .find(row => row.sessionId === session.sessionId)?.status,
-    { timeout: 60_000 },
-  ).toBe('live')
+  await expect
+    .poll(
+      async () =>
+        (await rpc<{ sessionId: string; status: string }[]>(page, 'sessions.list')).find(
+          (row) => row.sessionId === session.sessionId,
+        )?.status,
+      { timeout: 60_000 },
+    )
+    .toBe('live')
   mkdirSync(directory, { recursive: true })
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
@@ -111,23 +115,32 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   await expect(page.getByRole('button', { name: 'Start agent', exact: true })).toBeVisible()
   await save('configured-launch')
   await page.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('button', { name: /Phone reader retirement task$/ }).first())
-    .toBeVisible({ timeout: 60_000 })
+  await expect(
+    page.getByRole('button', { name: /Phone reader retirement task$/ }).first(),
+  ).toBeVisible({ timeout: 60_000 })
   await save('work')
   await page.goto(`/mobile/issues?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByText('Phone reader retirement task', { exact: true }).first())
-    .toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('Phone reader retirement task', { exact: true }).first()).toBeVisible(
+    { timeout: 60_000 },
+  )
   await save('tasks')
   await page.goto(`/mobile/mission/${issue.id}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByLabel('Mission actions', { exact: true }))
-    .toBeVisible({ timeout: 60_000 })
-  await expect(page.getByText('Phone reader retirement task', { exact: true }).first()).toBeVisible()
+  await expect(page.getByLabel('Mission actions', { exact: true })).toBeVisible({ timeout: 60_000 })
+  await expect(
+    page.getByText('Phone reader retirement task', { exact: true }).first(),
+  ).toBeVisible()
   await save('mission')
-  await page.goto(`/mobile/mission/${issue.id}/details?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/mobile/mission/${issue.id}/details?server=${RELAY}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await expect(page.getByText('Mission details', { exact: true })).toBeVisible({ timeout: 60_000 })
-  await expect(page.getByText('Phone reader retirement task', { exact: true }).first()).toBeVisible()
+  await expect(
+    page.getByText('Phone reader retirement task', { exact: true }).first(),
+  ).toBeVisible()
   await save('mission-details')
-  await page.goto(`/mobile/session/${session.sessionId}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/mobile/session/${session.sessionId}?server=${RELAY}`, {
+    waitUntil: 'domcontentloaded',
+  })
   await expect(page.getByLabel('Session actions', { exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByRole('textbox').last()).toBeVisible()
   await save('session')
@@ -135,7 +148,9 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   await expect(page.getByText('E2E Identity', { exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('Memory', { exact: true }).first()).toBeVisible()
   await save('pulse')
-  await page.goto(`/mobile/settings?server=${RELAY}&mobxMobile=0&mobxSidebar=0`, { waitUntil: 'domcontentloaded' })
+  await page.goto(`/mobile/settings?server=${RELAY}&mobxMobile=0&mobxSidebar=0`, {
+    waitUntil: 'domcontentloaded',
+  })
   await expect(page.getByText('Sync cursor')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByLabel('MobX pilot', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Experimental', { exact: true })).toHaveCount(0)

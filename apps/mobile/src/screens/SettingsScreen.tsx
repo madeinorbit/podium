@@ -36,8 +36,16 @@ export function SettingsScreen() {
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
-  const { machines, hosts, sessionCount, issueCount, conversationCount,
-    outboxDeadLetters, outboxSize, cursor } = useSettingsData()
+  const {
+    machines,
+    hosts,
+    sessionCount,
+    issueCount,
+    conversationCount,
+    outboxDeadLetters,
+    outboxSize,
+    cursor,
+  } = useSettingsData()
   const httpOrigin = useHttpOrigin()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
@@ -338,7 +346,6 @@ export function SettingsScreen() {
             )}
           </>
         ) : null}
-
 
         <SectionHeader label="Data" />
         <View style={styles.panel}>

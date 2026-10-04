@@ -4,8 +4,8 @@ import {
   type GitStampModel,
   type MissionProgress,
 } from '@podium/client-core/viewmodels'
-import type { IssueGitState } from '@podium/model'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
+import type { IssueGitState } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
 import { alpha } from '../theme/mix'
 import { color, font, mono, radius, space } from '../theme/theme'
@@ -43,7 +43,9 @@ const FLEET_TILE = 19
  * the memory reaper had put to sleep read as an empty one.
  */
 export function FleetSummary({ display }: { display: MobileRowValues['fleet'] }) {
-  const present = { length: display.total }, tiles = display.tiles, nativeCount = display.nativeCount
+  const present = { length: display.total },
+    tiles = display.tiles,
+    nativeCount = display.nativeCount
   const label = `${display.total} agent${display.total === 1 ? '' : 's'}${display.parkedCount ? ` · ${display.parkedCount} parked` : ''}${display.nativeCount ? ` · ${display.nativeCount} native children` : ''}`
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)

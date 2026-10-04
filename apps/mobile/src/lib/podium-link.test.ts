@@ -1,6 +1,6 @@
-import { poolRoute } from '../../test/pool-routes'
 import { sessionView } from '@podium/client-core/session-values'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { poolRoute } from '../../test/pool-routes'
 import {
   followPodiumLink,
   internalPodiumTarget,
@@ -48,9 +48,9 @@ describe('poolRoute', () => {
   })
 
   it('routes a session by its birth ref as well as its id', () => {
-    expect(
-      poolRoute({ kind: 'session', session: 'POD-1606-A' }, { issues, sessions }),
-    ).toBe('/session/sess-1')
+    expect(poolRoute({ kind: 'session', session: 'POD-1606-A' }, { issues, sessions })).toBe(
+      '/session/sess-1',
+    )
     expect(poolRoute({ kind: 'session', session: 'sess-1' }, { issues, sessions })).toBe(
       '/session/sess-1',
     )
@@ -118,9 +118,7 @@ describe('poolRoute', () => {
 
   it('routes nothing for a row this phone has not received', () => {
     expect(poolRoute({ kind: 'issue', issue: 'POD-9999' }, { issues, sessions })).toBeNull()
-    expect(
-      poolRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions }),
-    ).toBeNull()
+    expect(poolRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions })).toBeNull()
   })
 
   it('does not claim a typed target when doing so would drop its detail', () => {

@@ -70,9 +70,7 @@ async function mount(onContentHeight: (height: number) => void = () => {}) {
   return renderWithMobileStore(
     <MissionDeck
       root={root}
-
       sessions={[]}
-
       accent="#8b5cf6"
       currentSessionId={undefined}
       onOpenSession={() => {}}
@@ -154,9 +152,7 @@ describe('MissionDeck view bar', () => {
       renderWithMobileStore(
         <MissionDeck
           root={solo}
-
           sessions={[session]}
-
           accent="#8b5cf6"
           currentSessionId={undefined}
           onOpenSession={() => {}}
@@ -233,9 +229,7 @@ describe('MissionDeck session homes', () => {
     return (
       <MissionDeck
         root={root}
-
         sessions={sessions}
-
         accent="#8b5cf6"
         currentSessionId={undefined}
         onOpenSession={() => {}}

@@ -1,7 +1,4 @@
-import {
-  codingRoleHarness,
-  ISSUE_STAGE_LABELS,
-} from '@podium/client-core/viewmodels'
+import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
@@ -9,17 +6,17 @@ import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-nat
 import { useTrpc } from '../client/hooks'
 import { useLaunchInputs, useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
+import { PressableScale } from '../components/PressableScale'
+import { Screen } from '../components/Screen'
+import { SectionHeader } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { AUTO, issueAgentKind, issueDefaultAgentKind } from '../lib/agent-models'
 import {
   type LaunchConfiguration,
   type LaunchPlan,
   launchConfigurationPatch,
   launchPlanCanSubmit,
 } from '../lib/launch-configuration'
-import { PressableScale } from '../components/PressableScale'
-import { Screen } from '../components/Screen'
-import { SectionHeader } from '../components/ui'
-import { useContentBottomInset } from '../hooks/useContentBottomInset'
-import { AUTO, issueAgentKind, issueDefaultAgentKind } from '../lib/agent-models'
 import { newTaskInput } from '../lib/new-task'
 import { color, font, radius, sans, space } from '../theme/theme'
 

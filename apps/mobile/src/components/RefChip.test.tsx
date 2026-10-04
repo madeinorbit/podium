@@ -1,9 +1,9 @@
-import { poolRouteFixture } from '../../test/pool-routes'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import type { View as RNView } from 'react-native'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { poolRouteFixture } from '../../test/pool-routes'
 import { STAGE_COLOR, STAGE_UNKNOWN } from '../theme/stage'
 import { color } from '../theme/theme'
 
@@ -11,7 +11,11 @@ let issues: IssueViewModel[] = []
 vi.mock('../client/use-inbox-data', () => ({
   usePoolRefChip: (token: string, kind: 'issue' | 'session', prefix: string) => {
     const fixture = poolRouteFixture({ issues, sessions: [] })
-    try { return fixture.views.chip(token, kind, prefix) } finally { fixture.dispose() }
+    try {
+      return fixture.views.chip(token, kind, prefix)
+    } finally {
+      fixture.dispose()
+    }
   },
 }))
 

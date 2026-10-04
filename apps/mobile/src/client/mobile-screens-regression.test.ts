@@ -27,7 +27,6 @@ import {
 } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
 
-
 function fingerprint(value: unknown) {
   const normalized = JSON.stringify(value, (_key, item) =>
     item !== null && typeof item === 'object' && !Array.isArray(item)

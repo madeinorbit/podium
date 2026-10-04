@@ -73,7 +73,6 @@ export function usePulseLive() {
   return { machines, hosts }
 }
 
-
 /** Pending handoffs observe their addressed target. Ordinary taps read the
  * same current pool at dispatch and asynchronously wait only for LOADING. */
 export function usePoolLinkData(target: PodiumTarget | null) {

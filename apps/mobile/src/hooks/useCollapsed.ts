@@ -1,9 +1,6 @@
 import { useCallback } from 'react'
 import { useUiState } from '../client/hooks'
-import {
-  useOptimisticPreferences,
-  usePoolPreference,
-} from './mobile-preferences'
+import { useOptimisticPreferences, usePoolPreference } from './mobile-preferences'
 
 /**
  * Per-key collapsed state in the principal-scoped replica UI store — the phone twin of the
@@ -22,4 +19,3 @@ export function useCollapsed(key: string, defaultCollapsed: boolean): [boolean, 
   }, [defaultCollapsed, key, overlay, raw])
   return [collapsed, toggle]
 }
-

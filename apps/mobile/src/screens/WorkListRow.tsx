@@ -1,17 +1,17 @@
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { useMobilePoolProjection } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
-import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { WorkingMark } from '../components/WorkingMark'
-import { mobileRowPaint, mobilePaintNow, type MobileRowPaint } from '../lib/work-sections'
-import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
-import { useMobilePoolProjection } from '../client/mobile-pool'
+import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
+import { type MobileRowPaint, mobilePaintNow, mobileRowPaint } from '../lib/work-sections'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -45,10 +45,27 @@ export interface WorkListRowProps {
 }
 
 export const WorkRow = memo(function WorkRow({
-  paint, onTuck, navPending, onOpen, onLongPress,
+  paint,
+  onTuck,
+  navPending,
+  onOpen,
+  onLongPress,
 }: WorkListRowProps) {
-  const { kind, ref, color: issueColor, internal, pinned, label, progress, originSeq,
-    statusLine, stamp, snoozed, unsnoozed, display } = paint
+  const {
+    kind,
+    ref,
+    color: issueColor,
+    internal,
+    pinned,
+    label,
+    progress,
+    originSeq,
+    statusLine,
+    stamp,
+    snoozed,
+    unsnoozed,
+    display,
+  } = paint
   const isIssue = kind === 'issue'
   const hex = isIssue ? issueColorHex(issueColor) : undefined
   const rowBg = hex ? flow.rowBg(hex) : color.engraved
@@ -113,11 +130,7 @@ export const WorkRow = memo(function WorkRow({
               {statusLine}
             </Text>
             {originSeq !== null ? <Text style={rowStyles.origin}>{`⤷ ${originSeq}`}</Text> : null}
-            {isIssue ? (
-              <GitStampLine
-                display={display.gitStamp}
-              />
-            ) : null}
+            {isIssue ? <GitStampLine display={display.gitStamp} /> : null}
             <View style={rowStyles.spacer} />
             <View style={rowStyles.rowDatum}>
               {navLoader ? (
@@ -386,38 +399,71 @@ const rowStyles = StyleSheet.create({
   },
 })
 
-type PoolRowSnapshot = { readonly paint: MobileRowPaint | 'loading' | null; readonly reader: MobxPool['mobileWork'] | null }
+type PoolRowSnapshot = {
+  readonly paint: MobileRowPaint | 'loading' | null
+  readonly reader: MobxPool['mobileWork'] | null
+}
 const EMPTY_POOL_ROW: PoolRowSnapshot = Object.freeze({ paint: 'loading', reader: null })
 
-export const PoolWorkRowSlot = memo(function PoolWorkRowSlot({ item, onTuck, ...callbacks }: {
-  item: MobileWorkRef
-  navPending: boolean
-  onOpenIssue: (issue: IssueNavigationModel) => void
-  onOpenSession: (sessionId: SessionId, rowKey: string) => void
-  onLongPress: (issue: IssueNavigationModel) => void
-  onTuck: (id: string) => void
-}) {
-  const read = useCallback((pool: MobxPool): PoolRowSnapshot => {
-    const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
-    const shown = typeof value === 'symbol' ? 'loading' : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
-    return { paint: shown, reader: pool.mobileWork }
-  }, [item.id, item.kind])
-  const { paint, reader } = useMobilePoolProjection(read, EMPTY_POOL_ROW)
-  const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
-  const openRow = useCallback(() => {
-    const current = reader?.row({ id: item.id, kind: item.kind })
-    if (!current || typeof current === 'symbol' || !current.navigation) return
-    if (current.navigation.kind === 'session') callbacks.onOpenSession(current.navigation.id as SessionId, item.id)
-    else if (current.sidebar) callbacks.onOpenIssue(current.sidebar.issue as IssueNavigationModel)
-  }, [callbacks.onOpenIssue, callbacks.onOpenSession, item.id, item.kind, reader])
-  const longPress = useCallback(() => {
-    const current = reader?.row({ id: item.id, kind: item.kind })
-    if (current && typeof current !== 'symbol' && current.sidebar) callbacks.onLongPress(current.sidebar.issue as IssueNavigationModel)
-  }, [callbacks.onLongPress, item.id, item.kind, reader])
-  if (paint === 'loading') return <View accessibilityLabel="Loading work" />
-  if (!paint) return null
-  return <WorkRow paint={paint} navPending={callbacks.navPending} onOpen={openRow}
-    onLongPress={longPress} onTuck={paint.tuckable ? tuck : undefined} />
-}, (a, b) => a.item.id === b.item.id && a.item.kind === b.item.kind && a.item.listKey === b.item.listKey
-  && a.navPending === b.navPending && a.onTuck === b.onTuck && a.onOpenIssue === b.onOpenIssue
-  && a.onOpenSession === b.onOpenSession && a.onLongPress === b.onLongPress)
+export const PoolWorkRowSlot = memo(
+  function PoolWorkRowSlot({
+    item,
+    onTuck,
+    ...callbacks
+  }: {
+    item: MobileWorkRef
+    navPending: boolean
+    onOpenIssue: (issue: IssueNavigationModel) => void
+    onOpenSession: (sessionId: SessionId, rowKey: string) => void
+    onLongPress: (issue: IssueNavigationModel) => void
+    onTuck: (id: string) => void
+  }) {
+    const read = useCallback(
+      (pool: MobxPool): PoolRowSnapshot => {
+        const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
+        const shown =
+          typeof value === 'symbol'
+            ? 'loading'
+            : value
+              ? mobileRowPaint(value, mobilePaintNow(pool))
+              : null
+        return { paint: shown, reader: pool.mobileWork }
+      },
+      [item.id, item.kind],
+    )
+    const { paint, reader } = useMobilePoolProjection(read, EMPTY_POOL_ROW)
+    const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
+    const openRow = useCallback(() => {
+      const current = reader?.row({ id: item.id, kind: item.kind })
+      if (!current || typeof current === 'symbol' || !current.navigation) return
+      if (current.navigation.kind === 'session')
+        callbacks.onOpenSession(current.navigation.id as SessionId, item.id)
+      else if (current.sidebar) callbacks.onOpenIssue(current.sidebar.issue as IssueNavigationModel)
+    }, [callbacks.onOpenIssue, callbacks.onOpenSession, item.id, item.kind, reader])
+    const longPress = useCallback(() => {
+      const current = reader?.row({ id: item.id, kind: item.kind })
+      if (current && typeof current !== 'symbol' && current.sidebar)
+        callbacks.onLongPress(current.sidebar.issue as IssueNavigationModel)
+    }, [callbacks.onLongPress, item.id, item.kind, reader])
+    if (paint === 'loading') return <View accessibilityLabel="Loading work" />
+    if (!paint) return null
+    return (
+      <WorkRow
+        paint={paint}
+        navPending={callbacks.navPending}
+        onOpen={openRow}
+        onLongPress={longPress}
+        onTuck={paint.tuckable ? tuck : undefined}
+      />
+    )
+  },
+  (a, b) =>
+    a.item.id === b.item.id &&
+    a.item.kind === b.item.kind &&
+    a.item.listKey === b.item.listKey &&
+    a.navPending === b.navPending &&
+    a.onTuck === b.onTuck &&
+    a.onOpenIssue === b.onOpenIssue &&
+    a.onOpenSession === b.onOpenSession &&
+    a.onLongPress === b.onLongPress,
+)

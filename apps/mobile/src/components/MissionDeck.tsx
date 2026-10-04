@@ -459,9 +459,7 @@ export const MissionDeck = memo(function MissionDeck({
             stops={!(guides[index + 1] ?? [])[row.depth - 1]}
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
-            poolPresentation={
-              { value: presentation.rowPresentation.get(row.issue.id)! }
-            }
+            poolPresentation={{ value: presentation.rowPresentation.get(row.issue.id)! }}
             nameOf={nameOf}
             folded={flightDeckRowIsFolded(row, folds)}
             currentSessionId={currentSessionId}
@@ -562,9 +560,7 @@ function SpineRow({
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat =
-    context || row.issue.stage === 'proposed'
-      ? null
-      : seatFor(poolPresentation.value.presence)
+    context || row.issue.stage === 'proposed' ? null : seatFor(poolPresentation.value.presence)
   // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
   // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
   // same line beside it.

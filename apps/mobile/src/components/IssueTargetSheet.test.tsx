@@ -1,6 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId } from '@podium/model'
 import { createReaderIndex } from '@podium/client-graph/shared/reader-questions'
+import { asIssueId } from '@podium/model'
 import { cleanup, render } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import type { FlatListProps as NativeFlatListProps } from 'react-native'

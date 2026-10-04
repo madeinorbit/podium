@@ -14,10 +14,7 @@ import {
 import { useServerProfile } from '../client/server-profile-context'
 import { usePoolLinkData } from '../client/use-inbox-data'
 import { MOBILE_HOME } from '../lib/navigation'
-import {
-  setActivePodiumOrigin,
-  setPodiumTargetActivator,
-} from '../lib/podium-link'
+import { setActivePodiumOrigin, setPodiumTargetActivator } from '../lib/podium-link'
 
 /**
  * Makes Podium addresses live on the phone (POD-1606). Mounted once inside the

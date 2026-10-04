@@ -14,9 +14,11 @@
  *               because there is no other door: a machine list that arrived any
  *               other way would not be testing the path the product uses.
  */
+
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { type IssueViewModel, type Replica } from '@podium/client-core/replica'
+import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import {
   asUserId,
@@ -36,11 +38,10 @@ import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
-import { createMobileTestReplica } from './test-replica'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
+import { createMobileTestReplica } from './test-replica'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {

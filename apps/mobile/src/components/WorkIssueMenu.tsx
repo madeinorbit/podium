@@ -13,8 +13,8 @@ import { useStoreActions } from '../client/hooks'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import {
-  type WorkMenuActionId,
   type WorkIssueMenuTarget,
+  type WorkMenuActionId,
   workMenuActionIds,
 } from '../lib/work-menu'
 import { color } from '../theme/theme'

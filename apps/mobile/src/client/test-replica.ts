@@ -4,11 +4,11 @@ import {
   createKernelReplica,
   createSideCache,
   entityForKind,
-  rowKey,
   memoryStorage,
   type Replica,
   type ReplicaKind,
   type ReplicaRows,
+  rowKey,
 } from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
 

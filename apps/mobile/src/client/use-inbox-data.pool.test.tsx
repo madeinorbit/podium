@@ -268,7 +268,9 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
 it('preserves rendered phone inbox, proposal, pulse and reference values through real pool attachment', async () => {
   const on = await mount()
   await painted(on)
-  expect(on.view.container.innerHTML).toMatchSnapshot('last green pilot-ON inbox, screening, pulse and references')
+  expect(on.view.container.innerHTML).toMatchSnapshot(
+    'last green pilot-ON inbox, screening, pulse and references',
+  )
   expect(on.seen[0]).toBeNull()
   expect(on.seen.some((pool) => pool !== null)).toBe(true)
   expect(on.errors).toEqual([])
@@ -301,9 +303,13 @@ it('compares every card, triage bucket, screening ancestor and addressed route a
     targets,
     screeningIds: ['synthetic-0', 'synthetic-1', 'synthetic-2', 'synthetic-3'],
   }
-  expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot('last green pilot-ON complete inbox output')
+  expect(mobileInboxSnapshot(app.pool, input)).toMatchSnapshot(
+    'last green pilot-ON complete inbox output',
+  )
   const before = mobileInboxSnapshot(app.pool, input)
-  await act(async () => app.data.patch('issueProjection', 'synthetic-0', { title: 'Planted comparison error' }))
+  await act(async () =>
+    app.data.patch('issueProjection', 'synthetic-0', { title: 'Planted comparison error' }),
+  )
   await waitFor(() => expect(mobileInboxSnapshot(app.pool, input)).not.toEqual(before))
 })
 
@@ -320,7 +326,8 @@ it('keeps decided deck order and retry lookup when proposals are promoted or arr
   )
   const order = ['synthetic-2', 'synthetic-0', 'synthetic-1'] as never[]
   expect(reconcileScreeningIds(order, 1, mobileInboxViews(app.pool)!.screening().queue)).toEqual({
-    order: ['synthetic-2', 'synthetic-1'], index: 1,
+    order: ['synthetic-2', 'synthetic-1'],
+    index: 1,
   })
 })
 

@@ -1,4 +1,4 @@
-import { type MessageNotice } from '@podium/client-core/viewmodels'
+import type { MessageNotice } from '@podium/client-core/viewmodels'
 import { useRouter } from 'expo-router'
 import { useContext, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -51,9 +51,7 @@ function MessageNoticeBannerBody({ notices }: { notices: readonly MessageNotice[
             <Text style={styles.message} numberOfLines={2}>
               {`To ${newest.sessionLabel}: “${newest.excerpt}” — ${newest.line}`}
             </Text>
-            {more > 0 ? (
-              <Text style={styles.more}>{`and ${more} more not delivered`}</Text>
-            ) : null}
+            {more > 0 ? <Text style={styles.more}>{`and ${more} more not delivered`}</Text> : null}
             {error ? <Text style={styles.more}>{error}</Text> : null}
           </PressableScale>
           <PressableScale

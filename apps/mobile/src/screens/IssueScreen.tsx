@@ -1,6 +1,6 @@
 import { withoutShells } from '@podium/client-core/focus'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { resolveIssueEdge } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
@@ -18,8 +18,8 @@ import { ScrollView, StyleSheet, View } from 'react-native'
 import { useCoarseNow, useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { useHasIssueMates, useIssueInputs, useIssueTargets } from '../client/use-issue-inputs'
 import {
-  useSessionContextIssue as useIssue,
   useSessionContextBooting as useBooting,
+  useSessionContextIssue as useIssue,
 } from '../client/use-session-context'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'

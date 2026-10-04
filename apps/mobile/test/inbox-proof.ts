@@ -62,9 +62,7 @@ try {
         body: '<p>Synthetic OS fallback destination</p>',
       }),
     )
-    await page.goto(
-      `${origin}/test/inbox.browser.html?complete=${complete ? 1 : 0}`,
-    )
+    await page.goto(`${origin}/test/inbox.browser.html?complete=${complete ? 1 : 0}`)
     try {
       await Promise.race([
         page.waitForFunction(() => window.__inbox?.ready(), null, { timeout: 20000 }),
@@ -83,7 +81,10 @@ try {
       throw error
     }
     failReady = () => {}
-    if (complete && (await page.getByRole('button', { name: 'New work', exact: true }).count()) !== 1)
+    if (
+      complete &&
+      (await page.getByRole('button', { name: 'New work', exact: true }).count()) !== 1
+    )
       throw new Error('Complete Inbox did not mount the real launch button')
     await page.evaluate(
       () =>
@@ -92,9 +93,7 @@ try {
         ),
     )
     const mounted = await page.evaluate(() => window.__inbox.stats())
-    if (
-      (mounted.selectors || mounted.rowBuilds || Object.values(mounted.slices).some(Boolean))
-    )
+    if (mounted.selectors || mounted.rowBuilds || Object.values(mounted.slices).some(Boolean))
       throw new Error(`Legacy work at enabled mount: ${JSON.stringify(mounted)}`)
     results[`${arm}.${mode}.mount`] = mounted
     const cdp = await page.context().newCDPSession(page)
@@ -121,14 +120,16 @@ try {
           ? { wallMs, taskMs: ((final.TaskDuration ?? 0) - (initial.TaskDuration ?? 0)) * 1000 }
           : {}),
       }
-      if (
-          (stats.selectors || stats.rowBuilds || Object.values(stats.slices).some(Boolean))
-      )
+      if (stats.selectors || stats.rowBuilds || Object.values(stats.slices).some(Boolean))
         throw new Error(`Legacy enabled work: ${JSON.stringify(stats)}`)
       if (stats.failures) throw new Error('Synthetic runtime failed')
     }
     const { default: assert } = await import('node:assert/strict')
-    await page.waitForFunction(() => window.__inbox.outputs()?.routes.every(route => typeof route !== 'symbol'), null, { timeout: 30000 })
+    await page.waitForFunction(
+      () => window.__inbox.outputs()?.routes.every((route) => typeof route !== 'symbol'),
+      null,
+      { timeout: 30000 },
+    )
     const outputs = await page.evaluate(() => window.__inbox.outputs())
     assert.deepEqual(outputs, {
       routes: ['/issue/synthetic-0', '/issue/synthetic-18', null, '/session/synthetic-session-0'],
@@ -160,9 +161,7 @@ try {
       )
     }
     const acted = await page.evaluate(() => window.__inbox.stats())
-    if (
-      (acted.selectors || acted.rowBuilds || Object.values(acted.slices).some(Boolean))
-    )
+    if (acted.selectors || acted.rowBuilds || Object.values(acted.slices).some(Boolean))
       throw new Error(`Legacy work while following references: ${JSON.stringify(acted)}`)
     results[`${arm}.${mode}.actions`] = acted
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`)

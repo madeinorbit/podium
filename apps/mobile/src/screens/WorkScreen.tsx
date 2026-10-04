@@ -1,13 +1,12 @@
+import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkRef, MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
-import {
-  type IssueNavigationModel,
-} from '@podium/client-core/viewmodels'
+import type {
+  MobileWorkRef,
+  MobileWorkSection,
+  MobileWorkState,
+} from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
-import {
-  canonicalIssueCloseReason,
-  ISSUE_STATUS_LABELS,
-} from '@podium/model'
+import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useFocusEffect, useRouter } from 'expo-router'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -22,18 +21,10 @@ import {
   View,
 } from 'react-native'
 import { useStoreActions } from '../client/hooks'
-import { useSessionContextBooting } from '../client/use-session-context'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
-import { resolvePoolWorkMenu, type PoolWorkMenuData } from '../lib/pool-work-menu'
+import { useSessionContextBooting } from '../client/use-session-context'
 import { Icon } from '../components/Icon'
-import {
-  ChevronDown,
-  ChevronRight,
-  Pin,
-  Search,
-  Settings,
-  X,
-} from '../components/icons'
+import { ChevronDown, ChevronRight, Pin, Search, Settings, X } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
@@ -50,12 +41,13 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
+import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import { sessionHref } from '../lib/session-route'
 import {
+  MobileNativeSections,
+  MobileSearchSections,
   mobilePaintNow,
   searchMobileSections,
-  MobileSearchSections,
-  MobileNativeSections,
   workGroupFoldKey,
 } from '../lib/work-sections'
 import { alpha } from '../theme/mix'
@@ -93,7 +85,11 @@ const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
 /** How a folded row ended, in one dim mono word — twin of the desktop's
  *  `foldedMarker`. Nothing here is an ask, so none of it takes the accent. */
-function foldedMarker(issue: IssueNavigationModel, lane: 'closed' | 'snoozed', now: number): string {
+function foldedMarker(
+  issue: IssueNavigationModel,
+  lane: 'closed' | 'snoozed',
+  now: number,
+): string {
   if (lane === 'snoozed') {
     const until = issue.deferUntil ? Date.parse(issue.deferUntil) : Number.NaN
     if (!Number.isFinite(until)) return 'snoozed'
@@ -130,17 +126,29 @@ function configureFoldAnimation(reduceMotion: boolean): void {
 }
 
 const EMPTY_MOBILE_SECTIONS: readonly MobileWorkSection[] = Object.freeze([])
-const EMPTY_MOBILE_SPLIT = Object.freeze({ sections: EMPTY_MOBILE_SECTIONS, orderingSections: EMPTY_MOBILE_SECTIONS,
-  issueCount: 0, pinnedCount: 0, attentionCount: 0, pending: 0 })
+const EMPTY_MOBILE_SPLIT = Object.freeze({
+  sections: EMPTY_MOBILE_SECTIONS,
+  orderingSections: EMPTY_MOBILE_SECTIONS,
+  issueCount: 0,
+  pinnedCount: 0,
+  attentionCount: 0,
+  pending: 0,
+})
 const mobileListKey = (ref: MobileWorkRef): string => ref.listKey
-const EMPTY_LAYOUT: MobileWorkState = Object.freeze({ projectOrder: [], pinnedRepos: [], pinnedWorktrees: [] })
+const EMPTY_LAYOUT: MobileWorkState = Object.freeze({
+  projectOrder: [],
+  pinnedRepos: [],
+  pinnedWorktrees: [],
+})
 const readLayout = (pool: MobxPool): MobileWorkState => {
   const window = pool.row('commandWindow', 'window')
-  return window && typeof window !== 'symbol' ? {
-    projectOrder: window.sidebarSettings.repoOrder,
-    pinnedRepos: window.pins.repos,
-    pinnedWorktrees: window.pins.worktrees,
-  } : EMPTY_LAYOUT
+  return window && typeof window !== 'symbol'
+    ? {
+        projectOrder: window.sidebarSettings.repoOrder,
+        pinnedRepos: window.pins.repos,
+        pinnedWorktrees: window.pins.worktrees,
+      }
+    : EMPTY_LAYOUT
 }
 
 /** The work list reads the existing pool through attachment and principal rebuild. */
@@ -149,7 +157,8 @@ export function WorkScreen() {
   const pool = useMobilePool()
   const { markIssueRead, setIssueTucked } = useStoreActions()
   const booting = useSessionContextBooting()
-  const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } = useRefreshableTab('work')
+  const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
+    useRefreshableTab('work')
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
@@ -159,80 +168,204 @@ export function WorkScreen() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const searching = query.trim().length > 0
-  const sectionKeys = useMemo(() => split.sections.map(section => section.key), [split.sections])
-  const { collapsed: collapsedKeys, toggle: toggleCollapsed } = useCollapsedSet(sectionKeys, workGroupFoldKey)
+  const sectionKeys = useMemo(() => split.sections.map((section) => section.key), [split.sections])
+  const { collapsed: collapsedKeys, toggle: toggleCollapsed } = useCollapsedSet(
+    sectionKeys,
+    workGroupFoldKey,
+  )
   const [searchSections] = useState(() => new MobileSearchSections())
-  const readSearch = useCallback((graph: MobxPool) => searchMobileSections(graph,
-    graph.mobileWork.sections(layout).sections, query, searchSections), [layout, query, searchSections])
+  const readSearch = useCallback(
+    (graph: MobxPool) =>
+      searchMobileSections(
+        graph,
+        graph.mobileWork.sections(layout).sections,
+        query,
+        searchSections,
+      ),
+    [layout, query, searchSections],
+  )
   const visibleSections = useMobilePoolProjection(readSearch, EMPTY_MOBILE_SECTIONS)
   const [nativeSections] = useState(() => new MobileNativeSections())
-  const displaySections = useMemo(() => nativeSections.update(visibleSections, collapsedKeys, searching),
-    [collapsedKeys, nativeSections, searching, visibleSections])
+  const displaySections = useMemo(
+    () => nativeSections.update(visibleSections, collapsedKeys, searching),
+    [collapsedKeys, nativeSections, searching, visibleSections],
+  )
   const reduceMotion = useReduceMotion()
-  const toggleFold = useCallback((key: string) => {
-    configureFoldAnimation(reduceMotion)
-    toggleCollapsed(key)
-  }, [reduceMotion, toggleCollapsed])
+  const toggleFold = useCallback(
+    (key: string) => {
+      configureFoldAnimation(reduceMotion)
+      toggleCollapsed(key)
+    },
+    [reduceMotion, toggleCollapsed],
+  )
   const [pendingNav, setPendingNav] = useState<string | null>(null)
-  useFocusEffect(useCallback(() => { setPendingNav(null); return () => setPendingNav(null) }, []))
-  const openIssue = useCallback((issue: IssueNavigationModel) => {
-    setPendingNav(issue.id)
-    router.push(`/mission/${encodeURIComponent(issue.id)}`)
-    setTimeout(() => void markIssueRead(issue.id), 0)
-  }, [markIssueRead, router])
-  const openSession = useCallback((sessionId: SessionId, rowKey: string) => {
-    setPendingNav(rowKey)
-    router.push(sessionHref(sessionId, '/work'))
-  }, [router])
+  useFocusEffect(
+    useCallback(() => {
+      setPendingNav(null)
+      return () => setPendingNav(null)
+    }, []),
+  )
+  const openIssue = useCallback(
+    (issue: IssueNavigationModel) => {
+      setPendingNav(issue.id)
+      router.push(`/mission/${encodeURIComponent(issue.id)}`)
+      setTimeout(() => void markIssueRead(issue.id), 0)
+    },
+    [markIssueRead, router],
+  )
+  const openSession = useCallback(
+    (sessionId: SessionId, rowKey: string) => {
+      setPendingNav(rowKey)
+      router.push(sessionHref(sessionId, '/work'))
+    },
+    [router],
+  )
   const [menu, setMenu] = useState<PoolWorkMenuData | null>(null)
-  const openMenu = useCallback((issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane'] = 'live') => {
-    if (!pool) return
-    setMenu(resolvePoolWorkMenu(pool, issue.id, lane))
-  }, [pool])
+  const openMenu = useCallback(
+    (issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane'] = 'live') => {
+      if (!pool) return
+      setMenu(resolvePoolWorkMenu(pool, issue.id, lane))
+    },
+    [pool],
+  )
   const openLiveMenu = useCallback((issue: IssueNavigationModel) => openMenu(issue), [openMenu])
   const tuck = useCallback((id: string) => void setIssueTucked(id, true), [setIssueTucked])
-  const renderItem = useCallback(({ item }: { item: MobileWorkRef }) => <PoolWorkRowSlot
-    item={item} navPending={pendingNav === item.id} onOpenIssue={openIssue} onOpenSession={openSession}
-    onLongPress={openLiveMenu} onTuck={tuck} />, [openIssue, openLiveMenu, openSession, pendingNav, tuck])
+  const renderItem = useCallback(
+    ({ item }: { item: MobileWorkRef }) => (
+      <PoolWorkRowSlot
+        item={item}
+        navPending={pendingNav === item.id}
+        onOpenIssue={openIssue}
+        onOpenSession={openSession}
+        onLongPress={openLiveMenu}
+        onTuck={tuck}
+      />
+    ),
+    [openIssue, openLiveMenu, openSession, pendingNav, tuck],
+  )
   const loading = booting || pool === null || split.pending > 0
   return (
-    <Screen large monoSubtitle title="Work" subtitle={<>
-      <Text style={attentionCount > 0 ? styles.headerAttention : undefined}>{attentionCount} NEED YOU</Text>
-      {` · ${pinnedCount} PINNED · ${issueCount} TASKS`}
-    </>} right={<>
-      {usesNativeHeader ? null : <HeaderButton label={searchOpen ? 'Close search' : 'Search work'} size={34}
-        onPress={() => { setSearchOpen(open => !open); if (searchOpen) setQuery('') }}>
-        <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
-      </HeaderButton>}
-      <NewWorkButton size={34} />
-      <HeaderButton label="Settings" size={34} onPress={() => router.push('/settings')}><Icon as={Settings} size={17} color={color.textDim} /></HeaderButton>
-    </>}>
-      {usesNativeHeader ? <Stack.SearchBar placeholder="Search tasks" hideWhenScrolling
-        onChangeText={event => setQuery(event.nativeEvent.text)} onCancelButtonPress={() => setQuery('')} /> : null}
-      {!usesNativeHeader && searchOpen ? <View style={styles.searchBand}>
-        <Icon as={Search} size={15} color={color.textFaint} />
-        <TextInput autoFocus accessibilityLabel="Search work" value={query} onChangeText={setQuery}
-          placeholder="Search tasks…" placeholderTextColor={color.textFaint} style={styles.searchInput} returnKeyType="search" />
-      </View> : null}
+    <Screen
+      large
+      monoSubtitle
+      title="Work"
+      subtitle={
+        <>
+          <Text style={attentionCount > 0 ? styles.headerAttention : undefined}>
+            {attentionCount} NEED YOU
+          </Text>
+          {` · ${pinnedCount} PINNED · ${issueCount} TASKS`}
+        </>
+      }
+      right={
+        <>
+          {usesNativeHeader ? null : (
+            <HeaderButton
+              label={searchOpen ? 'Close search' : 'Search work'}
+              size={34}
+              onPress={() => {
+                setSearchOpen((open) => !open)
+                if (searchOpen) setQuery('')
+              }}
+            >
+              <Icon as={searchOpen ? X : Search} size={17} color={color.textDim} />
+            </HeaderButton>
+          )}
+          <NewWorkButton size={34} />
+          <HeaderButton label="Settings" size={34} onPress={() => router.push('/settings')}>
+            <Icon as={Settings} size={17} color={color.textDim} />
+          </HeaderButton>
+        </>
+      }
+    >
+      {usesNativeHeader ? (
+        <Stack.SearchBar
+          placeholder="Search tasks"
+          hideWhenScrolling
+          onChangeText={(event) => setQuery(event.nativeEvent.text)}
+          onCancelButtonPress={() => setQuery('')}
+        />
+      ) : null}
+      {!usesNativeHeader && searchOpen ? (
+        <View style={styles.searchBand}>
+          <Icon as={Search} size={15} color={color.textFaint} />
+          <TextInput
+            autoFocus
+            accessibilityLabel="Search work"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search tasks…"
+            placeholderTextColor={color.textFaint}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+        </View>
+      ) : null}
       <BootstrapCrossfade resolved={!loading} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-          <SectionList<MobileWorkRef, MobileWorkSection> ref={listRef as never} sections={displaySections}
-            keyExtractor={mobileListKey} refreshControl={refreshControl} contentInsetAdjustmentBehavior="automatic"
-            automaticallyAdjustKeyboardInsets keyboardDismissMode="interactive"
+          <SectionList<MobileWorkRef, MobileWorkSection>
+            ref={listRef as never}
+            sections={displaySections}
+            keyExtractor={mobileListKey}
+            refreshControl={refreshControl}
+            contentInsetAdjustmentBehavior="automatic"
+            automaticallyAdjustKeyboardInsets
+            keyboardDismissMode="interactive"
             contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
-            ListHeaderComponent={<View style={styles.listNotices}><StorageNoticeAlert /><RefreshOffer /><WorkspaceContinuityNotice /></View>}
-            {...refreshAccessibilityProps} {...minimizeOnScroll} stickySectionHeadersEnabled
-            renderSectionHeader={({ section }) => <GroupHeader section={section}
-              collapsed={!searching && collapsedKeys.has(section.key)} onToggle={() => toggleFold(section.key)} />}
+            ListHeaderComponent={
+              <View style={styles.listNotices}>
+                <StorageNoticeAlert />
+                <RefreshOffer />
+                <WorkspaceContinuityNotice />
+              </View>
+            }
+            {...refreshAccessibilityProps}
+            {...minimizeOnScroll}
+            stickySectionHeadersEnabled
+            renderSectionHeader={({ section }) => (
+              <GroupHeader
+                section={section}
+                collapsed={!searching && collapsedKeys.has(section.key)}
+                onToggle={() => toggleFold(section.key)}
+              />
+            )}
             renderItem={renderItem}
-            renderSectionFooter={({ section }) => <View style={styles.folds}>
-              {section.snoozedIds.length > 0 ? <PoolFold storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
-                label="Snoozed" ids={section.snoozedIds} lane="snoozed" onOpen={openIssue} onLongPress={openMenu} /> : null}
-              {section.closedIds.length > 0 ? <PoolFold storageKey={`podium:sidebar:closed-fold:${section.key}`}
-                label="Closed" ids={section.closedIds} lane="closed" onOpen={openIssue} onLongPress={openMenu} /> : null}
-            </View>}
-            ListEmptyComponent={loading ? null : <EmptyState title={query.trim() ? 'No matching work' : 'No work yet'}
-              body={query.trim() ? 'Try another task title, reference, or status.' : 'Tasks and their agents appear here as soon as work begins.'} />}
+            renderSectionFooter={({ section }) => (
+              <View style={styles.folds}>
+                {section.snoozedIds.length > 0 ? (
+                  <PoolFold
+                    storageKey={`podium:sidebar:snoozed-fold:${section.key}`}
+                    label="Snoozed"
+                    ids={section.snoozedIds}
+                    lane="snoozed"
+                    onOpen={openIssue}
+                    onLongPress={openMenu}
+                  />
+                ) : null}
+                {section.closedIds.length > 0 ? (
+                  <PoolFold
+                    storageKey={`podium:sidebar:closed-fold:${section.key}`}
+                    label="Closed"
+                    ids={section.closedIds}
+                    lane="closed"
+                    onOpen={openIssue}
+                    onLongPress={openMenu}
+                  />
+                ) : null}
+              </View>
+            )}
+            ListEmptyComponent={
+              loading ? null : (
+                <EmptyState
+                  title={query.trim() ? 'No matching work' : 'No work yet'}
+                  body={
+                    query.trim()
+                      ? 'Try another task title, reference, or status.'
+                      : 'Tasks and their agents appear here as soon as work begins.'
+                  }
+                />
+              )
+            }
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
@@ -241,44 +374,94 @@ export function WorkScreen() {
   )
 }
 
-
-function PoolFold({ storageKey, label, ids, lane, onOpen, onLongPress }: {
-  storageKey: string; label: string; ids: readonly string[]; lane: 'closed' | 'snoozed'
+function PoolFold({
+  storageKey,
+  label,
+  ids,
+  lane,
+  onOpen,
+  onLongPress,
+}: {
+  storageKey: string
+  label: string
+  ids: readonly string[]
+  lane: 'closed' | 'snoozed'
   onOpen: (issue: IssueNavigationModel) => void
   onLongPress: (issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane']) => void
 }) {
   const [collapsed, toggle] = useCollapsed(storageKey, true)
   const reduceMotion = useReduceMotion()
-  return <View style={styles.fold}>
-    <PressableScale accessibilityRole="button" accessibilityState={{ expanded: !collapsed }} aria-expanded={!collapsed}
-      accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${ids.length}`}
-      onPress={() => { configureFoldAnimation(reduceMotion); toggle() }} style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}>
-      <Icon as={collapsed ? ChevronRight : ChevronDown} size={11} color={color.textMicro} />
-      <Text style={styles.foldToggleText}>{`${label} · ${ids.length}`}</Text><View style={styles.foldRule} />
-    </PressableScale>
-    {collapsed ? null : ids.map(id => <PoolFoldRow key={id} id={id} lane={lane} onOpen={onOpen} onLongPress={onLongPress} />)}
-  </View>
+  return (
+    <View style={styles.fold}>
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        aria-expanded={!collapsed}
+        accessibilityLabel={`${collapsed ? 'Show' : 'Hide'} ${label.toLowerCase()} · ${ids.length}`}
+        onPress={() => {
+          configureFoldAnimation(reduceMotion)
+          toggle()
+        }}
+        style={({ pressed }) => [styles.foldToggle, pressed && styles.pressed]}
+      >
+        <Icon as={collapsed ? ChevronRight : ChevronDown} size={11} color={color.textMicro} />
+        <Text style={styles.foldToggleText}>{`${label} · ${ids.length}`}</Text>
+        <View style={styles.foldRule} />
+      </PressableScale>
+      {collapsed
+        ? null
+        : ids.map((id) => (
+            <PoolFoldRow key={id} id={id} lane={lane} onOpen={onOpen} onLongPress={onLongPress} />
+          ))}
+    </View>
+  )
 }
 
-const PoolFoldRow = memo(function PoolFoldRow({ id, lane, onOpen, onLongPress }: {
-  id: string; lane: 'closed' | 'snoozed'; onOpen: (issue: IssueNavigationModel) => void
+const PoolFoldRow = memo(function PoolFoldRow({
+  id,
+  lane,
+  onOpen,
+  onLongPress,
+}: {
+  id: string
+  lane: 'closed' | 'snoozed'
+  onOpen: (issue: IssueNavigationModel) => void
   onLongPress: (issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane']) => void
 }) {
-  const read = useCallback((pool: MobxPool) => {
-    const value = pool.mobileWork.row({ id, kind: 'issue' })
-    if (!value || typeof value === 'symbol' || !value.sidebar) return null
-    const issue = value.sidebar.issue as unknown as IssueNavigationModel
-    return { title: value.label, ref: issueDisplayRef(issue), marker: foldedMarker(issue, lane, mobilePaintNow(pool)) }
-  }, [id, lane])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const value = pool.mobileWork.row({ id, kind: 'issue' })
+      if (!value || typeof value === 'symbol' || !value.sidebar) return null
+      const issue = value.sidebar.issue as unknown as IssueNavigationModel
+      return {
+        title: value.label,
+        ref: issueDisplayRef(issue),
+        marker: foldedMarker(issue, lane, mobilePaintNow(pool)),
+      }
+    },
+    [id, lane],
+  )
   const value = useMobilePoolProjection(read, null)
   if (!value) return <View accessibilityLabel="Loading work" />
   const issue = { id } as IssueNavigationModel
-  return <PressableScale accessibilityRole="button" accessibilityLabel={`${value.ref} ${value.title}`}
-    onPress={() => onOpen(issue)} onLongPress={() => onLongPress(issue, lane)} delayLongPress={350}
-    style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}>
-    <Text style={styles.foldedRef}>{value.ref}</Text><Text style={styles.foldedTitle} numberOfLines={1}>{value.title}</Text>
-    <Text style={[styles.foldedMarker, value.marker === 'merged' && styles.foldedMerged]}>{value.marker}</Text>
-  </PressableScale>
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${value.ref} ${value.title}`}
+      onPress={() => onOpen(issue)}
+      onLongPress={() => onLongPress(issue, lane)}
+      delayLongPress={350}
+      style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
+    >
+      <Text style={styles.foldedRef}>{value.ref}</Text>
+      <Text style={styles.foldedTitle} numberOfLines={1}>
+        {value.title}
+      </Text>
+      <Text style={[styles.foldedMarker, value.marker === 'merged' && styles.foldedMerged]}>
+        {value.marker}
+      </Text>
+    </PressableScale>
+  )
 })
 
 /**

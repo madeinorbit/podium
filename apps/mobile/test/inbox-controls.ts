@@ -88,12 +88,7 @@ const controls = [
     '.sort((a, b) => a > b ? -1 : a < b ? 1 : 0)',
     'packages/client-core/src/replica/kernel/issue-ref-index.test.ts',
   ],
-  [
-    'triage bucket',
-    views,
-    "summary.agentKind === 'shell'",
-    "summary.agentKind !== 'shell'",
-  ],
+  ['triage bucket', views, "summary.agentKind === 'shell'", "summary.agentKind !== 'shell'"],
   ['screening ancestor', views, '!underProposal(issue)', 'true'],
   [
     'card, triage',

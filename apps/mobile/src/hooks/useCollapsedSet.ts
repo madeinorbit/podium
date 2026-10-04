@@ -1,9 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useUiState } from '../client/hooks'
-import {
-  useOptimisticPreferences,
-  usePoolPreferences,
-} from './mobile-preferences'
+import { useOptimisticPreferences, usePoolPreferences } from './mobile-preferences'
 
 /**
  * Collapsed state over a DYNAMIC key list, persisted per key through the

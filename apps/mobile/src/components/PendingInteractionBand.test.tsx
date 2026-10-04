@@ -21,10 +21,15 @@ const answer = vi.fn(async () => ({ ok: true }))
 // built output, and this file only needs rows the band can read.
 const rows: Record<string, unknown>[] = []
 
-vi.mock('../client/hooks', () => ({ useTrpc: () => ({ interactions: { answer: { mutate: answer } } }) }))
+vi.mock('../client/hooks', () => ({
+  useTrpc: () => ({ interactions: { answer: { mutate: answer } } }),
+}))
 vi.mock('../client/use-pool-notices', async () => {
   const { pendingInteractionCards } = await import('@podium/client-core/viewmodels')
-  return { usePoolInteractionCards: (id: string) => pendingInteractionCards(rows as never, id).filter(card => card.surface === 'aggregate') }
+  return {
+    usePoolInteractionCards: (id: string) =>
+      pendingInteractionCards(rows as never, id).filter((card) => card.surface === 'aggregate'),
+  }
 })
 
 const { PendingInteractionBand } = await import('./PendingInteractionBand')

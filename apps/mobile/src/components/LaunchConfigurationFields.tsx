@@ -9,8 +9,8 @@ import {
 } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useLaunchInputs } from '../client/use-launch-inputs'
 import type { MobileTrpc } from '../client/trpc'
+import { useLaunchInputs } from '../client/use-launch-inputs'
 import {
   AUTO,
   allConnectorModelLabel,

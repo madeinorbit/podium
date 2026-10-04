@@ -1,4 +1,4 @@
-import { type IssueReferenceModel } from '@podium/client-core/viewmodels'
+import type { IssueReferenceModel } from '@podium/client-core/viewmodels'
 
 import { StyleSheet, Text } from 'react-native'
 import { usePoolRefChip } from '../client/use-inbox-data'

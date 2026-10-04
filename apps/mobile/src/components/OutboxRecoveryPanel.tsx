@@ -1,5 +1,3 @@
-import { useStoreHandle } from '@podium/client-core/react'
-import type { MobileTrpc } from '../client/trpc'
 import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
@@ -11,10 +9,12 @@ import {
   replaceAuthoredText,
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
+import { useStoreHandle } from '@podium/client-core/react'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
+import type { MobileTrpc } from '../client/trpc'
 import { usePoolRecovery } from '../client/use-pool-notices'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'

@@ -1,4 +1,5 @@
 import { seedIssueFixtures } from './issue-fixtures'
+
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
  *
@@ -32,15 +33,15 @@ import { seedIssueFixtures } from './issue-fixtures'
  * surface therefore exercises the same pool readers as the product.
  */
 
+import type { PodiumClientApi } from '@podium/client-core/api'
+import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import {
   browserServerRelocation,
   browserWakeSource,
   createFeedRelay,
-  observeLiveConnection,
   type FeedBroadcastChannelFactory,
+  observeLiveConnection,
 } from '@podium/client-core/live-connection'
-import type { PodiumClientApi } from '@podium/client-core/api'
-import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
@@ -80,9 +81,6 @@ import { Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
-import { mobileVersionObservers } from './mobile-live-connection'
-import { makePlatformSocketLogin } from './native-websocket'
-import { platformFeedChannel } from './platform-feed-channel'
 import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
@@ -98,12 +96,15 @@ import {
 import { LaunchReadyView } from './launch-ready'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
+import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { attachMobilePool } from './mobile-pool'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
+import { makePlatformSocketLogin } from './native-websocket'
 import { createPlatformConnectivity } from './platform-connectivity'
+import { platformFeedChannel } from './platform-feed-channel'
 import { useOptionalServerProfile } from './ServerProfileGate'
 import {
   completePendingProfileCleanup,
@@ -129,9 +130,10 @@ installMobileMetadataStorage(AsyncStorage)
 
 /** The SQLite file the durable outbox and entity cache live in. */
 export { MOBILE_REPLICA_DB } from './replica-storage-constants'
-import { MOBILE_REPLICA_DB } from './replica-storage-constants'
+
 import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
+import { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
  * unattributed pre-identity store is accepted only through the injected gate. */

@@ -57,16 +57,16 @@ function DemoProbe() {
     <div>
       <span data-testid="sessions">{String(sessions.length)}</span>
       <span data-testid="issues">{String(issues.length)}</span>
-      <span data-testid="slice-rows">
-        {String(rowCount)}
-      </span>
+      <span data-testid="slice-rows">{String(rowCount)}</span>
       <span data-testid="connected">{String(connected)}</span>
     </div>
   )
 }
 
 function readRowCount(pool: MobxPool) {
-  return pool.mobileWork.sections().sections.reduce((count, section) => count + section.data.length, 0)
+  return pool.mobileWork
+    .sections()
+    .sections.reduce((count, section) => count + section.data.length, 0)
 }
 
 async function mountDemo() {
@@ -79,7 +79,9 @@ async function mountDemo() {
     await Promise.resolve()
     await Promise.resolve()
   })
-  await waitFor(() => expect(screen.getByTestId('sessions').textContent).toBe(String(DEMO_SESSIONS.length)))
+  await waitFor(() =>
+    expect(screen.getByTestId('sessions').textContent).toBe(String(DEMO_SESSIONS.length)),
+  )
   return result
 }
 

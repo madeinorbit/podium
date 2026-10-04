@@ -1,12 +1,9 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  applyScreeningDecision,
-  screeningTally,
-} from './screening'
-import { reconcileScreeningIds } from '../client/use-inbox-data'
 import { readPoolScreening } from '../../test/pool-board-fixture'
+import { reconcileScreeningIds } from '../client/use-inbox-data'
+import { applyScreeningDecision, screeningTally } from './screening'
 
 const issue = (partial: Partial<IssueViewModel> & Pick<IssueViewModel, 'id'>) =>
   ({
@@ -77,22 +74,27 @@ describe('pool screening reconciliation', () => {
   ]
 
   it('keeps decided cards, drops undecided ones that left the lane, appends arrivals', () => {
-    const next = reconcileScreeningIds([asIssueId('a'), asIssueId('b'), asIssueId('c')], 1, readPoolScreening( [
-      // 'a' was accepted by this flow, 'b' was closed from another client.
-      issue({ id: asIssueId('a'), stage: 'in_progress' }),
-      issue({ id: asIssueId('c'), seq: 1 }),
-      issue({ id: asIssueId('d'), seq: 9 }),
-    ]))
+    const next = reconcileScreeningIds(
+      [asIssueId('a'), asIssueId('b'), asIssueId('c')],
+      1,
+      readPoolScreening([
+        // 'a' was accepted by this flow, 'b' was closed from another client.
+        issue({ id: asIssueId('a'), stage: 'in_progress' }),
+        issue({ id: asIssueId('c'), seq: 1 }),
+        issue({ id: asIssueId('d'), seq: 9 }),
+      ]),
+    )
 
     expect(next).toEqual({ order: ['a', 'c', 'd'], index: 1 })
   })
 
   it('never reorders the undecided tail around the current card', () => {
     // 'c' outranks the rest on the board, but the deck order is a snapshot.
-    const next = reconcileScreeningIds([asIssueId('a'), asIssueId('b'), asIssueId('c')], 0, readPoolScreening( [
-      ...board,
-      issue({ id: asIssueId('z'), priority: 0, seq: 99 }),
-    ]))
+    const next = reconcileScreeningIds(
+      [asIssueId('a'), asIssueId('b'), asIssueId('c')],
+      0,
+      readPoolScreening([...board, issue({ id: asIssueId('z'), priority: 0, seq: 99 })]),
+    )
 
     expect(next).toEqual({ order: ['a', 'b', 'c', 'z'], index: 0 })
   })

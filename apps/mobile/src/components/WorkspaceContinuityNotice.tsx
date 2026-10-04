@@ -18,7 +18,13 @@ export function WorkspaceContinuityNotice() {
   return <ContinuityNoticeBody outboxSize={outboxSize} deadLetters={deadLetters} />
 }
 
-function ContinuityNoticeBody({ outboxSize, deadLetters }: { outboxSize: number; deadLetters: number }) {
+function ContinuityNoticeBody({
+  outboxSize,
+  deadLetters,
+}: {
+  outboxSize: number
+  deadLetters: number
+}) {
   const router = useRouter()
   const connected = useConnected()
   const { profile } = useServerProfile()

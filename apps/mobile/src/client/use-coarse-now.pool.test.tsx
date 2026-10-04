@@ -1,6 +1,6 @@
+import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, screen } from '@testing-library/react'

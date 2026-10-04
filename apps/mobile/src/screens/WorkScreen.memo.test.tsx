@@ -1,8 +1,8 @@
 /** Pool paint retains row identity; only a changed visible row commits. */
 import type { MissionProgress } from '@podium/client-core/viewmodels'
-import type { MobileRowPaint } from '../lib/work-sections'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { MobileRowPaint } from '../lib/work-sections'
 
 afterEach(cleanup)
 

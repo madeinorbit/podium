@@ -213,7 +213,6 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
   expect(readRuntimeStoreStats(enabled.runtime)?.rowBuilds).toBe(0)
   expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
   expect(enabled.errors).toEqual([])
-
 })
 
 it('keeps server controls and logout on their existing owners', async () => {

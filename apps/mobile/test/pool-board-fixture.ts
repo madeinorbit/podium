@@ -9,40 +9,47 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 const at = '2026-06-01T12:00:00.000Z'
 function fixture(issues: readonly IssueViewModel[], workers: ReadonlyMap<string, number>) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(at) })
-  const repos = new Map(issues.map(issue => [issue.repoPath, {
-    id: `repo:${issue.repoPath}`,
-    repoPath: issue.repoPath,
-    prefix: issue.displayRef?.match(/^(.+)-[0-9]+$/)?.[1],
-  }]))
+  const repos = new Map(
+    issues.map((issue) => [
+      issue.repoPath,
+      {
+        id: `repo:${issue.repoPath}`,
+        repoPath: issue.repoPath,
+        prefix: issue.displayRef?.match(/^(.+)-[0-9]+$/)?.[1],
+      },
+    ]),
+  )
   pool.apply({
     type: 'replace',
     rows: [
-      ...issues.map(issue => ({
+      ...issues.map((issue) => ({
         kind: 'issue' as const,
         id: issue.id,
         value: { ...issue, repoId: repos.get(issue.repoPath)?.id } as never,
       })),
-      ...[...workers].flatMap(([issueId, count]) => Array.from({ length: count }, (_, index) => {
-        const sessionId = `worker:${issueId}:${index}`
-        return {
-          kind: 'session' as const,
-          id: sessionId,
-          value: {
-            sessionId,
-            issueId,
-            cwd: issues.find(issue => issue.id === issueId)?.repoPath,
-            agentKind: 'codex',
-            status: 'live',
-            archived: false,
-            createdAt: at,
-            lastActiveAt: at,
-            agentState: { phase: 'working', since: at },
-          } as never,
-        }
-      })),
+      ...[...workers].flatMap(([issueId, count]) =>
+        Array.from({ length: count }, (_, index) => {
+          const sessionId = `worker:${issueId}:${index}`
+          return {
+            kind: 'session' as const,
+            id: sessionId,
+            value: {
+              sessionId,
+              issueId,
+              cwd: issues.find((issue) => issue.id === issueId)?.repoPath,
+              agentKind: 'codex',
+              status: 'live',
+              archived: false,
+              createdAt: at,
+              lastActiveAt: at,
+              agentState: { phase: 'working', since: at },
+            } as never,
+          }
+        }),
+      ),
     ],
   })
-  const repoById = new Map([...repos.values()].map(repo => [repo.id, repo]))
+  const repoById = new Map([...repos.values()].map((repo) => [repo.id, repo]))
   pool.sources.register(['repo'], {
     read: (_entity, id) => repoById.get(id) as never,
     dispose() {},

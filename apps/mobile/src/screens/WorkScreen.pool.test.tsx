@@ -1,35 +1,36 @@
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { Profiler, type ReactNode } from 'react'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+
 import type { ClientRuntime } from '@podium/client-core/engine'
+import {
+  createKernelReplica,
+  createSideCache,
+  entityForKind,
+  memoryStorage,
+  type ReplicaKind,
+  type ReplicaRows,
+  rowKey,
+} from '@podium/client-core/replica'
+import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import {
   asIssueId,
   asSessionId,
   isSortKey,
   issueDepId,
-  sortKeyBetween,
   type SessionId,
+  sortKeyBetween,
 } from '@podium/model'
-import type { MobileTrpc } from '../client/trpc'
-import type { MobilePool } from '../client/mobile-pool'
-import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
-import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
-import {
-  createKernelReplica,
-  createSideCache,
-  entityForKind,
-  rowKey,
-  memoryStorage,
-  type ReplicaKind,
-  type ReplicaRows,
-} from '@podium/client-core/replica'
 import type { EntityRecord } from '@podium/sync/replica'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { Profiler, type ReactNode } from 'react'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
+import type { MobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
+import type { MobileTrpc } from '../client/trpc'
 
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,
@@ -317,7 +318,6 @@ function Capture() {
   return <WorkScreen />
 }
 async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
-
   state.sliceReads = 0
   state.rowDerivations = 0
   state.counts.clear()
@@ -653,7 +653,6 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 240_000)
 
   it('a hidden navigation target stays cold and a press reads the current session', async () => {
-
     state.counts.clear()
     state.errors.length = 0
     state.host = createMobilePool(false)

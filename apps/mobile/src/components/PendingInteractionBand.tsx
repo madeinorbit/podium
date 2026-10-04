@@ -1,6 +1,6 @@
-import {
-  type PendingInteractionAction,
-  type PendingInteractionCard,
+import type {
+  PendingInteractionAction,
+  PendingInteractionCard,
 } from '@podium/client-core/viewmodels'
 import type { SessionId } from '@podium/model'
 import { useState } from 'react'

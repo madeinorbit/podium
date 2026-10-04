@@ -19,8 +19,10 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
-    useMobilePoolProjection: <T,>(read: Parameters<MobilePool['host']['usePoolProjection']>[0], empty: T) =>
-      state.host!.host.usePoolProjection(read, empty) as T,
+    useMobilePoolProjection: <T,>(
+      read: Parameters<MobilePool['host']['usePoolProjection']>[0],
+      empty: T,
+    ) => state.host!.host.usePoolProjection(read, empty) as T,
   }
 })
 vi.mock('@podium/client-core/viewmodels', async (importOriginal) => {
@@ -55,40 +57,65 @@ afterEach(() => {
 
 async function mount() {
   state.host = createMobilePool(false)
-  const fixture = createHeaderFixture(3, 3), data = noticeFixture(), errors: string[] = []
+  const fixture = createHeaderFixture(3, 3),
+    data = noticeFixture(),
+    errors: string[] = []
   for (const [entity, rows] of [
     ['message', data.messages],
     ['pendingInteraction', data.interactions],
   ] as const) {
-    for (const row of rows) fixture.records.set(`${entity}:${row.id}`, {
-      entity, entityId: row.id, value: row, provenance: { seq: 1 },
-    })
+    for (const row of rows)
+      fixture.records.set(`${entity}:${row.id}`, {
+        entity,
+        entityId: row.id,
+        value: row,
+        provenance: { seq: 1 },
+      })
   }
   const sessionTemplate = fixture.records.get('session:synthetic-session-0')!.value
   for (const row of data.sessions) {
-    const previous = fixture.records.get(`session:${row.sessionId}`)?.value ??
-      sessionTemplate
+    const previous = fixture.records.get(`session:${row.sessionId}`)?.value ?? sessionTemplate
     fixture.records.set(`session:${row.sessionId}`, {
-      entity: 'session', entityId: row.sessionId, provenance: { seq: 1 },
-      value: { ...previous as object, ...row, ...(row.stoppedAt ? { status: 'exited', archived: true } : {}) },
+      entity: 'session',
+      entityId: row.sessionId,
+      provenance: { seq: 1 },
+      value: {
+        ...(previous as object),
+        ...row,
+        ...(row.stoppedAt ? { status: 'exited', archived: true } : {}),
+      },
     })
   }
   function evict(entity: string, id: string) {
     fixture.records.delete(`${entity}:${id}`)
     fixture.replica.onKernelEvent({ type: 'evicted', entity, entityId: id } as never)
   }
-  const dismiss = vi.fn(async ({ id }: { id: string }) => { evict('message', id); return { ok: true } })
-  const answer = vi.fn(async ({ id }: { id: string }) => { evict('pendingInteraction', id); return { ok: true } })
+  const dismiss = vi.fn(async ({ id }: { id: string }) => {
+    evict('message', id)
+    return { ok: true }
+  })
+  const answer = vi.fn(async ({ id }: { id: string }) => {
+    evict('pendingInteraction', id)
+    return { ok: true }
+  })
   Object.assign(fixture.api, {
     messages: { dismissNotice: { mutate: dismiss } },
     interactions: { answer: { mutate: answer } },
   })
-  let queued: OutboxEntry[] = [], parked: OutboxEntry[] = data.deadLetters.map((row) => ({
-    ...row.entry,
-    state: 'dead-letter',
-    deadLetter: { reason: row.reason, parkedFrom: row.parkedFrom, deadLetteredAt: row.deadLetteredAt, attempts: row.attempts },
-  }))
-  let runtime!: ClientRuntime, sessionId = asSessionId('synthetic-session-0'), connected = false
+  let queued: OutboxEntry[] = [],
+    parked: OutboxEntry[] = data.deadLetters.map((row) => ({
+      ...row.entry,
+      state: 'dead-letter',
+      deadLetter: {
+        reason: row.reason,
+        parkedFrom: row.parkedFrom,
+        deadLetteredAt: row.deadLetteredAt,
+        attempts: row.attempts,
+      },
+    }))
+  let runtime!: ClientRuntime,
+    sessionId = asSessionId('synthetic-session-0'),
+    connected = false
   const seen: ReturnType<MobilePool['host']['usePool']>[] = []
   const configured = new WeakSet<ClientRuntime>()
   function Surface() {
@@ -104,36 +131,78 @@ async function mount() {
     }
 
     seen.push(state.host!.host.usePool())
-    return <>
-      <MessageNoticeBanner />
-      <PendingInteractionBand sessionId={sessionId} />
-      <WorkspaceContinuityNotice />
-      <OutboxRecoveryPanel />
-    </>
+    return (
+      <>
+        <MessageNoticeBanner />
+        <PendingInteractionBand sessionId={sessionId} />
+        <WorkspaceContinuityNotice />
+        <OutboxRecoveryPanel />
+      </>
+    )
   }
-  const tree = <StoreProvider principal={asClientPrincipal(asUserId('operator'))}
-    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
-    createReplicaFn={() => fixture.newReplica()} networkEnabled={false} routerWindow={createMemoryRouterWindow()}
-    onFatalError={(error) => errors.push(error)}
-    createOutboxFn={(callbacks) => new Outbox({
-      executors: { issueUpdate: async () => ({ ok: true }) },
-      storage: { load: () => queued, save: (value) => { queued = value } },
-      deadLetterStorage: { load: () => parked, save: (value) => { parked = value } },
-      isOnline: () => false,
-      onApplied: callbacks.onApplied, onSettled: callbacks.onSettled, onDeadLetter: callbacks.onDeadLetter,
-    }) as never}
-    attachRuntime={(owner) => state.host!.host.attach(owner, (error) => errors.push(error.message))}
-  ><Surface /></StoreProvider>
-  storeStats.enable(); storeStats.reset()
+  const tree = (
+    <StoreProvider
+      principal={asClientPrincipal(asUserId('operator'))}
+      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+      api={fixture.api}
+      createReplicaFn={() => fixture.newReplica()}
+      networkEnabled={false}
+      routerWindow={createMemoryRouterWindow()}
+      onFatalError={(error) => errors.push(error)}
+      createOutboxFn={(callbacks) =>
+        new Outbox({
+          executors: { issueUpdate: async () => ({ ok: true }) },
+          storage: {
+            load: () => queued,
+            save: (value) => {
+              queued = value
+            },
+          },
+          deadLetterStorage: {
+            load: () => parked,
+            save: (value) => {
+              parked = value
+            },
+          },
+          isOnline: () => false,
+          onApplied: callbacks.onApplied,
+          onSettled: callbacks.onSettled,
+          onDeadLetter: callbacks.onDeadLetter,
+        }) as never
+      }
+      attachRuntime={(owner) =>
+        state.host!.host.attach(owner, (error) => errors.push(error.message))
+      }
+    >
+      <Surface />
+    </StoreProvider>
+  )
+  storeStats.enable()
+  storeStats.reset()
   const view = render(tree)
-  await waitFor(() => {
-    expect(view.getByTestId('message-notice-banner').textContent).toContain('Synthetic unknown words')
-    expect(view.getByTestId('workspace-continuity-notice').textContent).toContain('5 changes need review')
-    expect(view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
-    expect(view.getByText('Synthetic plan')).toBeTruthy()
-  }, { timeout: 5000 })
+  await waitFor(
+    () => {
+      expect(view.getByTestId('message-notice-banner').textContent).toContain(
+        'Synthetic unknown words',
+      )
+      expect(view.getByTestId('workspace-continuity-notice').textContent).toContain(
+        '5 changes need review',
+      )
+      expect(view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
+      expect(view.getByText('Synthetic plan')).toBeTruthy()
+    },
+    { timeout: 5000 },
+  )
   return {
-    fixture, data, view, runtime, errors, dismiss, answer, evict, seen,
+    fixture,
+    data,
+    view,
+    runtime,
+    errors,
+    dismiss,
+    answer,
+    evict,
+    seen,
     switchSession(next: string) {
       sessionId = asSessionId(next)
       view.rerender(cloneElement(tree, { children: <Surface /> }))
@@ -167,12 +236,20 @@ it('reacts to message, session-label and ask updates without legacy work', async
   const enabled = await mount()
   await act(async () => {
     enabled.fixture.patch('message', 'notice-message-2', { body: 'Updated synthetic message' })
-    enabled.fixture.patch('pendingInteraction', 'notice-ask-7', { payload: { v: 1, plan: 'Updated synthetic plan' } })
+    enabled.fixture.patch('pendingInteraction', 'notice-ask-7', {
+      payload: { v: 1, plan: 'Updated synthetic plan' },
+    })
     enabled.fixture.activity(1)
   })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain('Updated synthetic message')
+  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
+    'Updated synthetic message',
+  )
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
-  await act(async () => enabled.fixture.patch('pendingInteraction', 'notice-ask-7', { sessionId: 'synthetic-session-1' }))
+  await act(async () =>
+    enabled.fixture.patch('pendingInteraction', 'notice-ask-7', {
+      sessionId: 'synthetic-session-1',
+    }),
+  )
   expect(enabled.view.queryByText('Updated synthetic plan')).toBeNull()
   await act(async () => enabled.switchSession('synthetic-session-1'))
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
@@ -180,7 +257,9 @@ it('reacts to message, session-label and ask updates without legacy work', async
     enabled.evict('message', 'notice-message-2')
     enabled.fixture.patch('session', 'cold-notice-session', { title: 'Updated saved agent' })
   })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain('To Updated saved agent:')
+  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
+    'To Updated saved agent:',
+  )
   expectPoolReadersOnly(enabled.runtime)
   expect(enabled.errors).toEqual([])
 })
@@ -196,45 +275,70 @@ it('keeps chat, settings, dismiss and typed-answer actions on the existing owner
   fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
   await waitFor(() => expect(enabled.view.getByText('Synthetic dismiss refusal')).toBeTruthy())
   fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
-  await waitFor(() => expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain('To Saved agent:'))
+  await waitFor(() =>
+    expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
+      'To Saved agent:',
+    ),
+  )
   expect(enabled.dismiss).toHaveBeenLastCalledWith({ id: 'notice-message-2' })
 
   enabled.answer.mockResolvedValueOnce({ ok: false, reason: 'Synthetic answer refusal' } as never)
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))
-  await waitFor(() => expect(enabled.view.getAllByText('Synthetic answer refusal').length).toBeGreaterThan(0))
-  await act(async () => { await Promise.resolve() })
-  await waitFor(() => expect(enabled.view.getByTestId('pending-interaction-action-approve').getAttribute('aria-disabled')).not.toBe('true'))
+  await waitFor(() =>
+    expect(enabled.view.getAllByText('Synthetic answer refusal').length).toBeGreaterThan(0),
+  )
+  await act(async () => {
+    await Promise.resolve()
+  })
+  await waitFor(() =>
+    expect(
+      enabled.view.getByTestId('pending-interaction-action-approve').getAttribute('aria-disabled'),
+    ).not.toBe('true'),
+  )
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))
   await waitFor(() => expect(enabled.answer).toHaveBeenCalledTimes(2))
   await waitFor(() => expect(enabled.view.queryByText('Synthetic plan')).toBeNull())
   expect(enabled.answer).toHaveBeenLastCalledWith({
-    id: 'notice-ask-7', answer: { kind: 'plan-approval', decision: 'approve' },
+    id: 'notice-ask-7',
+    answer: { kind: 'plan-approval', decision: 'approve' },
   })
   expectPoolReadersOnly(enabled.runtime)
 })
 
 it('updates recovery and continuity through the original outbox retry, edit and discard actions', async () => {
-  const enabled = await mount(), recovery = enabled.runtime.getSnapshot().recoverOutbox
-  const retry = vi.spyOn(recovery, 'retry'), edit = vi.spyOn(recovery, 'edit'), discard = vi.spyOn(recovery, 'discard')
+  const enabled = await mount(),
+    recovery = enabled.runtime.getSnapshot().recoverOutbox
+  const retry = vi.spyOn(recovery, 'retry'),
+    edit = vi.spyOn(recovery, 'edit'),
+    discard = vi.spyOn(recovery, 'discard')
   const cards = () => enabled.view.getAllByTestId('outbox-recovery-card')
   await act(async () => fireEvent.click(within(cards()[2]!).getByTestId('outbox-retry')))
   expect(retry).toHaveBeenCalledWith(asMutationId('notice-mutation-2'), { expectedRevision: 0 })
   expect(cards()).toHaveLength(4)
-  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain('1 change is queued')
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain(
+    '1 change is queued',
+  )
 
   fireEvent.click(within(cards()[0]!).getByRole('button', { name: 'Edit' }))
-  fireEvent.change(enabled.view.getByLabelText('Your text'), { target: { value: 'Updated authored words' } })
+  fireEvent.change(enabled.view.getByLabelText('Your text'), {
+    target: { value: 'Updated authored words' },
+  })
   await act(async () => fireEvent.click(enabled.view.getByRole('button', { name: 'Send updated' })))
   expect(edit).toHaveBeenCalledWith(asMutationId('notice-mutation-0'), {
-    id: 'invisible-target', patch: { title: 'Updated authored words' },
+    id: 'invisible-target',
+    patch: { title: 'Updated authored words' },
   })
   expect(cards()).toHaveLength(3)
-  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain('2 changes are queued')
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain(
+    '2 changes are queued',
+  )
 
   const alert = vi.spyOn(Alert, 'alert').mockImplementation(() => {})
   fireEvent.click(within(cards()[0]!).getByRole('button', { name: 'Discard' }))
   expect(discard).not.toHaveBeenCalled()
-  await act(async () => alert.mock.calls[0]![2]!.find((button) => button.style === 'destructive')!.onPress!())
+  await act(async () =>
+    alert.mock.calls[0]![2]!.find((button) => button.style === 'destructive')!.onPress!(),
+  )
   expect(discard).toHaveBeenCalledWith(asMutationId('notice-mutation-1'))
   expect(cards()).toHaveLength(2)
   expect(enabled.runtime.outbox.deadLetters()).toHaveLength(2)
@@ -247,11 +351,14 @@ it('removes empty notices and retains the live offline status without snapshot s
   await act(async () => {
     for (const row of enabled.data.messages) enabled.evict('message', row.id)
     for (const row of enabled.data.interactions) enabled.evict('pendingInteraction', row.id)
-    for (const row of enabled.data.deadLetters) enabled.runtime.getSnapshot().recoverOutbox.discard(row.entry.mutationId)
+    for (const row of enabled.data.deadLetters)
+      enabled.runtime.getSnapshot().recoverOutbox.discard(row.entry.mutationId)
     enabled.connect(true)
   })
   expect(enabled.view.container.textContent).toBe('')
   await act(async () => enabled.connect(false))
-  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe('Offline. Showing saved data for Synthetic server.Settings')
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
+    'Offline. Showing saved data for Synthetic server.Settings',
+  )
   expectPoolReadersOnly(enabled.runtime)
 })

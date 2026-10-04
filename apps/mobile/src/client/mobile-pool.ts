@@ -5,10 +5,7 @@ import type {
   CommandLaunchData,
   commandLaunchViews,
 } from '@podium/client-graph/command-launch-views'
-import {
-  createPoolHost,
-  type PoolHost,
-} from '@podium/client-graph/host'
+import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import {
   MOBILE_INBOX_ENTITIES,
   MOBILE_INBOX_SOURCE_KEY,

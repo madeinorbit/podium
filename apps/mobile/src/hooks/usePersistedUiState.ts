@@ -17,4 +17,3 @@ export function usePersistedUiState<T>(
   )
   return [value, setValue]
 }
-

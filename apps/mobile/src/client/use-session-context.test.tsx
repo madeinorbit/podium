@@ -7,7 +7,6 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
@@ -22,6 +21,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { type ComponentProps, type ReactNode, StrictMode, useEffect, useRef } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
+import { mobileSessionSnapshot } from '../../test/pool-snapshots'
 import type { PendingTurn } from '../components/TranscriptList'
 import type { MobilePool } from './mobile-pool'
 
@@ -408,9 +408,9 @@ async function mount(
   )
   await waitFor(() => expect(runtime).toBeDefined())
   await waitFor(
-      () => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'),
-      { timeout: 10000 },
-    )
+    () => expect(seen.at(-1)?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'),
+    { timeout: 10000 },
+  )
   if (screen !== 'probe')
     await waitFor(
       () =>
@@ -429,7 +429,6 @@ async function mount(
     host,
     latest: () => latest,
     pool: () => seen.at(-1)!,
-
   }
 }
 
@@ -438,16 +437,34 @@ it('opens a conversation with zero mention reads, then matches the accepted refe
   const expected = {
     issue: { id: 'synthetic-1', title: 'Synthetic task 1' },
     issues: [
-      'synthetic-0', 'synthetic-1', 'synthetic-10', 'synthetic-11',
-      'synthetic-2', 'synthetic-3', 'synthetic-4', 'synthetic-5',
-      'synthetic-6', 'synthetic-7', 'synthetic-8', 'synthetic-9',
+      'synthetic-0',
+      'synthetic-1',
+      'synthetic-10',
+      'synthetic-11',
+      'synthetic-2',
+      'synthetic-3',
+      'synthetic-4',
+      'synthetic-5',
+      'synthetic-6',
+      'synthetic-7',
+      'synthetic-8',
+      'synthetic-9',
     ],
     sessions: [
-      'synthetic-guest-0', 'synthetic-guest-1',
-      'synthetic-session-0', 'synthetic-session-1', 'synthetic-session-10',
-      'synthetic-session-11', 'synthetic-session-2', 'synthetic-session-3',
-      'synthetic-session-4', 'synthetic-session-5', 'synthetic-session-6',
-      'synthetic-session-7', 'synthetic-session-8', 'synthetic-session-9',
+      'synthetic-guest-0',
+      'synthetic-guest-1',
+      'synthetic-session-0',
+      'synthetic-session-1',
+      'synthetic-session-10',
+      'synthetic-session-11',
+      'synthetic-session-2',
+      'synthetic-session-3',
+      'synthetic-session-4',
+      'synthetic-session-5',
+      'synthetic-session-6',
+      'synthetic-session-7',
+      'synthetic-session-8',
+      'synthetic-session-9',
     ],
   }
   const enabled = await mount('conversation')
@@ -522,7 +539,6 @@ it('has zero legacy selectors and conversation-port reads on relevant updates', 
   )
   expect(stats().selectorRuns).toBe(0)
   expect(Object.keys(stats().slices).filter((key) => key.startsWith('mobileSession.'))).toEqual([])
-
 })
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
@@ -531,10 +547,20 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
     'privateBody',
   )
   const state = enabled.runtime.getSnapshot()
-  expect(mobileSessionSnapshot(enabled.pool(), [SID, 'synthetic-session-11', 'missing-session'], state.coarseNow)).toMatchSnapshot('last green pilot-ON complete session output')
+  expect(
+    mobileSessionSnapshot(
+      enabled.pool(),
+      [SID, 'synthetic-session-11', 'missing-session'],
+      state.coarseNow,
+    ),
+  ).toMatchSnapshot('last green pilot-ON complete session output')
   const before = mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)
-  await act(async () => enabled.data.patch('session', SID, { title: 'Planted session output error' }))
-  await waitFor(() => expect(mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)).not.toEqual(before))
+  await act(async () =>
+    enabled.data.patch('session', SID, { title: 'Planted session output error' }),
+  )
+  await waitFor(() =>
+    expect(mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)).not.toEqual(before),
+  )
   expect(enabled.latest().session).toMatchObject({
     readAt: '2026-10-03T00:00:00Z',
     unread: false,

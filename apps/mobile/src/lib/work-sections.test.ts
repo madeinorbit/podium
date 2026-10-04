@@ -1,5 +1,9 @@
 import type { MobxPool } from '@podium/client-graph/pool'
-import { MobileWorkIndex, type MobileWorkRef, type MobileWorkSection } from '@podium/client-graph/worklist/mobile'
+import {
+  MobileWorkIndex,
+  type MobileWorkRef,
+  type MobileWorkSection,
+} from '@podium/client-graph/worklist/mobile'
 import { describe, expect, it } from 'vitest'
 import { MobileNativeSections, MobileSearchSections, workGroupFoldKey } from './work-sections'
 
@@ -7,23 +11,57 @@ import { MobileNativeSections, MobileSearchSections, workGroupFoldKey } from './
 // projection. Waiting is an addressed fact, never a legacy row derivation.
 type Row = { id: string; waiting: boolean }
 type Group = { key: string; rows: Row[]; snoozedRows: Row[]; closedRows: Row[] }
-const row = (id: string, over: { waiting?: boolean; pinned?: boolean } = {}): Row => ({ id, waiting: over.waiting ?? false })
-const group = (key: string, rows: Row[], over: Partial<Group> = {}): Group => ({ key, rows, snoozedRows: [], closedRows: [], ...over })
+const row = (id: string, over: { waiting?: boolean; pinned?: boolean } = {}): Row => ({
+  id,
+  waiting: over.waiting ?? false,
+})
+const group = (key: string, rows: Row[], over: Partial<Group> = {}): Group => ({
+  key,
+  rows,
+  snoozedRows: [],
+  closedRows: [],
+  ...over,
+})
 function nativeSections(pinned: Row[], groups: Group[]) {
-  const facts = new Map([...pinned, ...groups.flatMap(group => [...group.rows, ...group.snoozedRows, ...group.closedRows])].map(row => [row.id, row]))
-  const lane = (name: 'rows' | 'snoozedRows' | 'closedRows') => ({ lane: (key: string) => groups.find(group => group.key === key)?.[name].map(row => row.id) ?? [] })
+  const facts = new Map(
+    [
+      ...pinned,
+      ...groups.flatMap((group) => [...group.rows, ...group.snoozedRows, ...group.closedRows]),
+    ].map((row) => [row.id, row]),
+  )
+  const lane = (name: 'rows' | 'snoozedRows' | 'closedRows') => ({
+    lane: (key: string) =>
+      groups.find((group) => group.key === key)?.[name].map((row) => row.id) ?? [],
+  })
   const pool = {
-    groups: { pinnedRootIds: pinned.map(row => row.id), rootOpen: lane('rows'), rootSnoozed: lane('snoozedRows'), rootClosed: lane('closedRows') },
-    sidebar: { sections: () => ({ bands: groups.map(group => ({ key: group.key, label: group.key, worktreeIds: [] })) }) },
-    issue: (id: string) => facts.has(id) ? { mobileWaitingCount: Number(facts.get(id)!.waiting), aggregate: { pending: 0 } } : undefined,
+    groups: {
+      pinnedRootIds: pinned.map((row) => row.id),
+      rootOpen: lane('rows'),
+      rootSnoozed: lane('snoozedRows'),
+      rootClosed: lane('closedRows'),
+    },
+    sidebar: {
+      sections: () => ({
+        bands: groups.map((group) => ({ key: group.key, label: group.key, worktreeIds: [] })),
+      }),
+    },
+    issue: (id: string) =>
+      facts.has(id)
+        ? { mobileWaitingCount: Number(facts.get(id)!.waiting), aggregate: { pending: 0 } }
+        : undefined,
     row: () => undefined,
   } as unknown as MobxPool
   return new MobileWorkIndex(pool).sections()
 }
-const bandKeys = (split: ReturnType<typeof nativeSections>) => split.sections.map(section => section.key)
-const ids = (rows: readonly MobileWorkRef[] = []) => rows.map(row => row.id)
+const bandKeys = (split: ReturnType<typeof nativeSections>) =>
+  split.sections.map((section) => section.key)
+const ids = (rows: readonly MobileWorkRef[] = []) => rows.map((row) => row.id)
 const listKey = (row: MobileWorkRef) => row.listKey
-const foldedSections = (sections: readonly MobileWorkSection[], collapsed: ReadonlySet<string>, searching: boolean) => new MobileNativeSections().update(sections, collapsed, searching)
+const foldedSections = (
+  sections: readonly MobileWorkSection[],
+  collapsed: ReadonlySet<string>,
+  searching: boolean,
+) => new MobileNativeSections().update(sections, collapsed, searching)
 
 describe('nativeSections', () => {
   it('puts Pinned first, above Needs you, above the project bands', () => {

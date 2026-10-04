@@ -4,19 +4,16 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * unchanged. The real provider owns the replica and all mutation handles. */
 
 import { useStoreHandle } from '@podium/client-core/react'
-import {
-  machineViewsFromWire,
-  resolveSpawnTargetMachine,
-} from '@podium/client-core/viewmodels'
+import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/viewmodels'
+import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { MobxPool } from '@podium/client-graph/pool'
 import { useConnected, useIssues, useSessions, useStoreActions } from './hooks'
 import { useMobilePoolProjection } from './mobile-pool'
-import { useLaunchInputs } from './use-launch-inputs'
 import { renderWithMobileStore } from './test-support'
+import { useLaunchInputs } from './use-launch-inputs'
 
 afterEach(cleanup)
 
@@ -83,7 +80,9 @@ function WorklistProbe() {
   const sessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
-  const paths = [...new Set(repos.flatMap(repo => [repo.path, ...repo.worktrees.map(tree => tree.path)]))]
+  const paths = [
+    ...new Set(repos.flatMap((repo) => [repo.path, ...repo.worktrees.map((tree) => tree.path)])),
+  ]
   return (
     <div>
       <span data-testid="rows">{rows}</span>
@@ -97,10 +96,15 @@ function WorklistProbe() {
 }
 
 function readRows(pool: MobxPool) {
-  return pool.mobileWork.sections().sections.flatMap(section => section.data.flatMap(ref => {
-    const row = pool.mobileWork.row(ref)
-    return row && typeof row !== 'symbol' ? [row.label] : []
-  })).join('|')
+  return pool.mobileWork
+    .sections()
+    .sections.flatMap((section) =>
+      section.data.flatMap((ref) => {
+        const row = pool.mobileWork.row(ref)
+        return row && typeof row !== 'symbol' ? [row.label] : []
+      }),
+    )
+    .join('|')
 }
 function readNow(pool: MobxPool) {
   const now = pool.clock.current

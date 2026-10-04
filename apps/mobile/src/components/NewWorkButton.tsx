@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { useModelCatalog } from '@podium/client-core/react'
+import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
   NEW_WORK_EFFORT_KEY,
   NEW_WORK_MACHINE_KEY,
@@ -14,26 +14,23 @@ import {
   launchAgentKind,
   machineViewsFromWire,
   type RepoNavView,
-  type SidebarSections,
   resolveSpawnTargetMachine,
+  type SidebarSections,
   spawnTargetForRepo,
   usableMachines,
 } from '@podium/client-core/viewmodels'
-import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobileLaunchData, useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
-import { useHarnessDescriptors } from '@podium/client-core/react'
 import {
   AUTO,
-  ISSUE_AGENT_KINDS,
   allConnectorModelLabel,
   allConnectorModelOptions,
   type CatalogOption,
@@ -41,6 +38,7 @@ import {
   effortOptionsForModel,
   filterCatalogOptions,
   groupedCatalogOptions,
+  ISSUE_AGENT_KINDS,
   type IssueAgentKind,
   isEffortValid,
   issueAgentLabel,
@@ -54,6 +52,7 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
 import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
@@ -70,15 +69,27 @@ function usePoolLaunchInputs() {
   return useMemo(() => {
     const sessions = data?.sessions ?? []
     const pins = data?.pins ?? { repos: [] as string[], worktrees: [] as string[] }
-    const allProjects: RepoNavView[] = (data?.repoViews ?? []).map(repo => ({
+    const allProjects: RepoNavView[] = (data?.repoViews ?? []).map((repo) => ({
       ...repo,
-      worktrees: repo.worktrees.map(tree => ({ ...tree, repoName: repo.name, sessions: [], issues: [] })),
+      worktrees: repo.worktrees.map((tree) => ({
+        ...tree,
+        repoName: repo.name,
+        sessions: [],
+        issues: [],
+      })),
     }))
-    const projects = allProjects.map(repo => ({ ...repo, worktrees: repo.worktrees.filter(tree => !pins.worktrees.includes(tree.path)) }))
+    const projects = allProjects.map((repo) => ({
+      ...repo,
+      worktrees: repo.worktrees.filter((tree) => !pins.worktrees.includes(tree.path)),
+    }))
     const sections: SidebarSections = {
-      pinnedRepos: pins.repos.flatMap(path => projects.filter(repo => repo.path === path)),
-      repos: projects.filter(repo => !pins.repos.includes(repo.path) && repo.worktrees.length > 0),
-      pinnedWorktrees: allProjects.flatMap(repo => repo.worktrees.filter(tree => pins.worktrees.includes(tree.path))),
+      pinnedRepos: pins.repos.flatMap((path) => projects.filter((repo) => repo.path === path)),
+      repos: projects.filter(
+        (repo) => !pins.repos.includes(repo.path) && repo.worktrees.length > 0,
+      ),
+      pinnedWorktrees: allProjects.flatMap((repo) =>
+        repo.worktrees.filter((tree) => pins.worktrees.includes(tree.path)),
+      ),
     }
     return { sessions, sections }
   }, [data])
@@ -311,7 +322,8 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     const picked = decodeModelPick(value)
     const kind = (picked.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
     const options = effortOptionsForModel(kind, picked.model, catalog[kind], served)
-    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind], served)) setEffortPick(AUTO)
+    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind], served))
+      setEffortPick(AUTO)
     setStep('launch')
   }
 

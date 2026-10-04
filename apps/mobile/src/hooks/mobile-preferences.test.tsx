@@ -254,10 +254,11 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   expect(pool.preferenceCounts()).toMatchObject({ batches: 1, loaded: 4 })
   expect(pool.preferenceKeys().length).toBe(4)
   expect(ui.listeners.size).toBe(1)
-  const values = () => pool.preferenceKeys().map(key => {
-    const row = pool.row('preference', key)
-    return typeof row === 'object' && row ? row.value : row
-  })
+  const values = () =>
+    pool.preferenceKeys().map((key) => {
+      const row = pool.row('preference', key)
+      return typeof row === 'object' && row ? row.value : row
+    })
   expect(values()).toEqual(['saved', null, null, 'true'])
   const projections = state.projections
   rerender()

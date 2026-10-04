@@ -27,9 +27,7 @@ async function tasks(page: Page): Promise<void> {
   })
 }
 
-test('saved preferences survive pool-only restarts and external changes', async ({
-  page,
-}) => {
+test('saved preferences survive pool-only restarts and external changes', async ({ page }) => {
   const http = RELAY.replace(/^ws/, 'http')
   const reposResponse = await page.request.get(`${http}/trpc/repos.list`)
   expect(reposResponse.ok(), await reposResponse.text()).toBe(true)

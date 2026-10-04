@@ -130,9 +130,21 @@ async function launch(preferences = false, withRow = false) {
     import('../hooks/useCollapsed'),
     import('../hooks/useCollapsedSet'),
   ])
-  const { PoolWorkRowSlot } = withRow ? await import('../screens/WorkListRow') : { PoolWorkRowSlot: () => null }
-  const callbacks = { navPending: false, onOpenIssue: () => {}, onOpenSession: () => {}, onLongPress: () => {}, onTuck: () => {} }
-  const item = { id: 'attachment-probe-absent', kind: 'issue' as const, listKey: 'attachment-probe-absent' }
+  const { PoolWorkRowSlot } = withRow
+    ? await import('../screens/WorkListRow')
+    : { PoolWorkRowSlot: () => null }
+  const callbacks = {
+    navPending: false,
+    onOpenIssue: () => {},
+    onOpenSession: () => {},
+    onLongPress: () => {},
+    onTuck: () => {},
+  }
+  const item = {
+    id: 'attachment-probe-absent',
+    kind: 'issue' as const,
+    listKey: 'attachment-probe-absent',
+  }
   const seen: { runtime?: ClientRuntime; pool?: MobxPool | null; attached: boolean[] } = {
     attached: [],
   }
@@ -155,7 +167,10 @@ async function launch(preferences = false, withRow = false) {
     seen.attached.push(seen.pool !== null)
     return (
       <>
-        <div data-testid="app">{seen.pool ? 'pool' : 'no pool'}{withRow ? <PoolWorkRowSlot item={item} {...callbacks} /> : null}</div>
+        <div data-testid="app">
+          {seen.pool ? 'pool' : 'no pool'}
+          {withRow ? <PoolWorkRowSlot item={item} {...callbacks} /> : null}
+        </div>
         {preferences ? <Preferences /> : null}
       </>
     )
@@ -219,11 +234,16 @@ afterEach(async () => {
 describe('mobile pool ownership', () => {
   it('attaches after an already-mounted native row without changing hook order', async () => {
     let release!: () => void
-    state.graphGate = new Promise<void>(resolve => { release = resolve })
+    state.graphGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const app = await launch(false, true)
     expect(app.seen.pool).toBeNull()
     expect(screen.getByLabelText('Loading work')).toBeTruthy()
-    await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 20)) })
+    await act(async () => {
+      release()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
     await waitFor(() => expect(app.seen.pool).toBeTruthy())
     await waitFor(() => expect(screen.queryByLabelText('Loading work')).toBeNull())
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
@@ -237,7 +257,7 @@ describe('mobile pool ownership', () => {
     expect(screen.getByTestId('app').textContent).toBe('pool')
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     await app.quit()
-    expect(state.pools.map(pool => pool.disposed)).toEqual([true])
+    expect(state.pools.map((pool) => pool.disposed)).toEqual([true])
   })
 
   it('ignores obsolete saved OFF values through restart and disposes each pool once', async () => {
@@ -250,10 +270,10 @@ describe('mobile pool ownership', () => {
     const second = await launch()
     await waitFor(() => expect(second.seen.pool).toBeTruthy())
     expect(second.seen.pool).not.toBe(firstPool)
-    expect(state.pools.map(pool => pool.disposed)).toEqual([true, false])
+    expect(state.pools.map((pool) => pool.disposed)).toEqual([true, false])
     expect(state.pools[1]?.runtime).toBe(second.seen.runtime)
     await second.quit()
-    expect(state.pools.map(pool => pool.disposed)).toEqual([true, true])
+    expect(state.pools.map((pool) => pool.disposed)).toEqual([true, true])
   })
 
   it('disposes the pool with the signed-in user and rebuilds it for the next one', async () => {
@@ -268,7 +288,7 @@ describe('mobile pool ownership', () => {
     ])
     expect(app.seen.pool).not.toBe(alice.pool)
     await app.quit()
-    expect(state.pools.map(pool => pool.disposed)).toEqual([true, true])
+    expect(state.pools.map((pool) => pool.disposed)).toEqual([true, true])
   })
 
   it('loads saved phone preferences offline through lazy attachment and isolates the next principal', async () => {
@@ -281,7 +301,9 @@ describe('mobile pool ownership', () => {
       firstRuntime.ui.set('podium:sidebar:task-details-fold', 'false')
       firstRuntime.ui.set('podium:sidebar:repo', 'true')
     })
-    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'))
+    await waitFor(() =>
+      expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
+    )
     await waitFor(() => expect(firstRuntime.getSnapshot().outboxSize).toBe(2))
     await firstRuntime.replica.flush()
     await first.quit()
@@ -289,21 +311,28 @@ describe('mobile pool ownership', () => {
 
     const app = await launch(true)
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
-    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'), { timeout: 10_000 })
+    await waitFor(
+      () => expect(screen.getByTestId('preferences').textContent).toBe('saved:false:true'),
+      { timeout: 10_000 },
+    )
     expect(app.seen.attached[0]).toBe(false)
     expect(app.seen.attached).toContain(true)
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     const alice = { runtime: currentRuntime(app.seen.runtime), pool: app.seen.pool }
     if (!alice.pool) throw new Error('The mobile pool did not attach')
     expect(alice.pool.preferenceKeys()).toHaveLength(3)
-    expect(alice.pool.preferenceKeys().map(key => alice.pool!.row('preference', key))).toMatchObject([
+    expect(
+      alice.pool.preferenceKeys().map((key) => alice.pool!.row('preference', key)),
+    ).toMatchObject([
       { key: 'podium.chat.stickyPrompts', value: 'saved' },
       { key: 'podium:sidebar:task-details-fold', value: 'false' },
       { key: 'podium:sidebar:repo', value: 'true' },
     ])
     await app.switchUser('bob')
     await waitFor(() => expect(app.seen.pool).toBeTruthy(), { timeout: 10_000 })
-    await waitFor(() => expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'))
+    await waitFor(() =>
+      expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
+    )
     expect(alice.pool.preferenceKeys()).toEqual([])
     act(() => alice.runtime.ui.set('podium.chat.stickyPrompts', 'old-person'))
     await settle()

@@ -1,13 +1,17 @@
+import { createHash } from 'node:crypto'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
+import { useStoreHandle } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
   entityForKind,
-  rowKey,
   memoryStorage,
   type ReplicaKind,
   type ReplicaRows,
+  rowKey,
 } from '@podium/client-core/replica'
-import type { EntityRecord } from '@podium/sync/replica'
+import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asIssueId,
   asSessionId,
@@ -17,18 +21,13 @@ import {
   type IssueUserStateWire,
   type RepoProjection,
 } from '@podium/model'
+import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
-import { createHash } from 'node:crypto'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { useStoreHandle } from '@podium/client-core/react'
-import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import type { MobileTrpc } from '../client/trpc'
-import type { MobilePool } from '../client/mobile-pool'
-import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
+import { type ReactNode, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-
+import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
+import type { MobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const state = vi.hoisted(() => ({
   host: null as MobilePool | null,

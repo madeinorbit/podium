@@ -342,9 +342,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
   }
   expect(observed.errors, observed.errors.join('\n')).toEqual([])
   const median = (list: Sample[], pick: (sample: Sample) => number) => {
-    const values = list
-      .map(pick)
-      .sort((a, b) => a - b)
+    const values = list.map(pick).sort((a, b) => a - b)
     return values[Math.floor(values.length / 2)]
   }
   const perUpdate = (sample: Sample) => sample.updates.perUpdateTaskMs,
@@ -368,9 +366,7 @@ test('phone pilot work-list updates and row tap, timed and profiled', async ({ p
       tapPaintOn: median(timed, paint),
       tracedTapPaintOn: median(traced, paint),
       ...(screens
-        ? Object.fromEntries(
-            screenMetrics.map(([key, pick]) => [`${key}On`, median(timed, pick)]),
-          )
+        ? Object.fromEntries(screenMetrics.map(([key, pick]) => [`${key}On`, median(timed, pick)]))
         : {}),
     },
     timed,
