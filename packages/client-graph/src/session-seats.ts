@@ -19,28 +19,79 @@ export interface SeatPartition {
   readonly unknown: readonly string[]
 }
 
+/** A seated (non-archived) session: one constant, so a heartbeat on it
+ * re-reads its row and stops there. Its readers read the row directly. */
+export const SEATED = Object.freeze({ seat: 'seated' as const })
+/** A cold session whose declared summary does not carry the archived flag. */
+export const UNSETTLED = Object.freeze({ seat: 'unknown' as const })
+
+/** An archived session, with everything history aggregates read of it. A
+ * read marker or any other display change leaves these facts, and so every
+ * aggregate above them, untouched. */
+export interface RetiredSeat {
+  readonly seat: 'retired'
+  /** The row in hand is the whole (resident) row: every fact below is exact.
+   * Otherwise only the declared summary answered; a reader needing the
+   * remaining facts reads the row itself. */
+  readonly complete: boolean
+  /** Whether `lastActiveAt` was answered by the row in hand. */
+  readonly stamped: boolean
+  readonly sessionId: string
+  readonly lastActiveAt: string
+  readonly lastInputAt?: string | null
+  readonly transcriptAvailable?: boolean
+  readonly agentKind: string
+  readonly moved: boolean
+  readonly phase: string
+  readonly archived: true
+  /** Drawn in a roster: neither headless nor a shell. */
+  readonly roster: boolean
+}
+export type Seat = typeof SEATED | typeof UNSETTLED | RetiredSeat
+
 export interface SessionSeats {
   /** LOADING while a member's summary is still being loaded. Never loads a row. */
   partition(relation: SeatRelation, issueId: string): SeatPartition | typeof LOADING
+  /** One session's seat; undefined when the session is unknown. Never loads a row. */
+  seat(sessionId: string): Loaded<Seat>
+}
+
+type SeatRow = {
+  archived?: boolean
+  lastActiveAt?: string
+  lastInputAt?: string | null
+  transcriptAvailable?: boolean
+  agentKind?: string
+  headless?: boolean
+  handoffTarget?: unknown
+  agentState?: { phase?: string }
 }
 
 /**
- * Seat partitions over the one row reader (review findings 2–4). A session's
- * archived flag is its own cached value, so a heartbeat or a read marker
- * re-reads that one row and stops there: the partition depends on the flags,
- * never on row identity, and archived history is walked again only when
- * membership or a flag changes. Nothing here loads a row; everything lives
- * only while a mounted reader observes it, and no index or keep-alive is
- * added to the pool.
+ * Seat partitions over the one row reader (review findings 2–4). Each session
+ * has ONE cached seat, shared by the partitions, navigation's activity and
+ * the mission history: a heartbeat or a read marker re-reads that one row and
+ * stops there, and archived history is walked again only when membership or
+ * an archived session's facts change. A cold mission switch builds one cached
+ * value per session. Nothing here loads a row; everything lives only while a
+ * mounted reader observes it, and no index or keep-alive is added to the pool.
  */
 export function createSessionSeats(pool: MobxPool): SessionSeats {
-  /** true/false when the row in hand answers; null for a cold summary without the field. */
-  const archived = cachedKey('SessionSeat', 'archived', (sessionId): Loaded<boolean | null> => {
-    const row = pool.row('session', sessionId, 'summary') as Loaded<{ archived?: boolean }>
+  const seat = cachedKey('SessionSeat', 'seat', (sessionId): Loaded<Seat> => {
+    const row = pool.row('session', sessionId, 'summary') as Loaded<SeatRow>
     if (row === LOADING || row === undefined) return row
-    if (Object.hasOwn(row, 'archived')) return Boolean(row.archived)
-    // A resident row is the whole row: an absent optional flag is false.
-    return pool.row('session', sessionId, 'mark') === LOADING ? null : false
+    // A resident row is the whole row: an absent optional field is unset.
+    const resident = pool.row('session', sessionId, 'mark') !== LOADING
+    const archived = Object.hasOwn(row, 'archived') ? Boolean(row.archived) : resident ? false : null
+    if (archived === false) return SEATED
+    if (archived === null) return UNSETTLED
+    return {
+      seat: 'retired', complete: resident, stamped: resident || Object.hasOwn(row, 'lastActiveAt'),
+      sessionId, lastActiveAt: row.lastActiveAt ?? '', lastInputAt: row.lastInputAt,
+      transcriptAvailable: row.transcriptAvailable, agentKind: row.agentKind ?? '',
+      moved: Boolean(row.handoffTarget), phase: row.agentState?.phase ?? 'unknown', archived: true,
+      roster: !row.headless && row.agentKind !== 'shell',
+    }
   })
   const partitions = new Map<SeatRelation, (issueId: string) => SeatPartition | typeof LOADING>()
   function partitionOf(relation: SeatRelation) {
@@ -55,11 +106,11 @@ export function createSessionSeats(pool: MobxPool): SessionSeats {
             unknown: string[] = []
           let pending = false
           for (const sessionId of pool.graph.many('issue', issueId, relation)) {
-            const flag = archived(sessionId)
-            if (flag === LOADING) pending = true
-            else if (flag === true) history.push(sessionId)
-            else if (flag === false) present.push(sessionId)
-            else if (flag === null) unknown.push(sessionId)
+            const value = seat(sessionId)
+            if (value === LOADING) pending = true
+            else if (value === SEATED) present.push(sessionId)
+            else if (value === UNSETTLED) unknown.push(sessionId)
+            else if (value) history.push(sessionId)
           }
           return pending ? LOADING : { present, archived: history, unknown }
         },
@@ -69,6 +120,7 @@ export function createSessionSeats(pool: MobxPool): SessionSeats {
     return read
   }
   return {
+    seat,
     partition: (relation, issueId) => partitionOf(relation)(issueId),
   }
 }

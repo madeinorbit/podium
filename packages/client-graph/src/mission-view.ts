@@ -87,6 +87,8 @@ const factsOf = (session: SessionView): SessionFacts => ({
 const latestPromptOf = (facts: readonly SessionFacts[]) =>
   selectLatestPromptSession(facts as unknown as readonly SessionView[])?.sessionId
 
+const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined, latestPrompt: undefined })
+
 /** The member summary an issue model carries, as composable facts. */
 interface MemberFacts {
   readonly count: number
@@ -107,6 +109,7 @@ function memberFacts(sessions: readonly Pick<SessionFacts, 'sessionId' | 'lastAc
   }
   return { count: sessions.length, phases, latest }
 }
+const NO_MEMBERS: MemberFacts = Object.freeze({ count: 0, phases: new Map(), latest: -Infinity })
 function mergeMemberFacts(a: MemberFacts, b: MemberFacts): MemberFacts {
   const phases = new Map(a.phases)
   for (const [phase, value] of b.phases) {
@@ -125,12 +128,9 @@ const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
 const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
 const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
-const factsValue = cachedGroup('missionSessionFacts', (node: MissionNode) => {
-  const session = node.view.session(node.id)
-  return session === LOADING || !session ? session : factsOf(session)
-})
-const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) =>
-  [...node.view.pool.graph.many('issue', node.id, 'pageSessions')].sort().map(asSessionId))
+const pageMemberIds = (pool: MobxPool, id: string) =>
+  [...pool.graph.many('issue', id, 'pageSessions')].sort().map(asSessionId)
+const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id))
 const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id))
 const MODES = ['full', 'working', 'needs-you'] as const
 type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
@@ -212,10 +212,28 @@ export class MissionViewReader {
   /** Non-archived mission senders, in session order. */
   present(id: string): readonly SessionView[] | typeof LOADING { return presentValue(this.node(id)) }
   /** What derivations need from the archived mission senders. */
-  history(id: string): MissionHistory | typeof LOADING { return historyValue(this.node(id)) }
+  history(id: string): MissionHistory | typeof LOADING {
+    // Most issues have no archived sender: answer without building a cache.
+    return this.hasHistory('missionSessions', id) === false ? NO_HISTORY : historyValue(this.node(id))
+  }
+  /** Whether the relation holds archived or unsettled senders (LOADING while seats load). */
+  private hasHistory(relation: SeatRelation, id: string): boolean | typeof LOADING {
+    const partition = sessionSeats(this.pool).partition(relation, id)
+    if (partition === LOADING) return LOADING
+    return partition.archived.length > 0 || partition.unknown.length > 0
+  }
   /** The archived list under a mission root's drawn rows, in row order. */
   archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING { return paneArchive[mode](this.node(rootId)) }
-  private facts(sessionId: string): SessionFacts | typeof LOADING | undefined { return factsValue(this.node(sessionId)) }
+  /** An archived session's facts: its shared seat when the whole row is in
+   * hand (one cached value per session, shared with navigation and the
+   * partitions), else its row, which this read loads. */
+  private facts(sessionId: string): SessionFacts | typeof LOADING | undefined {
+    const seat = sessionSeats(this.pool).seat(sessionId)
+    if (seat === LOADING || seat === undefined) return seat
+    if (seat.seat === 'retired' && seat.complete) return seat as unknown as SessionFacts
+    const session = this.session(sessionId)
+    return session === LOADING || !session ? session : factsOf(session)
+  }
   private idOrder = (a: string, b: string): number => {
     const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
     return (left < right ? -1 : left > right ? 1 : 0) || (a < b ? -1 : a > b ? 1 : 0)
@@ -342,8 +360,10 @@ export class MissionViewReader {
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
     // Archived members contribute through their own cached facts.
-    const memberIds = memberIdsValue(this.node(id))
-    const present = this.seatRows('pageSessions', id, false), archived = memberHistoryValue(this.node(id))
+    // Without archived members a heartbeat walks only seated ones: no caches.
+    const plain = this.hasHistory('pageSessions', id) === false
+    const memberIds = plain ? pageMemberIds(this.pool, id) : memberIdsValue(this.node(id))
+    const present = this.seatRows('pageSessions', id, false), archived = plain ? NO_MEMBERS : memberHistoryValue(this.node(id))
     let pending = present === LOADING || archived === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
     let childDoneCount = 0

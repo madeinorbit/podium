@@ -23,23 +23,30 @@ const later = (a: string | undefined, b: string | undefined) =>
  */
 export function createNavigationActivity(pool: MobxPool): NavigationActivity {
   const seats = sessionSeats(pool)
-  // One session's stamp, cached apart from its row: a read marker on an
-  // archived session changes its row, never the history maximum.
-  const sessionStamp = cachedKey('NavigationActivity', 'stamp', (sessionId): Loaded<string> => {
+  /** A session's stamp read from its row: the declared summary, else the row. */
+  const rowStamp = (sessionId: string): Loaded<string> => {
     let session = pool.row('session', sessionId, 'summary')
     if (session && session !== LOADING && !Object.hasOwn(session, 'lastActiveAt')) {
       session = pool.row('session', sessionId)
     }
     if (session === LOADING) return LOADING
     return (session as { lastActiveAt?: string } | undefined)?.lastActiveAt || undefined
-  })
+  }
+  /** An archived session's stamp from its shared seat: a read marker on it
+   * changes its row, never the history maximum. */
+  const retiredStamp = (sessionId: string): Loaded<string> => {
+    const seat = seats.seat(sessionId)
+    if (seat === LOADING || seat === undefined) return seat
+    if (seat.seat !== 'retired' || !seat.stamped) return rowStamp(sessionId)
+    return seat.lastActiveAt || undefined
+  }
   const history = cachedKey('NavigationActivity', 'history', (id): Loaded<string> => {
     const partition = seats.partition(MISSION_SCHEMA.members.sessions, id)
     if (partition === LOADING) return LOADING
     let latest: string | undefined
     // Cold sessions without a declared flag cannot heartbeat: aggregate them here.
     for (const sessionId of [...partition.archived, ...partition.unknown]) {
-      const stamp = sessionStamp(sessionId)
+      const stamp = retiredStamp(sessionId)
       if (stamp === LOADING) return LOADING
       latest = later(latest, stamp)
     }
@@ -54,12 +61,14 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     let latest: string | undefined = (issue as { updatedAt: string }).updatedAt
     const partition = seats.partition(MISSION_SCHEMA.members.sessions, id)
     if (partition === LOADING) return LOADING
+    // Seated sessions heartbeat: their stamps are read here, with the issue.
     for (const sessionId of partition.present) {
-      const stamp = sessionStamp(sessionId)
+      const stamp = rowStamp(sessionId)
       if (stamp === LOADING) return LOADING
       latest = later(latest, stamp)
     }
-    const archived = history(id)
+    // Most issues have no archived sender: no history cache is built for them.
+    const archived = partition.archived.length || partition.unknown.length ? history(id) : undefined
     if (archived === LOADING) return LOADING
     return { at: later(latest, archived) }
   })
@@ -87,7 +96,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
         const current = stack.pop()!
         if (seen.has(current)) continue
         seen.add(current)
-        const value = current === id || cycle?.has(current) ? own(current) : subtree(current)
+        const value = current === id || cycle?.has(current) ? own(current) : rolled(current)
         if (value === LOADING) return LOADING
         if (value === undefined) continue
         latest = later(latest, value.at)
@@ -97,9 +106,11 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
       return own(id) === undefined ? undefined : { at: latest }
     },
   )
+  /** A leaf's roll-up is its own stamp: no subtree cache is built for it. */
+  const rolled = (id: string) => (pool.graph.size('issue', id, 'treeChildren') > 0 ? subtree(id) : own(id))
   return {
     activityAt(id) {
-      const value = subtree(id)
+      const value = rolled(id)
       return value === LOADING || value === undefined ? value : value.at
     },
   }
