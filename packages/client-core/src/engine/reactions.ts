@@ -53,6 +53,7 @@ import type { StoreNotices } from './types'
 function pruningState(state: EngineState): EngineState {
   if (!state.navigation) return state
   const ids = referencedTabIds(state)
+  for (const id of visibleTabIds(state)) ids.add(id)
   for (const tab of state.fileTabs) {
     if (tab.scope.kind === 'session') ids.add(tab.scope.sessionId)
   }
@@ -267,7 +268,7 @@ export class Reactions {
    * lingering as a ghost on the origin strip.
    */
   sessionIssueFollow(): boolean {
-    const st = this.ports.state()
+    const st = pruningState(this.ports.state())
     const prev = this.prevIssueIds
     const next = Object.fromEntries(
       st.sessions.map((session) => [session.sessionId, session.issueId ?? '']),

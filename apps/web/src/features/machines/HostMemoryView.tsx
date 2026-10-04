@@ -6,6 +6,7 @@ import {
   reclaimSpaceLabel,
 } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
+import type { MobxPool } from '@podium/client-graph'
 import type {
   AgentMemoryWire,
   HostMemoryWire,
@@ -19,6 +20,7 @@ import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolSessionLabels } from '@/app/header-data'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useHostMetrics, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -45,6 +47,13 @@ interface Breakdown {
 }
 
 const REFRESH_MS = 5_000
+
+const readParkedCount = (pool: MobxPool): number =>
+  pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
+    if (pool.queries.collapsed(id)) return count
+    const row = pool.row('session', id, 'summary-fields')
+    return count + (row && typeof row !== 'symbol' && row.status === 'hibernated' ? 1 : 0)
+  }, 0)
 
 export type HostInfoTab = 'connection' | 'memory' | 'reclaim'
 
@@ -183,6 +192,7 @@ function MemoryPanel({
   })
 
   const sessions = usePoolSessionLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
+  const idleSessionCount = useWorklistPoolProjection(readParkedCount, 0)
   const sessionLabel = (sessionId: SessionId): string => {
     const s = sessions[sessionId]
     if (!s) return sessionId.slice(0, 8)
@@ -244,7 +254,7 @@ function MemoryPanel({
             <HibernationNote
               hibernation={hibernation}
               memPct={memPct}
-              idleSessionCount={sessions.filter((s) => s.status === 'hibernated').length}
+              idleSessionCount={idleSessionCount}
               onOpenSettings={openHibernationSettings}
             />
           }

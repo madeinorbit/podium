@@ -224,7 +224,10 @@ describe('memory chip is machine-aware', () => {
   })
 
   it('keeps memory process labels for addressed sessions and unknown ids', async () => {
-    sessions = [agentSession('known-session', 'working')]
+    sessions = [
+      agentSession('known-session', 'working'),
+      { ...agentSession('parked-session', 'idle'), status: 'hibernated' },
+    ]
     memoryBreakdown.mockResolvedValue({
       ...breakdownFor('vmi'),
       agents: [
@@ -237,6 +240,7 @@ describe('memory chip is machine-aware', () => {
     expect(await screen.findByText('Codex — known-session')).toBeTruthy()
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
+    expect(screen.getByText(/1 hibernated/)).toBeTruthy()
   })
 })
 
