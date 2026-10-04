@@ -49,11 +49,12 @@ type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'readLoc
 export async function createSuperagentSource(owner: SuperagentOwner): Promise<PoolSource<keyof SuperagentRows> & {
   counts: { batches: number; threadLists: number; eventCollections: number; addressedEvents: number; questionCollections: number }
 }> {
-  const [{ observable, runInAction, compareStructural }, rollup, { readViewInputs }] = await Promise.all([
-    import('mobx'), import('./worklist/rollup'), import('@podium/client-core/replica'),
+  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
+    import('mobx'), import('./worklist/rollup'),
   ])
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const replica = owner.replica
+  if (!replica.rowCount) throw new Error('Superagent requires keyed replica counts')
   if (!replica.row || !replica.subscribeAddressedBatch) throw new Error('Superagent requires the existing addressed replica')
   class Source {
     private readonly rows = observable.map<string, object>(undefined, { deep: false })
@@ -172,7 +173,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
             if (this.bootingDirty) {
               this.bootingDirty = false
               this.booting = replica.getCursor() === null &&
-                readViewInputs(replica).sessions.length === 0 && replica.rows('issueProjections').length === 0
+                replica.rowCount!('sessions') === 0 && replica.rowCount!('issueProjections') === 0
             }
             if (this.localDirty || this.booting !== before) {
               this.localDirty = false

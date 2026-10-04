@@ -58,6 +58,25 @@ function build(cache = new FakeCache()) {
 const session = (sessionId: string) => ({ sessionId, name: sessionId }) as never
 const issue = (id: string) => ({ id, title: id }) as never
 
+it('counts keyed membership through eviction, readmission and replacement without reading row arrays', () => {
+  const { cache, replica } = build()
+  cache.put('session', 's1', session('s1'))
+  const rows = vi.spyOn(replica, 'rows')
+  expect(replica.rowCount!('sessions')).toBe(1)
+  cache.drop('session', 's1')
+  replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's1' })
+  expect(replica.rowCount!('sessions')).toBe(0)
+  cache.put('session', 's1', session('s1'))
+  replica.onKernelEvent({ type: 'upserted', record: cache.read('session', 's1')!, readmitted: true })
+  expect(replica.rowCount!('sessions')).toBe(1)
+  expect(cache.readEntitiesCalls).toBe(1)
+  expect(rows).not.toHaveBeenCalled()
+  expect(replica.rows('sessions').map(row => row.sessionId)).toEqual(['s1'])
+  cache.records = []
+  replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2, entityCount: 0, bufferedFramesApplied: 0 })
+  expect(replica.rowCount!('sessions')).toBe(0)
+})
+
 describe('replica-wide issue reference index', () => {
   it('seeds every stored issue and resolves keyed identities without reads or scans', async () => {
     const { cache, replica } = build()

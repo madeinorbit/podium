@@ -215,7 +215,7 @@ const EMPTY: readonly never[] = Object.freeze([])
  * index must too.
  */
 interface KindProjection {
-  rows: readonly unknown[]
+  rows: readonly unknown[] | null
   readonly byId: Map<string, unknown>
 }
 
@@ -383,6 +383,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     } else {
       reconcile(kind, state)
     }
+    if (state.rows === null) {
+      state.rows = [...state.byId.values()].sort((a, b) => keyOf(kind, a as never).localeCompare(keyOf(kind, b as never)))
+    }
     return state.rows as ReplicaRows[K][]
   }
 
@@ -453,6 +456,11 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     if (dirty === undefined || dirty.size === 0) return
     dirtyRows.delete(kind)
     const entity = entityForKind(kind)
+    if (state.rows === null) {
+      dirtyRows.set(kind, dirty)
+      reconcileCount(kind, state)
+      return
+    }
     const replaced = new Set<unknown>()
     const added: unknown[] = []
     for (const entityId of dirty) {
@@ -483,7 +491,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     added.sort((a, b) => (keyOf(kind, a as never) < keyOf(kind, b as never) ? -1 : 1))
     const merged: unknown[] = []
     let take = 0
-    for (const row of state.rows) {
+    for (const row of state.rows ?? []) {
       if (replaced.has(row)) continue
       const key = keyOf(kind, row as never)
       while (take < added.length && keyOf(kind, added[take] as never) < key) {
@@ -497,6 +505,22 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       take += 1
     }
     state.rows = merged.length === 0 ? EMPTY : merged
+  }
+
+  function reconcileCount(kind: ReplicaKind, state: KindProjection): void {
+    const dirty = dirtyRows.get(kind)
+    if (!dirty?.size) return
+    dirtyRows.delete(kind)
+    for (const id of dirty) {
+      let next: unknown
+      try { next = cache.read(entityForKind(kind), id)?.value } catch { next = undefined }
+      if (next === null || typeof next !== 'object') next = undefined
+      const previous = state.byId.get(id)
+      if (previous === next) continue
+      if (next === undefined) state.byId.delete(id)
+      else state.byId.set(id, next)
+      state.rows = null
+    }
   }
 
   /** `rowKey` rather than a local copy of the sessions/`id` split: this feeds the
@@ -599,6 +623,13 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     },
     putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void {
       side.putTranscriptWindow(conversationKey, items)
+    },
+
+    rowCount(kind): number {
+      if (!projected.has(kind)) buildMissingProjections()
+      const state = projected.get(kind)!
+      reconcileCount(kind, state)
+      return state.byId.size
     },
 
     rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {

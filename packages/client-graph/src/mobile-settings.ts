@@ -28,10 +28,10 @@ export const MOBILE_SETTINGS_SCHEMA = {
   },
 } as const
 
-type DiagnosticsOwner = Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'replica'>
+type DiagnosticsOwner = Pick<ClientRuntime, 'replica'>
 
-/** Demand batches one O(1) summary from the existing runtime. Array lengths are
- * already maintained by its replica binding; no issue models or table walks
+/** Demand batches one O(1) summary from the existing runtime. Cardinality is
+ * maintained by the replica's keyed map; no issue models or table walks
  * are needed. The cursor refreshes on the replica's cursor signal, watermark-only
  * frames included; those frames still never invalidate replica rows. */
 export async function createMobileSettingsSource(
@@ -49,6 +49,7 @@ export async function createMobileSettingsSource(
   let demanded = false,
     scheduled = false,
     disposed = false
+  if (!owner.replica.rowCount) throw new Error('Phone diagnostics require keyed replica counts')
   const counts = { batches: 0 }
   function schedule(): void {
     if (!demanded || scheduled || disposed) return
@@ -57,8 +58,8 @@ export async function createMobileSettingsSource(
       scheduled = false
       if (disposed) return
       const next = {
-        issueCount: owner.readLocal('issueProjections').length,
-        conversationCount: owner.readLocal('conversations').length,
+        issueCount: owner.replica.rowCount!('issueProjections'),
+        conversationCount: owner.replica.rowCount!('conversations'),
         cursor: owner.replica.getCursor(),
       }
       runInAction(() => value.set(next))
@@ -68,7 +69,7 @@ export async function createMobileSettingsSource(
   // Keyed (POD-5433): the two counts move only with their lists; the cursor
   // has its own signal.
   if (!owner.replica.subscribeCursor) throw new Error('Phone diagnostics require the replica cursor signal')
-  const stops = [owner.onLocals(['issueProjections', 'conversations'], schedule), owner.replica.subscribeCursor(schedule)]
+  const stops = [owner.replica.subscribeRows('issueProjections', schedule), owner.replica.subscribeRows('conversations', schedule), owner.replica.subscribeCursor(schedule)]
   return {
     counts,
     read(_entity, id): Loaded<MobileSettingsDiagnostics> {

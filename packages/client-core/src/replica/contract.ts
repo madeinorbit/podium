@@ -275,6 +275,9 @@ export interface Replica {
   collection(kind: ReplicaKind): unknown
   /** Non-React read seam (#262 [spec:SP-3fe2]): the current rows for `kind`.
    *  Returns a stable shared empty array while the collection is empty. Never throws. */
+  /** Keyed cardinality, without materialising a kind's row array. */
+  rowCount?(kind: ReplicaKind): number
+
   rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
   /** Optional addressed read. Never materialises collection arrays; live until
    * the caller captures it at its commit boundary. Same admission as rows(). */
