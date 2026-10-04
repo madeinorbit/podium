@@ -65,7 +65,8 @@ probe.stop = () => {probe.active = false; clearTimeout(probe.timer); document.re
 ta.focus();
 return {userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight],
     domNodes: document.querySelectorAll('*').length,
-    transcriptNodes: document.querySelectorAll('.chat-feed *').length,
+    transcriptNodes: document.querySelectorAll('.feed-column *').length,
+    transcriptRows: document.querySelectorAll('.transcript-row').length,
     fieldSizing: CSS.supports('field-sizing', 'content'), length: ta.value.length};
 """
 
@@ -96,7 +97,7 @@ def main():
         request(base, "POST", "/url", {"url": args.url})
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
-            if execute("return !!document.querySelector('.chat-composer-well textarea')"):
+            if execute("return !!document.querySelector('.chat-composer-well textarea') && document.querySelectorAll('.transcript-row').length >= 40"):
                 break
             time.sleep(.5)
         else:
