@@ -67,6 +67,25 @@ const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) =>
   )
 
 describe('web pool navigation', () => {
+  it('wakes topology for unscanned rehomes and hidden sessions without loading row facets', () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+    const session = { sessionId: 'seat', cwd: '/unscanned/old', headless: true, status: 'live' }
+    pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: session }] })
+    const row = vi.spyOn(pool, 'row'), changed = vi.fn()
+    const stop = createPoolNavigationProvider(pool).onTopology!(changed)
+    try {
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, title: 'Rename' } }] })
+      expect(changed).not.toHaveBeenCalled()
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, cwd: '/unscanned/new' } }] })
+      expect(changed).toHaveBeenCalledTimes(1)
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: undefined }] })
+      expect(changed).toHaveBeenCalledTimes(2)
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: session }] })
+      expect(changed).toHaveBeenCalledTimes(3)
+      expect(row).not.toHaveBeenCalled()
+    } finally { stop(); pool.dispose() }
+  })
+
   it('counts legacy membership entries even on memo hits and direct session indexing', () => {
     const rows = [{ id: asIssueId('root'), stage: 'backlog' as const, archived: false }],
       sessions: SessionView[] = []

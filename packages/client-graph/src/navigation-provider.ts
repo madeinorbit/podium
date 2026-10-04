@@ -16,11 +16,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
   const signatures = new Map<string, string>()
   const signature = (id: string): string | undefined => {
     const index = pool.coldIndex()
-    const row = index.heldFields('session', id, ['cwd', 'issueId', 'resume', 'status', 'lastActiveAt'])
+    const row = index.heldFields('session', id, ['issueId'])
     if (!row) return undefined
-    return JSON.stringify([row.cwd, row.issueId, index.sessionCollapsed(id),
-      row.resume && (row.status === 'hibernated' || row.status === 'exited')
-        ? [row.resume, row.lastActiveAt] : undefined])
+    return JSON.stringify([index.relations.prefixPath('session', id, 'worktree'),
+      row.issueId, index.sessionCollapsed(id)])
   }
   // Topology follows source metadata, not a reaction over every pool row.
   // These scalars already belong to the cold index and allocate no row facets.
@@ -31,8 +30,12 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
   const provider: NavigationProvider = {
     onTopology(changed) {
       return pool.queries.onChange(event => {
-        let moved = event.type === 'replace'
-        if (moved) signatures.clear()
+        const delta = pool.coldIndex().changes(event)
+        let moved = event.type === 'replace' ||
+          delta.forwards.some(([relation]) => relation.startsWith('session.')) ||
+          delta.flips.some(([entity]) => entity === 'session') ||
+          delta.orders.some(([entity]) => entity === 'session')
+        if (event.type === 'replace') signatures.clear()
         for (const row of event.rows) {
           if (row.kind !== 'session') continue
           const value = signature(row.id)

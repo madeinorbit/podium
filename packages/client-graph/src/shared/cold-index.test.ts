@@ -69,6 +69,21 @@ const runningSession = (sessionId: string, extra: Row = {}): Row => ({
 })
 
 describe('cold index (POD-5405)', () => {
+  it('keeps navigation paths addressed across hidden membership, rehomes and readmission', () => {
+    const f = feed()
+    f.put('session', 's1', runningSession('s1', { cwd: '/unscanned/old/', headless: true }))
+    expect(f.index.relations.forward('session', 's1', 'worktree')).toBeNull()
+    expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/unscanned/old')
+    f.put('session', 's1', runningSession('s1', { cwd: '/unscanned/new', headless: true }))
+    expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/unscanned/new')
+    f.put('session', 's1', undefined)
+    expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBeNull()
+    f.put('session', 's1', runningSession('s1', { cwd: '/readmitted' }))
+    expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBe('/readmitted')
+    f.index.apply({ type: 'replace', rows: [] })
+    expect(f.index.relations.prefixPath('session', 's1', 'worktree')).toBeNull()
+  })
+
   it('follows member keeps and their decay with the clock', () => {
     const f = feed()
     f.put('issue', 'i1', closedIssue('i1', { parentId: undefined, audience: 'agent' }))

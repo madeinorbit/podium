@@ -107,6 +107,8 @@ export function* prefixCandidates(normalized: string): Generator<string> {
 export interface RelationQueries {
   /** A single-valued link's target key for `from:id` (its raw forward; presence is the caller's). */
   forward(from: EntityName, id: string, relation: string): string | null
+  /** A prefix relation's source path, including rows outside its visible membership. */
+  prefixPath(from: EntityName, id: string, relation: string): string | null
   /** A many-valued outgoing edge's target keys for `from:id`. */
   targets(from: EntityName, id: string, relation: string): ReadonlySet<string>
   /** A collection's members at `to:id` (`hasMany`, incoming `edge`). */
@@ -729,6 +731,12 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
   }
 
   return {
+    prefixPath(from, id, relation) {
+      const link = linkOf(from, relation)
+      if (link.spec.kind !== 'prefix') throw new Error(`[pool] ${from}.${relation} is not a prefix`)
+      const path = rowOf(from, id)?.[link.spec.sourceField]
+      return typeof path === 'string' ? normalizeRootPath(path) : link.placed?.get(id) ?? null
+    },
     forward(from, id, relation) {
       const link = linkOf(from, relation)
       if (link.forwardMany !== null)
