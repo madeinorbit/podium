@@ -497,10 +497,11 @@ async function runActions(f) {
         await page.getByTestId('topbar-nav-issues').click()
         const target=largeMissionTargets[i%2]
         await row(target.id).scrollIntoViewIfNeeded()
-        const measured=await capture(f,'large-mission-switch',()=>row(target.id).click(),`()=>{const row=document.querySelector('[data-flight-issue="${target.id}"]');return !!row && row.getBoundingClientRect().width>0 && !row.closest('[aria-hidden="true"]')}`)
+        // The mission root is a header; data-flight-issue labels its children.
+        const measured=await capture(f,'large-mission-switch',()=>row(target.id).click(),`()=>[...document.querySelectorAll('.deck-header')].some(header=>header.textContent?.includes(${JSON.stringify(target.title)}) && header.getBoundingClientRect().width>0 && !header.closest('[aria-hidden="true"]')) && !!document.querySelector('[data-testid="flight-deck-scroller"] [data-flight-issue]')`)
         measured.targetIssueId=target.id
-        measured.deckIssueRows=await page.locator('[data-flight-issue]').count()
-        measured.deckSessionRows=await page.locator('[data-flight-session]').count();save()
+        measured.deckIssueRows=await page.locator('[data-testid="flight-deck-scroller"] [data-flight-issue]').count()
+        measured.deckSessionRows=await page.locator('[data-testid="flight-deck-scroller"] [data-flight-session]').count();save()
       }
     })
     await attempt('command-palette',async()=>{
