@@ -520,19 +520,32 @@ export class TerminalView {
    * box, and this is how the box is read.
    *
    * The viewport's PADDING is subtracted, because padding is not somewhere a
-   * cell can go. The cell size is derived from `.xterm-screen`, which already
-   * excludes it, so measuring the padded rect would over-report the grid by
+   * cell can go. Measuring the padded rect would over-report the grid by
    * however much padding the surface carries — on the desktop panel, two columns
    * and two rows of terminal that do not exist.
    */
   proposeFitIn(viewport: HTMLElement): { cols: number; rows: number } | undefined {
     if (!this.host) return undefined
-    const screen = this.host.querySelector<HTMLElement>('.xterm-screen')
-    if (!screen || this.term.cols < 1 || this.term.rows < 1) return undefined
-    const screenRect = screen.getBoundingClientRect()
+    // xterm rounds the WHOLE screen to CSS pixels. Dividing that output by
+    // cols/rows feeds the current grid back into its next proposal: at a
+    // fractional cell boundary N proposes N+1, and N+1 proposes N. A scrollbar
+    // can then wake the observer after every server resize (POD-5560).
+    // Use the pinned xterm render-service seam used by FitAddon, but take the
+    // primitive device-cell metrics. Its CSS-cell metrics are also derived from
+    // the rounded screen in the DOM renderer, so they are not independent.
+    const core = this.term as unknown as {
+      _core?: {
+        _renderService?: {
+          dimensions?: { device: { cell: { width: number; height: number } } }
+        }
+      }
+    }
+    const deviceCell = core._core?._renderService?.dimensions?.device.cell
+    if (!deviceCell) return undefined
+    const dpr = globalThis.devicePixelRatio ?? 1
     const cell = {
-      width: screenRect.width / this.term.cols,
-      height: screenRect.height / this.term.rows,
+      width: deviceCell.width / dpr,
+      height: deviceCell.height / dpr,
     }
     if (!Number.isFinite(cell.width) || !Number.isFinite(cell.height)) return undefined
     if (cell.width <= 0 || cell.height <= 0) return undefined

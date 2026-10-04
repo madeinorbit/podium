@@ -340,8 +340,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
    * Has this mount ever successfully measured its box?
    *
    * The one case the box observer cannot cover: the VIEWPORT has a size, but
-   * xterm has not rendered yet, so there is no `.xterm-screen` to derive a cell
-   * size from and the measurement fails. No later resize of the box follows —
+   * xterm has not rendered yet, so its cell metrics are not ready and the
+   * measurement fails. No later resize of the box follows —
    * nothing about the box changed — so without this the pane would sit at
    * whatever the server last said until the operator moved something. xterm's
    * first render is the event that makes it measurable, and it is what asks.

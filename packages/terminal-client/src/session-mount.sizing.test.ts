@@ -59,7 +59,9 @@ function withResizableAddon(): { set: (cols: number, rows: number) => void } {
   }
 }
 /** Return a valid-but-stale grid for a few measurements, then the settled grid. */
-function withSequencedAddon(grids: ReadonlyArray<{ cols: number; rows: number } | undefined>): void {
+function withSequencedAddon(
+  grids: ReadonlyArray<{ cols: number; rows: number } | undefined>,
+): void {
   const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
   const original = proto.proposeDimensions
   let index = 0
@@ -195,11 +197,7 @@ function fakeHub() {
   return {
     hub,
     calls,
-    state: (
-      cols: number,
-      rows: number,
-      role: 'controller' | 'spectator' = 'controller',
-    ) => {
+    state: (cols: number, rows: number, role: 'controller' | 'spectator' = 'controller') => {
       current = { ...current, cols, rows, role }
       cbs.onState?.(current as never)
     },
@@ -310,7 +308,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon() // phone container proposes 150×50
-    const { hub, calls, role, state , attached } = fakeHub()
+    const { hub, calls, role, state, attached } = fakeHub()
     role('spectator')
     const mounted = mountSession(fittableHost(), {
       hub,
@@ -412,7 +410,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withResizeObserver()
     withFakeTimedRaf()
     withFittableAddon()
-    const { hub, calls, role, state , attached } = fakeHub()
+    const { hub, calls, role, state, attached } = fakeHub()
     role('spectator')
     const mounted = mountSession(fittableHost(), {
       hub,
@@ -681,11 +679,9 @@ describe('mountSession eligibility-gated sizing', () => {
     // can return a CACHED proposal from the previous renderer metrics while a
     // tab is being foregrounded — a plausible, wrong number.
     //
-    // Nothing reads that path any more. `proposeFitIn` reads
-    // `getBoundingClientRect()` on the box and on `.xterm-screen`, both of which
-    // force layout and answer for the current frame — so the class of staleness
-    // the streak defended against does not arise, and waiting three frames to
-    // claim would only make a reveal slower. A box that is genuinely still
+    // `proposeFitIn` reads the outer box and the renderer's independent cell
+    // metrics, without dividing a possibly stale screen by a newer grid.
+    // A box that is genuinely still
     // MOVING (an animated pane) is handled where it belongs: the observer, whose
     // 60 ms debounce collapses the burst into one ask.
     withResizeObserver()
@@ -694,7 +690,10 @@ describe('mountSession eligibility-gated sizing', () => {
     const proposal = withResizableAddon()
     proposal.set(120, 40)
     const { hub, calls, state, attached } = fakeHub()
-    const mounted = mountSession(fittableHost(), {
+    const el = fittableHost()
+    const rect = { width: 1200, height: 640 }
+    el.getBoundingClientRect = () => ({ ...rect }) as DOMRect
+    const mounted = mountSession(el, {
       hub,
       sessionId: asSessionId('s1'),
       active: false,
@@ -710,15 +709,22 @@ describe('mountSession eligibility-gated sizing', () => {
     // The pane finishes animating. The observer fires repeatedly; the debounce
     // collapses the burst into one statement.
     proposal.set(150, 50)
+    rect.height = 800
     observer.fire()
     observer.fire()
     vi.advanceTimersByTime(60)
     expect(calls.resize, 'one corrected ask, not one per observer event').toEqual([[150, 50]])
-    // A later burst states the box again, even unchanged: the browser keeps no
-    // record of its asks (POD-3190 rev 3); the server drops the repeat.
+    // A content-box event caused by the terminal's own scrollbar is not a
+    // change to the measured box, so it cannot start another resize cycle.
     observer.fire()
     vi.advanceTimersByTime(60)
-    expect(calls.resize, 'a later box event restates the box').toEqual([
+    expect(calls.resize, 'an unchanged viewport stays quiet').toEqual([[150, 50]])
+    // A real box change still states its grid even if it fits the same cells;
+    // the mount has no cache of requests and reconnect/reveal claims are intact.
+    rect.width = 1201
+    observer.fire()
+    vi.advanceTimersByTime(60)
+    expect(calls.resize, 'a real box event restates the grid').toEqual([
       [150, 50],
       [150, 50],
     ])
@@ -764,7 +770,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withFittableAddon()
     const repaint = vi.spyOn(TerminalView.prototype, 'forceRepaint')
     protoPatchRestorers.push(() => repaint.mockRestore())
-    const { hub, state , attached } = fakeHub()
+    const { hub, state, attached } = fakeHub()
     const mounted = mountSession(fittableHost(), {
       hub,
       sessionId: asSessionId('s1'),
@@ -789,7 +795,7 @@ describe('mountSession eligibility-gated sizing', () => {
     withFittableAddon() // fit → 150×50
     const recover = vi.spyOn(TerminalView.prototype, 'repaintRecover')
     protoPatchRestorers.push(() => recover.mockRestore())
-    const { hub, calls, state , attached } = fakeHub()
+    const { hub, calls, state, attached } = fakeHub()
     // Mount INACTIVE (hidden), then bring the term + server grid to the size fit() will
     // propose, so the reveal fit is a no-op — the case where a same-size resize can't repaint
     // the canvas that display:none freed, so we must repaint the renderer in place.

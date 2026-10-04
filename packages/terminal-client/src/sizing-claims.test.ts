@@ -236,7 +236,7 @@ describe('C2 (REWRITTEN for POD-3239 B2): the buffer follows the server whether 
 // ---------------------------------------------------------------------------
 
 describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)', () => {
-  it("SOURCE FACT: `TerminalView.fit()` no longer exists, and the two proposals do", () => {
+  it('SOURCE FACT: `TerminalView.fit()` no longer exists, and the two proposals do', () => {
     // WHAT C11 FOUND. `fit()` measured TWICE — its own `proposeFit()` probe, and
     // then `FitAddon.fit()`'s internal one, which is what actually landed — and
     // returned what LANDED. So the reveal guard's first comparison, `fit()`'s
@@ -253,7 +253,7 @@ describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)'
     view.dispose()
   })
 
-  it('REWRITTEN: the guard is gone, and so is the ladder it lived in', () => {
+  it('REWRITTEN: the guard is gone, and so is the ladder it lived in', async () => {
     // C11's live half pinned the guard's SECOND comparison: a post-fit probe
     // that disagreed with what landed traced `reveal:fit-mismatch` and restarted
     // a settle streak. There is nothing left to land and nothing to restart — a
@@ -263,9 +263,11 @@ describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)'
     const { entries } = captureDiagnostics()
     withProposal(() => ({ cols: 150, rows: 50 }))
 
-    const { hub, calls } = fakeHub()
+    const { hub, calls, attached } = fakeHub()
     const mounted = mountSession(host(), { hub, sessionId: SESSION, active: false })
     try {
+      attached()
+      await new Promise((r) => setTimeout(r, 90))
       mounted.setActive(true)
       const events = entries.map((e) => e.event)
       expect(events, 'the guard and its mismatch trace are gone').not.toContain(
@@ -274,7 +276,7 @@ describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)'
       expect(events, 'and so is the ladder').not.toContain('fit:retry-start')
       expect(events, 'one ask, named').toContain('ask:sent')
       expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
-      // …and nothing moved the buffer, which never attached.
+      // …and the buffer stayed at the server's grid.
       expect(mounted.view.cols()).toBe(80)
     } finally {
       mounted.dispose()
@@ -286,7 +288,7 @@ describe('C11 (REWRITTEN — the guard and the method it guarded are both gone)'
 // C12
 // ---------------------------------------------------------------------------
 
-describe("C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation mode, and it is what picks the renderer", () => {
+describe('C12 (REWRITTEN for POD-3239 B3): `crop` is the explicit presentation mode, and it is what picks the renderer', () => {
   it("crop:'scroll' selects the DOM renderer explicitly ('renderer-selected')", () => {
     // WHAT CHANGED. The DOM renderer used to be selected by `gridMode`, a
     // POLICY flag about who may drive the pty size, which happened to imply a
@@ -416,7 +418,7 @@ describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session
 // ---------------------------------------------------------------------------
 
 describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and moves nothing', () => {
-  it('T9: a box that already equals W sends ONE request and asks for no resize', () => {
+  it('T9: a box that already equals W sends ONE request and asks for no resize', async () => {
     // WHAT C17 FOUND, and what this commit removes. `serverGrid` was seeded from
     // the JUST-CONSTRUCTED xterm — 80x24, a number with nothing to do with this
     // session — so `decideResizeAction` compared the measured box against 80x24
@@ -430,7 +432,7 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
     // carries the measured box for the SERVER to compare against W (B4/B6).
     withResizeObserver()
     withProposal(() => ({ cols: 104, rows: 31 }))
-    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
+    const { hub, calls, attached } = fakeHub({ cols: 104, rows: 31 })
 
     const mounted = mountSession(host(), {
       hub,
@@ -439,6 +441,8 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       initialGeometry: { cols: 104, rows: 31 },
     })
     try {
+      attached()
+      await new Promise((r) => setTimeout(r, 90))
       // ONE request — the reveal claim, which rule 4 sends whether or not the
       // size moved — and it asks for the size the server already holds, so the
       // server forwards nothing to the daemon (see T9's server half).
@@ -468,7 +472,7 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
     const observer = withCapturingResizeObserver()
     let grid = { cols: 104, rows: 33 }
     withProposal(() => grid)
-    const { hub, calls } = fakeHub({ cols: 104, rows: 31 })
+    const { hub, calls, attached } = fakeHub({ cols: 104, rows: 31 })
 
     const mounted = mountSession(host(), {
       hub,
@@ -477,6 +481,8 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       initialGeometry: { cols: 104, rows: 31 },
     })
     try {
+      attached()
+      await new Promise((r) => setTimeout(r, 90))
       expect(calls.claims).toEqual([{ cols: 104, rows: 33 }])
 
       grid = { cols: 104, rows: 31 }
@@ -484,15 +490,11 @@ describe('C17 (REWRITTEN — this is the fix): a cold mount at W claims once and
       observer.fire()
       await new Promise((r) => setTimeout(r, 90))
       expect(calls.resize).toEqual([[104, 31]])
-      // A LATER box event re-states the same box (POD-3190 rev 3): the browser
-      // keeps no record of what it asked. The server compares the statement
-      // with what it last forwarded and drops the repeat.
+      // A repeated observer delivery inside an unchanged outer box is not a
+      // sizing trigger (POD-5560), including a self-caused scrollbar toggle.
       observer.fire()
       await new Promise((r) => setTimeout(r, 90))
-      expect(calls.resize, 'a later box event restates the box').toEqual([
-        [104, 31],
-        [104, 31],
-      ])
+      expect(calls.resize, 'an unchanged measured box stays quiet').toEqual([[104, 31]])
     } finally {
       mounted.dispose()
     }

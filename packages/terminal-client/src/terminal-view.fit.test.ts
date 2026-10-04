@@ -8,7 +8,7 @@
 // POD-3239 deleted `TerminalView.fit()`, which MEASURED AND APPLIED in one call.
 // Applying a local measurement is what MODEL rule 2 forbids, so what is left is
 // `proposeFit` / `proposeFitIn`, and the guards below moved onto them.
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { TerminalView } from './terminal-view'
 
 beforeAll(() => {
@@ -21,6 +21,33 @@ beforeAll(() => {
     }
   }
 })
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+/** happy-dom cannot measure glyphs; supply the renderer's primitive measurement. */
+function deviceCell(view: TerminalView, width: number, height: number) {
+  const service = (
+    view as unknown as {
+      term: {
+        _core: {
+          _renderService: {
+            readonly dimensions: { device: { cell: { width: number; height: number } } }
+          }
+        }
+      }
+    }
+  ).term._core._renderService
+  const dimensions = service.dimensions
+  const cell = { width, height }
+  vi.spyOn(service, 'dimensions', 'get').mockImplementation(() => ({
+    ...dimensions,
+    device: { ...dimensions.device, cell },
+  }))
+  return cell
+}
 
 describe('TerminalView.isFittable()', () => {
   it('keeps the DOM renderer when explicitly selected for a crop viewport', () => {
@@ -89,9 +116,80 @@ describe('the measurement seam’s readiness guard', () => {
     if (!screen) throw new Error('xterm screen is unavailable')
     screen.getBoundingClientRect = () => ({ width: 800, height: 480 }) as DOMRect
     viewport.getBoundingClientRect = () => ({ width: 400, height: 240 }) as DOMRect
+    deviceCell(view, 10, 20)
 
     expect(view.proposeFitIn(viewport)).toEqual({ cols: 40, rows: 12 })
     expect({ cols: view.cols(), rows: view.rows() }).toEqual({ cols: 80, rows: 24 })
+    view.dispose()
+  })
+
+  it('settles a fractional viewport instead of alternating 113 and 114 columns after each resize', () => {
+    const host = document.createElement('div')
+    const viewport = document.createElement('div')
+    viewport.style.padding = '12px 13px 20px'
+    document.body.append(viewport)
+    const view = new TerminalView({ renderer: 'dom', cols: 114, rows: 39 })
+    view.mount(host)
+    deviceCell(view, 9.03076171875, 20)
+    const screen = host.querySelector<HTMLElement>('.xterm-screen')!
+    // Real DOM renderer measurements from the POD-5560 scrollbar reproduction:
+    // screen(113)=1020px, screen(114)=1030px, available width=1029.265625px.
+    // The old division by current columns alternates forever at this fixed box.
+    screen.getBoundingClientRect = () =>
+      ({
+        width: Math.round(view.cols() * 9.03076171875),
+        height: view.rows() * 20,
+      }) as DOMRect
+    viewport.getBoundingClientRect = () => ({ width: 1055.265625, height: 824 }) as DOMRect
+
+    const proposals = []
+    for (let i = 0; i < 8; i++) {
+      const grid = view.proposeFitIn(viewport)!
+      proposals.push(grid)
+      view.resize(grid.cols, grid.rows)
+    }
+    expect(proposals).toEqual(Array.from({ length: 8 }, () => ({ cols: 113, rows: 39 })))
+    view.dispose()
+    viewport.remove()
+  })
+
+  it('uses device density and fresh cell metrics without waiting for the resized screen to paint', () => {
+    vi.stubGlobal('devicePixelRatio', 1.25)
+    const host = document.createElement('div')
+    const viewport = document.createElement('div')
+    const view = new TerminalView({ renderer: 'dom' })
+    view.mount(host)
+    const cell = deviceCell(view, 11, 25)
+    const screen = host.querySelector<HTMLElement>('.xterm-screen')!
+    // Keep the old screen pixels even as an asynchronous server resize changes W.
+    screen.getBoundingClientRect = () => ({ width: 704, height: 480 }) as DOMRect
+    viewport.getBoundingClientRect = () => ({ width: 900, height: 500 }) as DOMRect
+
+    expect(view.proposeFitIn(viewport)).toEqual({ cols: 102, rows: 25 })
+    view.resize(102, 25)
+    expect(view.proposeFitIn(viewport)).toEqual({ cols: 102, rows: 25 })
+    // A new font/renderer measurement takes effect at the same viewport size.
+    cell.width = 12.5
+    cell.height = 31.25
+    expect(view.proposeFitIn(viewport)).toEqual({ cols: 90, rows: 20 })
+    view.dispose()
+  })
+
+  it.each([
+    0,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+  ])('rejects an unready cell metric of %s', (metric) => {
+    const host = document.createElement('div')
+    const viewport = document.createElement('div')
+    viewport.getBoundingClientRect = () => ({ width: 800, height: 480 }) as DOMRect
+    const view = new TerminalView({ renderer: 'dom' })
+    view.mount(host)
+    const cell = deviceCell(view, metric, 20)
+    expect(view.proposeFitIn(viewport)).toBeUndefined()
+    cell.width = 10
+    cell.height = metric
+    expect(view.proposeFitIn(viewport)).toBeUndefined()
     view.dispose()
   })
 
