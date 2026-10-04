@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
 import { cleanup, render, screen } from '@testing-library/react'
+import { issueDisplayRef } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
@@ -14,12 +15,6 @@ describe('UnifiedIssueRow handoff copy', () => {
       seq: 766,
       displayRef: 'POD-766',
       title: 'Original task',
-    })
-    const replacement = makeIssue({
-      id: 'next',
-      seq: 815,
-      displayRef: 'POD-815',
-      title: 'Replacement task',
     })
     const moved = makeIssue({
       id: 'moved',
@@ -44,11 +39,8 @@ describe('UnifiedIssueRow handoff copy', () => {
     render(
       <UnifiedIssueRow
         row={row}
-        sessions={[]}
-        issues={[origin, moved, replacement]}
-        allWorktreePaths={[]}
-        selectedIssueId={null}
-        paneA={null}
+        active={false}
+        origin={{ id: origin.id, seq: origin.seq, title: origin.title, ref: issueDisplayRef(origin) }}
         now={Date.parse('2026-08-12T12:00:00.000Z')}
         onSelectIssue={vi.fn()}
         onSelectPanelForIssue={vi.fn()}
@@ -97,11 +89,8 @@ describe('UnifiedIssueRow handoff copy', () => {
     render(
       <UnifiedIssueRow
         row={row}
-        sessions={[]}
-        issues={[shipped]}
-        allWorktreePaths={[]}
-        selectedIssueId={null}
-        paneA={null}
+        active={false}
+        origin={null}
         now={Date.parse('2026-08-17T12:18:00.000Z')}
         onSelectIssue={vi.fn()}
         onSelectPanelForIssue={vi.fn()}

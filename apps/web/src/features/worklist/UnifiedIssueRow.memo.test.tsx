@@ -1,25 +1,7 @@
 // @vitest-environment happy-dom
-/**
- * ROW-LEVEL RENDER COUNTS (POD-4421).
- *
- * Every visible worklist row used to re-render on every publish: each row
- * received the whole `issues`/`sessions` arrays (fresh identities per
- * publish) plus fresh closures, and then ran its own `issues.find` on top.
- * The fix narrows each row to its row object (stable via
- * `reuseUnifiedWorkRows`) plus scalars with stable references, behind `memo`.
- *
- * This probe counts `WorkRowShell` renders per row (the shell renders exactly
- * once per row render, inside the memo boundary) across an unrelated publish
- * — a change to row B while A and C keep their object identities:
- *
- *   FIXED arm: only B commits (1 row render for 1 changed row).
- *   LEGACY arm (the pre-fix data flow — whole arrays + fresh closures into
- *   the unmemoized row): A and C commit too, so it FAILS the fixed assertion.
- *
- * The control dimension is the visible output: both arms must render
- * byte-identical text after the publish, so the win cannot come from doing
- * less work.
- */
+/** Pool-only row regression. An unrelated publication changes row B;
+ * A and C retain their objects, scalars and callbacks. The last green legacy
+ * control's identical text is frozen below; only B may render. */
 
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
@@ -28,7 +10,7 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { poolIssueDisplay } from './pool-row-data'
-import { UnifiedIssueRow, UnifiedIssueRowInner } from './UnifiedIssueRow'
+import { UnifiedIssueRow } from './UnifiedIssueRow'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const shellCounts = vi.hoisted(() => new Map<string, number>())
@@ -56,7 +38,7 @@ const PROG_A = { total: 3, done: 1, run: 1, review: 0, stall: 0, block: 0, wait:
 const PROG_B = { total: 2, done: 0, run: 1, review: 0, stall: 0, block: 0, wait: 1 }
 const PROG_C = { total: 4, done: 2, run: 0, review: 0, stall: 0, block: 0, wait: 2 }
 
-it('preserves legacy continuation text ahead of child progress and pending decisions', () => {
+it('preserves continuation text ahead of child progress and pending decisions', () => {
   const row = {
     ...baseRows(baseIssues()).rowA,
     continuation: 'continued · POD-2',
@@ -73,9 +55,6 @@ it('preserves legacy continuation text ahead of child progress and pending decis
     onOpenIssue: fixedOpen,
     onRenameIssue: fixedRename,
   }
-  const legacy = render(<UnifiedIssueRow {...props} />)
-  expect(legacy.getByText('continued · POD-2')).toBeTruthy()
-  legacy.unmount()
   const facts = {
     issue: row.issue,
     timing: { phase: 'queued', sinceMs: 1 },
@@ -140,41 +119,6 @@ function baseRows(issues: ReturnType<typeof baseIssues>): {
   }
 }
 
-/** Legacy list: the pre-fix data flow — whole arrays, fresh closures, no memo. */
-function LegacyList({
-  rows,
-  issues,
-  sessions,
-  paths,
-}: {
-  rows: ReturnType<typeof baseRows>
-  issues: unknown[]
-  sessions: never[]
-  paths: string[]
-}) {
-  const list = [rows.rowA, rows.rowB, rows.rowC] as const
-  return (
-    <>
-      {list.map((row) => (
-        <UnifiedIssueRowInner
-          key={row.issue.id}
-          row={row as never}
-          sessions={sessions as never}
-          issues={issues as never}
-          allWorktreePaths={paths}
-          selectedIssueId={null}
-          paneA={null}
-          now={NOW}
-          onSelectIssue={(issue) => void issue}
-          onSelectPanelForIssue={(issue, sid) => void [issue, sid]}
-          onOpenIssue={(id) => void id}
-          onRenameIssue={(id, title) => void [id, title]}
-        />
-      ))}
-    </>
-  )
-}
-
 /** Fixed list: narrow scalars + stable callbacks into the memoized row. */
 const fixedSelect = vi.fn()
 const fixedSelectPanel = vi.fn()
@@ -236,44 +180,8 @@ function FixedList({
 }
 
 describe('worklist row memo (POD-4421)', () => {
-  it('commits only the changed row on an unrelated publish; legacy repaints all', () => {
-    // ---- LEGACY arm ----
-    const legacyIssues = baseIssues()
-    const legacyRows = baseRows(legacyIssues)
-    const legacy = render(
-      <LegacyList
-        rows={legacyRows}
-        issues={[legacyIssues.a, legacyIssues.b, legacyIssues.c]}
-        sessions={[]}
-        paths={[]}
-      />,
-    )
-    shellCounts.clear()
-    // Unrelated publish: B's issue object changes; A and C keep theirs — but
-    // the arrays themselves are fresh identities, as every store publish makes.
-    const legacyB2 = { ...legacyIssues.b, title: 'Bravo!' }
-    const legacyRows2 = {
-      ...legacyRows,
-      rowB: { ...legacyRows.rowB, issue: legacyB2, activityAt: 4 },
-    }
-    legacy.rerender(
-      <LegacyList
-        rows={legacyRows2}
-        issues={[legacyIssues.a, legacyB2, legacyIssues.c]}
-        sessions={[]}
-        paths={[]}
-      />,
-    )
-    const legacyAfter = new Map(shellCounts)
-    const legacyText = legacy.container.textContent ?? ''
-    legacy.unmount()
+  it('commits only the changed row on an unrelated publish with the last green text', () => {
 
-    // The control must FAIL the new assertion: unchanged rows committed.
-    expect(legacyAfter.get('a')).toBeGreaterThan(0)
-    expect(legacyAfter.get('c')).toBeGreaterThan(0)
-    expect(legacyAfter.get('b')).toBeGreaterThan(0)
-
-    // ---- FIXED arm ----
     shellCounts.clear()
     fixedResolvers.clear()
     const fixedIssues = baseIssues()
@@ -310,9 +218,7 @@ describe('worklist row memo (POD-4421)', () => {
     )
     const fixedAfter = new Map(shellCounts)
     const fixedText = fixed.container.textContent ?? ''
-    console.info('POD5438 final row control ' + JSON.stringify({
-      legacyText, fixedText, legacyRenders: Object.fromEntries(legacyAfter), poolRenders: Object.fromEntries(fixedAfter),
-    }))
+
     fixed.unmount()
 
     // Only the changed row committed.
@@ -320,12 +226,12 @@ describe('worklist row memo (POD-4421)', () => {
     expect(fixedAfter.get('a') ?? 0).toBe(0)
     expect(fixedAfter.get('c') ?? 0).toBe(0)
 
-    // Control dimension: identical visible output in both arms.
-    expect(fixedText).toBe(legacyText)
+    // Frozen output from the last green parity control.
+    expect(fixedText).toBe("POD-11Alphain progressPOD-22Bravo!in progress⤷ 1POD-33Charliein progress")
     for (const title of ['Alpha', 'Bravo!', 'Charlie']) {
       expect(fixedText).toContain(title)
     }
-    // The origin tick survived the narrowing in both arms.
+    // The addressed origin tick remains visible.
     expect(fixedText).toContain('⤷ 1')
   })
 })

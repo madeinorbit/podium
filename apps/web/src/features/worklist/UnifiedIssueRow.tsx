@@ -1,10 +1,7 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   isDraftAgentVessel,
-  issueDisplayTitle,
   type MissionProgress,
-  missionProgress,
   pendingDecisionTitle,
   rowErrorLine,
   rowHasWorkingSession,
@@ -24,7 +21,6 @@ import {
   issueReturnedFromDefer,
   type SessionId,
 } from '@podium/model/browser'
-import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { lazy, memo, Suspense, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
@@ -71,9 +67,7 @@ function flashLineage(issueId: IssueId): void {
  * The spin-off origin a row displays, narrowed to what the tick renders
  * (POD-4421). The parent resolves the `discovered-from` edge once per list
  * through a by-id map and hands each row its own tick; the row never sees the
- * whole issue array. `null` = no origin tick. `undefined` = legacy path —
- * resolve from the `issues` prop as before (kept so existing callers and the
- * legacy arm of the memo probe keep compiling).
+ * whole issue array. `null` = no origin tick.
  */
 export interface UnifiedIssueRowOrigin {
   id: IssueId
@@ -115,13 +109,8 @@ export interface UnifiedIssueRowMenuData {
  * to re-render every visible row on every publish, and each row then ran its
  * own `issues.find` on top.
  */
-export function UnifiedIssueRowInner({
+function UnifiedIssueRowInner({
   row,
-  sessions: allSessions,
-  issues,
-  allWorktreePaths,
-  selectedIssueId,
-  paneA,
   now,
   onSelectIssue,
   onSelectPanelForIssue,
@@ -132,23 +121,12 @@ export function UnifiedIssueRowInner({
   shortcutDigit,
   displayTitle: displayTitleProp,
   progress: progressProp,
-  origin: originProp,
-  active: activeProp,
+  origin = null,
+  active = false,
   resolveMenuData,
   display,
 }: {
   row: UnifiedIssueRowView
-  /** @deprecated Narrow path prefers `displayTitle`/`progress`/`origin`. */
-  sessions?: SessionView[]
-  /** Whole issue list — the context menu's label pool / duplicate targets.
-   *  @deprecated Narrow path prefers `origin` + `resolveMenuData`. */
-  issues?: IssueNavigationModel[]
-  /** @deprecated Narrow path prefers `displayTitle`. */
-  allWorktreePaths?: string[]
-  /** @deprecated Narrow path prefers `active`. */
-  selectedIssueId?: IssueId | null
-  /** @deprecated Narrow path precomputes `active` (paneA rule included). */
-  paneA?: string | null
   now: number
   onSelectIssue: (issue: IssueNavigationModel) => void
   onSelectPanelForIssue: (issue: IssueNavigationModel, sessionId: SessionId) => void
@@ -166,7 +144,7 @@ export function UnifiedIssueRowInner({
   displayTitle?: string
   /** Narrow progress: the row's own rollup, fallback computed per list. */
   progress?: MissionProgress
-  /** Narrow origin tick. `null` = none; `undefined` = legacy lookup. */
+  /** Narrow origin tick; absent means none. */
   origin?: UnifiedIssueRowOrigin | null
   /** Narrow selection (the draft paneA rule already applied by the parent). */
   active?: boolean
@@ -176,22 +154,11 @@ export function UnifiedIssueRowInner({
   display?: PoolIssueDisplay
 }): JSX.Element {
   const { issue, sessions: mine } = row
-  const legacyActive = selectedIssueId === issue.id
-  const baseActive = activeProp ?? legacyActive
-  const active =
-    activeProp !== undefined
-      ? activeProp
-      : draftActiveFallback(issue, mine, baseActive, paneA ?? null)
   const unread = display?.unread ?? rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the
-  // composer's placeholder (see `issueDisplayTitle`). Narrow path: the parent
-  // computed it once per list; legacy path: compute here as before.
-  const label =
-    displayTitleProp ??
-    (allSessions && allWorktreePaths
-      ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
-      : issue.title)
+  // composer's placeholder. The parent computes the display title once.
+  const label = displayTitleProp ?? issue.title
   // The rename lifecycle and its commit policy live in `use-inline-rename.ts`;
   // the row keeps only the slot it renders into. Opened on the LABEL, not the
   // stored title: an editor that opens on a draft showing one name and offers
@@ -216,16 +183,9 @@ export function UnifiedIssueRowInner({
   const errorLine = display ? display.errorLine : rowErrorLine(row)
   const timing = display?.timing ?? rowMotionTiming(row)
   // The published row carries the Flight Deck's child-task rollup. Direct
-  // component fixtures use the same derivation as a fallback. Narrow path:
-  // the parent computed the fallback once per list.
+  // component fixtures can supply the same rollup on their addressed row.
   const progress =
-    progressProp ??
-    row.missionRollup?.progress ??
-    (issues && allSessions
-      ? // Direct component fixtures predate the published row rollup. Keep their
-        // fallback on the same canonical derivation rather than inventing another.
-        missionProgress(issues, allSessions, issue.id)
-      : (row.missionRollup?.progress ?? fallbackEmptyProgress()))
+    progressProp ?? row.missionRollup?.progress ?? fallbackEmptyProgress()
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the
@@ -236,10 +196,7 @@ export function UnifiedIssueRowInner({
   const idLabel = idSquareLabel(issue)
   // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
   // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
-  // the row flashes the origin. Narrow path: the parent resolved the edge
-  // through a by-id map once per list; legacy path: `issues.find` as before.
-  const origin: UnifiedIssueRowOrigin | null | undefined =
-    originProp !== undefined ? originProp : legacyOriginTick(issue, issues)
+  // the row flashes the origin. The parent supplies the addressed origin tick.
   // A closed handoff points FORWARD. That answer outranks the provenance tick:
   // an old row saying only "done ⤷ 766" explains its ancestry but gives no
   // route to the task where the work actually continued.
@@ -449,31 +406,6 @@ export function UnifiedIssueRowInner({
   )
 }
 
-/** Legacy draft-paneA rule, kept for callers still on `selectedIssueId`. */
-function draftActiveFallback(
-  issue: IssueNavigationModel,
-  mine: SessionView[],
-  baseActive: boolean,
-  paneA: string | null,
-): boolean {
-  if (!isDraftAgentVessel(issue, mine)) return baseActive
-  const first = mine[0]
-  return baseActive && paneA === (first?.sessionId ?? null)
-}
-
-/** Legacy origin lookup, narrowed at the boundary so rendering stays uniform. */
-function legacyOriginTick(
-  issue: IssueNavigationModel,
-  issues: IssueNavigationModel[] | undefined,
-): UnifiedIssueRowOrigin | null {
-  if (!issues) return null
-  const dep = issue.deps.find((d) => d.type === 'discovered-from')
-  if (!dep) return null
-  const found = issues.find((i) => i.id === dep.id)
-  if (!found) return null
-  return { id: found.id, seq: found.seq, title: found.title, ref: issueDisplayRef(found) }
-}
-
 function fallbackEmptyProgress(): MissionProgress {
   return { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
 }
@@ -510,7 +442,5 @@ const ResolvedIssueMenu = observer(function ResolvedIssueMenu({
  * `row` is stable via `reuseUnifiedWorkRows`, `displayTitle`/`active`/
  * `shortcutDigit`/`now` are scalars, `progress`/`origin` keep stable
  * references for unchanged rows, and every callback is a stable reference.
- * Legacy arms that still pass fresh whole arrays per publish intentionally
- * miss this memo — that miss is the control in the render-count probe.
  */
 export const UnifiedIssueRow = memo(measureSidebarRow(UnifiedIssueRowInner))
