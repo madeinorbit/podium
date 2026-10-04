@@ -293,3 +293,19 @@ converted controls exercise the actual mobile pool task/screening reader and
 retain the literal row order, nesting, proposals, progress and ordered decision
 calls. The screening command interface, decision function and tally remain
 byte-identical. No expected screen snapshot was regenerated.
+
+The final candidate `6972c1162a` passed the filtered mobile/e2e compiler on
+flatblock: sixteen tasks successful, fourteen cached, and all 216 e2e imports
+resolve. The foreground run used Bun 1.4.2, WIP `7ed32cd463e9`, UTC
+00:57:08.588–00:57:22.790 and load 4.63/6.55. Focused lint had already passed
+for 92 explicit phone files and seven explicit graph files; the graph lint ran
+from its configured package root so its import fences applied. The earlier
+empty-manifest lint attempt is excluded from this evidence; corrected manifests
+refuse an empty selection before starting a tool.
+
+The ensuing 35-file focused regression run exposed a test-support race: the
+host publishes the pool before lazy screen readers have attached. The fixture
+now waits for the actual readers and launch catalog, then settles requested
+batched loads. Custom counter fixtures still own their own measurement windows.
+No production host or expected output changed. The corrected fixture and the
+production screening/preference proof still await their final focused checks.
