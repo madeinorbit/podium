@@ -17,6 +17,7 @@
 
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
@@ -38,7 +39,7 @@ import { render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
-import { attachMobilePool, useMobilePool } from './mobile-pool'
+import { attachMobilePool, useMobilePool, useMobilePoolProjection } from './mobile-pool'
 import { MobileShellProvider } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 import { createMobileTestReplica } from './test-replica'
@@ -176,9 +177,13 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   }
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
+  let pool: MobxPool | null = null
   let ready = false
   function PoolReady() {
-    ready = useMobilePool() !== null
+    pool = useMobilePool()
+    // The host publishes the pool before its lazy screen sources finish attaching.
+    // A fixture is ready only when the actual readers and launch facts are present.
+    ready = useMobilePoolProjection(readReady, false)
     return null
   }
 
@@ -270,14 +275,33 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
       await Promise.resolve()
     })
   }
-  if (!fixture.attachRuntime)
+  if (!fixture.attachRuntime) {
     await waitFor(() => {
       if (!ready) throw new Error('Mobile pool is attaching')
     })
+    // Paint may ask for cold inputs after source attachment. Settle the production
+    // batched loader; custom counter fixtures retain control of their own windows.
+    for (let turn = 0; turn < 100; turn++) {
+      let loaded = 0
+      await act(async () => {
+        loaded = pool?.hydrate() ?? 0
+      })
+      if (loaded === 0) break
+      if (turn === 99) throw new Error('Mobile fixture loads did not settle')
+    }
+  }
   return {
     ...result,
     replica,
     api,
     emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
   }
+}
+
+function readReady(pool: MobxPool): boolean {
+  for (const kind of ['mobileScreenReader', 'mobileSessionReader', 'commandCatalog'] as const) {
+    const row = pool.row(kind, kind === 'commandCatalog' ? 'catalog' : 'reader')
+    if (!row || typeof row === 'symbol') return false
+  }
+  return true
 }
