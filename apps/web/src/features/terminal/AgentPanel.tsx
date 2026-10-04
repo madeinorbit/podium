@@ -1,5 +1,4 @@
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
-import { shallowEqual } from '@podium/client-core/store'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 
 export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelMode }
@@ -38,7 +37,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { useSessionDraft, useStoreSelector } from '@/app/store'
+import { usePendingSpawnPrompt, useRuntimeActions, useRuntimeDraft } from '@/app/keyed-runtime'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -199,7 +198,7 @@ function SessionDraftRef({
   sessionId: SessionId
   valueRef: { current: string }
 }): null {
-  valueRef.current = useSessionDraft(sessionId)
+  valueRef.current = useRuntimeDraft(sessionId)
   return null
 }
 
@@ -207,6 +206,11 @@ type DesktopSessionGlobals = {
   __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
   __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
 }
+
+const PANEL_ACTIONS = [
+  'hub', 'trpc', 'startBtw', 'setSessionDraft', 'hibernateSession',
+  'dismissOffer', 'sendChat', 'openFile', 'uiState', 'navigateToSession',
+] as const
 
 export function AgentPanel({
   sessionId,
@@ -225,24 +229,7 @@ export function AgentPanel({
     openFile,
     uiState,
     navigateToSession,
-  } = useStoreSelector(
-    (s) => ({
-      hub: s.hub,
-      // `repos` is deliberately NOT selected (POD-1704). Its only use here was the
-      // worktree-missing guess; subscribing to it re-rendered every agent panel on
-      // each repo scan for a fact the panel had no business deriving.
-      trpc: s.trpc,
-      startBtw: s.startBtw,
-      setSessionDraft: s.setSessionDraft,
-      hibernateSession: s.hibernateSession,
-      dismissOffer: s.dismissOffer,
-      sendChat: s.sendChat,
-      openFile: s.openFile,
-      uiState: s.uiState,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  } = useRuntimeActions(PANEL_ACTIONS)
   const session = usePaneSession(sessionId)
   const machines = usePaneMachines()
   const { selectedIssueId, stampIssue, issueHex } = usePaneOwnership(session)
@@ -273,9 +260,7 @@ export function AgentPanel({
     }
   }, [loginTerminalBusy, session, trpc])
   const spawnConfirmed = usePaneSpawnConfirmed(sessionId)
-  const observedOptimisticFirstPrompt = useStoreSelector((s) =>
-    s.pendingSpawnPrompts.get(sessionId),
-  )
+  const observedOptimisticFirstPrompt = usePendingSpawnPrompt(sessionId)
   // Replica confirmation retires the engine's prompt seed at the same time it
   // can move this panel between live/parked/ended surface branches. Those
   // branches remount ChatView, so retain the seed one level higher until the

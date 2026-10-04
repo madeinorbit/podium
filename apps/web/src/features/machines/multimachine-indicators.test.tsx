@@ -216,6 +216,22 @@ describe('memory chip is machine-aware', () => {
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
     )
   })
+
+  it('keeps memory process labels for addressed sessions and unknown ids', async () => {
+    sessions = [agentSession('known-session', 'working')]
+    memoryBreakdown.mockResolvedValue({
+      ...breakdownFor('vmi'),
+      agents: [
+        { sessionId: 'known-session', bytes: 1e9, processCount: 2 },
+        { sessionId: 'missing-session', bytes: 1e8, processCount: 1 },
+      ],
+    })
+    render(<HostIndicators />)
+    fireEvent.click(screen.getByRole('button', { name: /vmi — memory/i }))
+    expect(await screen.findByText('Codex — known-session')).toBeTruthy()
+    expect(screen.getByText('missing-')).toBeTruthy()
+    expect(screen.getByText('2 processes')).toBeTruthy()
+  })
 })
 
 describe('quota overlay groups by account', () => {

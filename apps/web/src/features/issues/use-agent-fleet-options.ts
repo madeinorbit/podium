@@ -1,4 +1,3 @@
-import { shallowEqual } from '@podium/client-core/store'
 /**
  * ONE READING OF "CAN THIS HARNESS RUN HERE", FOR EVERY ISSUE SURFACE (POD-1457).
  *
@@ -22,7 +21,7 @@ import { type RepoView, reposToViews } from '@podium/client-core/viewmodels'
 import { machinesForRepoOrClone } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { useStoreSelector } from '@/app/store'
+import { useRuntimeList } from '@/app/keyed-runtime'
 import { agentFleetStatus, candidateFromAvailability } from '@/lib/agent-capability'
 import {
   ISSUE_AGENT_KINDS,
@@ -50,10 +49,8 @@ export interface AgentFleetOption {
 export function useAgentFleetOptions(
   issue: Partial<Pick<IssueViewModel, 'repoPath'>>,
 ): AgentFleetOption[] {
-  const { repos, machines } = useStoreSelector(
-    (s) => ({ repos: s.repos, machines: s.machines }),
-    shallowEqual,
-  )
+  const repos = useRuntimeList('repos')
+  const machines = useRuntimeList('machines')
   const repoPath = issue.repoPath
   return useMemo(() => {
     const repoView: RepoView | undefined = reposToViews(repos).find((r) => r.path === repoPath)

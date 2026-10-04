@@ -1,8 +1,9 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import type { MobxPool } from '@podium/client-graph'
 import type { SessionId} from '@podium/model'
-import { useEffect, useRef } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useCallback, useEffect, useRef } from 'react'
+import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 type DockShellLifecycleSession = Pick<
   SessionView,
@@ -49,19 +50,34 @@ export function staleDockShellIds(
  * of whether the Shell panel itself is open. The device-local mapping remains
  * in place so opening the panel can recognize the dead row and replace it.
  */
+const ACTIONS = ['trpc'] as const
+const EMPTY_IDS: SessionId[] = []
+
+/** Ask only about mapped identities, using the pool's declared cold fields. */
+export function useStaleDockShellIds(): SessionId[] {
+  const dockShells = useRuntimeLocal('dockShells')
+  const read = useCallback((pool: MobxPool) => {
+    const sessions = [...new Set(Object.values(dockShells))]
+      .filter(id => !pool.queries.collapsed(id))
+      .sort((a, b) => {
+        const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+        return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
+      })
+      .flatMap(id => {
+        const row = pool.row('session', id, 'summary-fields')
+        return row && typeof row !== 'symbol' ? [row as DockShellLifecycleSession] : []
+      })
+    return staleDockShellIds(dockShells, sessions)
+  }, [dockShells])
+  return useWorklistPoolProjection(read, EMPTY_IDS)
+}
+
 export function DockShellLifecycle(): null {
-  const { dockShells, sessions, trpc } = useStoreSelector(
-    (state) => ({
-      dockShells: state.dockShells,
-      sessions: state.sessions,
-      trpc: state.trpc,
-    }),
-    shallowEqual,
-  )
+  const { trpc } = useRuntimeActions(ACTIONS)
+  const staleIds = useStaleDockShellIds()
   const requested = useRef(new Set<SessionId>())
 
   useEffect(() => {
-    const staleIds = staleDockShellIds(dockShells, sessions)
     const stale = new Set(staleIds)
     for (const sessionId of requested.current) {
       if (!stale.has(sessionId)) requested.current.delete(sessionId)
@@ -73,7 +89,7 @@ export function DockShellLifecycle(): null {
         .mutate({ sessionId, archived: true })
         .catch(() => requested.current.delete(sessionId))
     }
-  }, [dockShells, sessions, trpc])
+  }, [staleIds, trpc])
 
   return null
 }

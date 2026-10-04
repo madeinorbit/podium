@@ -19,6 +19,7 @@ import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { useHostMetrics, useStoreSelector } from '@/app/store'
+import { usePoolSessionLabels } from '@/app/header-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -161,10 +162,9 @@ function MemoryPanel({
   machineId?: MachineId
 }): JSX.Element {
   const hostMetrics = useHostMetrics()
-  const { trpc, sessions, setView, setSettingsTab } = useStoreSelector(
+  const { trpc, setView, setSettingsTab } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      sessions: s.sessions,
       setView: s.setView,
       setSettingsTab: s.setSettingsTab,
     }),
@@ -182,8 +182,9 @@ function MemoryPanel({
     read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
   })
 
+  const sessions = usePoolSessionLabels(data?.agents.map(agent => agent.sessionId) ?? [])
   const sessionLabel = (sessionId: SessionId): string => {
-    const s = sessions.find((s) => s.sessionId === sessionId)
+    const s = sessions[sessionId]
     if (!s) return sessionId.slice(0, 8)
     return `${panelLabel(s.agentKind)} — ${s.title}`
   }

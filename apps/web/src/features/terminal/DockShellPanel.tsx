@@ -1,12 +1,11 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import { resolveIssueReference } from '@podium/client-core/viewmodels'
 import type { MachineWire, SessionId, MachineId } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -15,7 +14,7 @@ import { dockShellIsDead, dockShellIsParked } from './dock-shell-lifecycle'
 import { prettyCwd } from './pretty-cwd'
 import { HibernatedPane } from './SessionLifecyclePanes'
 import { useTerminalAppearance } from './use-terminal-appearance'
-import { useDockPaneInputs, usePaneMachines } from './use-session-pane-inputs'
+import { useDockPaneInputs, usePaneMachines, usePaneReferenceStages } from './use-session-pane-inputs'
 
 /**
  * The right dock's Shell panel (#23) [spec:SP-75b1]: one shell session per
@@ -214,9 +213,9 @@ function DockShellTerminal({
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
-  const issues = useReplicaIssues()
-  const issuesRef = useRef(issues)
-  issuesRef.current = issues
+  const references = usePaneReferenceStages()
+  const referencesRef = useRef(references)
+  referencesRef.current = references
   const { containerRef, viewportRef, ready, mountedRef } = useTerminalSession({
     hub,
     sessionId,
@@ -232,7 +231,7 @@ function DockShellTerminal({
       mounted.view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
-        resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+        resolveStage: (ref) => referencesRef.current.resolveStage(ref),
       })
     },
   })
@@ -243,9 +242,14 @@ function DockShellTerminal({
     view.setRefLinks({
       isKnownPrefix: (p) => isKnownRefPrefix(p),
       onActivate: (ref, event) => activateRef(ref, event),
-      resolveStage: (ref) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+      resolveStage: (ref) => referencesRef.current.resolveStage(ref),
     })
-  }, [issues, mountedRef])
+    return references.subscribe(() => view.setRefLinks({
+      isKnownPrefix: (p) => isKnownRefPrefix(p),
+      onActivate: (ref, event) => activateRef(ref, event),
+      resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+    }))
+  }, [references, mountedRef])
   return (
     <div
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"

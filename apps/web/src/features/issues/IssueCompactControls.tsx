@@ -31,6 +31,7 @@ import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
+import { usePoolMachines } from '@/app/header-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -505,15 +506,15 @@ export function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, machines, updateIssue, closeIssue } = useStoreSelector(
+  const { trpc, updateIssue, closeIssue } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      machines: s.machines,
       updateIssue: s.updateIssue,
       closeIssue: s.closeIssue,
     }),
     shallowEqual,
   )
+  const machines = usePoolMachines()
   const issues = useIssuePageIssues()
   const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)

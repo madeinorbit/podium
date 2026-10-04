@@ -1,4 +1,5 @@
 import '@/test-support/mock-pool-fixture'
+import { withKeyedInputs } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
@@ -17,11 +18,13 @@ import {
 } from './IssueCompactControls'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
+const owner = withKeyedInputs({
+  getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot((state) => state)),
+  subscribe: () => () => {},
+})
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({
-    getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot((state) => state)),
-  }),
+  useStoreHandle: () => owner,
 }))
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))

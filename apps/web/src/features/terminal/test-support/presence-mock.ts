@@ -13,13 +13,23 @@
  *     (await import('./test-support/presence-mock')).presenceSeamStub())
  */
 
+import { withKeyedInputs } from '@podium/client-core/engine'
+import { useStoreSelector as readFixture } from '@/app/store'
 import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
+
+// The action owner and keyed locals are the same fixture the suite paints.
+// Conversation rows retain their independently controlled snapshot handle.
+const paneOwner = withKeyedInputs({
+  getSnapshot: () => Object.create(readFixture(state => state),
+    Object.getOwnPropertyDescriptors(fakeStoreHandle.getSnapshot())),
+  subscribe: fakeStoreHandle.subscribe,
+})
 
 export function presenceSeamStub(): Record<string, unknown> {
   return {
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
-    useStoreHandle: () => fakeStoreHandle,
+    useStoreHandle: () => paneOwner,
     useModelCatalog: () => ({}),
     // Served harness descriptors (POD-4475): provider-free suites render
     // against the bundled copy.

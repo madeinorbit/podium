@@ -18,7 +18,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  * that is not where they end up.
  */
 
-import { focusedPaneSession } from '@podium/client-core/engine'
+import { allTabIds, leafPaneIds } from '@podium/client-core/viewmodels'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
 import {
@@ -29,8 +29,9 @@ import {
   parseServerVersion,
   podiumTargetPath,
 } from '@podium/protocol'
-import { useEffect, useState } from 'react'
-import { type Store, useStoreSelector } from '@/app/store'
+import { useCallback, useEffect, useState } from 'react'
+import { type Store } from '@/app/store'
+import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
@@ -149,20 +150,23 @@ export function useMobileHandoffUrl(
 }
 
 /** The session in the pane the operator is actively using. */
+const FOCUS_ACTIONS = ['workspaceKey'] as const
 export function useFocusedHandoffSessionId(): string | null {
-  return useStoreSelector((store) => {
-    // Focused component tests intentionally expose only the fields their
-    // subject reads. Treat those partial fixtures like a shell with no focused
-    // session rather than making an unrelated handoff affordance throw.
-    if (
-      !Array.isArray(store.issueProjections) ||
-      !store.workspaces ||
-      typeof store.workspaces !== 'object'
-    ) {
-      return null
-    }
-    return focusedPaneSession(store)
-  })
+  const { workspaceKey } = useRuntimeActions(FOCUS_ACTIONS)
+  const workspaces = useRuntimeLocal('workspaces')
+  const paneA = useRuntimeLocal('paneA'), paneB = useRuntimeLocal('paneB')
+  const split = useRuntimeLocal('split'), focus = useRuntimeLocal('focusedPane')
+  // Selection changes can resolve to a different existing layout.
+  const selectedIssueId = useRuntimeLocal('selectedIssueId')
+  const selectedWorktree = useRuntimeLocal('selectedWorktree')
+  const read = useCallback(() => {
+    const layout = workspaces?.[workspaceKey()]
+    if (!layout || allTabIds(layout).length === 0) return (split && focus === 'B' ? paneB : paneA) ?? null
+    const visible = leafPaneIds(layout.root)
+    const paneId = visible.includes(layout.focusedPaneId) ? layout.focusedPaneId : visible[0]
+    return paneId === undefined ? null : layout.panes[paneId]?.activeTabId ?? null
+  }, [workspaceKey, workspaces, paneA, paneB, split, focus, selectedIssueId, selectedWorktree])
+  return useWorklistPoolProjection(read, null)
 }
 
 const readHasFirstTask = (pool: MobxPool): boolean => pool.hasFirstTask === true

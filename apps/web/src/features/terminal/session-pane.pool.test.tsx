@@ -51,7 +51,12 @@ const paneStoreHandle = withKeyedInputs({
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
-    return select(f.state)
+    return select(new Proxy(f.state, {
+      get(target, key) {
+        if (key === 'pendingSpawnPrompts' || key === 'drafts') throw new Error(`Legacy pane local read: ${String(key)}`)
+        return Reflect.get(target, key)
+      },
+    }))
   },
   useReplicaIssues: vi.fn(() => {
     throw new Error('Session pane read the legacy issue list')
@@ -91,7 +96,12 @@ vi.mock('@podium/terminal-client-react', () => ({
 }))
 // Conversation rendering and transcript transport stay on their original path.
 // This proof measures chrome/recovery independently from those unchanged rows.
-vi.mock('@/features/chat/ChatView', () => ({ ChatView: () => <div>Existing transcript</div> }))
+vi.mock('@/features/chat/ChatView', () => ({
+  ChatView: ({ initialPendingText, onInitialPendingSettled }: {
+    initialPendingText?: string; onInitialPendingSettled?: () => void
+  }) => <div>Existing transcript{initialPendingText === undefined ? null :
+    <button type="button" data-testid="spawn-prompt" onClick={onInitialPendingSettled}>{initialPendingText}</button>}</div>,
+}))
 vi.mock('./SessionWatchers', () => ({ SessionWatchers: () => null }))
 vi.mock('@/components/GitStamp', () => ({ GitStamp: () => null }))
 vi.mock('@/lib/ModelEffortPicker', () => ({
@@ -143,6 +153,7 @@ beforeEach(() => {
     reposLoaded: true,
     pendingSpawnIds: new Set(),
     pendingSpawnPrompts: new Map(),
+    drafts: {},
     coarseNow: SESSION_PANE_NOW,
     replica: f.owner,
     selectedIssueId: null,
@@ -229,6 +240,26 @@ it('renders the same real AgentPanel header, lifecycle text and controls for eve
     expectPoolOutput(view(actual.container), row.sessionId)
     actual.unmount()
   }
+})
+
+it('retains the keyed spawn prompt through confirmation and a parked surface until the transcript echoes it', () => {
+  const row = sessions[0]!
+  f.state.pendingSpawnPrompts = new Map([[row.sessionId, 'First operator prompt']])
+  const panel = render(<AgentPanel sessionId={row.sessionId} />)
+  expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
+  f.state.pendingSpawnPrompts = new Map()
+  act(() => f.pool!.apply({ type: 'update', rows: [
+    { kind: 'session', id: row.sessionId, value: { ...row, status: 'hibernated' } as never },
+  ] }))
+  panel.rerender(<AgentPanel sessionId={row.sessionId} />)
+  expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
+  fireEvent.click(panel.getByTestId('spawn-prompt'))
+  expect(panel.queryByTestId('spawn-prompt')).toBeNull()
+  f.state.pendingSpawnPrompts = new Map([[row.sessionId, 'Later prompt']])
+  panel.rerender(<AgentPanel sessionId={row.sessionId} />)
+  expect(panel.getByTestId('spawn-prompt').textContent).toBe('Later prompt')
+  panel.rerender(<AgentPanel sessionId={sessions[1]!.sessionId} />)
+  expect(panel.queryByTestId('spawn-prompt')).toBeNull()
 })
 
 it('uses the same wake action and parked shell without resolving a replacement', () => {

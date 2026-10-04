@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { dedupeSessions } from '@podium/client-core/engine'
+import { dedupeSessions, withKeyedInputs } from '@podium/client-core/engine'
 import {
   allIssueViewModels,
   createKernelReplica,
@@ -55,7 +55,7 @@ const state = vi.hoisted(() => ({
   updateIssue: vi.fn(),
   renameSession: vi.fn(),
 }))
-const owner = { getSnapshot: () => state, subscribe: () => () => {} }
+const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })
 vi.mock('./store', () => ({
   useStoreSelector: (read: (store: typeof state) => unknown) => read(state),
   useReplicaIssues: () => {

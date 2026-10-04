@@ -1,6 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
-import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
 import {
@@ -67,7 +66,9 @@ import {
 } from './panel-deck'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
-import { type FileTab, useStoreSelector } from './store'
+import { type FileTab } from './store'
+import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
+import { useWorkspaceInputs } from './workspace-inputs'
 import { useWorkspaceMission } from './mission-pane-data'
 import { closeActiveWorkspaceTab } from './workspace-close'
 import type {
@@ -225,6 +226,7 @@ const MIN_PANE_PX = 160
 const RESIZE_STEP = 0.02
 /** Keyboard resize floor when there is no measured box to convert px against. */
 const MIN_PANE_FRACTION = 0.12
+const RENAME_ACTIONS = ['renameSession'] as const
 
 export function Workspace({
   loadDragRuntime = loadWorkspaceTabDrag,
@@ -252,39 +254,12 @@ export function Workspace({
     closeWorkspacePane,
     focusWorkspacePane,
     resizeWorkspaceSplit,
-  } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      selectedWorktree: s.selectedWorktree,
-      paneA: s.paneA,
-      fileTabs: s.fileTabs,
-      closeFileTab: s.closeFileTab,
-      markSessionRead: s.markSessionRead,
-      repos: s.repos,
-      selectedIssueId: s.selectedIssueId,
-      dockShells: s.dockShells,
-      workspaces: s.workspaces,
-      // The engine's own resolver, not a second spelling of it (POD-710).
-      workspaceKey: s.workspaceKey(),
-      openSessionTab: s.openSessionTab,
-      promoteWorkspaceTab: s.promoteWorkspaceTab,
-      activateWorkspaceTab: s.activateWorkspaceTab,
-      closeWorkspaceTab: s.closeWorkspaceTab,
-      moveWorkspaceTab: s.moveWorkspaceTab,
-      splitWorkspacePane: s.splitWorkspacePane,
-      closeWorkspacePane: s.closeWorkspacePane,
-      focusWorkspacePane: s.focusWorkspacePane,
-      resizeWorkspaceSplit: s.resizeWorkspaceSplit,
-    }),
-    shallowEqual,
-  )
+  } = useWorkspaceInputs()
   // Subscribe to the addressed raw value, not the ui-state collection object.
   // The runtime may replace that wrapper on unrelated publications; selecting
   // the string keeps this hot subtree asleep while still observing a launch
   // failure that arrives after the optimistic session has been removed.
-  const activationDraftRaw = useStoreSelector(
-    (s) => s.uiState?.get(FIRST_TASK_ACTIVATION_DRAFT_KEY) ?? null,
-  )
+  const activationDraftRaw = useRuntimeUiValue(FIRST_TASK_ACTIVATION_DRAFT_KEY)
   const activationDraft = readFirstTaskDraft(activationDraftRaw)
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   // The tab being dragged, for the overlay and for mounting the drop zones only
@@ -1551,7 +1526,7 @@ function SortableTab({
   onKeepOpen: () => void
   onSplit?: (axis: SplitAxis) => void
 }): JSX.Element {
-  const renameSession = useStoreSelector((s) => s.renameSession)
+  const { renameSession } = useRuntimeActions(RENAME_ACTIONS)
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const isDragging = drag?.isDragging === true

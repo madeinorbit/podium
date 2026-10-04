@@ -1,4 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { withKeyedInputs } from '@podium/client-core/engine'
+import type { MobxPool } from '@podium/client-graph'
 // @vitest-environment happy-dom
 import type { SessionId, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -49,7 +51,7 @@ vi.mock('./operator-focus', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useHarnessDescriptors: () => ({ served: [] }),
-  useStoreHandle: () => ({ getSnapshot: () => state }),
+  useStoreHandle: () => fixtureOwner(),
 }))
 
 vi.mock('@/lib/use-feature', () => ({
@@ -125,16 +127,62 @@ const actions = {
 }
 
 let state: Record<string, unknown>
+let ownerState: typeof state
+let owner: ReturnType<typeof withKeyedInputs> | undefined
 const uiRows = new Map<string, string>()
 const uiListeners = new Set<() => void>()
+
+function fixtureOwner() {
+  if (!owner || ownerState !== state) {
+    ownerState = state
+    owner = withKeyedInputs({ getSnapshot: () => state, subscribe: (notify: () => void) => {
+      uiListeners.add(notify)
+      return () => uiListeners.delete(notify)
+    } })
+  }
+  return owner
+}
 
 /** The REPLICA-derived issue list — deliberately separate from what the engine
  *  keys workspaces by, because the two can disagree mid-cutover (POD-710 §4). */
 let replicaIssues: IssueViewModel[] = [task]
 
 vi.mock('./store', () => ({
-  useStoreSelector: (selector: (s: Record<string, unknown>) => unknown) => selector(state),
+  useStoreSelector: (selector: (s: Record<string, unknown>) => unknown) => selector(new Proxy(state, {
+    get(target, key) {
+      if (key === 'sessions') throw new Error('Workspace read the old session list')
+      return Reflect.get(target, key)
+    },
+  })),
   useReplicaIssues: () => replicaIssues,
+}))
+
+// The original strip/layout fixtures now enter through the pool query. The
+// real app-host and feed boundary are covered by legacy-store-idle.test.tsx.
+vi.mock('./store-worklist-pool', () => ({
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => read({
+    queries: {
+      ids: () => (state.sessions as SessionMeta[]).map(row => row.sessionId),
+      collapsed: () => false,
+      orderKey: (id: string) => String((state.sessions as SessionMeta[]).findIndex(row => row.sessionId === id)),
+    },
+    row: (_entity: string, id: string) => (state.sessions as SessionMeta[]).find(row => row.sessionId === id),
+  } as unknown as MobxPool),
+}))
+vi.mock('./mission-pane-data', () => ({
+  useWorkspaceMission: () => {
+    const selected = replicaIssues.find(row => row.id === state.selectedIssueId && !row.archived && !row.deletedAt)
+    const issue = selected?.isDraftVessel && (state.sessions as SessionMeta[]).length === 0 ? undefined : selected
+    return { missionRoot: issue, missionIssues: issue ? [issue] : [], issue,
+      missionOnScreen: issue, hasAnyTask: replicaIssues.length > 0, loading: false }
+  },
+}))
+vi.mock('./shell-data', () => ({
+  useShellActions: () => state,
+  useShellClose: () => {
+    const workspaceKey = (state.workspaceKey as () => string)()
+    return { workspaceKey, layout: (state.workspaces as Record<string, unknown>)[workspaceKey], fileTabs: state.fileTabs }
+  },
 }))
 
 const { Workspace } = await import('./Workspace')

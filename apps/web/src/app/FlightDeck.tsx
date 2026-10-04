@@ -128,7 +128,8 @@ import {
   RIGHT_PANEL_KEY,
   readRightPanel,
 } from './shell-state'
-import { useSessionDraft, useStoreSelector } from './store'
+import { useStoreSelector } from './store'
+import { useRuntimeDraft } from './keyed-runtime'
 
 /**
  * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`
@@ -3349,7 +3350,7 @@ export function FlightDeckContent({
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.
   const rootDisplayTitle = root ? (poolValues.titles.get(root.id) ?? root.title) : ''
-  const rootDraft = useSessionDraft(draftFilling ? rootSession?.sessionId : undefined)
+  const rootDraft = useRuntimeDraft(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
    *
