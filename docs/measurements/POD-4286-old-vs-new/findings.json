@@ -1,0 +1,9 @@
+{
+  "summary": "CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 802\u2192389 ms, mark-read 925\u2192139 ms, and issue-page opening 122\u219273 ms. Cold startup is slower (2291\u21923391 ms), warm-data reload is slower (1068\u21922551 ms), and populated project expansion is slower (113\u2192252 ms). This is the first matched pair: eight unprofiled observations per ordinary action and four per startup case. The second pair, 4x, phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.",
+  "currentArm": {
+    "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
+    "status": "First web1x OLD/CURRENT pair complete; further matrix capturing",
+    "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
+    "workspaceBuildSeconds": 181.073
+  }
+}

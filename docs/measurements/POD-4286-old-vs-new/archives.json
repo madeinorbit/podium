@@ -1,0 +1,294 @@
+[
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz",
+    "arm": "old",
+    "kind": "diagnostics",
+    "bytes": 297725845,
+    "sha256": "7e59764f684305dcc87d23ac72072da97246f634df1b38f0d16086361e44730c",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "e6011c32b130a331dc437d54cd948a3701a6513d99b12dcd5dffe8d03f7a70e5",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part001",
+          "title": "Raw old diagnostics evidence \u2014 part 1/4",
+          "addedAt": "2026-10-04T18:19:28.688Z",
+          "artifactId": "d704456a7cdd",
+          "entry": "old-diagnostics.tar.gz.part001",
+          "files": [
+            {
+              "path": "old-diagnostics.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d704456a7cdd/old-diagnostics.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "a7edeec20a96a98e8574fd380f368035f199ca33d359081ce797dc49d613ee4f",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part002",
+          "title": "Raw old diagnostics evidence \u2014 part 2/4",
+          "addedAt": "2026-10-04T18:19:34.891Z",
+          "artifactId": "8e78b577b2ea",
+          "entry": "old-diagnostics.tar.gz.part002",
+          "files": [
+            {
+              "path": "old-diagnostics.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8e78b577b2ea/old-diagnostics.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "22a7ea92ef393880cfce6a93610c3c73b0ce1b47124233fb124352b2567dfef1",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part003",
+          "title": "Raw old diagnostics evidence \u2014 part 3/4",
+          "addedAt": "2026-10-04T18:19:40.080Z",
+          "artifactId": "7c3927bea573",
+          "entry": "old-diagnostics.tar.gz.part003",
+          "files": [
+            {
+              "path": "old-diagnostics.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/7c3927bea573/old-diagnostics.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part004",
+        "bytes": 14610325,
+        "sha256": "3249a861fb9712e605e9e4d1bc5caad075e55cadee7d286c401870a867c25d73",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part004",
+          "title": "Raw old diagnostics evidence \u2014 part 4/4",
+          "addedAt": "2026-10-04T18:19:41.697Z",
+          "artifactId": "d42c6074b385",
+          "entry": "old-diagnostics.tar.gz.part004",
+          "files": [
+            {
+              "path": "old-diagnostics.tar.gz.part004",
+              "size": 14610325
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-diagnostics.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d42c6074b385/old-diagnostics.tar.gz.part004"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz.",
+    "removedRemoteFiles": 1345,
+    "removedRemoteBytes": 373434448,
+    "removedAt": "2026-10-04T18:21:37.580490+00:00"
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz",
+    "arm": "new",
+    "kind": "diagnostics",
+    "bytes": 750871948,
+    "sha256": "2dfb9822703aee436ae7b177dbc2f16001e5be4ca5637f5642f15a63e7233868",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "7e37ab69a3568271f0a98b194d8796a8bfcdba7ad809cf081e2c3e0ffcd47235",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part001",
+          "title": "Raw new diagnostics evidence \u2014 part 1/8",
+          "addedAt": "2026-10-04T18:19:50.044Z",
+          "artifactId": "bc93a62d034d",
+          "entry": "new-diagnostics.tar.gz.part001",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/bc93a62d034d/new-diagnostics.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "78b833d23e0e70491816e30cac05bef15063e5f5a76661980717a28d4edf9b31",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part002",
+          "title": "Raw new diagnostics evidence \u2014 part 2/8",
+          "addedAt": "2026-10-04T18:19:56.350Z",
+          "artifactId": "d0fea706c71d",
+          "entry": "new-diagnostics.tar.gz.part002",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/d0fea706c71d/new-diagnostics.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "f2cebf3a1bf83b0dc85030e905298aac5e63b2494ae5f31f3030d2060097e46e",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part003",
+          "title": "Raw new diagnostics evidence \u2014 part 3/8",
+          "addedAt": "2026-10-04T18:20:04.456Z",
+          "artifactId": "1c4a4292b783",
+          "entry": "new-diagnostics.tar.gz.part003",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/1c4a4292b783/new-diagnostics.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part004",
+        "bytes": 94371840,
+        "sha256": "5038768caa8a66efb5019386308b60c20751bde30c4b802a4c24dcfa13c9d493",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part004",
+          "title": "Raw new diagnostics evidence \u2014 part 4/8",
+          "addedAt": "2026-10-04T18:20:12.376Z",
+          "artifactId": "f7343f550abb",
+          "entry": "new-diagnostics.tar.gz.part004",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part004",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/f7343f550abb/new-diagnostics.tar.gz.part004"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part005",
+        "bytes": 94371840,
+        "sha256": "2cde6b8b0ac8f45c96ce38b97af2ff31f290dd8f3d91679196de8d51f3f71440",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part005",
+          "title": "Raw new diagnostics evidence \u2014 part 5/8",
+          "addedAt": "2026-10-04T18:20:20.749Z",
+          "artifactId": "e35f74dc902c",
+          "entry": "new-diagnostics.tar.gz.part005",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part005",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part005"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/e35f74dc902c/new-diagnostics.tar.gz.part005"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part006",
+        "bytes": 94371840,
+        "sha256": "9d61d6010f9850644e56187eb5a1b61c5a2493b94232b340dceb14667d1fee94",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part006",
+          "title": "Raw new diagnostics evidence \u2014 part 6/8",
+          "addedAt": "2026-10-04T18:20:28.092Z",
+          "artifactId": "8d1b6afd322d",
+          "entry": "new-diagnostics.tar.gz.part006",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part006",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part006"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8d1b6afd322d/new-diagnostics.tar.gz.part006"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part007",
+        "bytes": 94371840,
+        "sha256": "84169649c1653af8f472bf39a137348d9cd10bb682f608be87b0b699f09d7fa4",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part007",
+          "title": "Raw new diagnostics evidence \u2014 part 7/8",
+          "addedAt": "2026-10-04T18:20:35.259Z",
+          "artifactId": "83ff26e90ceb",
+          "entry": "new-diagnostics.tar.gz.part007",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part007",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part007"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/83ff26e90ceb/new-diagnostics.tar.gz.part007"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part008",
+        "bytes": 90269068,
+        "sha256": "a249db9c0106638c1bb5bf6fbe8017e40be7b1401327622baf4e538da2153153",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part008",
+          "title": "Raw new diagnostics evidence \u2014 part 8/8",
+          "addedAt": "2026-10-04T18:20:42.539Z",
+          "artifactId": "64ea319198fa",
+          "entry": "new-diagnostics.tar.gz.part008",
+          "files": [
+            {
+              "path": "new-diagnostics.tar.gz.part008",
+              "size": 90269068
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-diagnostics.tar.gz.part008"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/64ea319198fa/new-diagnostics.tar.gz.part008"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz.",
+    "removedRemoteFiles": 1950,
+    "removedRemoteBytes": 1007726973,
+    "removedAt": "2026-10-04T18:21:50.064195+00:00"
+  }
+]
