@@ -31,7 +31,13 @@ const server = Bun.serve({hostname: '127.0.0.1', port: 19678, async fetch(reques
         if (server.upgrade(request, {data: {path: url.pathname + url.search, queue: []}})) return
     }
     if (url.pathname === '/__fixture') return Response.json(manifest)
-    if (url.pathname === '/sync/bootstrap') return new Response(Bun.file(`${root}/bootstrap.ndjson`), {headers: {'content-type': 'application/x-ndjson'}})
+    if (url.pathname === '/sync/bootstrap') {
+        const scaleFile = Bun.file(`${root}/scale.txt`)
+        const scale = await scaleFile.exists() ? (await scaleFile.text()).trim() : '1'
+        if (!['1','4'].includes(scale)) throw Error('Invalid corpus scale')
+        const path = scale === '1' ? `${root}/bootstrap.ndjson` : `${root}/bootstrap-4x.ndjson`
+        return new Response(Bun.file(path), {headers: {'content-type': 'application/x-ndjson'}})
+    }
     if (url.pathname === '/sw.js') return new Response('', {status: 404})
     if (offline && url.pathname.startsWith('/trpc/')) {
         const names = url.pathname.slice(6).split(',')

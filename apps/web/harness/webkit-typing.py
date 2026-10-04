@@ -64,6 +64,9 @@ probe.timer = setTimeout(drift, 4);
 probe.stop = () => {probe.active = false; clearTimeout(probe.timer); document.removeEventListener('input', listen, true)};
 ta.focus();
 return {userAgent: navigator.userAgent, viewport: [innerWidth, innerHeight],
+    devicePixelRatio, timeOrigin: performance.timeOrigin, theme: document.documentElement.dataset.theme,
+    rootClass: document.documentElement.className, animations: document.getAnimations().length,
+    visibility: document.visibilityState, focused: document.hasFocus(),
     domNodes: document.querySelectorAll('*').length,
     transcriptNodes: document.querySelectorAll('.feed-column *').length,
     transcriptRows: document.querySelectorAll('.transcript-row').length,
@@ -82,10 +85,15 @@ def main():
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--css", default="")
+    parser.add_argument("--css-file", default="")
     parser.add_argument("--setup-js", default="", help="Throwaway page ablation; never product code")
     parser.add_argument("--reuse-page", action="store_true", help="Measure the already hydrated fixture")
     parser.add_argument("--reset", action="store_true", help="Clear the fixture draft before timing")
+    parser.add_argument("--keys", choices=["actions", "send-keys"], default="actions")
+    parser.add_argument("--viewport", default="", help="Target content viewport, e.g. 800x600")
     args = parser.parse_args()
+    if args.css_file:
+        args.css = Path(args.css_file).read_text()
     session = args.session or request(args.driver, "POST", "/session", {
         "capabilities": {"alwaysMatch": {"browserName": "safari", "pageLoadStrategy": "eager",
             "timeouts": {"pageLoad": 30000, "script": 30000},
@@ -95,10 +103,15 @@ def main():
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     result = {"sha": args.sha, "scale": args.scale, "session": session,
-              "profiled": args.profile, "cssAblation": args.css, "jsAblation": args.setup_js, "startedAt": time.time()}
+              "profiled": args.profile, "keyMethod": args.keys, "cssAblation": args.css, "jsAblation": args.setup_js, "startedAt": time.time()}
     try:
         if not args.reuse_page:
             request(base, "POST", "/url", {"url": args.url})
+        if args.viewport:
+            width, height = [int(value) for value in args.viewport.split("x")]
+            viewport = execute("return [innerWidth,innerHeight]")
+            rect = request(base, "GET", "/window/rect")
+            request(base, "POST", "/window/rect", {"width": rect["width"] + width - viewport[0], "height": rect["height"] + height - viewport[1]})
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             if execute("return !!document.querySelector('.chat-composer-well textarea') && document.querySelectorAll('.transcript-row').length >= 40"):
@@ -124,7 +137,16 @@ def main():
         for char in text:
             actions += [{"type": "keyDown", "value": char}, {"type": "keyUp", "value": char},
                         {"type": "pause", "duration": 100}]
-        request(base, "POST", "/actions", {"actions": [{"type": "key", "id": "typing", "actions": actions}]})
+        if args.keys == "actions":
+            request(base, "POST", "/actions", {"actions": [{"type": "key", "id": "typing", "actions": actions}]})
+        else:
+            element = request(base, "POST", "/element", {"using": "css selector", "value": ".chat-composer-well textarea"})
+            element_id = element["element-6066-11e4-a52e-4f735466cecf"]
+            next_key = time.monotonic()
+            for char in text:
+                request(base, "POST", "/element/" + element_id + "/value", {"text": char, "value": [char]})
+                next_key += .1
+                time.sleep(max(0, next_key - time.monotonic()))
         time.sleep(.3)
         result["raw"] = execute("const p=window.__webkitTyping;p.stop();return {samples:p.samples,drift:p.drift,elapsed:performance.now()-p.start,value:document.querySelector('.chat-composer-well textarea').value}")
         if len(result["raw"]["samples"]) != 60 or not result["raw"]["value"].endswith(text):
@@ -132,7 +154,7 @@ def main():
         result["inputToPostPaintMs"] = summary([s["latency"] for s in result["raw"]["samples"]])
         result["timerDriftMs"] = summary([s["delay"] for s in result["raw"]["drift"]])
         result["inputIntervalsMs"] = summary([b["timestamp"]-a["timestamp"] for a, b in zip(result["raw"]["samples"], result["raw"]["samples"][1:])])
-        print(json.dumps({k: v for k, v in result.items() if k != "raw"}), flush=True)
+        print(json.dumps({k: result[k] for k in ("sha", "scale", "keyMethod", "inputToPostPaintMs", "timerDriftMs", "inputIntervalsMs")}), flush=True)
     except Exception as error:
         result["error"] = str(error)
         raise
