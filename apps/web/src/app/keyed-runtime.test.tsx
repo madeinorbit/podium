@@ -14,7 +14,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
-import { usePendingSpawnPrompt, useRuntimeDraft, useRuntimeList } from './keyed-runtime'
+import { usePendingSpawnPrompt, useRuntimeDraft, useRuntimeDraftRef, useRuntimeList } from './keyed-runtime'
 
 const f = vi.hoisted(() => ({ owner: undefined as unknown, pool: undefined as unknown }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => f.owner }))
@@ -271,4 +271,42 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
     inputs.emit(new Set(['split']), new Set())
   })
   expect(screen.getByTestId('focus').textContent).toBe(sid)
+})
+
+
+it('updates the native draft ref without renders, follows switches and releases its subscription', () => {
+  const valueRef = { current: '' }
+  let renders = 0
+  function Bridge({ id }: { id: typeof sid }) {
+    renders++
+    useRuntimeDraftRef(id, valueRef)
+    return null
+  }
+  const view = render(<Bridge id={sid} />)
+  expect(valueRef.current).toBe('Saved draft')
+  const before = renders
+  for (let i = 1; i <= 60; i++) act(() => {
+    state.drafts = { ...state.drafts, [sid]: 'x'.repeat(i) }
+    inputs.emit(new Set(['drafts']), new Set([sid]))
+  })
+  expect(renders).toBe(before)
+  expect(valueRef.current).toBe('x'.repeat(60))
+  act(() => {
+    state.drafts = { ...state.drafts, [other]: 'Other draft' }
+    inputs.emit(new Set(['drafts']), new Set([other]))
+  })
+  expect(valueRef.current).toBe('x'.repeat(60))
+  view.rerender(<Bridge id={other} />)
+  expect(valueRef.current).toBe('Other draft')
+  act(() => {
+    state.drafts = { ...state.drafts, [other]: '' }
+    inputs.emit(new Set(['drafts']), new Set([other]))
+  })
+  expect(valueRef.current).toBe('')
+  view.unmount()
+  act(() => {
+    state.drafts = { ...state.drafts, [other]: 'After unmount' }
+    inputs.emit(new Set(['drafts']), new Set([other]))
+  })
+  expect(valueRef.current).toBe('')
 })

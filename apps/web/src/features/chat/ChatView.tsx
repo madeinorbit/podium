@@ -6,7 +6,8 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useChatDraft, useChatInteractions } from './use-chat-context'
+import { useChatInteractions } from './use-chat-context'
+import { useRuntimeDraft } from '@/app/keyed-runtime'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './chat-md-click'
@@ -108,7 +109,10 @@ function ScopedChatComposer({
   chat: ChatSurface
   quoteDraftRef: QuoteDraftRef
 }): JSX.Element {
-  const draft = useChatDraft(sessionId)
+  // The runtime publishes this keyed value synchronously. The pool's deferred
+  // mirror made React restore the previous controlled value after every input,
+  // then write the new value again when its microtask ran.
+  const draft = useRuntimeDraft(sessionId)
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   quoteDraftRef.current = (markdown) => {

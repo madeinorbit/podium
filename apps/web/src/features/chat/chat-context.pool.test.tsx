@@ -56,7 +56,12 @@ const snapshot = () => {
       })
     : state
 }
-const handle = { get access() { return snapshot() }, subscribe: (_listener: () => void) => () => {} }
+const handle = {
+  get access() { return snapshot() },
+  subscribe: (_listener: () => void) => () => {},
+  readLocal: (key: import('@podium/client-core/engine').LocalKey) => f.fixture!.owner.readLocal(key),
+  onDraft: (listener: (id: string) => void) => f.fixture!.owner.onDraft(listener),
+}
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
   useReplicaIssues: () => {
@@ -123,6 +128,7 @@ import {
   useChatThreads,
 } from './use-chat-context'
 import { useChatSend } from './use-chat-send'
+import { useRuntimeDraft } from '@/app/keyed-runtime'
 
 beforeEach(async () => {
   f.guard = true
@@ -586,7 +592,7 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   }
   function Transcript() { outside.transcript++; return <div>Transcript</div> }
   function Composer() {
-    const draft = useChatDraft(id)
+    const draft = useRuntimeDraft(id)
     return <ChatComposer taRef={createRef()} draft={draft} onDraftChange={text => send.setDraft(text)}
       deliverable placeholder="Message agent" compact={false} isMobile={false} onSend={() => {}}
       voice={{ supported: false, listening: false, toggle: () => {} } as never} attachments={attachments as never}
@@ -599,15 +605,19 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
     send = useChatSend(options)
     return <><Transcript /><Composer /></>
   }
+  const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+  const valueWrites = vi.spyOn(HTMLTextAreaElement.prototype, 'value', 'set')
   const mounted = render(<Shell />)
   await act(async () => { await Promise.resolve() })
   outside.shell = outside.transcript = 0
+  valueWrites.mockClear()
   const work = { ...corpus.source.counts }
   const textarea = mounted.container.querySelector('textarea')!
   for (let i = 1; i <= 60; i++) {
-    await act(async () => { fireEvent.input(textarea, { target: { value: 'x'.repeat(i) } }); await Promise.resolve() })
+    await act(async () => { nativeSet.call(textarea, 'x'.repeat(i)); fireEvent.input(textarea); await Promise.resolve() })
     expect(textarea.value).toBe('x'.repeat(i))
     expect(outside).toEqual({ shell: 0, transcript: 0 })
+    expect(valueWrites).not.toHaveBeenCalled()
   }
   expect(corpus.state().drafts[id]).toBe('x'.repeat(60))
   expect(corpus.source.counts.outboxReads).toBe(work.outboxReads)
