@@ -3,10 +3,10 @@
  * timeout 180s bun --conditions=@podium/source diagnostics/issue-chips-replay.ts
  */
 import { hostname } from 'node:os'
-import { withKeyedInputs } from '../packages/client-core/src/engine/keyed-inputs'
+import { withKeyedInputs } from '../packages/client-core/test-support/keyed-inputs'
 import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '../packages/client-core/src/replica/index'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import { canonicalIssueRef } from '../packages/client-core/src/viewmodels/issue-reference'
+import { allIssueViewModels } from '../packages/client-graph/diagnostics/reference/issue-view-models'
+import { canonicalIssueRef } from '../packages/client-core/src/values/issue-reference'
 import { checkIssueChips } from '../packages/client-graph/diagnostics/chip-check'
 import { createWorklistPool } from '../packages/client-graph/src/create'
 import { issueRefKey } from '../packages/client-graph/src/issue-reference'
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
   })
-  const rows = createRowSource(runtime, replica, { mode: 'overlaid' })
+  const rows = createRowSource(runtime, replica, { mode: 'pooled' })
   const locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source)
   try {

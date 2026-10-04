@@ -3,6 +3,7 @@ import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-
 import { workspaceKeyForState } from '@podium/client-core/engine'
 import { vi } from 'vitest'
 import { useRuntimeSelector as selectLocals } from '@/app/store'
+const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState) => T) => T
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 

@@ -236,7 +236,7 @@ describe('gen through the engine', () => {
         // emits its lane by path all the same (POD-4606), and the engine's own
         // repos prove the change landed.
         const lanes = new Set(
-          run.referenceState(ctx.engine).repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
+          referenceState(run.ctx.engine).repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
         )
         const reach = (m: RowChange, ids: Set<string>, where: string): void => {
           if (m.kind === 'newWorktree') {

@@ -25,7 +25,6 @@ import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 import {
   AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
-  EMPTY_ID_SET,
   foldRowOverlays,
   insertOverlay,
   issueUpdateRoute,
@@ -35,7 +34,7 @@ import {
   PRESENCE_REDUCER_KINDS,
   pruneAwaiting,
   rowFingerprint,
-} from './overlay'
+} from '../command-reducers'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
   mutationId: asMutationId(`m-`),

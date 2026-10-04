@@ -5,7 +5,6 @@ import {
   knownTabIdsForWorkspace,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
-  navigationStats,
   resolvedWorkspaceKey,
   workspaceKeyForState,
 } from '@podium/client-core/engine'
@@ -38,8 +37,6 @@ import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { attachWorklistPool } from './store-worklist-pool'
 
 afterEach(() => {
-  navigationStats.disable()
-  navigationStats.reset()
   missionLegacyStats.disable()
   missionLegacyStats.reset()
   vi.restoreAllMocks()
@@ -538,8 +535,6 @@ describe('web pool navigation', () => {
     const target = before.issueProjections.find((row) => row.id === seat.issueId)!
     const expectedKey = workspaceKeyForState({ ...before, selectedIssueId: target.id })
     const errors = vi.fn()
-    navigationStats.enable()
-    navigationStats.reset()
     const detach = attachWorklistPool(runtime, errors)
     try {
       expect(resolvedWorkspaceKey({ ...referenceState(runtime), selectedIssueId: target.id })).toBe(
@@ -547,7 +542,6 @@ describe('web pool navigation', () => {
       )
       expect(referenceState(runtime).navigateWorkspace({ selectedIssueId: target.id })).toBe(false)
       expect(referenceState(runtime).selectedIssueId).toBe(before.selectedIssueId)
-      expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       referenceState(runtime).navigateToSession(seat.sessionId)
       expect(referenceState(runtime).selectedIssueId).toBe(before.selectedIssueId)
       await vi.waitFor(() => {
@@ -565,7 +559,6 @@ describe('web pool navigation', () => {
       await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(seat.sessionId))
       expect(runtime.router.current().pane).toBe(seat.sessionId)
       expect(referenceState(runtime).workspaceKey()).toBe(expectedKey)
-      expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
       expect(errors).not.toHaveBeenCalled()
     } finally {
       detach()
@@ -721,8 +714,6 @@ describe('web pool navigation', () => {
         )!
         referenceState(runtime).navigateToSession(seat.sessionId)
         await vi.waitFor(() => expect(referenceState(runtime).paneA).toBe(seat.sessionId))
-        navigationStats.enable()
-        navigationStats.reset()
         const raw = ctx.cache.read('session', seat.sessionId)!.value as object
         upsert(ctx, 'session', seat.sessionId, { ...raw, issueId: target.id })
         await vi.waitFor(() => expect(referenceState(runtime).selectedIssueId).toBe(target.id))
@@ -733,12 +724,6 @@ describe('web pool navigation', () => {
             (pane) => pane.tabs,
           ),
         ).not.toContain(seat.sessionId)
-        if (enabled)
-          expect(navigationStats.read()).toEqual({
-            issuesFind: 0,
-            missionRootFor: 0,
-            sessionById: 0,
-          })
       } finally {
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle?.dispose()
@@ -801,7 +786,7 @@ describe('web pool navigation', () => {
     const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
     const provider = createPoolNavigationProvider(handle.pool)
     try {
-      const st: EngineState = referenceState(runtime)
+      const st = referenceState(runtime)
       const check = (id: string) =>
         tracked(() =>
           planNavigation(

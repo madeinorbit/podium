@@ -2,7 +2,7 @@
  * What `@` offers, and in what order (POD-412).
  */
 
-import type { IssueViewModel } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import { describe, expect, it } from 'vitest'
 import { fileMentions, issueMentions } from './mention-sources'
 

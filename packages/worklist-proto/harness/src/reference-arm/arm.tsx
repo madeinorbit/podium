@@ -29,7 +29,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
 import { isDeepStrictEqual } from 'node:util'
 import { createElement, memo, type ReactElement, useRef, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Arm, ArmHandle, LocalsSource } from '../../../shared/src/arm'
+import type { CheckableArm, CheckableArmHandle, LocalsSource } from '../../../shared/src/arm'
 import {
   CommitLogContext,
   currentCommitLog,
@@ -183,9 +183,9 @@ function zeroStats(): ArmStats {
 export function referenceArmFor(
   engine: ClientRuntime,
   plant: ReferencePlant | null = null,
-): Arm {
+): CheckableArm {
   return {
-    create(_source, channel: LocalsSource): ArmHandle {
+    create(_source, channel: LocalsSource): CheckableArmHandle {
       const stats = zeroStats()
       const deafTo = plant?.kind === 'deaf' ? channel.get() : null
       const localsNow = (): SliceLocals => deafTo ?? channel.get()
@@ -216,6 +216,9 @@ export function referenceArmFor(
             for (const row of Object.values(snapshot.rowsById))
               row.displayRef = bareRef(row.displayRef)
           return snapshot
+        },
+        rebuildFromScratch(): SliceSnapshot {
+          return snapshotFromStore(referenceState(engine), { ...localsNow(), selectedIssueId: null })
         },
         stats,
         dispose(): void {

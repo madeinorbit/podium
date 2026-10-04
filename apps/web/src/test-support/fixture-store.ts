@@ -3,10 +3,10 @@ import { asSessionId } from '@podium/model/browser'
 
 /** Supply the runtime plumbing old component fixtures omitted. */
 export function fixtureStoreSnapshot(
-  input: import("@/app/store").Store,
+  input: import("@podium/client-core/engine").Store,
   onMutation?: () => void,
 ): Store & { batchGesture: (fn: () => void) => void } {
-  const state = input as Store & { batchGesture?: (fn: () => void) => void }
+  const state = input as unknown as Store & { batchGesture?: (fn: () => void) => void }
   // Preserve tripwire getters without evaluating unrelated reader inputs while
   // borrowing the action owner. The pool fixtures read those inputs explicitly.
   const plumbing: Pick<Store, 'fileTabs' | 'navigateWorkspace'> & {

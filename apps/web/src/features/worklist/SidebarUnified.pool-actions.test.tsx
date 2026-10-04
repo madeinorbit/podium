@@ -49,16 +49,7 @@ vi.mock('./useRowDrag', async (original) => {
     },
   }
 })
-vi.mock('@/app/store', async (original) => {
-  const module = await original<typeof import('@/app/store')>()
-  return {
-    ...module,
-    useSlice: (definition: Parameters<typeof module.useSlice>[0]) => {
-      if (definition === worklistSlice) throw new Error('Pool action read worklistSlice')
-      return module.useSlice(definition)
-    },
-  }
-})
+
 vi.mock('@podium/client-core/perf', async (original) => ({
   ...(await original<typeof import('@podium/client-core/perf')>()),
   beginSwitch: vi.fn(),
@@ -321,7 +312,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn(() => {
       calls.push('focus')
     })
-    const work = createPoolWorkActions(pool!, { getSnapshot: () => store }, focus)
+    const work = createPoolWorkActions(pool!, { access: store }, focus)
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
     expect(calls).toEqual([
       'trace',
@@ -534,7 +525,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn()
     const work = createPoolWorkActions(
       pool!,
-      { getSnapshot: () => store as ReturnType<typeof runtime.getSnapshot> },
+      { access: store },
       focus,
     )
     work.selectIssue('synthetic-3')
@@ -758,7 +749,7 @@ describe('real pool row mutations and receipts', () => {
     await parity()
     await refuse(second)
     expect(value().title).toBe('Accepted title')
-    expect(runtime.pendingOverlaysByRow('issueProjections').has(TARGET)).toBe(false)
+    expect((runtime as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter.pending.issueProjections!.has(TARGET)).toBe(false)
   })
 
   it('cancels Escape and whitespace edits; menu Rename uses the same editor', async () => {

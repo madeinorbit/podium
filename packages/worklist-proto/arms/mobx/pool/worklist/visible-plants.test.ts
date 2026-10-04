@@ -173,7 +173,7 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
         rowsById: Record<string, unknown>
       }
       const coarseNow = parityLocals(run.ctx).coarseNow
-      const derivation = legacyDerivationFromStore(run.referenceState(ctx.engine), coarseNow)
+      const derivation = legacyDerivationFromStore(referenceState(run.ctx.engine), coarseNow)
       const expected: string[] = visibleIssueRows(derivation, parityLocals(run.ctx)).map(
         (row) => row.issue.id,
       )

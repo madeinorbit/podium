@@ -20,7 +20,7 @@ function fixture() {
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
     reposLoaded: true, pendingSpawnIds: new Set(['pane-11']), coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
-  const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }) as ClientRuntime
+  const runtime = withKeyedInputs({ getSnapshot: () => state, subscribe: (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } } }) as unknown as ClientRuntime
   const load = vi.fn((_entity: string, id: string) => sessions.find(row => row.sessionId === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined,
     { summaries: SESSION_PANE_SUMMARIES, load: load as never, schedule: () => () => {} })

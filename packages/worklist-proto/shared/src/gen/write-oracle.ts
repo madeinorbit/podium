@@ -476,7 +476,7 @@ export function feedStep(oracle: WriteOracle, step: StepResult, run: GenRun): vo
   const source = run.feed().source
   // The runner's stamp for this step (markStamp there): identical values on
   // both sides, deterministic per seed and step.
-  const stamp = new Date(run.referenceState(ctx.engine).coarseNow).toISOString()
+  const stamp = new Date(referenceState(run.ctx.engine).coarseNow).toISOString()
   if (change.kind === 'edit' && step.skipped === undefined) {
     const kernelId = detail['mutationId']
     if (typeof kernelId === 'string') {

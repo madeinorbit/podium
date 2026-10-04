@@ -8,7 +8,6 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   createKernelReplica,
   createSideCache,
-  initializeIssueViewCache,
   memoryStorage,
 } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
@@ -171,7 +170,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
-  initializeIssueViewCache(replica)
   // The oracle retains the fixture's expected read views independently of the
   // raw replica rows and their personal companions, in replica transport order.
   const expectedSessions = new Map(corpus.sessions.map(row => [row.sessionId, row]))
@@ -261,7 +259,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         record: { entity: 'repo', entityId: id, value, provenance: { seq: 2 } },
         readmitted: false,
       })
-      store = { ...store, repoProjections: replica.rows('repos') }
+      store = { ...store }
       publish()
       rows.flush()
       settle()
@@ -280,7 +278,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         coarseClock: { now: () => NOW, subscribe: () => () => {} },
       })
       try {
-        const derivation = legacyDerivationFromStore(app.getSnapshot(), NOW)
+        const derivation = legacyDerivationFromStore(referenceState(app), NOW)
         const row = visibleIssueRows(derivation, { coarseNow: NOW, selectedIssueId: null }).find(
           (row) => row.issue.id === id,
         )

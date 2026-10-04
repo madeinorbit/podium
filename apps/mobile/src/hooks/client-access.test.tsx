@@ -1,17 +1,16 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { renderHook } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
-const current = vi.hoisted(() => ({ owner: null as unknown as { getSnapshot(): Record<string, unknown> }, legacy: vi.fn() }))
+const current = vi.hoisted(() => ({ owner: null as unknown as { access: Record<string, unknown>; services: Record<string, unknown> }, legacy: vi.fn() }))
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => current.owner,
-  useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => { current.legacy(); return select(referenceState(current.owner)) },
+  useRuntimeSelector: (select: (state: Record<string, unknown>) => unknown) => { current.legacy(); return select(current.owner.access) },
 }))
 vi.mock('../client/demoData', () => ({ demoEnabled: () => false }))
 import { useHttpOrigin, useHub, useReplica, useStoreActions, useTrpc, useUiState } from '../client/hooks'
 it('acquires stable mobile actions and handles once per owner without legacy subscriptions', () => {
   const make = (name: string) => {
     const snapshot = { httpOrigin: name, trpc: {}, hub: {}, replica: {}, uiState: {}, markIssueRead: vi.fn() }
-    return { snapshot, getSnapshot: () => snapshot }
+    return { snapshot, access: snapshot, services: snapshot }
   }
   const first = make('first'), second = make('second')
   current.owner = first

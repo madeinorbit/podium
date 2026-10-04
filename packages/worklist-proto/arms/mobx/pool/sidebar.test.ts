@@ -497,7 +497,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
           if (!step.skipped && step.change.kind === 'sessionFacts')
             appliedSession.add(step.change.variant)
           const local = engineLocals(run.ctx)
-          const store = run.referenceState(ctx.engine)
+          const store = referenceState(run.ctx.engine)
           const derivation = legacyDerivationFromStore(store, local.coarseNow)
           const rows = visibleIssueRows(derivation, local)
           state = stateFor(

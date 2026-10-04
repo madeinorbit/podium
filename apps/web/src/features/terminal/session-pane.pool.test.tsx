@@ -141,7 +141,7 @@ vi.mock('./use-terminal-appearance', () => ({
 }))
 vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
 
-import { useReplicaIssues } from '@/app/store'
+const useFixtureIssues = () => f.issues
 import { useChatSurface } from '../chat/use-chat-surface'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
@@ -261,10 +261,10 @@ it('renders the same real AgentPanel header, lifecycle text and controls for eve
 
 it('retains the keyed spawn prompt through confirmation and a parked surface until the transcript echoes it', () => {
   const row = sessions[0]!
-  f.state.pendingSpawnPrompts = new Map([[row.sessionId, 'First operator prompt']])
+  f.state.pendingSpawnPrompts = { [row.sessionId]: 'First operator prompt' }
   const panel = render(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
-  f.state.pendingSpawnPrompts = new Map()
+  f.state.pendingSpawnPrompts = {}
   act(() =>
     f.pool!.apply({
       type: 'update',
@@ -277,7 +277,7 @@ it('retains the keyed spawn prompt through confirmation and a parked surface unt
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
   fireEvent.click(panel.getByTestId('spawn-prompt'))
   expect(panel.queryByTestId('spawn-prompt')).toBeNull()
-  f.state.pendingSpawnPrompts = new Map([[row.sessionId, 'Later prompt']])
+  f.state.pendingSpawnPrompts = { [row.sessionId]: 'Later prompt' }
   panel.rerender(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('Later prompt')
   panel.rerender(<AgentPanel sessionId={sessions[1]!.sessionId} />)

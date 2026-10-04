@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { UnbrandIds } from '@podium/model/browser'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import type { IssueViewModel } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 
 type TestIssue = IssueViewModel & { sessions?: SessionView[] }
 

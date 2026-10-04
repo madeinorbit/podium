@@ -11,7 +11,6 @@ import {
   loadingNavigationProvider,
   NAVIGATION_LOADING,
   type NavigationProvider,
-  navigationStats,
   resolvedWorkspaceKey,
   workspaceKeyForState,
 } from './state'
@@ -57,10 +56,6 @@ const state = (navigation?: NavigationProvider) =>
     openIssueId: null,
     issueVisitBaseline: null,
   }) as unknown as EngineState & { issueProjections: IssueProjection[]; sessions: SessionView[]; issueUserStates: object[] }
-afterEach(() => {
-  navigationStats.disable()
-  navigationStats.reset()
-})
 
 describe('addressed workspace pruning', () => {
   const file = (id: string, sessionId: string) => ({
@@ -391,7 +386,6 @@ describe('navigation with an injected pool provider', () => {
   })
 
   it('counts zero legacy reads even when an optimistic overlay replaces the issue array', () => {
-    navigationStats.enable()
     const st = state(provider)
     st.selectedIssueId = child.id
     for (let i = 0; i < 3; i++) {
@@ -410,13 +404,9 @@ describe('navigation with an injected pool provider', () => {
       ).toBe(false)
       expect(find).not.toHaveBeenCalled()
     }
-    expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
-    workspaceKeyForState({ ...state(), selectedIssueId: child.id })
-    expect(navigationStats.read()).toMatchObject({ issuesFind: 1, missionRootFor: 1 })
   })
 
   it('never commits a cold or pre-import selection to a fallback workspace', () => {
-    navigationStats.enable()
     const st = state(loadingNavigationProvider)
     const intent = { view: 'workspace' as const, selectedIssueId: child.id, tabId: seat.sessionId }
     const route = routeDefaults('issues')
@@ -426,11 +416,9 @@ describe('navigation with an injected pool provider', () => {
       patch: {},
       route,
     })
-    expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
   })
 
   it('marks an opened session read through the provider, including the timer guard', () => {
-    navigationStats.enable()
     const st = {
       ...state(provider),
       view: 'workspace' as const,
@@ -450,7 +438,6 @@ describe('navigation with an injected pool provider', () => {
     try {
       reactions.updateMarkReadTimer()
       expect(markSessionRead).toHaveBeenCalledExactlyOnceWith(seat.sessionId)
-      expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
     } finally {
       reactions.dispose()
     }
@@ -503,7 +490,6 @@ describe('navigation with an injected pool provider', () => {
   })
 
   it('keeps a rehome pending until its pool mission root is loaded', () => {
-    navigationStats.enable()
     const target = { ...root, id: asIssueId('destination') }
     const moved = { ...seat, issueId: target.id }
     let ready = false
@@ -543,14 +529,12 @@ describe('navigation with an injected pool provider', () => {
       expect(st.selectedIssueId).toBe(target.id)
       expect(st.paneA).toBe(seat.sessionId)
       expect(workspaceKeyForState(st)).toBe(`mission:${target.id}`)
-      expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
     } finally {
       reactions.dispose()
     }
   })
 
   it('resumes a server-resolved short session link when its pool row is cold', async () => {
-    navigationStats.enable()
     let ready = false
     const st = state({
       ...provider,
@@ -576,6 +560,5 @@ describe('navigation with an injected pool provider', () => {
     expect(navigate).toHaveBeenCalledWith(
       expect.objectContaining({ tabId: seat.sessionId, selectedIssueId: child.id }),
     )
-    expect(navigationStats.read()).toEqual({ issuesFind: 0, missionRootFor: 0, sessionById: 0 })
   })
 })

@@ -282,8 +282,7 @@ describe('receipts over a stub runtime', () => {
         listeners.add(l)
         return () => listeners.delete(l)
       },
-      enqueueOverlayed: () => (opts.enqueue ?? (() => Promise.resolve()))(),
-      outbox: { pending: () => (opts.queued ?? []).map(entry), awaiting: () => [] },
+      outbox: { enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never, pending: () => (opts.queued ?? []).map(entry), awaiting: () => [] },
     }
     const emit = (o: OutboxOutcome): void => {
       for (const l of [...listeners]) l(o)

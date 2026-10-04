@@ -187,7 +187,7 @@ describe('mission pane value differential', () => {
           locals.flush()
           compare(
             handle.pool,
-            run.referenceState(ctx.engine),
+            referenceState(run.ctx.engine),
             `seed ${seed} step ${index} ${change.kind}`,
             false,
           )

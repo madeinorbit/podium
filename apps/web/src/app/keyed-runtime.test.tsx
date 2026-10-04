@@ -1,6 +1,6 @@
-import { observable, runInAction } from 'mobx'
 import { useSyncExternalStore } from 'react'
-import type { MobxPool } from '@podium/client-graph'
+import { MobxPool } from '@podium/client-graph'
+import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 // @vitest-environment happy-dom
 import {
@@ -25,7 +25,12 @@ vi.mock('./store-worklist-pool', () => ({
 }))
 let state: EngineState
 let inputs: KeyedInputsChannel
-let prompts: ReturnType<typeof observable.map<string, string | null>>
+let transactions: ReturnType<typeof createPoolTransactions>
+const prompt = (id: string, text: string | null | undefined) => {
+  // Test at the transaction's observable map boundary. Production writes use its spawn owner.
+  const map = transactions.spawnPrompts as Map<string, string | null>
+  if (text === undefined) map.delete(id); else map.set(id, text)
+}
 const sid = asSessionId('first'),
   other = asSessionId('other')
 
@@ -36,8 +41,14 @@ beforeEach(() => {
     repos: [],
     machines: [],
   } as unknown as EngineState
-  prompts = observable.map([[sid, 'First prompt']], { deep: false })
-  f.pool = { spawnPlaceholders: () => prompts, isDisposed: () => false }
+  transactions = createPoolTransactions({
+    userId: 'operator', outbox: { pending: () => [], awaiting: () => [], deadLetters: () => [], subscribe: () => () => {} },
+    outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+  })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  pool.attachTransactions(transactions)
+  prompt(sid, 'First prompt')
+  f.pool = pool
   inputs = createKeyedInputs(() => state)
   f.owner = {
     ...inputs,
@@ -52,6 +63,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   inputs.dispose()
+  transactions.dispose()
+  ;(f.pool as MobxPool).dispose()
 })
 
 it('keeps spawn prompts identical through updates, confirmation and an addressed session switch', () => {
@@ -64,15 +77,15 @@ it('keeps spawn prompts identical through updates, confirmation and an addressed
   expect(screen.getByTestId('prompt').textContent).toBe('First prompt')
   const before = renders
   act(() => {
-    runInAction(() => prompts.set(other, 'Other prompt'))
+    prompt(other, 'Other prompt')
   })
   expect(renders).toBe(before)
   act(() => {
-    runInAction(() => prompts.set(sid, 'Revised prompt'))
+    prompt(sid, 'Revised prompt')
   })
   expect(screen.getByTestId('prompt').textContent).toBe('Revised prompt')
   act(() => {
-    runInAction(() => prompts.delete(sid))
+    prompt(sid, undefined)
   })
   expect(screen.getByTestId('prompt').textContent).toBe('absent')
   view.rerender(<Prompt id={other} />)

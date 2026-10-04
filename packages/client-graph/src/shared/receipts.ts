@@ -217,7 +217,7 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
         command.kind === 'issueUpdate'
           ? runtime.outbox.enqueue('issueUpdate', command.input, opts)
           : runtime.outbox.enqueue('issueMarkRead', command.input, opts)
-      enqueued.catch((error: unknown) => {
+      Promise.resolve(enqueued).catch((error: unknown) => {
         // The throw came after the entry reached the queue: the kernel still
         // owes it an outcome, and will report it.
         if (inQueue(txId)) return

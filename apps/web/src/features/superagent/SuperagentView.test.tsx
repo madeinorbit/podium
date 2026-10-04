@@ -120,7 +120,7 @@ const normalizedIssues = () =>
     const { sessions = [], ...normalized } = issue as typeof issue & {
       sessions?: Array<{ sessionId: string; cwd: string }>
     }
-    return { ...normalized, memberSessionIds: sessions.map((session) => session.sessionId) }
+    return { ...normalized, memberSessionIds: sessions.map((session: { sessionId: string }) => session.sessionId) }
   })
 
 const embeddedSessions = () =>

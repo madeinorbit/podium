@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { AtOption } from './at-mention'
 
 /**

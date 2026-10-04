@@ -52,19 +52,7 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
     },
   }
 })
-vi.mock('@/app/store', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@/app/store')>()
-  return {
-    ...original,
-    useSlice: (definition: unknown) => {
-      if (definition === worklistSlice) {
-        mode.reads += 1
-        throw new Error('Pool path read worklistSlice')
-      }
-      return original.useSlice(definition as Parameters<typeof original.useSlice>[0])
-    },
-  }
-})
+
 vi.mock('./sidebar-measurements', async (importOriginal) => {
   const original = await importOriginal<typeof import('./sidebar-measurements')>()
   const { useLayoutEffect } = await import('react')

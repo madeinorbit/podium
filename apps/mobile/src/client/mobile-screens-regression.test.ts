@@ -124,7 +124,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
 for (const scale of [1, 4] as const)
   it(`phone Tasks, Mission and Details: corpus and focused gates at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale),
-      feeds = openFenceFeeds(ctx, 'overlaid')
+      feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
       summaries: MOBILE_SCREEN_SUMMARIES,
     })

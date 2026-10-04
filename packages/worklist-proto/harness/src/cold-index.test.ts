@@ -111,7 +111,7 @@ describe('cold index equals the rule over whole rows (POD-5405)', () => {
     const run = await startGenRun({ corpus: genCorpus(1), feedMode: 'pooled' })
     try {
       const sequence = gen(seed, STEPS)
-      const now = () => run.referenceState(ctx.engine).coarseNow
+      const now = () => referenceState(run.ctx.engine).coarseNow
       expect(differences(run.feed().source, run.feed().source.cold!(), now(), `seed ${seed} bootstrap`)).toEqual([])
       let compared = 0
       for (const change of sequence) {

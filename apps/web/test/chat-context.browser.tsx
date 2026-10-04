@@ -129,12 +129,11 @@ function Surface() {
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }),
-    ports = useChatConversationPorts(id, runtime)
+    ports = useChatConversationPorts(id)
   // Keep the controller implementation and all mutations on the real owner.
   const actions = referenceState(runtime)
   const send = useChatSend({
     sessionId: id,
-    store: runtime,
     trpc: actions.trpc as never,
     hub: actions.hub,
     sendChat: actions.sendChat,

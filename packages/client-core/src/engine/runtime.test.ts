@@ -56,13 +56,12 @@ import {
 import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
 import {
   type AwaitingTruth,
-  foldOverlays,
   insertOverlay,
   type OverlayEntity,
   type OverlayTarget,
   type PendingOverlay,
   pruneAwaiting,
-} from './overlay'
+} from '../command-reducers'
 import { Reactions } from './reactions'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 import type { EngineState } from './state'

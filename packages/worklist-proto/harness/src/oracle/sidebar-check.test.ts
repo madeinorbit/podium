@@ -540,7 +540,7 @@ describe('sidebar differential replay', () => {
           }
           locals.flush()
           settle(handle.pool)
-          const store = run.referenceState(ctx.engine)
+          const store = referenceState(run.ctx.engine)
           const keys = tracked(() => handle.pool.groups.keys)
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,

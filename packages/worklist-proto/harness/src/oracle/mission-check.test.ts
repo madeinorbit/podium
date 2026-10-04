@@ -67,7 +67,7 @@ describe('mission differential replay', () => {
           handle = createWorklistPool(feed.source, locals.source, { summaries: MISSION_SUMMARIES }); stop = observe()
         }
         locals.flush(); settle(handle.pool)
-        const store = run.referenceState(ctx.engine)
+        const store = referenceState(run.ctx.engine)
         expect(tracked(() => checkMissions(handle.pool, allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions)),
           `seed ${seed} step ${index} ${change.kind}`).toMatchObject({ differences: 0, first: null, pending: 0 })
       }

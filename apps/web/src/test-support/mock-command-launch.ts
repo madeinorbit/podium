@@ -29,7 +29,7 @@ const EMPTY_SETTINGS = { repoOrder: [] }
  * Runtime attachment, LOADING and publication coverage uses the separate
  * command-launch-data.pool suite with a real StoreProvider. */
 function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
-  const state = useRuntimeSelector((value) => value) as Store
+  const state = useRuntimeSelector((value) => value) as unknown as Store
   const issues = state.replica && state.issueProjections
     ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
     : normalizedFixtureIssues(state)

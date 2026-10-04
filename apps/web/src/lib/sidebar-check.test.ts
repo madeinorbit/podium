@@ -18,7 +18,8 @@ beforeEach(() => { fakeTimers(); vi.mocked(checkSidebar).mockReturnValue(result)
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); vi.unstubAllGlobals() })
 
 function diagnostic(options: Parameters<typeof startSidebarCheck>[2] = { startup: false }) {
-  const runtime = { getSnapshot: vi.fn(() => ({})) } as unknown as Parameters<typeof startSidebarCheck>[0]
+  const getAccess = vi.fn(() => ({}))
+  const runtime = { get access() { return getAccess() }, getAccess } as unknown as Parameters<typeof startSidebarCheck>[0] & { getAccess: typeof getAccess }
   const pool = { clock: { current: 42 } } as MobxPool
   const perf = createSidebarPerf()
   const close = bindSidebarPerf(runtime, perf)
@@ -30,7 +31,7 @@ describe('on-demand sidebar diagnostic', () => {
   it('runs once with the startup switch on, then does no comparison during 60 seconds idle', () => {
     const { runtime, pool, perf, dispose } = diagnostic({ startup: true })
     try {
-      expect(runtime.getSnapshot).not.toHaveBeenCalled()
+      expect(runtime.getAccess).not.toHaveBeenCalled()
       for (let read = 0; read < 50; read += 1) perf.read()
       vi.advanceTimersByTime(4999)
       expect(checkSidebar).not.toHaveBeenCalled()
@@ -40,7 +41,7 @@ describe('on-demand sidebar diagnostic', () => {
       vi.advanceTimersByTime(60_000)
       expect(checkSidebar).toHaveBeenCalledTimes(1)
       expect(vi.getTimerCount()).toBe(0)
-      expect(runtime.getSnapshot).toHaveBeenCalledTimes(1)
+      expect(runtime.getAccess).toHaveBeenCalledTimes(1)
       expect(perf.read().check).toMatchObject({ state: 'match', checks: 1 })
     } finally { dispose() }
   })
@@ -161,7 +162,7 @@ describe('on-demand sidebar diagnostic', () => {
     vi.mocked(checkSidebar).mockImplementation(actual.checkSidebar)
     const ctx = await startScenarioEngine(1)
     const handle = createRuntimeWorklistPool(ctx.engine)
-    const state = (store: ReturnType<typeof ctx.engine.getSnapshot>) => ({
+    const state = (store: ReturnType<typeof referenceState>) => ({
       pinnedRepos: store.pins.repos, pinnedWorktrees: store.pins.worktrees, projectOrder: store.sidebarSettings.repoOrder,
     })
     let stop = () => {}, close = () => {}

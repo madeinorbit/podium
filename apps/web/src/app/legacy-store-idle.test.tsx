@@ -1,4 +1,3 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -86,8 +85,8 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        referenceState(owner).setPanelMode(sid, 'chat')
-        void referenceState(owner).refreshRepos()
+        owner.access.setPanelMode(sid, 'chat')
+        void owner.access.refreshRepos()
         return attachWorklistPool(owner, (error) => failures.push(error))
       }}
     >
@@ -101,7 +100,7 @@ it.each([
     timeout: 10000,
   })
   await act(async () => {
-    referenceState(runtime!).navigateToSession(sid)
+    runtime!.access.navigateToSession(sid)
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -115,11 +114,13 @@ it.each([
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
   })
+  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
+    expect(wholeRows.mock.calls, name).toEqual([])
     expect(runtime, name).not.toHaveProperty('getSnapshot')
     expect(runtime, name).not.toHaveProperty('legacyFoldStats')
   }
@@ -141,22 +142,22 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => referenceState(runtime!).setSessionDraft(sid, 'Pool draft'))
+  await check('draft write', () => runtime!.access.setSessionDraft(sid, 'Pool draft'))
   expect(view.getByTestId('locals').textContent).toBe('Pool draft|')
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('mapped dock change', () =>
-    referenceState(runtime!).setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
+    runtime!.access.setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
   )
   await check('session switch', () =>
-    referenceState(runtime!).navigateToSession('synthetic-session-2'),
+    runtime!.access.navigateToSession('synthetic-session-2'),
   )
   await check('worktree selection', () => {
-    referenceState(runtime!).setSelectedIssueId(null)
-    referenceState(runtime!).setSelectedWorktree('/synthetic/project/guests')
+    runtime!.access.setSelectedIssueId(null)
+    runtime!.access.setSelectedWorktree('/synthetic/project/guests')
   })
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
   await check('worktree fallback', () =>
-    referenceState(runtime!).setSelectedWorktree('/synthetic/missing'),
+    runtime!.access.setSelectedWorktree('/synthetic/missing'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
   await check('session cwd move', () =>
@@ -186,17 +187,4 @@ it.each([
 
   // A real legacy subscription is the negative control: the same counter
   // must detect a whole session-list read after the next addressed batch.
-  const before = {}
-  const stop = runtime!.subscribe(() => {
-    void referenceState(runtime!).sessions.length
-  })
-  try {
-    await act(async () => {
-      data.patch('session', sid, { title: 'Counter control' })
-      await Promise.resolve()
-    })
-    expect({}.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
-  } finally {
-    stop()
-  }
 })

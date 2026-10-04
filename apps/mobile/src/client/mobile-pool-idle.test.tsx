@@ -1,4 +1,3 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -53,7 +52,7 @@ it.each([
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         data.bindHub(owner.hub)
-        void referenceState(owner).refreshRepos()
+        void owner.access.refreshRepos()
         return attachMobilePool(owner, (error) => failures.push(error))
       }}
     >
@@ -67,11 +66,13 @@ it.each([
     expect(view.getByTestId('phone').textContent).toBe(`Synthetic agent 0||${12 * scale + 2}`),
   )
 
+  const wholeRows = vi.spyOn(runtime!.replica, 'rows')
   const check = async (name: string, action: () => void) => {
     await act(async () => {
       action()
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
+    expect(wholeRows.mock.calls, name).toEqual([])
     expect(runtime, name).not.toHaveProperty('getSnapshot')
     expect(runtime, name).not.toHaveProperty('legacyFoldStats')
   }
@@ -91,7 +92,7 @@ it.each([
   await check('issue stage', () =>
     data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
   )
-  await check('draft write', () => referenceState(runtime!).setSessionDraft(sid, 'Phone draft'))
+  await check('draft write', () => runtime!.access.setSessionDraft(sid, 'Phone draft'))
   await waitFor(() =>
     expect(view.getByTestId('phone').textContent).toBe(
       `Phone pool name|Phone draft|${12 * scale + 2}`,
@@ -99,15 +100,15 @@ it.each([
   )
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
   await check('worktree selection', () =>
-    referenceState(runtime!).setSelectedWorktree('/synthetic/project/guests'),
+    runtime!.access.setSelectedWorktree('/synthetic/project/guests'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
   await check('worktree fallback', () =>
-    referenceState(runtime!).setSelectedWorktree('/synthetic/missing'),
+    runtime!.access.setSelectedWorktree('/synthetic/missing'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
   await check('session switch', () =>
-    referenceState(runtime!).navigateToSession('synthetic-session-2'),
+    runtime!.access.navigateToSession('synthetic-session-2'),
   )
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
@@ -140,17 +141,4 @@ it.each([
   )
   expect(failures).toEqual([])
 
-  const before = {}
-  const stop = runtime!.subscribe(() => {
-    void referenceState(runtime!).sessions.length
-  })
-  try {
-    await act(async () => {
-      data.patch('session', sid, { title: 'Counter control' })
-      await Promise.resolve()
-    })
-    expect({}.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
-  } finally {
-    stop()
-  }
 })

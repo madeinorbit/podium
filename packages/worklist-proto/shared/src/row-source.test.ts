@@ -23,6 +23,7 @@ import {
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { type RowSourceMode, type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { createRowSource } from './row-source'
+import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import {
   asIssueId,
   asSessionId,
@@ -130,7 +131,8 @@ function fakeRuntime(
       return () => listeners.delete(listener)
     },
     getSnapshot: () => ({ repos, sessions: painted }),
-    pendingOverlaysByRow: (entity: Entity) => pending[entity],
+    pending,
+    onPending: (changed: () => void) => { listeners.add(changed); return () => { listeners.delete(changed) } },
     setPending: (entity: Entity, id: string, overlays: PendingOverlay[] | null) => {
       if (overlays === null) pending[entity].delete(id)
       else pending[entity].set(id, overlays)
@@ -1390,7 +1392,7 @@ function countingWrappers(
   // The engine's own keyed locals (POD-5433); entity arrays read through them
   // are counted like every other enumeration.
   const runtime = {
-    pendingOverlaysByRow: engine.pendingOverlaysByRow,
+    owner: engine,
     onLocals: engine.onLocals,
     readLocal: (key: string) => {
       const value = (engine.readLocal as (key: string) => unknown)(key)
@@ -1529,7 +1531,7 @@ async function runFence(
       await waitFor(
         () =>
           engine.outbox.pending().length === 0 &&
-          engine.pendingOverlaysByRow('issueUserStates').has('i0'),
+          (engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.issueUserStates!.has('i0'),
         'press to drain into awaiting truth',
       )
     })
@@ -1542,7 +1544,7 @@ async function runFence(
         pinned: false,
       })
       await waitFor(
-        () => !engine.pendingOverlaysByRow('issueUserStates').has('i0'),
+        () => !(engine as unknown as { poolWriter: ReturnType<typeof createRuntimeTransactions> }).poolWriter.pending.issueUserStates!.has('i0'),
         'echo to retire',
       )
     })

@@ -21,7 +21,7 @@ const inputEvents = ['pointerdown', 'pointerup', 'pointercancel', 'pointermove',
   'beforeinput', 'input', 'click', 'wheel', 'scroll', 'compositionstart', 'compositionend', 'blur'] as const
 
 export function startSidebarCheck(
-  runtime: { readonly access: Store<PodiumClientApi> },
+  runtime: Parameters<typeof referenceState>[0],
   pool: MobxPool,
   options: { startup?: boolean; startupDelayMs?: number; state?: (store: Store<PodiumClientApi>) => SidebarState; report?: (result: SidebarCheckResult) => void } = {},
 ): () => void {

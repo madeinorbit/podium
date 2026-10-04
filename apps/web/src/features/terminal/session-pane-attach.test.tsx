@@ -105,10 +105,9 @@ function replicaFactory() {
 
 function binding(next: ClientRuntime): () => void {
   runtime = next
-  next.getSnapshot().setPanelMode(live.sessionId, 'chat')
-  next.getSnapshot().setDockShell(shell.cwd, shell.sessionId)
-  void next
-    .getSnapshot()
+  next.access.setPanelMode(live.sessionId, 'chat')
+  next.access.setDockShell(shell.cwd, shell.sessionId)
+  void next.access
     .refreshRepos()
     .catch((error) => errors.push(error))
   return attachWorklistPool(next, (error) => errors.push(error))

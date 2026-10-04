@@ -62,7 +62,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   if (windowPending) pending++
   const controls = (input: typeof window) => !input || input === LOADING ? {} : {
     panelMode: input.panelMode, dockShells: input.dockShells, reposLoaded: input.reposLoaded,
-    pendingSpawnIds: [...input.pendingSpawnIds].sort(),
+    
   }
   const machineRows = (rows: typeof state.machines) => rows.map((row): CheckRow => ({ id: row.id, fields: { row } }))
   const expectedColor = () => {

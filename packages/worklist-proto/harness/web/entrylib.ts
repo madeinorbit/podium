@@ -1088,7 +1088,7 @@ export function mountPage(options: MountPageOptions): void {
   /** The arm's output against the oracle's over the live engine, untimed. */
   function parityNow(): ProtoParity {
     const armSnapshot = live().handle.snapshot()
-    const oracleNow = oracleSnapshot(live().referenceState(boot.engine))
+    const oracleNow = oracleSnapshot(referenceState(live().boot.engine))
     const raw = expected === undefined ? oracleNow : expected(oracleNow)
     const patched = parityAllowance?.accept(
       installedCorpus ?? live().boot.corpus,
@@ -1281,7 +1281,7 @@ export function mountPage(options: MountPageOptions): void {
    * control never makes.
    */
   async function healGrownDerivation(): Promise<void> {
-    await live().referenceState(boot.engine).refreshRepos()
+    await referenceState(live().boot.engine).refreshRepos()
     await settleQuiet()
   }
 

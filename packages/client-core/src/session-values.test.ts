@@ -1,7 +1,7 @@
 import { asSessionId, isSnoozed, returnedFromSnooze } from '@podium/model'
 import { resolveSessionIdentifier } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import {  foldRowOverlays } from './engine/overlay'
+import {  foldRowOverlays } from './command-reducers'
 import { type SessionHomes, inheritSessionHomes, sessionValues, sessionView, sessionViews } from './session-values'
 
 const active = '2026-10-01T12:00:00.000Z'

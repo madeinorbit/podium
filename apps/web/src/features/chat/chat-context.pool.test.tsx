@@ -58,7 +58,7 @@ const snapshot = () => {
 }
 const handle = { getSnapshot: snapshot, subscribe: (_listener: () => void) => () => {} }
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot()),
+  useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
   useReplicaIssues: () => {
     if (f.guard) throw new Error('Legacy chat issue views ran')
     return f.fixture!.issues.filter((row) => !row.deletedAt)
@@ -354,7 +354,7 @@ function Inputs() {
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue(f.fixture!.sessions[0]!),
-    ports = useChatConversationPorts(id, handle)
+    ports = useChatConversationPorts(id)
   return (
     <div>
       {JSON.stringify({
@@ -402,7 +402,6 @@ it('keeps hooks stable through null-pool attachment and restores saved controlle
     const id = f.fixture!.sessions[0]!.sessionId
     const value = useChatSend({
       sessionId: id,
-      store: handle,
       trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
       sendChat: vi.fn(async () => ({ state: 'sent' as const })),
       chatSendsFor: () => {

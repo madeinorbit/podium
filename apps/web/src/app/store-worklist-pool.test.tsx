@@ -180,12 +180,11 @@ describe('StoreProvider owns the sidebar pool', () => {
     const perf = createSidebarPerf()
     const close = bindSidebarPerf(runtime!, perf)
     const row = vi.spyOn(pool, 'row')
-    const snapshots = vi.spyOn(runtime!, 'getSnapshot')
+    expect(runtime).not.toHaveProperty('getSnapshot')
     try {
       expect(perf.read().pool).toEqual({ connected: true, rows: 1 })
       for (let i = 0; i < 100; i++) perf.read()
       expect(row).not.toHaveBeenCalled()
-      expect(snapshots).not.toHaveBeenCalled()
       render(null)
       expect(perf.read().pool).toEqual({ connected: false, rows: null })
     } finally {

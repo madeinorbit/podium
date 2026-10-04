@@ -1,3 +1,4 @@
+import type { IssueViewInput } from '@podium/client-graph/diagnostics/reference/issue-views'
 import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
@@ -6,7 +7,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
-import { type IssueViewInput, type IssueViewModel } from '@podium/client-core/replica'
+import { type IssueViewModel } from '@podium/client-core/replica'
 import { deriveIssueRollups, deriveIssueViews } from '@podium/client-graph/diagnostics/reference/issue-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'

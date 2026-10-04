@@ -64,8 +64,8 @@ export function publishPoolFixture() {
 }
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
-export function syncPoolFixture(input: import("@/app/store").Store, sidebarGesture = false) {
-  const state = input as Store & {
+export function syncPoolFixture(input: import("@podium/client-core/engine").Store, sidebarGesture = false) {
+  const state = input as unknown as Store & {
     issues?: readonly unknown[]
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
