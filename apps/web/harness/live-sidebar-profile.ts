@@ -105,6 +105,7 @@ const sourceSha =
   process.argv.find((a) => a.startsWith('--source-sha='))?.slice(13) ??
   execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const targetsPath = process.argv.find((a) => a.startsWith('--targets='))?.slice(10)
+const anchorNumber = process.argv.find((a) => a.startsWith('--anchor-ref='))?.slice(13)
 console.log(JSON.stringify({ pid: process.pid, label }))
 const root = resolve('.artifacts/live-sidebar', label)
 await mkdir(root, { recursive: true })
@@ -355,9 +356,11 @@ try {
       ),
     ]
     const anchor: string =
-      saved?.anchor ??
+      (anchorNumber ? rows.find((r) => r.number === anchorNumber)?.id : saved?.anchor) ??
       rows.find((r) => r.numbered && !r.selected && r.phase === 'working')?.id ??
       unique[0]!
+    if (anchorNumber && !rows.some((r) => r.number === anchorNumber))
+      throw new Error('Requested capture anchor is absent from the sidebar')
     const targets: string[] = saved?.targets ?? unique.filter((id) => id !== anchor).slice(0, limit)
     if (targets.length !== limit) throw new Error('Need distinct sidebar targets')
     const labels = { ...saved?.labels }
