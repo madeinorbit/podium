@@ -310,6 +310,9 @@ describe('worklist row memo (POD-4421)', () => {
     )
     const fixedAfter = new Map(shellCounts)
     const fixedText = fixed.container.textContent ?? ''
+    console.info('POD5438 final row control ' + JSON.stringify({
+      legacyText, fixedText, legacyRenders: Object.fromEntries(legacyAfter), poolRenders: Object.fromEntries(fixedAfter),
+    }))
     fixed.unmount()
 
     // Only the changed row committed.

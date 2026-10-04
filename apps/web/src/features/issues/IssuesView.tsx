@@ -549,7 +549,7 @@ export function IssuesView(): JSX.Element {
           const targets = ctxMenu.ids
             .map((id) => issues.find((issue) => issue.id === id))
             .filter((issue): issue is IssueViewModel => issue !== undefined)
-          return targets.length > 0 ? (
+          return targets.length > 0 && menuInputs ? (
             <IssueContextMenu
               poolInputs={menuInputs}
               issues={targets}

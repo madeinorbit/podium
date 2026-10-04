@@ -16,6 +16,7 @@ import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { navigationIssue } from './pool-row-data'
+import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
 
 /** Addressed mission target seam shared with the explorer. It reads the raw
  * parent relation so an archived ancestor stops the walk, as in navigation. */
@@ -235,7 +236,7 @@ export function createPoolWorkActions(
       Promise.all(patches.map(({ id, ...patch }) => runtime.getSnapshot().updateIssue(id, patch))),
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.getSnapshot().setIssueTucked(id, tucked),
-    resolveMenuData: (id: string) => {
+    resolveMenuData: (id: string): UnifiedIssueRowMenuData => {
       // Only on menu open: enumerate resident issues, through the one reader.
       const sessions = sessionMembership(pool)
       const all = [...pool.tables.issue.keys()].flatMap((key) => {

@@ -8,6 +8,7 @@ const baseline = '7f952ac170ef442e1825c16218979209bb38329f'
 const guard = 'apps/web/src/lib/hooks/use-session-guard.ts'
 const menu = 'apps/web/src/lib/SessionContextMenu.tsx'
 const issueMenu = 'apps/web/src/features/issues/IssueContextMenu.tsx'
+const issueRow = 'apps/web/src/features/worklist/UnifiedIssueRow.tsx'
 const paths = [guard, menu, issueMenu]
 const source = (path, before) =>
   before
@@ -51,6 +52,28 @@ function readers(before) {
     }
     visit(tree(path, before))
   }
+  return counts
+}
+
+function rowAdapter(before) {
+  const counts = { legacyOriginReaders: 0, legacyOriginCalls: 0, wholeArrayProps: 0, legacySelectionProps: 0, legacyDerivations: 0 }
+  const visit = node => {
+    if (ts.isFunctionDeclaration(node)) {
+      if (node.name?.text === 'legacyOriginTick') counts.legacyOriginReaders++
+      if (node.name?.text === 'UnifiedIssueRowInner') {
+        for (const member of node.parameters[0].type.members) {
+          if (['sessions', 'issues', 'allWorktreePaths'].includes(member.name.getText())) counts.wholeArrayProps++
+          if (['selectedIssueId', 'paneA'].includes(member.name.getText())) counts.legacySelectionProps++
+        }
+      }
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      if (node.expression.text === 'legacyOriginTick') counts.legacyOriginCalls++
+      if (['issueDisplayTitle', 'missionProgress', 'draftActiveFallback'].includes(node.expression.text)) counts.legacyDerivations++
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree(issueRow, before))
   return counts
 }
 
@@ -177,6 +200,7 @@ const report = {
   candidate: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   before: readers(true),
   after: readers(false),
+  rowAdapter: { before: rowAdapter(true), after: rowAdapter(false) },
   missingMenuInputs,
   missingIssueMenuInputs,
   missingGuardInputs,
@@ -190,6 +214,7 @@ console.log(JSON.stringify(report))
 if (
   !process.argv.includes('--record-before') &&
   (Object.values(report.after).some((value) => value !== 0) ||
+    Object.values(report.rowAdapter.after).some(value => value !== 0) ||
     missingMenuInputs.length ||
     missingIssueMenuInputs.length ||
     missingGuardInputs.length ||

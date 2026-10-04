@@ -73,7 +73,10 @@ const machine = (id: MachineId): MachineWire => ({
   online: true,
   serviceAssignment: { server: false, agentExecution: true },
   availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
-  inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
+  inventory: {
+    os: 'linux', arch: 'x64', tools: [],
+    agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+  },
 })
 const session = (over: Partial<SessionViewInput> & Pick<SessionView, 'sessionId'>): SessionView =>
   ({
