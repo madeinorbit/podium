@@ -1,8 +1,8 @@
 {
-  "summary": "CURRENT at 96f705cd4e is a mixed result at 1x: session switching improves 806\u2192398 ms, mark-read 882\u2192139 ms, and issue-page opening 105\u219272 ms. Cold startup is slower (2449\u21923456 ms), warm-data reload is slower (1121\u21922260 ms), and populated project expansion is slower (93\u2192243 ms). Two matched OLD/CURRENT pairs supply 16 unprofiled observations per ordinary action and eight per startup case. The 4x comparison is next; phone, heap and source attribution remain pending, so the whole-app verdict is still open. OLD phone refuses the shared corpus; no relative phone win is established.",
+  "summary": "CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 5.54\u21920.63 s, mark-read 10.02\u21920.21 s, and busy live-update CPU 95%\u219224% of one renderer core. Startup costs more: cold 6.90\u219211.86 s and retained-data reload 4.00\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening and sidebar expansion show no clear median gain at 4x. This is a mixed web result: 1x has two matched pairs and 4x currently has one. The whole-app verdict awaits phone, heap and sampled CPU attribution. OLD phone cannot start with the shared corpus.",
   "currentArm": {
     "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
-    "status": "Two web1x pairs complete; OLD4x r30 complete and CURRENT4x queued",
+    "status": "Two web1x pairs and first web4x pair complete; second4x OLD queued",
     "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
     "workspaceBuildSeconds": 181.073
   },

@@ -120,6 +120,18 @@ for key,rows in sorted(profile_cells.items()):
     cpu_rows=[row for row in rows if row.get('storeDeriveCpuEstimateMs') is not None]
     middle=lambda values:statistics.median(values) if values else None
     lines.append('| '+' | '.join(map(str,[*key,len(rows),fmt(middle([row['storeDeriveCpuEstimateMs'] for row in cpu_rows])),fmt(middle([sum(value for name,value in row['cpuEstimates'].items() if 'React render' in name) for row in cpu_rows])),fmt(middle([sum(value for name,value in row['cpuEstimates'].items() if 'React commit' in name) for row in cpu_rows])),fmt(statistics.median(row['unmappedMs'] for row in rows))]))+' |')
+lines.extend(['','Profiling sensitivity: the source estimates above use **profiled** thread CPU. They are not subdivisions of the unprofiled CPU table. The additional profiled repetitions run last, so this ratio combines instrumentation effects, order and state changes; it is not an isolated estimate of profiler overhead. Use sampled phase composition with that limitation.','','| Arm / matched NEW | Surface | Scale | Action | n primary/profiled | Primary CPU median | Profiled CPU median | Profiled / primary |','|---|---|---:|---|---|---:|---:|---:|'])
+profile_cpu=collections.defaultdict(lambda:[[],[]])
+for run in valid:
+    if run['mode']!='timing':continue
+    arm=run['arm']+' → '+run.get('comparisonArm','new') if run['arm']=='old' else run['arm']
+    for row in run['actions']:
+        if row.get('mainThreadCpuMs') is not None:
+            profile_cpu[(arm,run['surface'],run['scale'],row['action'])][bool(row.get('profiled'))].append(row['mainThreadCpuMs'])
+for key,(primary,profiled) in sorted(profile_cpu.items()):
+    if not primary or not profiled:continue
+    a,b=statistics.median(primary),statistics.median(profiled)
+    lines.append('| '+' | '.join(map(str,[*key,f'{len(primary)}/{len(profiled)}',fmt(a),fmt(b),f'{b/a:.2f}x' if a else '—']))+' |')
 lines.extend(['','## Incoming updates and connected idle','','Update CPU is the CDP main-thread TaskDuration delta with Performance.enable(timeDomain=threadTicks), measured after one injected update through a 200 ms minimum window and two animation frames. Actual windows can be longer under load; their medians appear below and each duration remains raw. Heartbeats change lastActiveAt; issue updates change title (both legacy issue and projection in OLD, projection in NEW); terminal output is a short text line per frame. These are payload-specific observations, not costs for arbitrary issue edits or output byte volumes. Quiet windows measure the same instrumentation with no injection. These are observed total CPU costs in a window containing one update, not exclusive causal CPU per update; pending UI tasks, paints and real upstream traffic can overlap. The 60 s connected-idle replay delivers 30 heartbeat changes/minute, 10 issue changes/minute, and 120 terminal output frames/minute (two frames/second). These busy-profile rates are explicit synthetic assumptions, distinct from the historical-rate replay below. This is an idle UI with live data, not a silent disconnected app. Delivery to the visible terminal is verified before replay. Percent CPU means one renderer thread’s fraction of one core, not whole-machine or Mac desktop CPU.','','| Arm | Surface | Scale | Update | n | Task CPU ms/window median | p95 |','|---|---|---:|---|---:|---:|---:|'])
 bg=collections.defaultdict(list)
 for run in valid:
