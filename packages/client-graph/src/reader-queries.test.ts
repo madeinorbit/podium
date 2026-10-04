@@ -1,7 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
-
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { compareSidebarSnapshots, type SidebarSnapshot } from '../diagnostics/sidebar-check'
@@ -36,25 +35,47 @@ const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
 
 it('keeps spawn placement in its declared source subset across reassignment, readmission and rescope', () => {
-  const issue = (id: string, patch: object = {}): RowRecord => ({ kind: 'issue', id, value: {
-    id, title: id, seq: 1, stage: 'planning', createdAt: old, updatedAt: old,
-    repoId: 'wanted', repoPath: '/wanted', archived: false, deletedAt: null, ...patch,
-  } } as RowRecord)
+  const issue = (id: string, patch: object = {}): RowRecord =>
+    ({
+      kind: 'issue',
+      id,
+      value: {
+        id,
+        title: id,
+        seq: 1,
+        stage: 'planning',
+        createdAt: old,
+        updatedAt: old,
+        repoId: 'wanted',
+        repoPath: '/wanted',
+        archived: false,
+        deletedAt: null,
+        ...patch,
+      },
+    }) as RowRecord
   const archived = issue('archived-repo', { archived: true, repoPath: '/other' })
   const unassigned = issue('unassigned-path', { repoId: null })
   const deleted = issue('deleted-repo', { deletedAt: old })
-  const rows = [archived, unassigned, deleted,
+  const rows = [
+    archived,
+    unassigned,
+    deleted,
     issue('foreign-repo', { repoId: 'other' }),
-    issue('unassigned-other-path', { repoId: null, repoPath: '/other' })]
+    issue('unassigned-other-path', { repoId: null, repoPath: '/other' }),
+  ]
   const source = createColdIndex(SCHEMA)
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    cold: () => source, load: () => undefined, schedule: () => () => {},
+    cold: () => source,
+    load: () => undefined,
+    schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows: [...rows, issue('resident-only')] })
   const query = { kind: 'spawnIssues', repoId: 'wanted', repoPath: '/wanted' } as const
   let seen: string[] = []
-  const stop = autorun(() => { seen = pool.queries.ids(query).sort() })
+  const stop = autorun(() => {
+    seen = pool.queries.ids(query).sort()
+  })
   const publish = (event: Parameters<ColdIndex['apply']>[0]) => {
     source.apply(event)
     pool.apply(event)
@@ -72,7 +93,10 @@ it('keeps spawn placement in its declared source subset across reassignment, rea
     expect(seen).toEqual(['archived-repo', 'deleted-repo'])
     publish({ type: 'replace', rows: [archived] })
     expect(seen).toEqual(['archived-repo'])
-  } finally { stop(); pool.dispose() }
+  } finally {
+    stop()
+    pool.dispose()
+  }
 })
 
 function fixture(scale = 1, bootOnly = false) {
@@ -849,8 +873,9 @@ describe('readers behind declared cold questions', () => {
     const residents = vi.spyOn(f.pool.tables.session, 'keys')
     try {
       for (let n = 0; n < 500; n++)
-        expect(f.pool.queries.activity({ kind: 'commandRootActivity', roots: [`/activity-${n}`] }))
-          .toBe(n < 256 ? Date.parse('2027-01-01T00:00:00Z') : 0)
+        expect(
+          f.pool.queries.activity({ kind: 'commandRootActivity', roots: [`/activity-${n}`] }),
+        ).toBe(n < 256 ? Date.parse('2027-01-01T00:00:00Z') : 0)
       expect(reads).not.toHaveBeenCalled()
       expect(residents).not.toHaveBeenCalled()
     } finally {
@@ -865,10 +890,17 @@ describe('readers behind declared cold questions', () => {
     const question = { kind: 'commandRootActivity', roots: ['/query'] } as const
     const values: number[] = []
     const stop = autorun(() => values.push(f.pool.queries.activity(question)))
-    const update = (id: string, cwd: string, at: string) => f.pool.apply({
-      type: 'update',
-      rows: [{ kind: 'session', id, value: { sessionId: id, cwd, status: 'live', lastActiveAt: at } } as RowRecord],
-    })
+    const update = (id: string, cwd: string, at: string) =>
+      f.pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id,
+            value: { sessionId: id, cwd, status: 'live', lastActiveAt: at },
+          } as RowRecord,
+        ],
+      })
     try {
       const before = values.length
       update('elsewhere', '/elsewhere', '2028-01-01T00:00:00Z')
@@ -880,7 +912,9 @@ describe('readers behind declared cold questions', () => {
       update('moving', '/elsewhere', '2029-01-01T00:00:00Z')
       expect(values.at(-1)).toBe(values[0])
       update('moving', '/query', '2030-01-01T00:00:00Z')
-      expect(f.pool.queries.activity({ ...question, match: 'exact' })).toBe(Date.parse('2030-01-01T00:00:00Z'))
+      expect(f.pool.queries.activity({ ...question, match: 'exact' })).toBe(
+        Date.parse('2030-01-01T00:00:00Z'),
+      )
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'moving', value: undefined }] })
       expect(values.at(-1)).toBe(values[0])
       f.pool.apply({ type: 'replace', rows: f.rows })

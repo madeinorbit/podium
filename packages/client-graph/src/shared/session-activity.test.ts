@@ -19,7 +19,7 @@ function fixture(rows: RowRecord[]) {
       0,
       ...rows.flatMap((record) => {
         const row = record.value as { cwd: string; lastActiveAt: string }
-        if (question.excluded?.includes(record.id)) return []
+        if ([...(question.excluded ?? [])].includes(record.id)) return []
         if (
           !question.roots.some(
             (root) =>
@@ -34,6 +34,28 @@ function fixture(rows: RowRecord[]) {
 }
 
 describe('declared command root activity', () => {
+  it('uses a maintained exclusion set without copying all resident identities', () => {
+    const f = fixture([
+      session('winner', '/repo', iso(2025)),
+      session('runner', '/repo', iso(2024)),
+    ])
+    const excluded = new Set(['winner'])
+    const iterate = vi.spyOn(excluded, Symbol.iterator)
+    const question: SessionActivityQuestion = {
+      kind: 'commandRootActivity',
+      roots: ['/repo'],
+      excluded,
+    }
+    try {
+      expect(f.index.readerActivity(question)).toBe(Date.parse(iso(2024)))
+      excluded.add('runner')
+      expect(f.index.readerActivity(question)).toBe(0)
+      expect(iterate).not.toHaveBeenCalled()
+    } finally {
+      iterate.mockRestore()
+    }
+  })
+
   it.each([
     1, 4,
   ])('matches the old maximum with %ix history, path boundaries and resident exclusions', (scale) => {

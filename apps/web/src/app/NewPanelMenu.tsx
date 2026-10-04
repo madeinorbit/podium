@@ -125,12 +125,37 @@ const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 export function NewPanelMenu(
   props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
 ): JSX.Element {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = props.open ?? internalOpen
+  const setOpen = (next: boolean) => {
+    if (props.open === undefined) setInternalOpen(next)
+    props.onOpenChange?.(next)
+  }
+  return (
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        render={
+          props.trigger ?? (
+            <Button variant="ghost" size="icon" aria-label="New panel">
+              <SquarePlus size={16} />
+            </Button>
+          )
+        }
+      />
+      {open && <NewPanelChoices {...props} />}
+    </DropdownMenu>
+  )
+}
+
+/** Closed tab-strip menus own only a trigger. Acquiring their launch projection
+ * would build repository usage and session choices on every issue selection. */
+function NewPanelChoices(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>): JSX.Element {
   const data = useCommandLaunchData()
   if (!data || data === LOADING)
     return (
-      <Button variant="ghost" size="icon" disabled aria-label="Loading launch choices">
-        <SquarePlus className="size-4" />
-      </Button>
+      <DropdownMenuContent align="end">
+        <span className="px-2 py-1 text-muted-foreground">Loading launch choices…</span>
+      </DropdownMenuContent>
     )
   return <NewPanelMenuBody {...props} data={data} />
 }
@@ -139,9 +164,6 @@ function NewPanelMenuBody({
   data,
   worktree,
   onOpened,
-  open: controlledOpen,
-  onOpenChange,
-  trigger,
   issueId,
 }: {
   data: Exclude<ReturnType<typeof useCommandLaunchData>, typeof LOADING | undefined>
@@ -159,16 +181,7 @@ function NewPanelMenuBody({
   const { sessions, machines } = data
   const { trpc, setPanelMode } = useCommandLaunchActions()
   const repoViews = data.repoViews
-  // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
-  // driving its open state; the controlled props win when supplied.
-  const [internalOpen, setInternalOpen] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
-  const isControlled = controlledOpen !== undefined
-  const open = isControlled ? controlledOpen : internalOpen
-  const setOpen = (next: boolean) => {
-    if (!isControlled) setInternalOpen(next)
-    onOpenChange?.(next)
-  }
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
   const repoView = useMemo((): RepoView => {
@@ -231,12 +244,6 @@ function NewPanelMenuBody({
     onOpened(sessionId)
   }
 
-  const defaultTrigger = (
-    <Button variant="ghost" size="icon" aria-label="New panel">
-      <SquarePlus size={16} />
-    </Button>
-  )
-
   const header = (
     // The header the session menu and the colour picker wear (POD-380) — the
     // label in machine voice, the SUBJECT pushed right in normal case. The
@@ -256,50 +263,41 @@ function NewPanelMenuBody({
   if (machines.length <= 1) {
     const machine = machines[0]
     return (
-      // modal={false}: this opens a pixel from the tab strip inside a shell that
-      // scrolls behind it, and scroll-locking the whole window for a 248px menu
-      // is a heavier claim than the gesture makes.
-      <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
-        <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
-        <DropdownMenuContent
-          align="end"
-          className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col"
-        >
-          {header}
-          {menuAgents.map(({ kind, label, Icon }) => {
-            const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
-            const reason = machine
-              ? capabilityReason(
-                  machine.name,
-                  label,
-                  rejection,
-                  agentProbeTimeoutDescription(machine, kind),
-                )
-              : undefined
-            const hint = machine ? capabilityHint(rejection) : undefined
-            const warning = machine
-              ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
-              : undefined
-            return (
-              <CapabilityAgentItem
-                key={kind}
-                label={label}
-                icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
-                status={{
-                  ...(reason ? { reason } : {}),
-                  ...(hint ? { hint } : {}),
-                  ...(warning ? { warning } : {}),
-                }}
-                onSelect={() => void create(kind, machine?.id)}
-              />
-            )
-          })}
-          {runtimeDriversEnabled && machine ? (
-            <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
-          ) : null}
-          <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
+        {header}
+        {menuAgents.map(({ kind, label, Icon }) => {
+          const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
+          const reason = machine
+            ? capabilityReason(
+                machine.name,
+                label,
+                rejection,
+                agentProbeTimeoutDescription(machine, kind),
+              )
+            : undefined
+          const hint = machine ? capabilityHint(rejection) : undefined
+          const warning = machine
+            ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
+            : undefined
+          return (
+            <CapabilityAgentItem
+              key={kind}
+              label={label}
+              icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+              status={{
+                ...(reason ? { reason } : {}),
+                ...(hint ? { hint } : {}),
+                ...(warning ? { warning } : {}),
+              }}
+              onSelect={() => void create(kind, machine?.id)}
+            />
+          )
+        })}
+        {runtimeDriversEnabled && machine ? (
+          <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
+        ) : null}
+        <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
+      </DropdownMenuContent>
     )
   }
 
@@ -309,87 +307,83 @@ function NewPanelMenuBody({
   const eligibleIds = new Set(eligible.map((m) => m.id))
 
   return (
-    // modal={false}: see the single-machine panel above.
-    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger render={trigger ?? defaultTrigger} />
-      <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
-        {header}
+    <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
+      {header}
 
-        {/* 1. Agent options — open on the resolved target machine */}
-        {menuAgents.map(({ kind, label, Icon }) => {
-          const target = targetFor(kind)
+      {/* 1. Agent options — open on the resolved target machine */}
+      {menuAgents.map(({ kind, label, Icon }) => {
+        const target = targetFor(kind)
+        return (
+          <CapabilityAgentItem
+            key={kind}
+            label={label}
+            icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+            status={
+              target
+                ? {}
+                : {
+                    reason: `No online machine with this repository can run ${agentLabel(label)}.`,
+                    hint: 'no host',
+                  }
+            }
+            onSelect={() =>
+              void create(kind, target === undefined ? undefined : asMachineId(target))
+            }
+          />
+        )
+      })}
+
+      {/* 2. Machines section */}
+      <div className={MENU_SECTION}>MACHINES</div>
+      <TooltipProvider>
+        {repoMachines.map((machine) => {
+          const isEligible = eligibleIds.has(machine.id)
+          if (!isEligible) {
+            const tooltipText = `${machine.name} is offline`
+            return (
+              <Tooltip key={machine.id}>
+                {/*
+                 * The wrapper span is the actual tooltip trigger — it stays
+                 * pointer-events-auto so mouseenter/mouseover reach Base UI's
+                 * tooltip logic. The inner DropdownMenuItem is disabled
+                 * (data-disabled → pointer-events-none + opacity-50 via CSS)
+                 * which prevents clicks from spawning an agent, but the
+                 * pointer events bubble up through the DOM to the span wrapper
+                 * before the CSS suppression fires on the item itself, so
+                 * hover events DO reach the trigger. The item's visual
+                 * disabled state (opacity) is preserved via its disabled prop.
+                 */}
+                <TooltipTrigger render={<span className="block pointer-events-auto" />}>
+                  <DropdownMenuItem disabled>
+                    <Circle className={`${MACHINE_DOT} text-text-faint`} aria-hidden="true" />
+                    <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                      {machine.name}
+                    </span>
+                    {/* The reason is stated inline as well as on hover: a
+                          tooltip is the one affordance a touch pointer never
+                          reaches, and this row is refusing a click. */}
+                    <span className={MENU_HINT}>offline</span>
+                  </DropdownMenuItem>
+                </TooltipTrigger>
+                <TooltipContent side="right">{tooltipText}</TooltipContent>
+              </Tooltip>
+            )
+          }
+
           return (
-            <CapabilityAgentItem
-              key={kind}
-              label={label}
-              icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
-              status={
-                target
-                  ? {}
-                  : {
-                      reason: `No online machine with this repository can run ${agentLabel(label)}.`,
-                      hint: 'no host',
-                    }
-              }
-              onSelect={() =>
-                void create(kind, target === undefined ? undefined : asMachineId(target))
-              }
+            <MachineSubmenu
+              key={machine.id}
+              machine={machine}
+              onCreate={create}
+              runtimeDriversEnabled={runtimeDriversEnabled}
+              agents={menuAgents}
             />
           )
         })}
+      </TooltipProvider>
 
-        {/* 2. Machines section */}
-        <div className={MENU_SECTION}>MACHINES</div>
-        <TooltipProvider>
-          {repoMachines.map((machine) => {
-            const isEligible = eligibleIds.has(machine.id)
-            if (!isEligible) {
-              const tooltipText = `${machine.name} is offline`
-              return (
-                <Tooltip key={machine.id}>
-                  {/*
-                   * The wrapper span is the actual tooltip trigger — it stays
-                   * pointer-events-auto so mouseenter/mouseover reach Base UI's
-                   * tooltip logic. The inner DropdownMenuItem is disabled
-                   * (data-disabled → pointer-events-none + opacity-50 via CSS)
-                   * which prevents clicks from spawning an agent, but the
-                   * pointer events bubble up through the DOM to the span wrapper
-                   * before the CSS suppression fires on the item itself, so
-                   * hover events DO reach the trigger. The item's visual
-                   * disabled state (opacity) is preserved via its disabled prop.
-                   */}
-                  <TooltipTrigger render={<span className="block pointer-events-auto" />}>
-                    <DropdownMenuItem disabled>
-                      <Circle className={`${MACHINE_DOT} text-text-faint`} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                        {machine.name}
-                      </span>
-                      {/* The reason is stated inline as well as on hover: a
-                          tooltip is the one affordance a touch pointer never
-                          reaches, and this row is refusing a click. */}
-                      <span className={MENU_HINT}>offline</span>
-                    </DropdownMenuItem>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{tooltipText}</TooltipContent>
-                </Tooltip>
-              )
-            }
-
-            return (
-              <MachineSubmenu
-                key={machine.id}
-                machine={machine}
-                onCreate={create}
-                runtimeDriversEnabled={runtimeDriversEnabled}
-                agents={menuAgents}
-              />
-            )
-          })}
-        </TooltipProvider>
-
-        <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+      <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
+    </DropdownMenuContent>
   )
 }
 

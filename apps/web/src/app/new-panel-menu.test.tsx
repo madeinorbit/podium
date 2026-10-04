@@ -15,38 +15,41 @@ import '@/test-support/mock-core-store-handle'
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as launchData from './command-launch-data'
 import { NewPanelMenu } from './NewPanelMenu'
 
 // Hoisted: `vi.mock`'s factory runs before module-level bindings exist, so the
 // spy the assertions read has to be created in the hoisted scope too.
-const { conversationSearch, createSession, feature, machine, opened, setPanelMode } = vi.hoisted(() => ({
-  createSession: vi.fn(async () => ({ sessionId: 'new' })),
-  feature: { enabled: false },
-  conversationSearch: vi.fn(async () => []),
-  opened: vi.fn(),
-  setPanelMode: vi.fn(),
-  machine: {
-    id: 'mine',
-    name: 'mine',
-    hostname: 'mine',
-    online: true,
-    serviceAssignment: { server: false, agentExecution: true },
-    availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
-    inventory: {
-      agents: [
-        { kind: 'claude-code', installed: true, login: { state: 'in' } },
-        { kind: 'cursor', installed: false, login: { state: 'unknown' } },
-        { kind: 'opencode', installed: true, login: { state: 'in' } },
-      ],
-      runtimeDrivers: [
-        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
-        { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
-        { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
-        { harness: 'opencode', id: 'opencode-server', family: 'server' },
-      ],
+const { conversationSearch, createSession, feature, machine, opened, setPanelMode } = vi.hoisted(
+  () => ({
+    createSession: vi.fn(async () => ({ sessionId: 'new' })),
+    feature: { enabled: false },
+    conversationSearch: vi.fn(async () => []),
+    opened: vi.fn(),
+    setPanelMode: vi.fn(),
+    machine: {
+      id: 'mine',
+      name: 'mine',
+      hostname: 'mine',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
+      inventory: {
+        agents: [
+          { kind: 'claude-code', installed: true, login: { state: 'in' } },
+          { kind: 'cursor', installed: false, login: { state: 'unknown' } },
+          { kind: 'opencode', installed: true, login: { state: 'in' } },
+        ],
+        runtimeDrivers: [
+          { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+          { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
+          { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
+          { harness: 'opencode', id: 'opencode-server', family: 'server' },
+        ],
+      },
     },
-  },
-}))
+  }),
+)
 
 vi.mock('@/app/store', () => {
   const state = {
@@ -80,6 +83,22 @@ vi.mock('@/lib/use-feature', () => ({
   useFeature: () => feature.enabled,
 }))
 
+// This component test exercises menu acquisition and spawn behavior. Launch
+// projections have their own pool tests; the retired store fixture is no longer
+// a provider for those projections after POD-5497.
+vi.mock('./command-launch-data', () => ({
+  useCommandLaunchData: vi.fn(() => ({
+    sessions: [],
+    machines: [machine],
+    repoViews: [],
+  })),
+  useCommandLaunchActions: () => ({
+    trpc: { sessions: { create: { mutate: createSession } } },
+    setPanelMode,
+  }),
+  useCommandRecentFiles: () => [],
+}))
+
 const worktree = {
   path: '/home/mine/podium',
   repoPath: '/home/mine/podium',
@@ -95,6 +114,7 @@ afterEach(() => {
   feature.enabled = false
   opened.mockClear()
   setPanelMode.mockClear()
+  vi.mocked(launchData.useCommandLaunchData).mockClear()
 })
 
 function open() {
@@ -110,6 +130,44 @@ function open() {
 }
 
 describe('the new-panel menu', () => {
+  it('does not acquire launch choices while closed, including after its first open', async () => {
+    const reads = vi.spyOn(launchData, 'useCommandLaunchData')
+    try {
+      const props = { worktree: worktree as never, onOpened: opened, onOpenChange: vi.fn() }
+      const view = render(<NewPanelMenu {...props} open={false} />)
+      expect(screen.getByRole('button', { name: 'New panel' })).toBeTruthy()
+      expect(reads).not.toHaveBeenCalled()
+      view.rerender(<NewPanelMenu {...props} open />)
+      expect(await screen.findByRole('menuitem', { name: /New Claude/ })).toBeTruthy()
+      expect(reads).toHaveBeenCalled()
+      view.rerender(<NewPanelMenu {...props} open={false} />)
+      reads.mockClear()
+      view.rerender(
+        <NewPanelMenu
+          {...props}
+          worktree={{ ...worktree, branch: 'other' } as never}
+          open={false}
+        />,
+      )
+      expect(reads).not.toHaveBeenCalled()
+    } finally {
+      reads.mockRestore()
+    }
+  })
+
+  it('opens an uncontrolled trigger before acquiring its choices', async () => {
+    const reads = vi.spyOn(launchData, 'useCommandLaunchData')
+    try {
+      render(<NewPanelMenu worktree={worktree as never} onOpened={opened} />)
+      expect(reads).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: 'New panel' }))
+      expect(await screen.findByRole('menuitem', { name: /New Claude/ })).toBeTruthy()
+      expect(reads).toHaveBeenCalled()
+    } finally {
+      reads.mockRestore()
+    }
+  })
+
   it('no longer offers a history search, and no longer queries for one', async () => {
     open()
     // The agents region proves the panel actually rendered, so the absences below
@@ -168,7 +226,9 @@ describe('the new-panel menu', () => {
       opened.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     )
 
-    fireEvent.click(screen.getByRole('menuitem', { name: /New OpenCode — OpenCode 1 \(headless\)/ }))
+    fireEvent.click(
+      screen.getByRole('menuitem', { name: /New OpenCode — OpenCode 1 \(headless\)/ }),
+    )
     await vi.waitFor(() =>
       expect(createSession).toHaveBeenLastCalledWith(
         expect.objectContaining({

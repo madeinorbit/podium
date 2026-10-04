@@ -139,7 +139,8 @@ export function createSessionActivityIndex(collapsed: (id: string) => boolean) {
       )
     },
     answer(question: SessionActivityQuestion): number {
-      const excluded = question.excluded instanceof Set ? question.excluded : new Set(question.excluded)
+      const excluded =
+        question.excluded instanceof Set ? question.excluded : new Set(question.excluded)
       return Math.max(
         0,
         ...question.roots.map(

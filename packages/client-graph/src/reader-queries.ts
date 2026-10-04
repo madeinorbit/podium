@@ -1,11 +1,4 @@
-import {
-  createAtom,
-  type IAtom,
-  observable,
-  observe,
-  runInAction,
-  untracked,
-} from 'mobx'
+import { createAtom, type IAtom, observable, observe, runInAction, untracked } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
@@ -309,7 +302,9 @@ export class ReaderQueries {
   /** The row source's indexed candidates, including pending spawn rows. These
    * questions use the source's birth-reference and repository buckets without
    * enumerating every resident row. */
-  indexed(question: Extract<ReaderQuestion, { kind: 'sessionReference' | 'spawnIssues' }>): string[] {
+  indexed(
+    question: Extract<ReaderQuestion, { kind: 'sessionReference' | 'spawnIssues' }>,
+  ): string[] {
     const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question))
     const ids = index.readerIds(question)
     this.counts.questions++
@@ -343,8 +338,9 @@ export class ReaderQueries {
       ...question,
       ...(question.excluded ? { excluded: [...question.excluded] } : {}),
     })
-    const index = this.watch(`activity:${key}`, (value) =>
-      value.readerActivityRevision(question) + this.residentActivity.revision(question),
+    const index = this.watch(
+      `activity:${key}`,
+      (value) => value.readerActivityRevision(question) + this.residentActivity.revision(question),
     )
     const excluded = question.excluded
       ? new Set([...this.residentActivityIds, ...question.excluded])
