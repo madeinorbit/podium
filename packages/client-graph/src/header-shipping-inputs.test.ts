@@ -3,7 +3,7 @@ import {
   reposToViews,
   resolveActiveWorktree,
   shippingPanelModel,
-} from '@podium/client-core/viewmodels'
+} from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
