@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { RowSourceEvent } from '../stats'
-import { type Change, gen } from './changes'
+import { type Change, gen, genCorpus } from './changes'
 import { type GenRun, startGenRun } from './run'
 import { shrink, shrinkSequence } from './shrink'
 
@@ -97,7 +97,8 @@ function titleMirror(run: GenRun, buggy: boolean): TitleMirror {
 }
 
 /** Run `changes` on a fresh engine with a title mirror fed step by step;
- *  true when the mirror disagrees with the feed at the end. */
+ *  true at the first settled step where the mirror disagrees with the feed.
+ *  A later refresh can repair the mirror, but cannot erase an observed failure. */
 async function mirrorFails(changes: readonly Change[], buggy: boolean): Promise<boolean> {
   let mirror: TitleMirror | null = null
   const run = await startGenRun({
@@ -108,14 +109,32 @@ async function mirrorFails(changes: readonly Change[], buggy: boolean): Promise<
   })
   mirror = titleMirror(run, buggy)
   try {
-    for (const change of changes) await run.apply(change)
-    return !(mirror as TitleMirror).check()
+    for (const change of changes) {
+      await run.apply(change)
+      if (!(mirror as TitleMirror).check()) return true
+    }
+    return false
   } finally {
     run.dispose()
   }
 }
 
 describe('shrink on the engine', () => {
+  it('keeps a planted re-add failure that a later refresh would repair', async () => {
+    const id = genCorpus().issueProjections[0]!.id
+    const changes: Change[] = [
+      { kind: 'evict', id },
+      { kind: 'reAdd', id },
+      { kind: 'refresh' },
+    ]
+    expect(await mirrorFails(changes, true), 'the refresh cannot erase the planted failure').toBe(true)
+    expect(await mirrorFails(changes, false), 'the correct mirror passes every step').toBe(false)
+    const { result } = await shrink(changes, (candidate) => mirrorFails(candidate, true))
+    expect(result).toEqual(changes.slice(0, 2))
+    expect(await mirrorFails(result, true)).toBe(true)
+    expect(await mirrorFails(result, false)).toBe(false)
+  })
+
   it(
     'cuts a random run that trips the planted re-add mistake to evict + re-add of one row',
     async () => {

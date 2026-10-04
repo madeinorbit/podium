@@ -24,7 +24,7 @@ describe('speed baseline promotion', () => {
       targets: report.targets,
       actions: { ...report.actions, 'issue-page-open': saved.actions['issue-page-open'] },
     })
-    expect(promoted.actions['issue-page-open']).toEqual({ medianMs: 538.107, worstMs: 814.717 })
+    expect(promoted.actions['issue-page-open']).toEqual(saved.actions['issue-page-open'])
     expect(promoted.issuePageOpening).toEqual(saved.issuePageOpening)
     expect(saved).toEqual(baseline)
   })
