@@ -61,7 +61,7 @@ function replay(corpus: FixtureCorpus) {
   const runtime = withKeyedInputs({
     getSnapshot: () => store,
     subscribe: () => () => {},
-    pendingOverlaysByRow: () => new Map(),
+
   })
   const rows = createRowSource(runtime, replica, { mode: 'pooled' })
   const locals = createEngineLocals(runtime)

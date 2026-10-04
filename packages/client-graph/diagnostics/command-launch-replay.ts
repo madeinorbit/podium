@@ -87,7 +87,7 @@ async function main() {
   let store = { ...sidebarReplayStore(corpus, replica), sessions, paletteOpen: true, openIssueId: null, selectedIssueId: null,
     selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as unknown as Store<PodiumClientApi>
   const listeners = new Set<() => void>()
-  const runtime = { replica, getSnapshot: () => store, pendingOverlaysByRow: () => new Map(),
+  const runtime = { replica, getSnapshot: () => store,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } }
   const handle = createRuntimeWorklistPool(runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0], { summaries: COMMAND_SUMMARIES })
   attachCommandLaunchSource(handle.pool, runtime as unknown as Parameters<typeof attachCommandLaunchSource>[1])

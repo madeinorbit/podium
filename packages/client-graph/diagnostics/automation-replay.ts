@@ -65,7 +65,7 @@ async function main() {
   const replica = createKernelReplica({ cache: { readCursor: () => null, readEntities: () => [...records.values()], read: (entity, id) => records.get(`${entity}:${id}`), durability: () => 'durable' },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: '' },
-    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
   }), { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
   let normalizedSessions: Store['sessions']
   try {
@@ -75,7 +75,7 @@ async function main() {
     repos, machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null, paneA: null,
     pins: { repos: [], worktrees: [] }, sidebarSettings: { repoOrder: [] },
   } as unknown as Store
-  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, subscribe: () => () => {},
     ui: { get: () => null, subscribe: () => () => {} },
   })
   const handle = createRuntimeWorklistPool(runtime as never, { settings: true })

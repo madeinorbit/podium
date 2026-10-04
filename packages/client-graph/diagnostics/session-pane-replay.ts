@@ -45,7 +45,7 @@ async function main() {
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous replay principal')
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
-    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
   }), replica, { mode: 'truth' })
   let sessions: Store['sessions']
   try {
@@ -72,7 +72,7 @@ async function main() {
     issueUserStates: replica.rows('issueUserStates'), coarseNow: Date.now(), selectedIssueId: null,
     panelMode: {}, dockShells: {}, reposLoaded: true, pendingSpawnIds: new Set(),
   } as unknown as Store
-  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {} })
+  const runtime = withKeyedInputs({ replica, getSnapshot: () => state, subscribe: () => () => {} })
   const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], { summaries: SESSION_PANE_SUMMARIES })
   const pool = handle.pool
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime as never))

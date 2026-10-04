@@ -56,7 +56,7 @@ async function main() {
     drafts: {}, attachedSessionId: null, transcriptReveal: null, superThreads: [], superThreadId: null,
     selectedWorktree: null, paneA: null, chatSendsFor: () => [],
   } as unknown as Store
-  const runtime = withKeyedInputs({ replica, outbox, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(), subscribe: () => () => {},
+  const runtime = withKeyedInputs({ replica, outbox, getSnapshot: () => state, subscribe: () => () => {},
     readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} } })
   phase = 3
   const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], {

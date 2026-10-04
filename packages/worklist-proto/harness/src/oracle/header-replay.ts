@@ -78,7 +78,7 @@ async function main() {
       sessions: { concurrencyHistory: { query: async () => history } }, settings: { get: { query: async () => lifecycle } } } } as unknown as Store<PodiumClientApi>
   const listeners = new Set<() => void>(), health = { status: 'ok', rttMs: null, since: corpus.fixedNow } as const
   const runtime = { replica, getSnapshot: () => store, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
-    pendingOverlaysByRow: () => new Map(), hostMetrics: { getSnapshot: () => metrics, subscribe: () => () => {} },
+ hostMetrics: { getSnapshot: () => metrics, subscribe: () => () => {} },
     hub: { connectionHealth: () => health, onConnectionHealth: () => () => {} } }
   phase = 6
   const handle = createRuntimeWorklistPool(runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0], { header: true })

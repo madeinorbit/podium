@@ -132,7 +132,7 @@ async function main() {
       principal: { userId },
       getSnapshot: () => store,
       subscribe: () => () => {},
-      pendingOverlaysByRow: () => new Map(),
+
     })
     const feed = createRowSource(runtime, replica, { mode: 'pooled' })
     const locals = createEngineLocals(runtime)

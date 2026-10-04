@@ -64,7 +64,7 @@ async function main() {
   const users = replica.rows('sessionUserStates')
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous principal')
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
-    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {}, pendingOverlaysByRow: () => new Map(),
+    getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
   }), replica, { mode: 'truth' })
   let sessions: Store['sessions']
   try {
@@ -83,7 +83,7 @@ async function main() {
     },
   } as unknown as Store
   const listeners = new Set<() => void>()
-  const runtime = withKeyedInputs({ replica, principal: { userId: users[0]?.userId ?? '' }, getSnapshot: () => state, pendingOverlaysByRow: () => new Map(),
+  const runtime = withKeyedInputs({ replica, principal: { userId: users[0]?.userId ?? '' }, getSnapshot: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
     hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} }, hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} } })
   const handle = createRuntimeWorklistPool(runtime as never, { header: true, summaries: {

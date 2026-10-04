@@ -97,7 +97,7 @@ async function main() {
   const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({ cache, side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const store = sidebarReplayStore(corpus, replica)
-  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
+  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, })
   step = 'pool'
   const rows = createRowSource(runtime, replica, { mode: 'pooled' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: MISSION_SUMMARIES })

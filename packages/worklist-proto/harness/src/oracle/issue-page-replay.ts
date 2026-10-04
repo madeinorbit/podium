@@ -44,7 +44,7 @@ export function replayIssuePages(corpus: FixtureCorpus) {
     return value
   })
   store.sessions = dedupeSessions(ordered)
-  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, pendingOverlaysByRow: () => new Map() })
+  const runtime = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {}, })
   phase(3)
   const rows = createRowSource(runtime, replica, { mode: 'pooled' }), locals = createEngineLocals(runtime)
   const handle = createWorklistPool(rows.source, locals.source, { summaries: ISSUE_PAGE_SUMMARIES })
