@@ -255,6 +255,8 @@
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/mobx-census.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile-snapshot.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/refusal-fixture.ts",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/work-meter.ts",
         "$TURBO_ROOT$/packages/worklist-proto/shared/src/scenarios.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
