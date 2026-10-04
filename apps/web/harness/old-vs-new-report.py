@@ -73,7 +73,18 @@ for new in new_arms:
         old_end,new_end=heap_stat(a,'heapFiveMinutes'),heap_stat(b,'heapFiveMinutes')
         if old_start is not None or new_start is not None:
             heap_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'oldStartupMiB':old_start,'newStartupMiB':new_start,'startupChangePercent':percent_change(old_start,new_start),'oldFiveMinuteMiB':old_end,'newFiveMinuteMiB':new_end,'fiveMinuteChangePercent':percent_change(old_end,new_end)})
-summary.update(idleComparisons=idle_comparisons,heapComparisons=heap_comparisons)
+background_comparisons=[]
+for new in new_arms:
+    for surface,scale in sorted({(r['surface'],r['scale']) for r in valid}):
+        a=paired[(surface,scale,'old',new)];b=paired[(surface,scale,new,new)]
+        for kind in ['quiet','heartbeat','session-output','issue-change']:
+            values=lambda rows:[window['taskMs'] for row in rows for window in row.get('background',[]) if window['kind']==kind]
+            av,bv=values(a),values(b)
+            old_median=statistics.median(av) if av else None
+            new_median=statistics.median(bv) if bv else None
+            if av or bv:
+                background_comparisons.append({'newArm':new,'surface':surface,'scale':scale,'kind':kind,'oldN':len(av),'newN':len(bv),'oldMedianMs':old_median,'newMedianMs':new_median,'changePercent':percent_change(old_median,new_median),'oldP95Ms':q(av,.95) if av else None,'newP95Ms':q(bv,.95) if bv else None})
+summary.update(idleComparisons=idle_comparisons,heapComparisons=heap_comparisons,backgroundComparisons=background_comparisons)
 pathlib.Path('docs/measurements/POD-4286-old-vs-new/results.json').write_text(json.dumps(summary,indent=2)+'\n')
 lines=['# OLD versus NEW whole-app measurements','','SUMMARY_PENDING','','## Compared applications','']
 for arm in sorted({run['arm'] for run in measured}):
@@ -105,6 +116,9 @@ bg=collections.defaultdict(list)
 for run in valid:
     for sample in run.get('background',[]):bg[(run['arm']+' → '+run.get('comparisonArm','new') if run['arm']=='old' else run['arm'],run['surface'],run['scale'],sample['kind'])].append(sample['taskMs'])
 for key,values in sorted(bg.items()):lines.append('| '+' | '.join(map(str,[*key,len(values),fmt(statistics.median(values)),fmt(q(values,.95))]))+' |')
+lines.extend(['','Matched update-window comparisons, without subtracting quiet-window CPU:','','| Surface | Scale | NEW arm | Update | n OLD/NEW | OLD CPU median ms | NEW CPU median ms | Change | OLD p95 | NEW p95 |','|---|---:|---|---|---|---:|---:|---:|---:|---:|'])
+for item in background_comparisons:
+    lines.append('| '+' | '.join(map(str,[item['surface'],item['scale'],item['newArm'],item['kind'],f'{item["oldN"]}/{item["newN"]}',fmt(item['oldMedianMs']),fmt(item['newMedianMs']),percent(item['changePercent']),fmt(item['oldP95Ms']),fmt(item['newP95Ms'])]))+' |')
 lines.extend(['','The **observed** profile approximates the [September 18 operator publication census](POD-4286-baseline-summary.json): 12 session, 6 issue, 16 machine, 28 conversation, 36 host-metric and 2 draft changes per minute. The minute clock advances normally. These are historical publication rates replayed with validated synthetic payloads, not a capture of historical network frames or today’s traffic. OLD issue/projection rows are sent together as one logical issue update. The **busy** profile adds the stated 30 heartbeat/10 issue/120 output cadence. Both windows use the same visible terminal and selected control mission.','', '| Arm | Surface | Scale | Profile | Seconds | Updates delivered | Main-thread task ms | One-core CPU % |','|---|---|---:|---|---:|---|---:|---:|'])
 for run in valid:
     for profile,idle in run.get('idleProfiles',{'busy':run['idle']} if run.get('idle') else {}).items():
