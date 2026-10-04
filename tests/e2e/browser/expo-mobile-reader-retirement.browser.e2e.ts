@@ -76,6 +76,9 @@ test('the production phone preserves its pool screens with zero legacy derivatio
   mkdirSync(directory, { recursive: true })
   const cells: { screen: string; counts: Awaited<ReturnType<typeof legacyCounts>> }[] = []
   const save = async (screen: string) => {
+    // Content can be visible beneath the existing 160 ms startup crossfade.
+    // Observe its real completion so stills and counts cover the settled screen.
+    await expect(page.getByTestId('bootstrap-placeholder')).toHaveCount(0, { timeout: 60_000 })
     const counts = await legacyCounts(page)
     cells.push({ screen, counts })
     // Keep the measured counter even when a planted reader trips the assertion.

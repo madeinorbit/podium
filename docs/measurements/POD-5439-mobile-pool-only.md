@@ -16,6 +16,11 @@ The phone declarations omit `initialize` and `enabled`. The branch also includes
 POD-5421's mission reader landing at `ba1171ee9d`. Its `archivedCount` interface
 is retained in the empty mobile deck; the rebase preserves the deleted legacy
 checker rather than restoring its control arm.
+It now also includes the independent partition/mission-oracle correction
+at `05bf1aeb98`, the stable action-window meter at `6d9a4b83d6` (POD-5466),
+and the lazy web menu repair at `db95c578dd` (POD-5476). These rebases leave
+all mobile and graph source bytes unchanged. The shared mission-oracle bank
+change belongs to that inherited correction; the phone banks stay fixed.
 
 ## Accepted outputs and retained controls
 
@@ -132,11 +137,16 @@ Its change from the earlier baseline is POD-5432's explained write-* overlay
 bookkeeping shrink: one map, one atom and2,389/9,616 tracked `has()` values,
 with pending create reads moving to first paint. This issue does not edit it.
 
-The last strict structural matrix has1,614 comparisons,700 expected failures
+The preceding strict structural matrix has1,614 comparisons,700 expected failures
 owned by other issues,25 resolved counts and14 unexpected heartbeat comparisons
 assigned to POD-5423. Its15 supporting checks are green; the matrix exits2.
 No heartbeat exemption is added and no timing green is claimed from that run.
-The final structural rerun is pending.
+The final structural rerun is pending. POD-4286's03:31 notice makes the new
+settled action-window meter mandatory before landing and withdraws the earlier
+load-related counter waivers. The new meter is not run beside another lane's
+meter. POD-5430 confirmed its meter had finished and would not restart at03:33.
+The first reserved dispatch stopped before any WIP/runner startup at load9.24;
+its benchmark lease was released immediately. No result is claimed for it.
 
 Phone timing will compare production Pixel7 pool-only samples with POD-5081's
 accepted ON capture: the same6,100-issue/5,200-session corpus, Chromium version,
@@ -149,7 +159,7 @@ OFF/warm-start helper remains untouched until POD-5407's landing notice.
 
 ## Zero legacy readers and private counts
 
-The final source audit at `6ab3da11d5` scans 300 production files and finds zero
+The final source audit at `e48f0afe35` scans 300 production files and finds zero
 legacy reader references, including twins, selectors, slices, switches and
 removed board/screening builders. The store action mapping, screening command
 interface, decision function and tally are byte-identical to `b4d0134f17`.
@@ -183,8 +193,9 @@ POD-5407 explicitly releases the bench, regardless of load. That release was
 received at02:47:46Z and the coordinator restored normal admission at02:47:57Z.
 While another lane holds the bench, new test/compiler/lint runs require a fresh
 one-minute load below8. The coordinator separately holds structural meters
-until approximately03:48Z while POD-5430 runs its final4x meter. No timing is
-started under another session's lease.
+until approximately03:48Z while POD-5430 runs its final4x meter. The newer03:31
+stable-meter notice and POD-5430's explicit03:33 completion supersede that hold.
+No timing is started under another session's lease.
 
 The latest filtered mobile/e2e compiler is green after the mission dependency
 rebase at source `935646f2a6`, flatblock WIP
@@ -223,9 +234,40 @@ UTC02:55:29.293–02:58:36.935Z, load7.97→10.19, the guard rejects eagerly loa
 `IssueContextMenu.tsx` and `machine-handoff.ts`. No web/model edit or guard
 bypass is made in this lane. POD-4286 assigned the required lazy import repair
 to POD-5438 under blocking POD-5476; the duplicate blocker POD-5475 is closed
-as moved. Production screenshots/counters and their actual startup-selector
-negative control wait for that landing. Strict structural verification and
-ON timing remain pending. This report makes no physical-device claim.
+as moved. That repair landed at `db95c578dd`, with the unchanged budget guard
+and actual eager-import control green. The phone branch is rebased onto it.
+
+The next phone proof builds the workspace/web and actual mobile production
+export successfully, then executes one Pixel7 browser case. At source
+`e48f0afe35`, flatblock WIP`1dfa50a9afbe919163eb0939e7b6ca4aac28c4e4`,
+tree`8272c7e86884216cf4d62ca47f0d948b6a44caf3`,
+UTC03:39:46.905–03:43:51.732Z, load5.00→8.79, exit1, its new proof incorrectly
+requires an Effort button in the default Auto form. The actual form has the
+accepted Agent/Model/Machine controls and no authoritative effort catalog,
+also represented by the retained launch-input bank. The test fails before
+its first counter cell; this is not a zero-derivation production proof.
+
+Only the new proof is corrected at `f88054ec61`: literal default Auto controls
+and effort absence, the no-agent start-sheet state before adding its live
+session, and a folded counter checkpoint before reload. Production sources
+and frozen expected bodies are unchanged. Its initial retry stops before any
+startup at freshload9.06. The retry at flatblock WIP
+`41eaef5c0f9efbdf527c3bd954e521cdbbde875d`, tree
+`5c3777bd596a002b25dbc4dbc02a1521deb7c75f`, runs one actual Pixel7 case
+green at UTC03:52:59.878–03:54:52.868Z, load6.38→7.59. All13 checkpoints
+have zero selectors, row builds and legacy derivations, with no page errors.
+The stills catch the existing startup crossfade, so the final capture waits
+for the real `bootstrap-placeholder` removal before saving each checkpoint.
+
+The actual provider fault replaces its hub snapshot read with
+`useStoreSelector(store => store.hub)` at WIP
+`36407b71cba2d1e1644fef4492100ecb002afad5`. At
+UTC03:58:16.207–04:01:45.400Z, load6.22→6.22, the same production case
+passes the literal new-task controls and then rejects16 selector runs
+(expected0); row builds and derivations remain zero. The fault is restored
+to exact clean bytes and the clean13-cell result retained. The stable
+structural gate and ON timing remain pending. This report makes no
+physical-device claim.
 
 The old670-fingerprint work bank's optimisticPress and seed3 pending mark-read
 hashes vary with wall-clock queuedAt. The original independent controls fail
