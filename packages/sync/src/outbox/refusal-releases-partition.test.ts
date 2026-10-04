@@ -49,7 +49,10 @@ const invalid: OutboxSubmitOutcome = {
   refusal: { kind: 'invalid', details: ['input.title'] },
 }
 
-type Responder = (envelope: OutboxEnvelope, attempt: number) => OutboxSubmitOutcome
+type Responder = (
+  envelope: OutboxEnvelope,
+  attempt: number,
+) => OutboxSubmitOutcome | Promise<OutboxSubmitOutcome>
 
 const ISSUE = 'iss_90f8'
 
@@ -267,5 +270,57 @@ describe('R3 — a retry or an edit goes to the back of its partition', () => {
     online = true
     await outbox.drain()
     expect(authority.envelopes.map(label).slice(-2)).toEqual(['rename B', 'rename A2'])
+  })
+})
+
+describe('D12 — a send that never settles holds only its own partition (POD-5432 note)', () => {
+  it('drains another partition written AFTER the hung send, without waiting for it', async () => {
+    // The transport bounds nothing: plain fetch through httpBatchLink, no
+    // timeout. A send the server never answers stays `sending` for as long as
+    // the connection lives, and that must not stop any other partition.
+    const { outbox, authority } = await harness((envelope) =>
+      label(envelope) === 'rename A' ? new Promise<OutboxSubmitOutcome>(() => {}) : applied,
+    )
+    await outbox.enqueue(rename('A'))
+    void outbox.drain()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+
+    const later = await outbox.enqueue(chat('written later'))
+    void outbox.drain()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+
+    expect(authority.envelopes.map(label)).toEqual(['rename A', 'chat written later'])
+    expect(stateOf(outbox, later.mutationId)).toBe('applied')
+  })
+
+  it('still holds the hung partition: the entry behind the hung send waits', async () => {
+    const { outbox, authority } = await harness((envelope) =>
+      label(envelope) === 'rename A' ? new Promise<OutboxSubmitOutcome>(() => {}) : applied,
+    )
+    await outbox.enqueue(rename('A'))
+    void outbox.drain()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    const behind = await outbox.enqueue(rename('B'))
+    void outbox.drain()
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+
+    expect(stateOf(outbox, behind.mutationId)).toBe('queued')
+    expect(authority.attempts(behind.mutationId)).toBe(0)
+  })
+
+  it('a drain call for another partition resolves while the hung send is still out', async () => {
+    const { outbox } = await harness((envelope) =>
+      label(envelope) === 'rename A' ? new Promise<OutboxSubmitOutcome>(() => {}) : applied,
+    )
+    await outbox.enqueue(rename('A'))
+    void outbox.drain()
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+    await outbox.enqueue(chat('other'))
+    let done = false
+    void outbox.drain().then(() => {
+      done = true
+    })
+    for (let i = 0; i < 50; i++) await Promise.resolve()
+    expect(done).toBe(true)
   })
 })

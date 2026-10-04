@@ -403,9 +403,8 @@ export class Outbox {
    *  `mutate()` — never mutated in place, so a rollback is an assignment. */
   private records: readonly OutboxRecord[]
   private readonly listeners = new Set<(event: OutboxEvent) => void>()
-  private draining: Promise<void> | null = null
-  /** A drain was asked for while a pass ran. See `drain`. */
-  private drainRequested = false
+  /** One single-flight drainer per partition key. See `drain`. */
+  private readonly drainers = new Map<string, { run: Promise<void>; again: boolean }>()
   /** The serialization chain. Every mutation queues behind the previous one, so
    *  two concurrent `enqueue` calls cannot interleave stage-and-write and commit
    *  out of order. */
@@ -593,49 +592,57 @@ export class Outbox {
   }
 
   /**
-   * Drain until no caller is left unserved. Single-flight: concurrent callers
-   * await the same run, so a reconnect burst cannot double-submit the head of a
-   * partition.
+   * Drain until no caller is left unserved. Single-flight PER PARTITION:
+   * concurrent callers share each partition's running drainer, so a reconnect
+   * burst cannot double-submit the head of a partition.
    *
-   * A caller that arrives while a pass is running gets ANOTHER pass once that
-   * one ends (POD-4658). A pass reads its partitions once, at its start, so an
-   * entry enqueued while the head is still on the wire is invisible to it. The
-   * phone hit exactly that: its next message, queued while a stopped send's
-   * reply was coming back, joined the running pass, was never read, and waited
-   * minutes for an unrelated nudge. The follow-up pass re-reads every record,
-   * so what the first pass already sent is not sent again.
+   * A caller that arrives while a partition's drainer is running gets ANOTHER
+   * pass of that partition once it ends (POD-4658). A pass reads its records
+   * once, at its start, so an entry enqueued while the head is still on the
+   * wire is invisible to it. The phone hit exactly that: its next message,
+   * queued while a stopped send's reply was coming back, joined the running
+   * pass, was never read, and waited minutes for an unrelated nudge.
    *
-   * Partitions run concurrently; each partition is strictly FIFO and stops at
-   * its first entry whose outcome is unknown (D12 as amended: R1).
+   * Partitions drain INDEPENDENTLY (D12: concurrent across partitions). They
+   * used to share one pass that awaited every partition, so one send that
+   * never settled (the transport has no timeout: plain fetch, no abort) held
+   * the pass open, and every later entry in EVERY partition joined it and was
+   * never read. Now each partition has its own drainer; a hung send holds only
+   * its own partition.
+   *
+   * The promise settles when every partition that had queued work at the call
+   * has finished its pass. A partition whose only work is in flight is not
+   * waited for: nothing in it is this caller's to send.
    */
   async drain(): Promise<void> {
-    if (this.draining) {
-      this.drainRequested = true
-      return this.draining
+    const keys = new Set<string>()
+    for (const record of this.mine()) {
+      if (record.state === 'queued') keys.add(record.partitionKey)
     }
-    this.draining = (async () => {
-      try {
-        do {
-          this.drainRequested = false
-          await this.drainPass()
-        } while (this.drainRequested)
-      } finally {
-        this.draining = null
-      }
-    })()
-    return this.draining
+    await Promise.all([...keys].map((key) => this.drainKey(key)))
   }
 
-  private async drainPass(): Promise<void> {
-    const partitions = new Map<string, OutboxRecord[]>()
-    // Only this principal's work: another principal's entries drain under their
-    // own bound instance, over their own authenticated transport.
-    for (const record of this.mine()) {
-      const bucket = partitions.get(record.partitionKey)
-      if (bucket) bucket.push(record)
-      else partitions.set(record.partitionKey, [record])
+  private drainKey(key: string): Promise<void> {
+    const running = this.drainers.get(key)
+    if (running) {
+      running.again = true
+      return running.run
     }
-    await Promise.all([...partitions.values()].map((bucket) => this.drainPartition(bucket)))
+    const drainer = { run: Promise.resolve(), again: false }
+    drainer.run = (async () => {
+      try {
+        do {
+          drainer.again = false
+          // Only this principal's work: another principal's entries drain under
+          // their own bound instance, over their own authenticated transport.
+          await this.drainPartition(this.mine().filter((r) => r.partitionKey === key))
+        } while (drainer.again)
+      } finally {
+        this.drainers.delete(key)
+      }
+    })()
+    this.drainers.set(key, drainer)
+    return drainer.run
   }
 
   private async drainPartition(bucket: readonly OutboxRecord[]): Promise<void> {
