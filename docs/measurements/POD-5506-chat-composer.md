@@ -1,7 +1,71 @@
 # POD-5506 chat composer latency
 
-Measurement in progress. Baseline source: `1aa0ec71f6` (dev.246), production React on ludovico, isolated loopback preview proxying the existing live local backend.
+The composer had three proven keystroke amplifiers: `ConversationController.patch()` rebuilt and published the conversation, the deferred pool draft mirror made React restore the previous controlled value and then write the new one, and the autosize effect reset height before reading `scrollHeight`. Their combined ablation reduced complete-frame main-thread p95 from **68.23 to 31.89 ms** in the same frozen live view. These are overlapping causes; their marginal savings must not be added.
 
-The capture types 60 synthetic characters at approximately 100 ms intervals into a busy agent chat composer. Reports retain only counts, timings, source function names and build provenance. Session cookies and operator records stay in memory on ludovico.
+The candidate removes those paths. It also isolates the mission root with `contain: layout paint`, after a separate matched experiment proved that unchanged mission DOM participated in native paint. The **16 ms p95 target is not yet established**; final production results are recorded below when available. No claim of invisible lag follows from a render-count test alone.
 
-Before product edits, compare the baseline with throwaway builds disabling measured causes individually. Final validation uses focused files, typechecks and lint on flatblock in `~/podium-test-5506` with its copied `.toolchain`. Land by fast-forward on `integrate/4286-pilot` after rebasing onto POD-5497; preserve offline and reload draft-ledger semantics.
+## Reproduction and privacy
+
+The original runtime source is **`1aa0ec71f6` (dev.246)**. The final runtime candidate is `8af510497b`, rebased onto POD-5497 (`e22a8b6bd9`) and POD-5443 (`9f9be4d761`). Production React **19.2.7**, Bun **1.4.2**, headless Chromium **148.0.7778.96**, viewport **1600 × 1000**, reduced-motion preference, and blocked service workers were used on **ludovico**. An owned loopback production preview on `55606` proxies the existing local backend on `18787`. The operator’s server, daemon and installed dist were untouched.
+
+This follows [POD-4286’s reproduction prerequisites](POD-4286-baseline.md#evidence-and-reproduction): production bundles, checkout-local dependencies, real live hydration followed by settling, and an isolated browser with an in-memory session cookie. `podium auth mint-session --print-only --ttl 30m` is consumed through a pipe in the collector; the token is never printed or saved. Live records, draft strings, cookie data, DOM dumps and screenshots are excluded from evidence. Only numerical measurements, source function names and build provenance are exported. Original drafts are restored and the completed captures verify the ledger is acknowledged after reconnect.
+
+The busy agent stays fixed through a private, local-only pointer that is excluded from source copies and artifacts. The mission’s Full spine view is selected deliberately, so the page-size stress case is explicit. The matched original-source comparison had **38,866 DOM elements, 403 session rows, 6,181 chat-surface elements, 6,187 issue projections and 5,217 sessions**. Later production observations are separate samples of changing live data, not matched before/after replicas. Early surface counts used the first resident chat surface; final counts scope the visible panel.
+
+Each arm types 60 synthetic characters. The matched capture schedules single-character keyboard events against 100 ms deadlines; earlier `keyboard.type(..., {delay:100})` runs added dispatch cost to that interval and are not the principal timing comparison. The collector marks `keydown`, `input` and the following animation frame, then finds the first corresponding main-thread Paint. Input-to-paint ends at the last Paint in that rendering task. Main-thread work includes the complete rendering task, including layerization, rather than stopping at its first Paint. It is elapsed task time and includes host preemption. Later captures retain Chromium thread-clock durations separately.
+
+CPU samples at 1 ms are mapped through the exact bundle’s source maps. Store/derive and React render/commit values are approximate sampled stack attribution; style/layout and paint use timeline durations. Unattributed samples include native `(program)` work and are not all JavaScript. The full-tree React commit observer is expensive, so **render/reaction census and latency are separate captures**. Observer-instrumented latencies are excluded; subtracting observer time alone cannot remove its layout/GC effects.
+
+The controlled ablations freeze only this preview’s network input: its sockets are closed and its fetches aborted after hydration. Connected captures remain separate because unrelated live publications can legitimately render the page while typing. The collector and analyzer are retained as source-only issue artifacts; local raw recordings remain on ludovico.
+
+## Matched original-source ablations
+
+These switches run in a throwaway production preview of the original source, in one browser and one frozen page. Earlier separately compiled controller-only and autosize-only builds independently established the render and measurement counts. The matched preview changes only the indicated seam; it is discarded afterward.
+
+| Arm, 60 keys | Input-to-paint median / p95 / max, ms | Complete-frame main-thread median / p95 / max, ms | Layout median, ms | Value rewrites |
+| --- | ---: | ---: | ---: | ---: |
+| Original | 44.21 / 53.91 / 61.23 | 53.83 / 68.23 / 71.16 | 18.51 | 120 |
+| Conversation draft projection off | 30.11 / 55.35 / 60.44 | 40.85 / 68.63 / 75.95 | 19.46 | 120 |
+| Autosize height resets off | 35.68 / 43.37 / 46.76 | 44.49 / 59.18 / 103.42 | 11.25 | 120 |
+| Draft mirror made synchronous | 35.44 / 59.15 / 69.62 | 45.92 / 75.20 / 95.72 | 11.08 | 0 |
+| All three switches | 14.65 / 19.94 / 21.55 | 22.15 / 31.89 / 43.32 | 3.75 | 0 |
+
+Marginal median main-thread reductions are **24.1%** for conversation projection, **17.4%** for height resets and **14.7%** for the delayed mirror. Individual p95 values are noisy and do not all improve. The combined arm improves median **58.9%** and p95 **53.3%**; this is the principal matched latency proof.
+
+Across the original arm’s 60 key windows, complete-frame task time totals **3,336.58 ms**. Exact style/layout accounts for **1,155.68 ms (34.6%)**, paint/prepaint **403.37 ms (12.1%)**, and layerization **202.03 ms (6.1%)**. Approximate sampled React rendering is **610.93 ms (18.3%)**, React commit **294.53 ms (8.8%)**, and store/derive **87.61 ms (2.6%)**. The remaining time includes native work, other callbacks, sampling error and preemption. These are cost buckets, not independent causal savings.
+
+Per-key sampled store/derive median / p95 / max is **1.32 / 3.42 / 3.64 ms**; React rendering **9.88 / 15.28 / 23.57 ms**; React commit **4.47 / 8.36 / 10.59 ms**. The combined arm lowers sampled React render+commit total from **905.46 to 39.96 ms**. The original runtime’s draft apply still executes; suppressing the controller alone removes **95%** of sampled React rendering while preserving draft saving.
+
+## Work counts and implementation
+
+The original render census recorded `ChatView` and `TranscriptFeed` **62 times** over 60 keys plus two background updates, `ToolBatchView` **1,240**, `ScopedChatComposer` and `ChatComposer` **121**, and `SessionDraftRef` **60**. Disabling controller draft projection reduces the shell/transcript to the two unrelated updates. The delayed controlled-value restoration writes twice per key: **120 writes for 60 native edits**. Switching the composer to its synchronous addressed runtime draft removes both writes; the per-key pool reaction also disappears. The final live census is separate from timing.
+
+Changes:
+
+- `ConversationController.updateDraft()` updates only draft state and full-state draft consumers. The transcript shell subscribes to a stable draft-free surface snapshot; edits do not read records, re-project bubbles or notify surface subscribers. Existing full-state consumers preserve their draft notifications.
+- `ScopedChatComposer` reads the addressed draft through `useRuntimeDraft`, synchronously with the runtime’s writer. Voice, quotes, clear/retry and submit continue to use the latest shared draft.
+- `useRuntimeDraftRef` updates the native bridge imperatively on the addressed draft event. `AgentPanel` no longer mounts a renderless draft reader on every key.
+- Modern main composers use native `field-sizing: content`, fixed sizing for an empty placeholder, and the existing cap. The forced height reset/read effect remains only for older browsers; compact prompts retain their separate sizing policy.
+- The root `FlightDeck` owns layout and paint. Its unchanged rows previously repainted with native textarea edits. Its existing scroller already clips children, and the issue/session context menus use portals. Fixed-panel strict containment was rejected because it could clip lifted content.
+
+Draft ledger and runtime persistence code are unchanged. Local edits and addressed draft publishes remain synchronous; saving was already coalesced and is verified rather than newly claimed as a fix. Typical 60-key captures have **60 local edits / 60 addressed publishes, 10–11 device saves**, no outbox publishes, and no issue/session collection scans. In the rebased native-sizing capture, `ClientRuntime.applyDraftToStore` is **0.4 ms p95**, `DraftLedger.localEdit` **0.1 ms p95**, and a scheduled save **1.9 ms p95**. Outbox pending reads still occur, but are below timer resolution and are not publishes. Network draft edits remain debounced, dirty until acknowledged, and re-offered on reconnect. Teardown flush and offline/reload arbitration are preserved.
+
+## Residual native page work
+
+A same-context, network-frozen capture with **37,570 DOM elements** separates native page cost from conversation renders. Hiding only the mission in a throwaway arm lowers median complete-frame time **37.05 → 13.09 ms** and paint/prepaint **9.89 → 1.01 ms**; input-to-paint p95 lowers **70.31 → 20.39 ms**. Hiding the transcript does not help. Panel containment alone lowers layout **5.53 → 1.90 ms** but leaves paint large.
+
+A visibility-preserving comparison with **36,637 DOM elements** proves the selected root-scroller fix: mission `contain: layout paint` lowers median paint/prepaint **10.53 → 1.06 ms** and complete-frame work **39.48 → 23.82 ms**. Removing it restores paint to **8.66 ms**. Whole-frame p95 remains high/variable; no 16 ms claim is made from medians. The shared host had load averages around **10–13 on seven available CPUs** in later runs. Thread-clock measurements confirm native work as well as scheduling effects.
+
+Rejected probes: suppressing React `defaultValue` writes, fixing textarea height, absolutely containing the field, pausing all CSS animations, and native offscreen visibility on agent rows did not establish the target. They are not shipped. A compositor layer alone lowers median mission paint but produces unstable tails; root containment is the smaller verified rule. POD-5508 independently owns Safari/WebKit sprite-mask compositing work; its measurements are not substituted for live Chromium results here.
+
+## Focused validation
+
+All tests, typechecks and lint run **foreground on flatblock** in `~/podium-test-5506`, with a copied `.toolchain` and a checkout-local frozen dependency install. No global Bun is modified and no full suite runs. The source mirror excludes live captures and is reconciled against the tracked source inventory, including obsolete rename sources.
+
+The new real-composer regression types **60 characters** and checks on every key: **zero shell/transcript renders, zero programmatic value restores, unchanged outbox/order-scan counters**, and the final authoritative saved draft. Restoring the old `patch({draft})` behavior in a throwaway negative control fails on **key 1**, with **shell=1 / transcript=1**. The source is restored in `finally`.
+
+The focused files cover controller draft isolation, ledger revision arbitration, keyed native-ref updates and session switches, native/fallback autosize, send/IME/Escape behavior, draft retry/clear, native warm-toggle injection and drop handling. The runtime’s `offline-first composer drafts` group executes **12 cases** (38 unrelated cases skipped). Final post-rebase checks and live timing are appended below; these are focused results, not a suite result.
+
+## Final production observation
+
+Pending the final production capture of the committed, rebased candidate. The issue remains open until the measured frame-budget result and any required adjacent work are explicit.
