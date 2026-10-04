@@ -424,7 +424,7 @@ const EMPTY_DECK: MissionViewValues = {
   members: new Set(),
   byId: new Map(),
   sessions: [],
-  archived: [],
+  archivedCount: 0,
   titles: new Map(),
   progress: EMPTY_MOBILE_MISSION.progress,
   departures: [],

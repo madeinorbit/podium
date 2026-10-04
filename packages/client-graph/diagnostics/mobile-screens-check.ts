@@ -318,7 +318,7 @@ export function legacyMobileScreensSnapshot(
       progress,
       members: new Set(),
       titles: new Map(),
-      archived: [],
+      archivedCount: 0,
       continuation: root ? issueContinuation(root, byId, sessions) : null,
       note: null,
       presence: rootRow ? presenceNote(rootRow.issue, rootRow.sessions, byId, sessions) : null,
