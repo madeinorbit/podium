@@ -1,15 +1,13 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId, type IssueCloseReason, type IssueId } from '@podium/model'
+import type { IssueCloseReason } from '@podium/model'
 
 /**
  * Proposal screening (POD-277) — the pure half of the phone's "Screen proposed"
- * card flow: which proposals enter the deck, in what order, how the deck
- * survives live board changes underneath the operator's thumb, and which issue
- * mutations each outcome performs.
+ * card flow: the existing ordered issue mutations and closing tally. The
+ * screening queue and reconciliation read the pool through use-inbox-data.
  *
  * Screening is deliberately a snapshot: the deck order is fixed when the flow
  * opens so a broadcast never reshuffles the card being decided. Reconciliation
- * (below) only touches the UNDECIDED tail.
+ * only touches the UNDECIDED tail.
  */
 
 /** What the operator did with a card. `skipped` mutates nothing. */
@@ -27,69 +25,6 @@ export interface ScreeningCommands {
   promoteIssue: (id: string) => Promise<unknown>
   startIssue: (id: string) => Promise<unknown>
   closeIssue: (id: string, reason?: string) => Promise<unknown>
-}
-
-/** Is this issue a proposal the operator can still screen? */
-function isScreenable(issue: IssueViewModel): boolean {
-  return (
-    issue.stage === 'proposed' &&
-    !issue.archived &&
-    !issue.deletedAt &&
-    !issue.isDraftVessel &&
-    issue.audience !== 'agent'
-  )
-}
-
-/**
- * Ordered screening deck: the proposals whose ancestors are all approved, most
- * urgent first.
- *
- * A proposal nested under another proposal is left out on purpose — the whole
- * proposal subtree is inert until its ROOT is accepted [spec:SP-6144], and the
- * server refuses to start work under an unapproved ancestor, so offering the
- * child as a card would offer a decision that cannot be carried out.
- *
- * Order mirrors the Tasks list (priority ascending, newest first) so the deck
- * and the board agree on what "next" means.
- */
-export function buildScreeningQueue(issues: IssueViewModel[]): IssueViewModel[] {
-  const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  const underProposal = (issue: IssueViewModel): boolean => {
-    const seen = new Set<string>([issue.id])
-    let parentId = issue.parentId
-    while (parentId && !seen.has(parentId)) {
-      seen.add(parentId)
-      const parent = byId.get(parentId)
-      if (!parent) return false
-      if (parent.stage === 'proposed') return true
-      parentId = parent.parentId
-    }
-    return false
-  }
-  return issues
-    .filter((issue) => isScreenable(issue) && !underProposal(issue))
-    .sort((a, b) => a.priority - b.priority || b.seq - a.seq)
-}
-
-/**
- * Fold a fresh board into an open deck without moving the ground under the
- * operator: everything already decided (`order` before `index`) stays put, the
- * undecided tail drops cards that are no longer screenable (someone promoted or
- * closed them elsewhere), and proposals that appeared since the flow opened are
- * appended at the end rather than jumped ahead of the current card.
- */
-export function reconcileScreeningOrder(
-  order: IssueId[],
-  index: number,
-  issues: IssueViewModel[],
-): { order: IssueId[]; index: number } {
-  const queue = buildScreeningQueue(issues)
-  const screenable = new Set(queue.map((issue) => issue.id))
-  const decided = order.slice(0, index)
-  const seen = new Set(order)
-  const tail = order.slice(index).filter((id) => screenable.has(id))
-  const arrivals = queue.map((issue) => issue.id).filter((id) => !seen.has(id))
-  return { order: [...decided, ...tail, ...arrivals], index: decided.length }
 }
 
 /**

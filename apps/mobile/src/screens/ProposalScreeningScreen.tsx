@@ -50,7 +50,7 @@ const sameDeck = (a: Deck, b: Deck) =>
  *
  * The deck order is snapshotted when the flow opens; a board change underneath
  * only drops undecided cards that left the lane and appends new arrivals at the
- * end (see reconcileScreeningOrder), so the card under the thumb never swaps.
+ * end (see reconcileScreeningIds), so the card under the thumb never swaps.
  */
 export function ProposalScreeningScreen() {
   const router = useRouter()

@@ -284,3 +284,12 @@ displayed absent edges borrow the kernel's exit verdict. It owns one observable
 epoch and the existing addressed-batch subscription, with no row cache, relation
 index, exit ledger or writer. The bare-pool tracking baseline stays unchanged;
 the final measured census check remains pending.
+
+The last unused board/screening read builders were retired only after their
+27 legacy controls passed at flatblock WIP `a4cfa62e7c`: seventeen board checks
+and ten screening checks, exit zero, load 6.58/6.40 and UTC bounds
+00:38:24.207–00:38:31.259. Their production imports were already gone. The
+converted controls exercise the actual mobile pool task/screening reader and
+retain the literal row order, nesting, proposals, progress and ordered decision
+calls. The screening command interface, decision function and tally remain
+byte-identical. No expected screen snapshot was regenerated.

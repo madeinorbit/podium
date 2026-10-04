@@ -57,7 +57,7 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
 /**
  * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
  *
- * The rows themselves come from `../lib/task-board.ts`, which reads the SHARED
+ * The rows themselves come from the shared pool mobile screen reader. The
  * derivation the desktop board reads and then applies the phone's one extra
  * rule: a screenable proposal is promoted even when it has a parent. See that
  * module for why the list is not a tree, and for the section-order decision.

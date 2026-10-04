@@ -3,10 +3,10 @@ import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
   applyScreeningDecision,
-  buildScreeningQueue,
-  reconcileScreeningOrder,
   screeningTally,
 } from './screening'
+import { reconcileScreeningIds } from '../client/use-inbox-data'
+import { readPoolScreening } from '../../test/pool-board-fixture'
 
 const issue = (partial: Partial<IssueViewModel> & Pick<IssueViewModel, 'id'>) =>
   ({
@@ -40,9 +40,9 @@ function fakeCommands() {
   }
 }
 
-describe('buildScreeningQueue', () => {
+describe('pool screening queue', () => {
   it('takes only live human proposals, most urgent first', () => {
-    const queue = buildScreeningQueue([
+    const queue = readPoolScreening([
       issue({ id: asIssueId('p2-old'), priority: 2, seq: 10 }),
       issue({ id: asIssueId('backlog'), stage: 'backlog' }),
       issue({ id: asIssueId('p0'), priority: 0, seq: 4 }),
@@ -53,11 +53,11 @@ describe('buildScreeningQueue', () => {
       issue({ id: asIssueId('internal'), audience: 'agent' }),
     ])
 
-    expect(queue.map((i) => i.id)).toEqual(['p0', 'p2-new', 'p2-old'])
+    expect(queue).toEqual(['p0', 'p2-new', 'p2-old'])
   })
 
   it('leaves out a proposal nested under an unapproved proposal', () => {
-    const queue = buildScreeningQueue([
+    const queue = readPoolScreening([
       issue({ id: asIssueId('root') }),
       issue({ id: asIssueId('child'), parentId: asIssueId('root'), seq: 2 }),
       issue({ id: asIssueId('grandchild'), parentId: asIssueId('child'), seq: 3 }),
@@ -65,11 +65,11 @@ describe('buildScreeningQueue', () => {
       issue({ id: asIssueId('approved'), stage: 'backlog' }),
     ])
 
-    expect(queue.map((i) => i.id)).toEqual(['under-backlog', 'root'])
+    expect(queue).toEqual(['under-backlog', 'root'])
   })
 })
 
-describe('reconcileScreeningOrder', () => {
+describe('pool screening reconciliation', () => {
   const board = [
     issue({ id: asIssueId('a'), seq: 3 }),
     issue({ id: asIssueId('b'), seq: 2 }),
@@ -77,22 +77,22 @@ describe('reconcileScreeningOrder', () => {
   ]
 
   it('keeps decided cards, drops undecided ones that left the lane, appends arrivals', () => {
-    const next = reconcileScreeningOrder([asIssueId('a'), asIssueId('b'), asIssueId('c')], 1, [
+    const next = reconcileScreeningIds([asIssueId('a'), asIssueId('b'), asIssueId('c')], 1, readPoolScreening( [
       // 'a' was accepted by this flow, 'b' was closed from another client.
       issue({ id: asIssueId('a'), stage: 'in_progress' }),
       issue({ id: asIssueId('c'), seq: 1 }),
       issue({ id: asIssueId('d'), seq: 9 }),
-    ])
+    ]))
 
     expect(next).toEqual({ order: ['a', 'c', 'd'], index: 1 })
   })
 
   it('never reorders the undecided tail around the current card', () => {
     // 'c' outranks the rest on the board, but the deck order is a snapshot.
-    const next = reconcileScreeningOrder([asIssueId('a'), asIssueId('b'), asIssueId('c')], 0, [
+    const next = reconcileScreeningIds([asIssueId('a'), asIssueId('b'), asIssueId('c')], 0, readPoolScreening( [
       ...board,
       issue({ id: asIssueId('z'), priority: 0, seq: 99 }),
-    ])
+    ]))
 
     expect(next).toEqual({ order: ['a', 'b', 'c', 'z'], index: 0 })
   })
