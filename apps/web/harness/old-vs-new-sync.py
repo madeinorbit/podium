@@ -20,6 +20,15 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as tar:
     run['backgroundSuperseded']=True
     run['backgroundExcludedReason']='Repeat paired 1x background windows with complete OLD logical issue updates and a fresh matched resident-pane state.'
     file.write_text(json.dumps(run,indent=2)+'\\n')
+   if folder.name=='timing-old-web-4x-r10' and run['harnessSha256']=='e0d8a84eb2258bd15f31022a7a78b33e700e119aed4de6faa61a24ef25f9a0c3' and 'Comparison target A' in run.get('failure',''):
+    run['actionPhaseComplete']=True
+    run['backgroundSuperseded']=True
+    run['backgroundExcludedReason']='Completed action phase retained; background preparation waited for the original title after optimistic rename. Repeat paired background windows separately.'
+    file.write_text(json.dumps(run,indent=2)+'\\n')
+   if folder.name=='timing-new-web-4x-r10' and run['sha']=='1aa0ec71f68c5c6569560798db00a82a1db9f82d':
+    run['backgroundSuperseded']=True
+    run['backgroundExcludedReason']='Contemporary OLD background preparation failed; use the second pair and a separate matched background-only pair.'
+    file.write_text(json.dumps(run,indent=2)+'\\n')
    for name in ['run.json','cpu-attribution.json','cpu-boundaries.json']:
     source=folder/name
     if source.is_file():
