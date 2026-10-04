@@ -318,10 +318,15 @@ The only banner bank difference is intended recovery copy already changed by
 POD-5430 in `edcd56288d`: “They didn’t reach the server. Decide what to do with
 each one.” became “Your other changes don’t wait for them. One sent again goes
 after them. Decide what to do with each one.” Fresh complete OFF/ON equality on
-`b4d0134f17` is green. POD-4286 approved exactly that sentence substitution,
-but automatic approval review rejected mutating a frozen expectation without
-direct operator authorization. The bank stays unchanged; artifact14 contains
-the exact proposed adjustment. No production copy or writer changes are proposed.
+`b4d0134f17` is green. After the earlier automatic-review rejection, the current
+user-delivered `msg_62abf481` supplies the exact substitution approval and the
+accepted ADR records the operator's signature. The one-sentence edit now applies.
+Exactly one occurrence changes; reversing it reproduces every byte of the
+original bank. SHA256 changes from
+`ea76a019e5048f78ab70acdab1a2b9751927d8ec8185286ff568aac7dcb3e6d5` to
+`97ae6cb5191dc79769fa7c5f16493c5182cf01e3365b2ad97911cdbfe3c6176e`.
+No snapshot generator runs. No production copy or writer changes are made.
+The focused five-case banner regression is next.
 
 DemoProvider's inherited `?demo=1` crash after `b890298e4d` is separately Proposed
 as POD-5473. Automatic review rejected switching its replica constructor despite
