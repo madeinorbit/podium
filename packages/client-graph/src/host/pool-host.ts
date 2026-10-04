@@ -194,13 +194,14 @@ export function createPoolHost({
       [pool, project],
     )
     // A principal/pool change discards any previous principal's last paint.
-    const last = useMemo(() => ({ value: empty }), [pool, project])
+    const last = useMemo(() => ({ pool, project, paint: null as { value: T } | null }), [pool, project])
     view?.setActive(active)
     const snapshot = useCallback(() => {
-      if (!active || view === null) return last.value
-      last.value = view.getSnapshot(reader.current)
-      return last.value
-    }, [active, last, view])
+      if (!active || view === null) return last.paint ? last.paint.value : empty
+      const value = view.getSnapshot(reader.current)
+      last.paint = { value }
+      return value
+    }, [active, empty, last, view])
     return useSyncExternalStore(active && view ? view.subscribe : EMPTY_SUBSCRIPTION, snapshot)
   }
 
