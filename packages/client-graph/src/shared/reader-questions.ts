@@ -255,8 +255,10 @@ export function createReaderIndex() {
         for (const key of new Set([...before, ...after]))
           if (key.startsWith('issue:path:')) touch(`mobileTargets:${key}`)
     }
+    // Full titles are verification facets, not membership keys. Keep them in
+    // filed (and in the change comparison above), without buckets or revisions.
     for (const key of before)
-      if (!after.has(key)) {
+      if (!key.startsWith(targetTitle) && !after.has(key)) {
         const ids = buckets.get(key)
         ids?.delete(id)
         if (ids?.size === 0) {
@@ -267,7 +269,7 @@ export function createReaderIndex() {
         touch(key)
       }
     for (const key of after)
-      if (!before.has(key)) {
+      if (!key.startsWith(targetTitle) && !before.has(key)) {
         let ids = buckets.get(key)
         if (!ids) {
           ids = new Set()

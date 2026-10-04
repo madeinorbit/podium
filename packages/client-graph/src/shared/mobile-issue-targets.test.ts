@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createReaderIndex, type ReaderQuestion } from './reader-questions'
 import type { RowRecord } from './source'
 
@@ -32,6 +32,90 @@ const issue = (id: string, seq: number, extra: object = {}): RowRecord => ({
 })
 
 describe('mobile target identity question', () => {
+  it('never stores or reads full-title membership or revision entries', () => {
+    const index = createReaderIndex()
+    // Exhaustive so a new reader must join this check. Map keys expose both
+    // membership and revision entries; filed retains titles inside Set values.
+    const readers: Record<ReaderQuestion['kind'], ReaderQuestion> = {
+      residentIssues: { kind: 'residentIssues' },
+      commandIssues: { kind: 'commandIssues' },
+      mentionIssues: { kind: 'mentionIssues' },
+      pageIssues: { kind: 'pageIssues' },
+      shellIssues: { kind: 'shellIssues' },
+      missionIssues: { kind: 'missionIssues' },
+      boardCatalog: { kind: 'boardCatalog' },
+      boardCounts: { kind: 'boardCounts' },
+      proposedIssues: { kind: 'proposedIssues' },
+      reclaimIssues: { kind: 'reclaimIssues' },
+      commandSessions: { kind: 'commandSessions' },
+      inboxSessions: { kind: 'inboxSessions' },
+      setupSessions: { kind: 'setupSessions' },
+      referenceSessions: { kind: 'referenceSessions' },
+      explorerSessions: { kind: 'explorerSessions' },
+      shellSessions: { kind: 'shellSessions' },
+      headerSessions: { kind: 'headerSessions' },
+      headerOccupancy: { kind: 'headerOccupancy' },
+      headerRecentSession: { kind: 'headerRecentSession' },
+      sessionReference: { kind: 'sessionReference', ref: 'POD-17-A' },
+      commandIssueSessions: { kind: 'commandIssueSessions', issueId: 'a' },
+      containingIssues: { kind: 'containingIssues', cwd: '/phone/worktree' },
+      mobileIssueTargets: question('candidate 17'),
+      boardIssues: { kind: 'boardIssues', projectPaths: ['/phone'], priority: 2, stage: 'done' },
+    }
+    const writes = vi.spyOn(Map.prototype, 'set')
+    const reads = vi.spyOn(Map.prototype, 'get')
+    const isTitle = ([key]: [unknown, ...unknown[]]) =>
+      typeof key === 'string' && key.startsWith('issue:targetTitle:')
+    let titleWrites: unknown[] = [], titleReads: unknown[] = []
+    try {
+      index.apply({ type: 'replace', rows: [issue('a', 17)] })
+      for (const reader of Object.values(readers)) {
+        index.ids(reader)
+        index.revision(reader)
+      }
+      index.apply({ type: 'update', rows: [issue('a', 17, { title: 'Renamed target' })] })
+      index.ids(question('renamed target'))
+      index.apply({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: undefined }] })
+      index.apply({ type: 'replace', rows: [issue('b', 18)] })
+      titleWrites = writes.mock.calls.filter(isTitle)
+      titleReads = reads.mock.calls.filter(isTitle)
+    } finally {
+      writes.mockRestore()
+      reads.mockRestore()
+    }
+    expect(titleWrites).toEqual([])
+    expect(titleReads).toEqual([])
+  })
+
+  it('invalidates title-only renames even when every gram posting stays the same', () => {
+    const index = createReaderIndex()
+    const search = question('aaaaa')
+    index.apply({ type: 'replace', rows: [issue('a', 17, { title: 'aaaa' })] })
+    const before = index.revision(search)
+    expect(index.ids(search)).toEqual([])
+    index.apply({ type: 'update', rows: [issue('a', 17, { title: 'aaaaa' })] })
+    expect(index.revision(search)).toBeGreaterThan(before)
+    expect(index.ids(search)).toEqual(['a'])
+    const renamed = index.revision(search)
+    index.apply({ type: 'update', rows: [issue('a', 17, { title: 'aaaaa' })] })
+    expect(index.revision(search)).toBe(renamed)
+    index.apply({ type: 'update', rows: [issue('a', 17, { title: 'aaaa' })] })
+    expect(index.revision(search)).toBeGreaterThan(renamed)
+    expect(index.ids(search)).toEqual([])
+    expect(index.ids(question('POD-17'))).toEqual(['a'])
+    index.apply({
+      type: 'update',
+      rows: [issue('a', 17, { title: 'aaaaa', deletedAt: '2026-10-04' })],
+    })
+    expect(index.ids(search)).toEqual([])
+    expect(index.ids(question('POD-17'))).toEqual([])
+    index.apply({ type: 'update', rows: [issue('a', 17, { title: 'aaaaa' })] })
+    expect(index.ids(search)).toEqual(['a'])
+    index.apply({ type: 'replace', rows: [issue('b', 18, { title: 'aaaaa' })] })
+    expect(index.ids(search)).toEqual(['b'])
+    expect(index.ids(question('POD-17'))).toEqual([])
+  })
+
   it('visits only the requested ordered window at 1x and 4x', () => {
     const cells: { scale: number; visits: number; neighbours: number }[] = []
     for (const scale of [1, 4]) {
