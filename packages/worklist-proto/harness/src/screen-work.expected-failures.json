@@ -95,18 +95,8 @@
   },
   {
     "issue": "POD-5423",
-    "reason": "Left after review findings 8-12 were fixed (POD-5423: filing, seat history, heartbeats, sidebar bands, roster, joined rows). Neither is one of those mechanisms: Reaction@# is issue-board-source's per-issue index reaction filtering the board's whole session roster (the board sessions memo re-reads every seat row on any seat change; POD-5453 area, retag proposed to POD-4286); latchedOpenId is one O(1) derivation charged to mobile-work at 1x and to the sidebar at 4x (attribution order), not growth.",
+    "reason": "Remaining O(1) latchedOpenId attribution across mobile-work/sidebar; board session-roster work is tracked under POD-5454.",
     "readers": [
-      {
-        "reader": "Reaction@#",
-        "actions": {
-          "stage-change": ["elements"],
-          "pane-switch": ["elements"],
-          "heartbeat": ["elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["elements"]
-        }
-      },
       {
         "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId",
         "actions": {
@@ -118,15 +108,8 @@
   },
   {
     "issue": "POD-5453",
-    "reason": "Measured after POD-5406: declared query result reconstruction and resident count correction still scale with total rows.",
+    "reason": "Remaining consumer aggregation walks after keyed declared-query maintenance (POD-5454). Primary summary/count/roster mechanisms have strict non-exception tests in declared-query-work.test.ts.",
     "readers": [
-      {
-        "reader": "IssueBoard@sessions:guard-root",
-        "actions": {
-          "pane-switch": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"]
-        }
-      },
       {
         "reader": "consumer:automations",
         "actions": {
@@ -181,12 +164,6 @@
         "reader": "consumer:board.explorer/IssueBoard@query:{\"kind\":\"explorer\",\"tab\":\"needs\",\"query\":\"\"}",
         "actions": {
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:board.explorer/IssueBoard@sessions:guard-root",
-        "actions": {
-          "machine-flip": ["rows", "elements"]
         }
       },
       {
@@ -259,12 +236,6 @@
         }
       },
       {
-        "reader": "consumer:issue-page.catalog/IssuePage@summaries",
-        "actions": {
-          "stage-change": ["rows", "elements"]
-        }
-      },
-      {
         "reader": "consumer:issue-page.detail/IssuePage@members:guard-root",
         "actions": {
           "navigate-by-ref": ["rows", "elements"],
@@ -286,13 +257,6 @@
           "navigate-by-ref": ["rows", "elements"],
           "heartbeat": ["rows", "elements"],
           "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:issue-page.detail/IssuePage@summaries",
-        "actions": {
-          "heartbeat": ["rows", "elements"],
           "lane-change": ["rows", "elements"]
         }
       },
@@ -363,18 +327,6 @@
         }
       },
       {
-        "reader": "consumer:session-pane",
-        "actions": {
-          "select": ["elements"],
-          "stage-change": ["elements"],
-          "pane-switch": ["elements"],
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["elements"]
-        }
-      },
-      {
         "reader": "consumer:settings",
         "actions": {
           "heartbeat": ["elements"]
@@ -400,6 +352,16 @@
         "reader": "consumer:workflows/settings.sessions",
         "actions": {
           "heartbeat": ["elements"]
+        }
+      },
+      {
+        "reader": "Reaction@#",
+        "actions": {
+          "stage-change": ["elements"],
+          "pane-switch": ["elements"],
+          "heartbeat": ["elements"],
+          "machine-flip": ["elements"],
+          "lane-change": ["elements"]
         }
       }
     ]

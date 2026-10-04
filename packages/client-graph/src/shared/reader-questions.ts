@@ -105,7 +105,10 @@ export function createReaderIndex() {
   }
   function addTarget(key: string, id: string) {
     let ids = targetPostings.get(key)
-    if (!ids) targetPostings.set(key, (ids = []))
+    if (!ids) {
+      ids = []
+      targetPostings.set(key, ids)
+    }
     let lo = 0,
       hi = ids.length
     while (lo < hi) {
@@ -209,7 +212,10 @@ export function createReaderIndex() {
         }
         if (nextPath !== undefined && nextRepo !== undefined) {
           let repos = targetRepos.get(nextPath)
-          if (!repos) targetRepos.set(nextPath, (repos = new Map()))
+          if (!repos) {
+            repos = new Map()
+            targetRepos.set(nextPath, repos)
+          }
           repos.set(nextRepo, (repos.get(nextRepo) ?? 0) + 1)
         }
       }
@@ -380,6 +386,48 @@ export function createReaderIndex() {
     },
     repoIds(path?: string): string[] {
       return [...(path === undefined ? repos : (targetRepos.get(path)?.keys() ?? []))].sort(byId)
+    },
+    contains(question: ReaderQuestion, id: string): boolean {
+      const has = (key: string) => bucket(key).has(id)
+      if (!has(`${questionEntity(question)}:all`)) return false
+      switch (question.kind) {
+        case 'residentIssues': return false
+        case 'mobileIssueTargets':
+        case 'headerRecentSession':
+          // Ordered windows are answered by their existing bounded indexes.
+          return this.ids(question).includes(id)
+        case 'proposedIssues': return has('issue:proposed')
+        case 'reclaimIssues': return has('issue:reclaim')
+        case 'inboxSessions': return has('session:inbox')
+        case 'headerSessions':
+        case 'headerOccupancy': return has('session:host')
+        case 'sessionReference': return has(`session:ref:${question.ref}`)
+        case 'commandIssueSessions': return has(commandIssueKey(question))
+        case 'boardCounts': return has('issue:live')
+        case 'containingIssues': {
+          if (has(`issue:root:${question.cwd}`)) return true
+          for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
+            if (has(`issue:root:${question.cwd.slice(0, at)}`) ||
+              has(`issue:root:${question.cwd.slice(0, at + 1)}`)) return true
+          return false
+        }
+        case 'boardIssues':
+          if (question.priority != null && !has(`issue:priority:${question.priority}`)) return false
+          if (question.stage && !has(`issue:status:${question.stage}`)) return false
+          if (['open', 'closed', 'blocked'].includes(question.status ?? '') && !has(`issue:${question.status}`)) return false
+          if (question.projectPaths?.length && !question.projectPaths.some(path => has(`issue:path:${path}`))) return false
+          if (question.explorerTab !== undefined && !question.searching) {
+            if (!has('issue:live')) return false
+            if (question.explorerTab === 'needs') return has('issue:open')
+            if (question.explorerTab === 'cancelled')
+              return ['cancelled', 'duplicate', 'superseded'].some(tab => has(`issue:status:${tab}`))
+            return has(`issue:status:${question.explorerTab}`)
+          }
+          return question.explorerTab !== undefined ||
+            ((question.archived || has('issue:unarchived')) &&
+              (question.deleted || has('issue:undeleted')))
+        default: return true
+      }
     },
     ids(question: ReaderQuestion): string[] {
       switch (question.kind) {

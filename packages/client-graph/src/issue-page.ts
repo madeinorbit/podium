@@ -81,8 +81,10 @@ export function createIssuePageViews(pool: MobxPool) {
     const repoId = pool.graph.one('issue', id, 'repo')
     if (!repoId) return undefined
     if (prefixes?.has(repoId)) return prefixes.get(repoId)
-    const repo = pool.row('repo', repoId) as { prefix?: string } | undefined
-    const value = repo?.prefix ?? undefined
+    const value = memo(`prefix:${repoId}`, () => {
+      const repo = pool.row('repo', repoId) as { prefix?: string } | undefined
+      return repo?.prefix ?? undefined
+    })
     prefixes?.set(repoId, value)
     return value
   }
@@ -120,21 +122,8 @@ export function createIssuePageViews(pool: MobxPool) {
     return memo(`summary:${id}`, () => readSummary(id))
   }
   function issues(): Loaded<IssueViewModel[]> {
-    return memo('summaries', () => {
-      // One scalar read per repo in this pass; the next pass starts fresh.
-      const prefixes = new Map<string, string | undefined>()
-      const result: IssueViewModel[] = []
-      let pending = false
-      for (const id of pool.queries.ids({ kind: 'pageIssues' }).sort(byId)) {
-        // The world is already one tracked computed. Creating two more for
-        // every menu row makes first-open pay for tens of thousands of nodes.
-        // Only individually addressed summaries need their own computation.
-        const value = readSummary(id, prefixes)
-        if (value === LOADING) pending = true
-        else if (value) result.push(value)
-      }
-      return pending ? LOADING : result
-    })
+    if (disposed) return LOADING
+    return pool.queries.project({ kind: 'pageIssues' }, 'IssuePage@summaries', readSummary)
   }
   function issue(id: string): Loaded<IssueViewModel> {
     return memo(`issue:${id}`, () => {

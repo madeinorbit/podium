@@ -96,6 +96,8 @@ export interface ColdQueries {
   readonly issueRepoRevision: number
   readonly sessionRevision: number
   readerIds(question: ReaderQuestion): string[]
+  /** Membership of one changed identity, without reconstructing the answer. */
+  readerContains(question: ReaderQuestion, id: string): boolean
   issueRepoIds(repoPath?: string): string[]
   sessionCollapsed(id: string): boolean
   sessionOrderKey(id: string): string
@@ -569,6 +571,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       return collapseVersion
     },
     readerIds: (question) => readers.ids(question),
+    readerContains: (question, id) => readers.contains(question, id),
     issueRepoIds: (path) => readers.repoIds(path),
     sessionCollapsed: (id) => relations.collapsed('session', id),
     sessionOrderKey: (id) => relations.orderKey('session', id),

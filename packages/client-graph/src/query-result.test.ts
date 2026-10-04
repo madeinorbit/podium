@@ -1,0 +1,169 @@
+import { autorun, observable, runInAction } from 'mobx'
+import { describe, expect, it, vi } from 'vitest'
+import { createQueryResult } from './query-result'
+import { LOADING } from './worklist/rollup'
+
+function fixture() {
+  const rows = observable.map<string, { title: string; order: string; privateBody?: string }>(
+    [
+      ['a', { title: 'A', order: '2' }],
+      ['b', { title: 'B', order: '1' }],
+    ],
+    { deep: false },
+  )
+  let membership: ((id: string | undefined) => void) | undefined
+  const read = vi.fn((id: string) => {
+    const row = rows.get(id)
+    return row ? { id, title: row.title } : undefined
+  })
+  const released = vi.fn()
+  const result = createQueryResult({
+    name: 'test question',
+    ids: () => rows.keys(),
+    has: (id) => rows.has(id),
+    read,
+    order: (id) => rows.get(id)?.order ?? id,
+    matches: [(value) => value.title.startsWith('A')],
+    subscribe: (changed) => {
+      membership = changed
+      return () => {
+        membership = undefined
+      }
+    },
+    released,
+  })
+  const set = (
+    id: string,
+    row: { title: string; order: string; privateBody?: string } | undefined,
+  ) =>
+    runInAction(() => {
+      if (row) rows.set(id, row)
+      else rows.delete(id)
+      membership?.(id)
+    })
+  return {
+    rows,
+    result,
+    read,
+    released,
+    set,
+    reset: () => runInAction(() => membership?.(undefined)),
+  }
+}
+
+describe('maintained query answers', () => {
+  it('updates only the changed answer, preserves old snapshots and ignores undeclared fields', () => {
+    const f = fixture()
+    const seen: { id: string; title: string }[][] = []
+    const stop = autorun(() => {
+      const value = f.result.get()
+      if (value !== LOADING && value) seen.push(value)
+    })
+    try {
+      expect(Array.isArray(seen[0])).toBe(true)
+      expect(JSON.stringify(seen[0])).toBe('[{"id":"b","title":"B"},{"id":"a","title":"A"}]')
+      expect(Object.keys(seen[0]!)).toEqual(['0', '1'])
+      f.read.mockClear()
+      f.set('a', { title: 'A', order: '2', privateBody: 'unrelated' })
+      expect(f.read.mock.calls).toEqual([['a']])
+      expect(seen).toHaveLength(1)
+      f.set('a', { title: 'Changed', order: '0' })
+      expect(seen[1]?.map((value) => value.id)).toEqual(['a', 'b'])
+      expect(seen[0]?.map((value) => value.title)).toEqual(['B', 'A'])
+      f.set('c', { title: 'C', order: '3' })
+      f.set('b', undefined)
+      expect([...seen.at(-1)!]).toEqual([
+        { id: 'a', title: 'Changed' },
+        { id: 'c', title: 'C' },
+      ])
+      expect(seen[1]?.map((value) => value.id)).toEqual(['a', 'b'])
+      const copy = seen.at(-1)!
+      copy.sort((a, b) => b.id.localeCompare(a.id))
+      expect(copy.map((value) => value.id)).toEqual(['c', 'a'])
+      expect(seen[0]?.map((value) => value.title)).toEqual(['B', 'A'])
+    } finally {
+      stop()
+    }
+    expect(f.released).toHaveBeenCalledTimes(1)
+    f.read.mockClear()
+    f.set('a', { title: 'Unobserved', order: '0' })
+    expect(f.read).not.toHaveBeenCalled()
+  })
+
+  it('keeps existential witnesses observed when the full result releases and resets a slice', () => {
+    const f = fixture()
+    let match: unknown, list: unknown
+    const stopList = autorun(() => {
+      list = f.result.get()
+    })
+    const stopMatch = autorun(() => {
+      match = f.result.firstMatch(0)
+    })
+    try {
+      stopList()
+      expect(f.released).not.toHaveBeenCalled()
+      f.set('a', { title: 'Another', order: '2' })
+      expect(match).toEqual({ id: 'a', title: 'Another' })
+      f.set('a', { title: 'No longer matches', order: '2' })
+      expect(match).toBeUndefined()
+      f.reset()
+      expect(f.released).not.toHaveBeenCalled()
+      expect(list).toEqual([
+        { id: 'b', title: 'B' },
+        { id: 'a', title: 'A' },
+      ])
+    } finally {
+      stopMatch()
+    }
+    expect(f.released).toHaveBeenCalledTimes(1)
+  })
+
+  it('matches an independent sorted rebuild through insertions, removals and reordering', () => {
+    const f = fixture()
+    let current: unknown
+    const stop = autorun(() => {
+      current = f.result.get()
+    })
+    try {
+      for (let step = 0; step < 160; step++) {
+        const id = String((step * 37) % 43)
+        f.set(id, step % 5 === 0 ? undefined : { title: `Title ${step}`, order: String(step % 11) })
+        const expected = [...f.rows]
+          .sort(([a, av], [b, bv]) => av.order.localeCompare(bv.order) || a.localeCompare(b))
+          .map(([id, value]) => ({ id, title: value.title }))
+        expect(current).toEqual(expected)
+      }
+    } finally {
+      stop()
+    }
+  })
+
+  it('reports LOADING until every demanded answer resolves, including witnesses', () => {
+    const rows = observable.map<string, number>([
+      ['a', 1],
+      ['b', 0],
+    ])
+    const result = createQueryResult({
+      name: 'loading question',
+      ids: () => rows.keys(),
+      has: (id) => rows.has(id),
+      read: (id) => (rows.get(id) === 0 ? LOADING : rows.get(id)),
+      matches: [(value) => value > 0],
+      subscribe: () => () => {},
+    })
+    let current: unknown, match: unknown
+    const stop = autorun(() => {
+      current = result.get()
+      match = result.firstMatch(0)
+    })
+    try {
+      expect(current).toBe(LOADING)
+      expect(match).toBe(LOADING)
+      runInAction(() => rows.set('b', 2))
+      expect(current).toEqual([1, 2])
+      expect(match).toBe(1)
+    } finally {
+      stop()
+    }
+  })
+})

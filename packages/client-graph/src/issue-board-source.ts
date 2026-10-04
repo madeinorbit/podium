@@ -8,6 +8,8 @@ import {
   flattenRowGroups,
   groupIssuesByStage,
   issueIsActionable,
+  sessionPresentOnTask,
+  sessionNeedsHuman,
   issueRowsByStage,
   partitionIssueTree,
 } from '@podium/client-core/viewmodels'
@@ -38,6 +40,7 @@ import {
   type PoolExplorerData,
 } from './issue-board-schema'
 import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
 import type { PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -83,6 +86,7 @@ export function createIssueBoardSource(
   })
   const stops = new Map<string, () => void>()
   const projections = new Map<string, BoardProjection>()
+  const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   let disposed = false
   const open = observable.box(owner?.readLocal('openIssueId') ?? null)
   // Keyed (POD-5433): only an open-issue change wakes the board.
@@ -170,24 +174,39 @@ export function createIssueBoardSource(
     }
     return false
   }
+  function roster(id: string) {
+    let result = rosters.get(id)
+    if (!result) {
+      result = createQueryResult<SessionView>({
+        name: `IssueBoard@sessions:${id}`,
+        ids: () => pool.graph.many('issue', id, 'missionSessions'),
+        has: (sid) => pool.queries.hasMember('issue', id, 'missionSessions', sid),
+        order: (sid) => pool.graph.orderKey('session', sid),
+        read: (sid) =>
+          pool.graph.isCollapsed('session', sid)
+            ? undefined
+            : (pool.row('session', sid, 'summary') as Loaded<SessionView>),
+        matches: [
+          (seat) => !seat.archived && sessionNeedsHuman(seat),
+          (seat) => !seat.archived && seat.issueId === id && sessionPresentOnTask(seat),
+        ],
+        subscribe: (changed) => pool.queries.onMembers('issue', id, 'missionSessions', changed),
+        released: () => rosters.delete(id),
+      })
+      rosters.set(id, result)
+    }
+    return result
+  }
   function sessions(id: string): Loaded<SessionView[]> {
-    return memo(`sessions:${id}`, () => {
-      const result: SessionView[] = []
-      for (const sid of [...pool.graph.many('issue', id, 'missionSessions')].sort(
-        (a, b) =>
-          byId(pool.graph.orderKey('session', a), pool.graph.orderKey('session', b)) || byId(a, b),
-      )) {
-        if (pool.graph.isCollapsed('session', sid)) continue
-        const seat = pool.row('session', sid, 'summary') as Loaded<SessionView>
-        if (seat === LOADING) return LOADING
-        if (seat) result.push(seat)
-      }
-      return result
-    })
+    return disposed ? LOADING : roster(id).get()
   }
   function actionable(row: IssueViewModel): boolean {
     if (row.archived || row.deletedAt || row.stage === 'done' || row.closedReason) return false
-    const roster = sessions(row.id)
+    const seats = roster(row.id)
+    // The shared pure predicate needs only witnesses for these two
+    // existential questions. Archived history never enters this read.
+    const asking = seats.firstMatch(0),
+      staffed = seats.firstMatch(1)
     const attention =
       row.stage === 'review'
         ? {
@@ -199,10 +218,11 @@ export function createIssueBoardSource(
           }
         : row
     return (
-      roster !== LOADING &&
+      asking !== LOADING &&
+      staffed !== LOADING &&
       issueIsActionable(
         attention,
-        (roster ?? []).filter((seat) => !seat.archived),
+        [asking, staffed].filter((seat): seat is SessionView => seat !== undefined),
       )
     )
   }
@@ -256,7 +276,7 @@ export function createIssueBoardSource(
             }
           previous = next
         }),
-      { fireImmediately: true },
+      { fireImmediately: true, name: `IssueBoard@index:${id}` },
     )
     stops.set(id, () => {
       stop()
@@ -346,9 +366,15 @@ export function createIssueBoardSource(
         else if (row && matches(row, query)) ids.push(id)
       }
       const start = performance.now()
-      const cold = pool.queries.ids({ kind: 'boardIssues', ...query.filter,
-        ...(query.kind === 'explorer' ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() } : {}),
-      }).filter(id => !pool.tables.issue.has(id))
+      const cold = pool.queries
+        .ids({
+          kind: 'boardIssues',
+          ...query.filter,
+          ...(query.kind === 'explorer'
+            ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() }
+            : {}),
+        })
+        .filter((id) => !pool.tables.issue.has(id))
       for (const id of cold) {
         // Stage, priority, path and ordinary status filters read only their
         // declared scalar inputs. Build text/ready/deferred values on demand.
@@ -394,7 +420,7 @@ export function createIssueBoardSource(
       let pending = false
       for (const id of bucket('all')) if (!visit(id)) pending = true
       const start = performance.now(),
-        cold = pool.queries.ids({ kind: 'boardCatalog' }).filter(id => !pool.tables.issue.has(id))
+        cold = pool.queries.ids({ kind: 'boardCatalog' }).filter((id) => !pool.tables.issue.has(id))
       for (const id of cold) if (!visit(id)) pending = true
       countIssueBoard('catalogColdVisits', cold.length)
       countIssueBoard('catalogColdMs', performance.now() - start)
@@ -709,7 +735,10 @@ export function createIssueBoardSource(
         BoardExplorerTab,
         number
       >
-      for (const id of new Set([...bucket('scope'), ...pool.queries.ids({ kind: 'boardCounts' })])) {
+      for (const id of new Set([
+        ...bucket('scope'),
+        ...pool.queries.ids({ kind: 'boardCounts' }),
+      ])) {
         const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
         if (row === LOADING) return LOADING
         if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) continue
@@ -822,6 +851,8 @@ export function createIssueBoardSource(
       stopTable()
       for (const projection of projections.values()) projection.dispose()
       for (const stop of stops.values()) stop()
+      for (const result of [...rosters.values()]) result.dispose()
+      rosters.clear()
       stops.clear()
       cache.clear()
       runInAction(() => buckets.clear())

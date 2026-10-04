@@ -23,7 +23,7 @@ import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
 import { type ColdIndex, createColdIndex, type HeldSummaries } from './shared/cold-index'
-import { createReaderIndex, questionEntity } from './shared/reader-questions'
+import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 import { SHELL_SUMMARIES } from './shell-schema'
@@ -162,10 +162,13 @@ function fixture(scale = 1, bootOnly = false) {
       read: () => ({ cursor: null, pendingSpawnPrompts: new Map() }),
       dispose() {},
     })
-  attachCommandLaunchSource(pool, withKeyedInputs({
-    getSnapshot: () => ({ repos: [], machines: [] }),
-    subscribe: () => () => {},
-  }) as never)
+  attachCommandLaunchSource(
+    pool,
+    withKeyedInputs({
+      getSnapshot: () => ({ repos: [], machines: [] }),
+      subscribe: () => () => {},
+    }) as never,
+  )
   return { pool, index: cold({}), load, rows, values }
 }
 
@@ -254,22 +257,36 @@ describe('readers behind declared cold questions', () => {
     for (const title of ['Target', `Target ${'alphabet '.repeat(32)}`]) {
       const index = createReaderIndex()
       let pathReads = 0
-      const value = new Proxy({
-        id: 'target', seq: 42, title, repoId: 'repo', repoPath: '/query',
-        stage: 'backlog', archived: false,
-      }, {
-        get(row, key, receiver) {
-          if (key === 'repoPath') pathReads++
-          return Reflect.get(row, key, receiver)
+      const value = new Proxy(
+        {
+          id: 'target',
+          seq: 42,
+          title,
+          repoId: 'repo',
+          repoPath: '/query',
+          stage: 'backlog',
+          archived: false,
         },
-      })
+        {
+          get(row, key, receiver) {
+            if (key === 'repoPath') pathReads++
+            return Reflect.get(row, key, receiver)
+          },
+        },
+      )
       index.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'target', value } as never] })
       // Assert the real declared query before its input-work budget: a plant
       // that rereads the path for every gram must fail despite identical IDs.
-      expect(index.ids({
-        kind: 'mobileIssueTargets', repoPath: '/query', excludeId: '',
-        query: 'target', limit: 14, prefixes: { repo: 'Q-' },
-      })).toEqual(['target'])
+      expect(
+        index.ids({
+          kind: 'mobileIssueTargets',
+          repoPath: '/query',
+          excludeId: '',
+          query: 'target',
+          limit: 14,
+          prefixes: { repo: 'Q-' },
+        }),
+      ).toEqual(['target'])
       expect(pathReads).toBe(1)
     }
   })
@@ -554,12 +571,123 @@ describe('readers behind declared cold questions', () => {
       ],
     })
     const census = vi.spyOn(pool.residency!, 'ids')
+    let observedCount = 0
+    const stop = autorun(() => {
+      observedCount = pool.queries.count('session')
+    })
     try {
       expect(pool.queries.count('session')).toBe(2)
       expect(census).not.toHaveBeenCalled()
+      const adopted = {
+        kind: 'session',
+        id: 'resident',
+        value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old },
+      } as RowRecord
+      runInAction(() => {
+        index.apply({ type: 'update', rows: [adopted] })
+        pool.apply({ type: 'update', rows: [adopted] })
+      })
+      expect(observedCount).toBe(2)
+      runInAction(() => {
+        pool.tables.session.set('local', { ...adopted.value, sessionId: 'local' })
+      })
+      expect(observedCount).toBe(3)
+      runInAction(() => pool.tables.session.delete('local'))
+      expect(observedCount).toBe(2)
+      runInAction(() => {
+        index.apply({ type: 'replace', rows: [] })
+        pool.apply({ type: 'replace', rows: [] })
+      })
+      expect(observedCount).toBe(0)
     } finally {
+      stop()
       census.mockRestore()
       pool.dispose()
+    }
+  })
+
+  it.each([1, 4])('reads maintained counts without resident enumeration at %ix', (scale) => {
+    const f = fixture(scale)
+    const keys = vi.spyOn(f.pool.tables.session, 'keys')
+    const known = vi.spyOn(f.index, 'known')
+    try {
+      for (let click = 0; click < 8; click++)
+        expect(f.pool.queries.count('session')).toBe(
+          f.rows.filter((row) => row.kind === 'session').length,
+        )
+      expect(keys).not.toHaveBeenCalled()
+      expect(known).not.toHaveBeenCalled()
+    } finally {
+      keys.mockRestore()
+      known.mockRestore()
+      f.pool.dispose()
+    }
+  })
+
+  it('maintains identity membership by changed key without rebuilding the declared answer', () => {
+    const f = fixture()
+    const query = { kind: 'proposedIssues' } as const
+    const ids = vi.spyOn(f.index, 'readerIds')
+    const stop = autorun(() => f.pool.queries.ids(query))
+    try {
+      ids.mockClear()
+      const record = f.rows.find((row) => row.id === 'cold-issue-1')!
+      const event = {
+        type: 'update' as const,
+        rows: [
+          {
+            ...record,
+            value: {
+              ...(record.value as object),
+              stage: 'proposed',
+              archived: false,
+            },
+          } as RowRecord,
+        ],
+      }
+      f.index.apply(event)
+      f.pool.apply(event)
+      expect(f.pool.queries.ids(query)).toContain(record.id)
+      expect(ids).not.toHaveBeenCalled()
+    } finally {
+      stop()
+      ids.mockRestore()
+      f.pool.dispose()
+    }
+  })
+
+  it('answers per-key membership exactly like each declared question', () => {
+    const f = fixture()
+    const questions: ReaderQuestion[] = [
+      { kind: 'residentIssues' },
+      { kind: 'commandIssues' },
+      { kind: 'commandSessions' },
+      { kind: 'proposedIssues' },
+      { kind: 'reclaimIssues' },
+      { kind: 'inboxSessions' },
+      { kind: 'headerSessions' },
+      { kind: 'headerOccupancy' },
+      { kind: 'boardCounts' },
+      { kind: 'sessionReference', ref: 'Q-z-twin' },
+      { kind: 'commandIssueSessions', issueId: 'cold-issue-0', archived: false },
+      { kind: 'containingIssues', cwd: '/query/hot/file' },
+      { kind: 'boardIssues', priority: 2, stage: 'proposed', projectPaths: ['/query'] },
+      { kind: 'boardIssues', status: 'closed', archived: true, deleted: true },
+      { kind: 'boardIssues', explorerTab: 'cancelled' },
+      { kind: 'boardIssues', explorerTab: 'needs' },
+      { kind: 'boardIssues', explorerTab: 'proposed', searching: true },
+    ]
+    try {
+      for (const question of questions) {
+        const expected = new Set(f.index.readerIds(question))
+        for (const row of f.rows.filter((row) => row.kind === questionEntity(question)))
+          expect(f.index.readerContains(question, row.id), JSON.stringify([question, row.id])).toBe(
+            expected.has(row.id),
+          )
+        expect(f.index.readerContains(question, 'missing')).toBe(false)
+      }
+    } finally {
+      f.pool.dispose()
     }
   })
 
