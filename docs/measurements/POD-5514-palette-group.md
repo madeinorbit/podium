@@ -3,8 +3,9 @@
 Both matched-corpus medians beat the historical OLD targets: palette
 **64.9 ms** versus **111 ms**, populated-group expansion **79.4 ms** versus
 **101 ms**, n=16 each. The group fix is already landed on
-`integrate/4286-pilot`; palette landing is ready. Final live A1 OFF / ON
-measurements remain pending, so this checkpoint claims corpus acceptance only.
+`integrate/4286-pilot` at `8b62001171`. Live A1 captures and profiles also
+completed. They confirm the bulk rebuild can disappear, but their connected
+wall-time medians do **not** establish a live gain; that limit is recorded below.
 
 ## Baseline before changing the code
 
@@ -119,12 +120,44 @@ and never forwarded, so group preparation and folds cannot alter operator state.
 Any visible updater panel is hidden through its tab-local React control only.
 The isolated browser and recorded preview PID are closed after each capture.
 
-The successful readiness-only check saw 6,272 issues / 5,238 sessions and a
-198-item target group. It contains no timed samples. Earlier no-DOM and DOM-only
-live group arms measured 288.3 / 365.9 ms wall p50 and 282.6 / 231.6 ms CPU p50.
-The changing loaded host prevents those two wall medians from establishing a
-live improvement. Final OFF / ON live arms are pending. A fresh OLD live pair
-cannot use today's backend because OLD and current wire versions differ.
+The final OFF / ON pair saw **6,282 issues / 5,239–5,240 sessions**, six machines
+and ten repository rows. Both arms target the same **198-item group**, with
+197 physical issue rows, and have zero page errors. Each browser held one
+layout request; neither needed to expand an initially folded sidebar. Served
+HTML and primary JavaScript hashes matched the intended archive before any
+gesture. Browser credentials remained in memory only.
+
+| A1 arm | Action | n | Paint p50 / p95 | Thread CPU p50 |
+|---|---|---:|---:|---:|
+| Palette retention OFF | Palette | 16 | 142.2 / 539.5 ms | 110.5 ms |
+| Palette retention ON | Palette | 16 | 175.3 / 637.5 ms | 130.3 ms |
+| Palette retention OFF, full group retention | Group expand | 16 | 119.0 / 197.0 ms | 114.4 ms |
+| Palette retention ON, full group retention | Group expand | 16 | 130.2 / 188.9 ms | 113.3 ms |
+
+**This connected live pair does not establish a wall-time gain.** OFF runs from
+21:23 to 21:24 UTC, with one-minute host load 9.78 → 14.8; ON follows at 21:24
+with load 14.25 → 14.75. Live publications and the operator's workspace can
+change between browsers. The CPU median also increases for palette ON, so
+host contention alone is not asserted as its cause. Every primary sample,
+including the first cold open, remains in the table.
+
+Live profiles nevertheless verify the intended mechanism: OFF spends
+15.65 / 165.06 ms in the palette projection; the second repeats bulk summary
+construction and about 188 ms of sampled garbage collection. ON spends
+1.12 / 15.09 ms with no sampled bulk issue-summary work. Native `focus` occupies
+28–78 ms across the four profiles, and command construction remains substantial.
+Inclusive sampled time is approximate, overlaps descendants and is not summed
+with thread CPU. POD-5563 records that adjacent focus/command work in Proposed;
+it is unclaimed, and no further optimization is claimed here.
+
+Earlier no-DOM and DOM-only A1 group arms measured 288.3 / 365.9 ms wall p50
+and 282.6 / 231.6 ms CPU p50. Final full-retention CPU is about 113–114 ms, but
+those changing loaded-host observations are not a matched live causal wall-time
+comparison. My earlier live pilot palette/group medians were 377.9 / 511.4 ms;
+they likewise cannot assign the whole-pilot improvement to this fix alone.
+A fresh OLD live pair cannot use today's backend because OLD and current wire
+versions differ. Corpus controls and deterministic guards establish the
+specific original regression and its removal.
 
 The matched corpus is seed 4443, 4,867 issues / 4,304 sessions, plus the harness's
 control rows. SHA-256:
@@ -154,9 +187,21 @@ initially folded sidebar is expanded only inside the protected browser. Vite's
 provenance is verified against served HTML and JavaScript bytes instead. The
 preview refuses port fallback. This corrected readiness-only check succeeded.
 
-Raw traces, source maps, control builds and collectors stay in this issue's
-ignored `.artifacts/pod-5514` and its owned flatblock checkout. Raw live evidence
-stays local; the final companion aggregate publishes numeric counts/timings and
-build provenance only. Group support landed at `c624fdca39`; the test helper type
-fix `a77c665534` is preserved in pilot. Final palette landing is pending,
-ff-only on `integrate/4286-pilot` under its canonical merge mutex.
+The [numeric companion](POD-5514-palette-group-summary.json) publishes counts,
+quantiles, source/build provenance and the profile summaries; it omits live
+IDs, titles, paths and credentials. Raw traces, source maps, control builds,
+collectors and the private readiness diagnostics stay in this issue's ignored
+`.artifacts/pod-5514` and its owned flatblock checkout. Raw live evidence stays
+local. Public corpus-only review evidence is attached to the issue. Automatic
+approval review rejected uploading the combined report because it contains
+nonpublic operator-environment measurements beyond the authorized POD-4286
+report destination; the combined report and aggregate remain local.
+
+Group support landed at `c624fdca39`, its test helper type correction
+`a77c665534` remains in history, and palette code `9ad8abbc77` landed with corpus
+report tip `8b62001171`. Both code landings were ff-only on
+`integrate/4286-pilot` under its granted canonical merge mutex, with issue-tip
+ancestry checked and the lock released. The final documentation-only update
+uses the same landing procedure and skips another test run because product
+bytes and the validated guards are unchanged. POD-4286 receives the final
+landing and measurement report through issue mail.

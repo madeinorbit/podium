@@ -1926,7 +1926,7 @@
       }
     },
     {
-      "path": "live-palette-off-final-r11/run.json",
+      "path": "live-palette-off-final-r12/run.json",
       "arm": "palette-off-final",
       "source": {
         "wireSchemaDigest": "cb9f0786c0a97c2c",
@@ -1936,27 +1936,344 @@
         "bundleVersion": "bundle+hM0viYmy"
       },
       "host": "ludovico",
-      "browser": null,
-      "startedAt": "2026-10-04T20:58:37.806Z",
-      "endedAt": "2026-10-04T20:58:39.979Z",
-      "status": "failed",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T21:23:31.529Z",
+      "endedAt": "2026-10-04T21:24:41.452Z",
+      "status": "complete",
       "corpusSha256": null,
-      "population": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2380,
+        "issueDep": 4683,
+        "issueEvent": 200,
+        "issueGitState": 3,
+        "issueProjection": 6282,
+        "issueUserState": 1390,
+        "machine": 6,
+        "message": 191,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5239,
+        "sessionUserState": 1384,
+        "userLayout": 34
+      },
       "hostLoadStart": [
-        12.44,
-        10.78,
-        9.66
+        9.78,
+        8.21,
+        8.92
       ],
       "hostLoadEnd": [
-        12.44,
-        10.78,
-        9.66
+        14.8,
+        9.88,
+        9.44
       ],
-      "sidebarRowCount": null,
+      "sidebarRowCount": 197,
       "errorCount": 0,
       "unavailableCount": 0,
-      "heldLiveLayoutWrites": null,
-      "actions": {}
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 64.208,
+              "0.95": 128.894
+            },
+            "selectedDomMs": {
+              "0.5": 48.059,
+              "0.95": 92.143
+            },
+            "mainThreadCpuMs": {
+              "0.5": 49.125,
+              "0.95": 67.163
+            },
+            "layoutCpuMs": {
+              "0.5": 7.619,
+              "0.95": 8.501
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.63,
+              8.97,
+              9.14
+            ],
+            "last": [
+              12.34,
+              9.02,
+              9.16
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 119.005,
+              "0.95": 196.974
+            },
+            "selectedDomMs": {
+              "0.5": 43.632,
+              "0.95": 69.436
+            },
+            "mainThreadCpuMs": {
+              "0.5": 114.382,
+              "0.95": 133.099
+            },
+            "layoutCpuMs": {
+              "0.5": 45.198,
+              "0.95": 52.279
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.63,
+              8.97,
+              9.14
+            ],
+            "last": [
+              12.34,
+              9.02,
+              9.16
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 142.238,
+              "0.95": 539.516
+            },
+            "selectedDomMs": {
+              "0.5": 134.078,
+              "0.95": 527.615
+            },
+            "mainThreadCpuMs": {
+              "0.5": 110.463,
+              "0.95": 327.554
+            },
+            "layoutCpuMs": {
+              "0.5": 39.036,
+              "0.95": 49.562
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.55,
+              9.12,
+              9.19
+            ],
+            "last": [
+              14.6,
+              9.76,
+              9.4
+            ]
+          }
+        }
+      }
+    },
+    {
+      "path": "live-palette-retained-final-r12/run.json",
+      "arm": "palette-retained-final",
+      "source": {
+        "wireSchemaDigest": "cb9f0786c0a97c2c",
+        "wireVersion": 4,
+        "appVersion": "dev+a99e1a0",
+        "sourceSha": "a99e1a0",
+        "bundleVersion": "bundle+HXUnJNkS"
+      },
+      "host": "ludovico",
+      "browser": "148.0.7778.96",
+      "startedAt": "2026-10-04T21:24:47.232Z",
+      "endedAt": "2026-10-04T21:26:14.382Z",
+      "status": "complete",
+      "corpusSha256": null,
+      "population": {
+        "automation": 5,
+        "automationRun": 5,
+        "conversation": 2381,
+        "issueDep": 4683,
+        "issueEvent": 200,
+        "issueGitState": 5,
+        "issueProjection": 6282,
+        "issueUserState": 1390,
+        "machine": 6,
+        "message": 191,
+        "pendingInteraction": 19,
+        "repo": 10,
+        "session": 5240,
+        "sessionUserState": 1384,
+        "userLayout": 33
+      },
+      "hostLoadStart": [
+        14.25,
+        9.85,
+        9.43
+      ],
+      "hostLoadEnd": [
+        14.75,
+        10.95,
+        9.85
+      ],
+      "sidebarRowCount": 197,
+      "errorCount": 0,
+      "unavailableCount": 0,
+      "heldLiveLayoutWrites": 1,
+      "actions": {
+        "sidebar-group-collapse": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 66.669,
+              "0.95": 142.607
+            },
+            "selectedDomMs": {
+              "0.5": 47.272,
+              "0.95": 123.673
+            },
+            "mainThreadCpuMs": {
+              "0.5": 51.281,
+              "0.95": 64.243
+            },
+            "layoutCpuMs": {
+              "0.5": 7.419,
+              "0.95": 9.09
+            }
+          },
+          "loadRange": {
+            "first": [
+              13.04,
+              10.2,
+              9.57
+            ],
+            "last": [
+              12.25,
+              10.16,
+              9.57
+            ]
+          }
+        },
+        "sidebar-group-expand": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 130.237,
+              "0.95": 188.868
+            },
+            "selectedDomMs": {
+              "0.5": 50.805,
+              "0.95": 92.758
+            },
+            "mainThreadCpuMs": {
+              "0.5": 113.296,
+              "0.95": 136.826
+            },
+            "layoutCpuMs": {
+              "0.5": 44.234,
+              "0.95": 55.084
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.63,
+              10.16,
+              9.56
+            ],
+            "last": [
+              12.25,
+              10.16,
+              9.57
+            ]
+          }
+        },
+        "command-palette": {
+          "n": 16,
+          "profiledExtras": 2,
+          "quantiles": {
+            "inputToPaintMs": {
+              "0.5": 175.344,
+              "0.95": 637.465
+            },
+            "selectedDomMs": {
+              "0.5": 166.982,
+              "0.95": 615.146
+            },
+            "mainThreadCpuMs": {
+              "0.5": 130.271,
+              "0.95": 463.663
+            },
+            "layoutCpuMs": {
+              "0.5": 42.36,
+              "0.95": 53.39
+            }
+          },
+          "loadRange": {
+            "first": [
+              12.72,
+              10.29,
+              9.61
+            ],
+            "last": [
+              14.38,
+              10.81,
+              9.8
+            ]
+          }
+        }
+      }
     }
-  ]
+  ],
+  "profileEvidence": {
+    "corpus": {
+      "method": "Two additional 100-us CPU profiles, input-to-Paint clipped; inclusive sampled times overlap and are not additive",
+      "offPaletteProjectionMs": [
+        57.34,
+        51.94
+      ],
+      "onPaletteProjectionMs": [
+        2.36,
+        2.34
+      ],
+      "offIssueSummaryMs": [
+        32.43,
+        33.57
+      ],
+      "onBulkIssueSummaryObserved": false
+    },
+    "live": {
+      "method": "Two additional 1-ms CPU profiles, input-to-Paint clipped; inclusive sampled times overlap and are not additive",
+      "offPaletteProjectionMs": [
+        15.65,
+        165.06
+      ],
+      "onPaletteProjectionMs": [
+        1.12,
+        15.09
+      ],
+      "offNativeFocusMs": [
+        78.48,
+        61.21
+      ],
+      "onNativeFocusMs": [
+        59.88,
+        28.14
+      ],
+      "onBulkIssueSummaryObserved": false,
+      "wallTimeGainEstablished": false
+    }
+  },
+  "landing": {
+    "branch": "integrate/4286-pilot",
+    "groupTip": "c624fdca3951e02b1037e756142de6e35cbc6719",
+    "paletteCode": "9ad8abbc77",
+    "paletteTip": "8b62001171ca57694ff0c91e45cb10f2e94e192c",
+    "method": "Issue branch rebased under granted canonical merge mutex; target advanced ff-only; ancestry checked"
+  }
 }
