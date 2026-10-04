@@ -87,6 +87,7 @@ try {
     const decorate = row => row.entity === 'session' && row.entityId === session.sessionId ? {...row, value: {...row.value, transcriptAvailable: true}} : row
     let identity, seq
     async function bootstrap(response) {
+        if (!response.ok) return response
         const records = (await response.text()).trim().split('\n').map(JSON.parse)
         const first = records[0], complete = records.at(-1)
         const original = records.filter(record => record.type === 'feedBootstrap').flatMap(record => record.changes).map(decorate)
@@ -101,7 +102,15 @@ try {
         return new Response(body, {headers: {'content-type': 'application/x-ndjson'}})
     }
     // Decode the exact augmented stream before accepting a browser capture.
-    const validated = await bootstrap(await fetch(`${backend}/sync/bootstrap`))
+    let canonical
+    for (let i = 0; i < 180; i++) {
+        canonical = await fetch(`${backend}/sync/bootstrap`)
+        if (canonical.ok) break
+        if (i === 179) throw Error(`Synthetic bootstrap stayed unready: ${canonical.status}: ${await canonical.text()}`)
+        await canonical.arrayBuffer()
+        await pause(250)
+    }
+    const validated = await bootstrap(canonical)
     let validatedRecords = 0
     async function* lines() {for (const line of (await validated.text()).trim().split('\n')) yield line}
     for await (const record of readSyncStream(lines())) validatedRecords++
