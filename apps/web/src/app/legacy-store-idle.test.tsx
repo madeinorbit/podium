@@ -13,8 +13,8 @@ import { usePendingSpawnPrompt, useRuntimeDraft } from './keyed-runtime'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { Workspace } from './Workspace'
 
-vi.mock('@podium/client-core/react', async original => ({
-  ...await original<typeof import('@podium/client-core/react')>(),
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
   usePresenceRoom: () => ({ status: 'unknown' }),
   useHarnessDescriptors: () => ({ served: undefined }),
   useModelCatalog: () => ({}),
@@ -23,13 +23,23 @@ vi.mock('@/features/terminal/AgentPanelBoundary', () => ({
   AgentPanelBoundary: ({ sessionId }: { sessionId: string }) => <div data-panel={sessionId} />,
 }))
 vi.mock('./NewPanelMenu', () => ({ NewPanelMenu: () => null }))
-vi.mock('@/features/setup/ColdStartComposer', () => ({ ColdStartComposer: () => <div>Cold deck</div> }))
+vi.mock('@/features/setup/ColdStartComposer', () => ({
+  ColdStartComposer: () => <div>Cold deck</div>,
+}))
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => async () => true }))
 vi.mock('@podium/terminal-client-react', () => ({
-  useTerminalSession: () => ({ containerRef: { current: null }, viewportRef: { current: null },
-    mountedRef: { current: null }, ready: true, outputSeen: true, atBottom: true, role: 'controller' }),
+  useTerminalSession: () => ({
+    containerRef: { current: null },
+    viewportRef: { current: null },
+    mountedRef: { current: null },
+    ready: true,
+    outputSeen: true,
+    atBottom: true,
+    role: 'controller',
+  }),
   useVoiceInput: () => ({ supported: false, listening: false, toggle: () => {} }),
-  preloadTerminalRuntime: () => {}, ArrowSwipeKey: () => null,
+  preloadTerminalRuntime: () => {},
+  ArrowSwipeKey: () => null,
 }))
 vi.mock('@/features/chat/ChatView', () => ({ ChatView: () => <div>Existing transcript</div> }))
 vi.mock('@/features/chat/OfferBar', () => ({ OfferBar: () => null }))
@@ -41,63 +51,121 @@ vi.mock('@/features/terminal/use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 const sid = asSessionId('synthetic-session-0')
 const ZERO = { replicaRowReads: 0, sessionViewBuilds: 0, ledgerFolds: 0, topologyScans: 0 }
 
-it.each([1, 4])('keeps the real web clients idle across normal reads and writes at %sx', async scale => {
+it.each([
+  1, 4,
+])('keeps the real web clients idle across normal reads and writes at %sx', async (scale) => {
   const data = createHeaderFixture(12 * scale, 12 * scale)
-  let runtime: ClientRuntime | undefined, pool: MobxPool | null = null
+  let runtime: ClientRuntime | undefined,
+    pool: MobxPool | null = null
   const failures: (Error | string)[] = []
   function Inputs() {
     runtime = useStoreHandle() as ClientRuntime
     pool = useWorklistPool()
-    return <output data-testid="locals">{useRuntimeDraft(sid)}|{usePendingSpawnPrompt(sid) ?? ''}</output>
+    return (
+      <output data-testid="locals">
+        {useRuntimeDraft(sid)}|{usePendingSpawnPrompt(sid) ?? ''}
+      </output>
+    )
   }
-  const view = render(<StoreProvider
-    principal={asClientPrincipal(asUserId('operator'))}
-    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-    api={data.api} createReplicaFn={() => data.newReplica()} networkEnabled={false}
-    onFatalError={error => failures.push(error)} attachRuntime={owner => {
-      data.bindHub(owner.hub)
-      owner.getSnapshot().setPanelMode(sid, 'chat')
-      void owner.getSnapshot().refreshRepos()
-      return attachWorklistPool(owner, error => failures.push(error))
-    }}>
-    <Inputs /><Workspace /><DockShellLifecycle /><AgentPanel sessionId={sid} />
-  </StoreProvider>)
-  await waitFor(() => expect(pool?.row('shellWindow', 'window')).toBeTypeOf('object'), { timeout: 10000 })
-  await act(async () => { runtime!.getSnapshot().navigateToSession(sid); await Promise.resolve() })
-  await waitFor(() => expect(view.container.querySelector('[data-testid="native-tab-strip"]')?.textContent).toContain('Synthetic agent 0'))
+  const view = render(
+    <StoreProvider
+      principal={asClientPrincipal(asUserId('operator'))}
+      config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
+      api={data.api}
+      createReplicaFn={() => data.newReplica()}
+      networkEnabled={false}
+      onFatalError={(error) => failures.push(error)}
+      attachRuntime={(owner) => {
+        data.bindHub(owner.hub)
+        owner.getSnapshot().setPanelMode(sid, 'chat')
+        void owner.getSnapshot().refreshRepos()
+        return attachWorklistPool(owner, (error) => failures.push(error))
+      }}
+    >
+      <Inputs />
+      <Workspace />
+      <DockShellLifecycle />
+      <AgentPanel sessionId={sid} />
+    </StoreProvider>,
+  )
+  await waitFor(() => expect(pool?.row('shellWindow', 'window')).toBeTypeOf('object'), {
+    timeout: 10000,
+  })
+  await act(async () => {
+    runtime!.getSnapshot().navigateToSession(sid)
+    await Promise.resolve()
+  })
+  await waitFor(() =>
+    expect(view.container.querySelector('[data-testid="native-tab-strip"]')?.textContent).toContain(
+      'Synthetic agent 0',
+    ),
+  )
   expect(view.container.querySelector(`[data-panel="${sid}"]`)).not.toBeNull()
 
   const check = async (name: string, action: () => void) => {
     const before = runtime!.legacyFoldStats
-    await act(async () => { action(); await new Promise(resolve => setTimeout(resolve, 0)) })
+    await act(async () => {
+      action()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
     const after = runtime!.legacyFoldStats
-    const work = Object.fromEntries(Object.keys(ZERO).map(key => [key,
-      after[key as keyof typeof ZERO] - before[key as keyof typeof ZERO]]))
+    const work = Object.fromEntries(
+      Object.keys(ZERO).map((key) => [
+        key,
+        after[key as keyof typeof ZERO] - before[key as keyof typeof ZERO],
+      ]),
+    )
     expect({ name, ...work }).toEqual({ name, ...ZERO })
   }
-  await check('heartbeat', () => data.patch('session', sid, { lastActiveAt: new Date().toISOString() }))
-  await check('agent phase', () => data.patch('session', sid, { agentState: { phase: 'working', since: new Date().toISOString() } }))
+  await check('heartbeat', () =>
+    data.patch('session', sid, { lastActiveAt: new Date().toISOString() }),
+  )
+  await check('agent phase', () =>
+    data.patch('session', sid, {
+      agentState: { phase: 'working', since: new Date().toISOString() },
+    }),
+  )
   await check('session rename', () => data.patch('session', sid, { name: 'Pool tab name' }))
-  expect(view.container.querySelector('[data-testid="native-tab-strip"]')?.textContent).toContain('Pool tab name')
-  await check('issue rename', () => data.patch('issueProjection', 'synthetic-0', { title: 'Pool issue title' }))
-  await check('issue stage', () => data.patch('issueProjection', 'synthetic-0', { stage: 'review' }))
+  expect(view.container.querySelector('[data-testid="native-tab-strip"]')?.textContent).toContain(
+    'Pool tab name',
+  )
+  await check('issue rename', () =>
+    data.patch('issueProjection', 'synthetic-0', { title: 'Pool issue title' }),
+  )
+  await check('issue stage', () =>
+    data.patch('issueProjection', 'synthetic-0', { stage: 'review' }),
+  )
   await check('draft write', () => runtime!.getSnapshot().setSessionDraft(sid, 'Pool draft'))
   expect(view.getByTestId('locals').textContent).toBe('Pool draft|')
   await check('parked session', () => data.patch('session', sid, { status: 'hibernated' }))
-  await check('mapped dock change', () => runtime!.getSnapshot().setDockShell('/synthetic/project', asSessionId('synthetic-session-1')))
-  await check('session switch', () => runtime!.getSnapshot().navigateToSession('synthetic-session-2'))
+  await check('mapped dock change', () =>
+    runtime!.getSnapshot().setDockShell('/synthetic/project', asSessionId('synthetic-session-1')),
+  )
+  await check('session switch', () =>
+    runtime!.getSnapshot().navigateToSession('synthetic-session-2'),
+  )
   expect(failures).toEqual([])
 
   // A real legacy subscription is the negative control: the same counter
   // must detect a whole session-list read after the next addressed batch.
   const before = runtime!.legacyFoldStats
-  const stop = runtime!.subscribe(() => { void runtime!.getSnapshot().sessions.length })
+  const stop = runtime!.subscribe(() => {
+    void runtime!.getSnapshot().sessions.length
+  })
   try {
-    await act(async () => { data.patch('session', sid, { title: 'Counter control' }); await Promise.resolve() })
+    await act(async () => {
+      data.patch('session', sid, { title: 'Counter control' })
+      await Promise.resolve()
+    })
     expect(runtime!.legacyFoldStats.sessionViewBuilds).toBeGreaterThan(before.sessionViewBuilds)
-  } finally { stop() }
+  } finally {
+    stop()
+  }
 })

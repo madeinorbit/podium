@@ -1,5 +1,5 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import { beginSwitch } from '@podium/client-core/perf'
+import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
 import {
@@ -11,7 +11,7 @@ import {
   resizeSplit,
   type SplitAxis,
 } from '@podium/client-core/viewmodels'
-import { asSessionId, type IssueId, type SessionId} from '@podium/model/browser'
+import { asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import {
   Columns2,
   Crosshair,
@@ -37,15 +37,17 @@ import {
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { FileTypeIcon } from '@/features/files/file-icon'
+import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { throughRestarts } from '@/lib/chunk-recovery'
-import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
+import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
+import { useWorkspaceMission } from './mission-pane-data'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -66,11 +68,9 @@ import {
 } from './panel-deck'
 import { clearHoveredSession, setHoveredSession } from './session-hover'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
-import { type FileTab } from './store'
-import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
-import { useWorkspaceInputs } from './workspace-inputs'
-import { useWorkspaceMission } from './mission-pane-data'
+import type { FileTab } from './store'
 import { closeActiveWorkspaceTab } from './workspace-close'
+import { useWorkspaceInputs } from './workspace-inputs'
 import type {
   PendingTabDragActivation,
   TabDragComponents,
@@ -747,8 +747,14 @@ export function Workspace({
   // a worktree's. The mission scan survives only to answer "which issue is in
   // view" (the + menu's spawn target, the file-tab scope, the coordinator
   // badge) — it no longer decides tab MEMBERSHIP.
-  const { missionRoot, missionIssues, issue, missionOnScreen, hasAnyTask, loading: missionLoading } =
-    useWorkspaceMission(selectedIssueId, focusedIssueId, sessions)
+  const {
+    missionRoot,
+    missionIssues,
+    issue,
+    missionOnScreen,
+    hasAnyTask,
+    loading: missionLoading,
+  } = useWorkspaceMission(selectedIssueId, focusedIssueId, sessions)
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
     : undefined
@@ -906,7 +912,8 @@ export function Workspace({
     )
   }
 
-  if (missionLoading && deckTabs.length === 0) return <section className="native-agents-pane relative" aria-busy="true" />
+  if (missionLoading && deckTabs.length === 0)
+    return <section className="native-agents-pane relative" aria-busy="true" />
   if (!missionOnScreen && deckTabs.length === 0) {
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">

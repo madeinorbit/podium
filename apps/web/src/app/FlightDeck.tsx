@@ -117,6 +117,7 @@ import { FlightDeckHandoff } from './FlightDeckHandoff'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { type FlightDeckDisplay, nextFlightDeckDisplayForSessionPick } from './flight-deck-display'
+import { useRuntimeDraft } from './keyed-runtime'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
@@ -129,7 +130,6 @@ import {
   readRightPanel,
 } from './shell-state'
 import { useStoreSelector } from './store'
-import { useRuntimeDraft } from './keyed-runtime'
 
 /**
  * TWO QUESTIONS, NOT ONE SLIDER (POD-1452). `Active` sat between `Full spine`

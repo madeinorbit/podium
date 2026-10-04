@@ -20,8 +20,11 @@ import { fakeStoreHandle } from '../../chat/test-support/fake-store-handle'
 // The action owner and keyed locals are the same fixture the suite paints.
 // Conversation rows retain their independently controlled snapshot handle.
 const paneOwner = withKeyedInputs({
-  getSnapshot: () => Object.create(readFixture(state => state),
-    Object.getOwnPropertyDescriptors(fakeStoreHandle.getSnapshot())),
+  getSnapshot: () =>
+    Object.create(
+      readFixture((state) => state),
+      Object.getOwnPropertyDescriptors(fakeStoreHandle.getSnapshot()),
+    ),
   subscribe: fakeStoreHandle.subscribe,
 })
 

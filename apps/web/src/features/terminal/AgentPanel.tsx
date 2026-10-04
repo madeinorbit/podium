@@ -36,8 +36,8 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { usePendingSpawnPrompt, useRuntimeActions, useRuntimeDraft } from '@/app/keyed-runtime'
+import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -208,8 +208,16 @@ type DesktopSessionGlobals = {
 }
 
 const PANEL_ACTIONS = [
-  'hub', 'trpc', 'startBtw', 'setSessionDraft', 'hibernateSession',
-  'dismissOffer', 'sendChat', 'openFile', 'uiState', 'navigateToSession',
+  'hub',
+  'trpc',
+  'startBtw',
+  'setSessionDraft',
+  'hibernateSession',
+  'dismissOffer',
+  'sendChat',
+  'openFile',
+  'uiState',
+  'navigateToSession',
 ] as const
 
 export function AgentPanel({

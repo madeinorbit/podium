@@ -1,5 +1,5 @@
-import { vi } from 'vitest'
 import { withKeyedInputs, workspaceKeyForState } from '@podium/client-core/engine'
+import { vi } from 'vitest'
 import { useStoreSelector as selectMockSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
@@ -24,7 +24,8 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
         state.workspaceKey = () => workspaceKeyForState(state)
       return state
     },
-    subscribe: (notify: () => void) => selectMockSnapshot(state => state.uiState)?.subscribe(notify) ?? (() => {}),
+    subscribe: (notify: () => void) =>
+      selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
   return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
 })

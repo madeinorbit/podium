@@ -18,8 +18,8 @@ import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { useHostMetrics, useStoreSelector } from '@/app/store'
 import { usePoolSessionLabels } from '@/app/header-data'
+import { useHostMetrics, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -182,7 +182,7 @@ function MemoryPanel({
     read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
   })
 
-  const sessions = usePoolSessionLabels(data?.agents.map(agent => agent.sessionId) ?? [])
+  const sessions = usePoolSessionLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
   const sessionLabel = (sessionId: SessionId): string => {
     const s = sessions[sessionId]
     if (!s) return sessionId.slice(0, 8)

@@ -1,4 +1,10 @@
-import type { EngineState, KeyedInputs, KeyedListName, KeyedListRow, LocalKey } from '@podium/client-core/engine'
+import type {
+  EngineState,
+  KeyedInputs,
+  KeyedListName,
+  KeyedListRow,
+  LocalKey,
+} from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
@@ -12,7 +18,10 @@ function useInputs(): KeyedInputs {
 
 export function useRuntimeLocal<K extends LocalKey>(key: K): EngineState[K] {
   const inputs = useInputs()
-  const subscribe = useCallback((notify: () => void) => inputs.onLocals([key], notify), [inputs, key])
+  const subscribe = useCallback(
+    (notify: () => void) => inputs.onLocals([key], notify),
+    [inputs, key],
+  )
   const read = useCallback(() => inputs.readLocal(key), [inputs, key])
   return useSyncExternalStore(subscribe, read)
 }
@@ -25,11 +34,12 @@ export function useRuntimeList<N extends KeyedListName>(name: N): KeyedListRow<N
     return {
       subscribe: (notify: () => void) => inputs.onList(name, notify),
       read: () => {
-        const next = inputs.listIds(name).flatMap(id => {
+        const next = inputs.listIds(name).flatMap((id) => {
           const row = inputs.listRow(name, id)
           return row === undefined ? [] : [row]
         })
-        if (next.length !== previous.length || next.some((row, at) => row !== previous[at])) previous = next
+        if (next.length !== previous.length || next.some((row, at) => row !== previous[at]))
+          previous = next
         return previous
       },
     }
@@ -42,23 +52,33 @@ export function useRuntimeActions<K extends keyof Store>(keys: readonly K[]): Pi
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => {
     const state = owner.getSnapshot()
-    return Object.fromEntries(keys.map(key => [key, state[key]])) as Pick<Store, K>
+    return Object.fromEntries(keys.map((key) => [key, state[key]])) as Pick<Store, K>
   }, [owner, keys])
 }
 
 export function usePendingSpawnPrompt(id: SessionId): string | undefined {
   const inputs = useInputs()
-  const subscribe = useCallback((notify: () => void) => inputs.onLocals(['pendingSpawnPrompts'], notify), [inputs])
+  const subscribe = useCallback(
+    (notify: () => void) => inputs.onLocals(['pendingSpawnPrompts'], notify),
+    [inputs],
+  )
   const read = useCallback(() => inputs.readLocal('pendingSpawnPrompts').get(id), [inputs, id])
   return useSyncExternalStore(subscribe, read)
 }
 
 export function useRuntimeDraft(id: SessionId | undefined): string {
   const inputs = useInputs()
-  const subscribe = useCallback((notify: () => void) => inputs.onDraft(changed => {
-    if (changed === id) notify()
-  }), [inputs, id])
-  const read = useCallback(() => id === undefined ? '' : inputs.readLocal('drafts')?.[id] ?? '', [inputs, id])
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      inputs.onDraft((changed) => {
+        if (changed === id) notify()
+      }),
+    [inputs, id],
+  )
+  const read = useCallback(
+    () => (id === undefined ? '' : (inputs.readLocal('drafts')?.[id] ?? '')),
+    [inputs, id],
+  )
   return useSyncExternalStore(subscribe, read)
 }
 

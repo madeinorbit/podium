@@ -20,8 +20,8 @@
 import { type RepoView, reposToViews } from '@podium/client-core/viewmodels'
 import { machinesForRepoOrClone } from '@podium/model/browser'
 import { useMemo } from 'react'
-import type { IssueViewModel } from '@/app/store'
 import { useRuntimeList } from '@/app/keyed-runtime'
+import type { IssueViewModel } from '@/app/store'
 import { agentFleetStatus, candidateFromAvailability } from '@/lib/agent-capability'
 import {
   ISSUE_AGENT_KINDS,

@@ -29,9 +29,9 @@ import {
 } from 'lucide-react'
 import { Fragment, type JSX, lazy, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
-import { usePoolMachines } from '@/app/header-data'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,

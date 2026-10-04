@@ -51,12 +51,15 @@ const paneStoreHandle = withKeyedInputs({
 vi.mock('@/app/store', () => ({
   useStoreSelector: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
-    return select(new Proxy(f.state, {
-      get(target, key) {
-        if (key === 'pendingSpawnPrompts' || key === 'drafts') throw new Error(`Legacy pane local read: ${String(key)}`)
-        return Reflect.get(target, key)
-      },
-    }))
+    return select(
+      new Proxy(f.state, {
+        get(target, key) {
+          if (key === 'pendingSpawnPrompts' || key === 'drafts')
+            throw new Error(`Legacy pane local read: ${String(key)}`)
+          return Reflect.get(target, key)
+        },
+      }),
+    )
   },
   useReplicaIssues: vi.fn(() => {
     throw new Error('Session pane read the legacy issue list')
@@ -97,10 +100,22 @@ vi.mock('@podium/terminal-client-react', () => ({
 // Conversation rendering and transcript transport stay on their original path.
 // This proof measures chrome/recovery independently from those unchanged rows.
 vi.mock('@/features/chat/ChatView', () => ({
-  ChatView: ({ initialPendingText, onInitialPendingSettled }: {
-    initialPendingText?: string; onInitialPendingSettled?: () => void
-  }) => <div>Existing transcript{initialPendingText === undefined ? null :
-    <button type="button" data-testid="spawn-prompt" onClick={onInitialPendingSettled}>{initialPendingText}</button>}</div>,
+  ChatView: ({
+    initialPendingText,
+    onInitialPendingSettled,
+  }: {
+    initialPendingText?: string
+    onInitialPendingSettled?: () => void
+  }) => (
+    <div>
+      Existing transcript
+      {initialPendingText === undefined ? null : (
+        <button type="button" data-testid="spawn-prompt" onClick={onInitialPendingSettled}>
+          {initialPendingText}
+        </button>
+      )}
+    </div>
+  ),
 }))
 vi.mock('./SessionWatchers', () => ({ SessionWatchers: () => null }))
 vi.mock('@/components/GitStamp', () => ({ GitStamp: () => null }))
@@ -248,9 +263,14 @@ it('retains the keyed spawn prompt through confirmation and a parked surface unt
   const panel = render(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
   f.state.pendingSpawnPrompts = new Map()
-  act(() => f.pool!.apply({ type: 'update', rows: [
-    { kind: 'session', id: row.sessionId, value: { ...row, status: 'hibernated' } as never },
-  ] }))
+  act(() =>
+    f.pool!.apply({
+      type: 'update',
+      rows: [
+        { kind: 'session', id: row.sessionId, value: { ...row, status: 'hibernated' } as never },
+      ],
+    }),
+  )
   panel.rerender(<AgentPanel sessionId={row.sessionId} />)
   expect(panel.getByTestId('spawn-prompt').textContent).toBe('First operator prompt')
   fireEvent.click(panel.getByTestId('spawn-prompt'))

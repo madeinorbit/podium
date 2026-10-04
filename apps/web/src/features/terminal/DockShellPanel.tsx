@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
-import type { MachineWire, SessionId, MachineId } from '@podium/model/browser'
+import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -13,8 +13,12 @@ import { TERMINAL_DEFAULTS } from './appearance'
 import { dockShellIsDead, dockShellIsParked } from './dock-shell-lifecycle'
 import { prettyCwd } from './pretty-cwd'
 import { HibernatedPane } from './SessionLifecyclePanes'
+import {
+  useDockPaneInputs,
+  usePaneMachines,
+  usePaneReferenceStages,
+} from './use-session-pane-inputs'
 import { useTerminalAppearance } from './use-terminal-appearance'
-import { useDockPaneInputs, usePaneMachines, usePaneReferenceStages } from './use-session-pane-inputs'
 
 /**
  * The right dock's Shell panel (#23) [spec:SP-75b1]: one shell session per
@@ -41,12 +45,7 @@ export function DockShellPanel({
   cwd: string
   machineId?: MachineId
 }): JSX.Element {
-  const {
-    hub,
-    trpc,
-    setDockShell,
-    setDockVisibleSession,
-  } = useStoreSelector(
+  const { hub, trpc, setDockShell, setDockVisibleSession } = useStoreSelector(
     (s) => ({
       hub: s.hub,
       trpc: s.trpc,
@@ -56,7 +55,10 @@ export function DockShellPanel({
     shallowEqual,
   )
   const pendingId = useRef<string | null>(null)
-  const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(cwd, pendingId.current)
+  const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(
+    cwd,
+    pendingId.current,
+  )
   const machines = usePaneMachines()
   const machineLabel = resolveShellMachineLabel(session, machines, machineId)
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
@@ -244,11 +246,13 @@ function DockShellTerminal({
       onActivate: (ref, event) => activateRef(ref, event),
       resolveStage: (ref) => referencesRef.current.resolveStage(ref),
     })
-    return references.subscribe(() => view.setRefLinks({
-      isKnownPrefix: (p) => isKnownRefPrefix(p),
-      onActivate: (ref, event) => activateRef(ref, event),
-      resolveStage: (ref) => referencesRef.current.resolveStage(ref),
-    }))
+    return references.subscribe(() =>
+      view.setRefLinks({
+        isKnownPrefix: (p) => isKnownRefPrefix(p),
+        onActivate: (ref, event) => activateRef(ref, event),
+        resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+      }),
+    )
   }, [references, mountedRef])
   return (
     <div

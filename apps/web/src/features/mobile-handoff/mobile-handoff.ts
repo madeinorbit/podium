@@ -1,4 +1,5 @@
 import { workspaceFetch } from '@/lib/workspace-request'
+
 /**
  * MOBILE HANDOFF — the two surfaces that hand a desk session to a phone.
  *
@@ -18,8 +19,8 @@ import { workspaceFetch } from '@/lib/workspace-request'
  * that is not where they end up.
  */
 
-import { allTabIds, leafPaneIds } from '@podium/client-core/viewmodels'
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
+import { allTabIds, leafPaneIds } from '@podium/client-core/viewmodels'
 import type { MobxPool } from '@podium/client-graph'
 import {
   canonicalPodiumOrigin,
@@ -30,8 +31,8 @@ import {
   podiumTargetPath,
 } from '@podium/protocol'
 import { useCallback, useEffect, useState } from 'react'
-import { type Store } from '@/app/store'
 import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
+import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
@@ -154,17 +155,21 @@ const FOCUS_ACTIONS = ['workspaceKey'] as const
 export function useFocusedHandoffSessionId(): string | null {
   const { workspaceKey } = useRuntimeActions(FOCUS_ACTIONS)
   const workspaces = useRuntimeLocal('workspaces')
-  const paneA = useRuntimeLocal('paneA'), paneB = useRuntimeLocal('paneB')
-  const split = useRuntimeLocal('split'), focus = useRuntimeLocal('focusedPane')
+  const paneA = useRuntimeLocal('paneA'),
+    paneB = useRuntimeLocal('paneB')
+  const split = useRuntimeLocal('split'),
+    focus = useRuntimeLocal('focusedPane')
   // Selection changes can resolve to a different existing layout.
   const selectedIssueId = useRuntimeLocal('selectedIssueId')
   const selectedWorktree = useRuntimeLocal('selectedWorktree')
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
   const read = useCallback(() => {
     const layout = workspaces?.[workspaceKey()]
-    if (!layout || allTabIds(layout).length === 0) return (split && focus === 'B' ? paneB : paneA) ?? null
+    if (!layout || allTabIds(layout).length === 0)
+      return (split && focus === 'B' ? paneB : paneA) ?? null
     const visible = leafPaneIds(layout.root)
     const paneId = visible.includes(layout.focusedPaneId) ? layout.focusedPaneId : visible[0]
-    return paneId === undefined ? null : layout.panes[paneId]?.activeTabId ?? null
+    return paneId === undefined ? null : (layout.panes[paneId]?.activeTabId ?? null)
   }, [workspaceKey, workspaces, paneA, paneB, split, focus, selectedIssueId, selectedWorktree])
   return useWorklistPoolProjection(read, null)
 }

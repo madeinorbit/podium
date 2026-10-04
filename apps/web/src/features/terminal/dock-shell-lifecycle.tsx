@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
-import type { SessionId} from '@podium/model'
+import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
 import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -56,19 +56,23 @@ const EMPTY_IDS: SessionId[] = []
 /** Ask only about mapped identities, using the pool's declared cold fields. */
 export function useStaleDockShellIds(): SessionId[] {
   const dockShells = useRuntimeLocal('dockShells')
-  const read = useCallback((pool: MobxPool) => {
-    const sessions = [...new Set(Object.values(dockShells))]
-      .filter(id => !pool.queries.collapsed(id))
-      .sort((a, b) => {
-        const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
-        return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
-      })
-      .flatMap(id => {
-        const row = pool.row('session', id, 'summary-fields')
-        return row && typeof row !== 'symbol' ? [row as DockShellLifecycleSession] : []
-      })
-    return staleDockShellIds(dockShells, sessions)
-  }, [dockShells])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const sessions = [...new Set(Object.values(dockShells))]
+        .filter((id) => !pool.queries.collapsed(id))
+        .sort((a, b) => {
+          const left = pool.queries.orderKey(a),
+            right = pool.queries.orderKey(b)
+          return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
+        })
+        .flatMap((id) => {
+          const row = pool.row('session', id, 'summary-fields')
+          return row && typeof row !== 'symbol' ? [row as DockShellLifecycleSession] : []
+        })
+      return staleDockShellIds(dockShells, sessions)
+    },
+    [dockShells],
+  )
   return useWorklistPoolProjection(read, EMPTY_IDS)
 }
 
