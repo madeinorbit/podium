@@ -142,7 +142,7 @@ it('preserves discovery list order and responds to changed, added and removed id
 it('preserves harness availability and discovery changes without legacy list reads', () => {
   const machineId = asMachineId('mine')
   state.repos = [{ path: '/repo', kind: 'repository', worktrees: [], machineId }]
-  const machine: EngineState['machines'][number] = {
+  const machine = {
     id: machineId,
     name: 'mine',
     hostname: 'mine',
@@ -156,7 +156,7 @@ it('preserves harness availability and discovery changes without legacy list rea
       agents: [{ kind: 'cursor' as const, installed: false, login: { state: 'in' as const } }],
       tools: [],
     },
-  }
+  } satisfies EngineState['machines'][number]
   state.machines = [machine]
   inputs.emit(new Set(['repos', 'machines']), new Set())
   function Fleet() {
