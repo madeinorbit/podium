@@ -201,8 +201,8 @@ export function IssueContextMenu({
   const eligibility = issueMenuEligibility(issues, surface)
   const ids = issues.map((issue) => issue.id)
   const handoff =
-    issues.length === 1
-      ? issueHandoffAvailability(first, sessions, reposToViews(repos), machines)
+    handoffEnabled && issues.length === 1
+      ? issueHandoffAvailability(first, sessions, reposToViews(repos), machines, poolInputs.handoff)
       : null
   const handoffSession = handoff && 'session' in handoff ? handoff.session : null
   const handoffCandidates =

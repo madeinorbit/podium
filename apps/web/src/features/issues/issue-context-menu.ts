@@ -44,7 +44,11 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
   sessions: readonly SessionView[],
   repos: HandoffRepo[],
   machines: M[],
+  subject?: { blocker: IssueHandoffBlocker } | { session: SessionView },
 ): IssueHandoff<M> {
+  if (subject) return 'blocker' in subject
+    ? subject
+    : { session: subject.session, availability: handoffAvailability(subject.session, repos, machines, issue) }
   // `memberSessionIds` is a plain `string[]` on the view model, so the lookup
   // key is widened here rather than branding each id at the call site.
   const byId = new Map<string, SessionView>(sessions.map((s) => [s.sessionId, s]))

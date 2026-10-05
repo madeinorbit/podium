@@ -12,7 +12,7 @@ const IssueContextMenu = lazy(() =>
   })),
 )
 
-export type IssueMenuPoolInputs = Pick<MissionActionInputs, 'sessions' | 'repos' | 'machines'>
+export type IssueMenuPoolInputs = Pick<MissionActionInputs, 'sessions' | 'repos' | 'machines' | 'handoff'>
 
 /** Menus need only the selected members for handoff and close concerns.
  * Missing cold payloads wait for the existing pool's batch. */

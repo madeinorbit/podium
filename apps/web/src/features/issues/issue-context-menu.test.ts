@@ -426,6 +426,14 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
 })
 
 describe('issueHandoffAvailability (POD-850)', () => {
+  it('uses the scalar menu subject with the same eligibility as a full archived roster', () => {
+    const sender = makeSession({ sessionId: asSessionId('archived'), archived: true })
+    const issue = makeIssue({ memberSessionIds: ['archived'] })
+    expect(issueHandoffAvailability(issue, [], handoffRepos, handoffMachines, { session: sender }))
+      .toEqual(issueHandoffAvailability(issue, [sender], handoffRepos, handoffMachines))
+    for (const blocker of ['no-agent-session', 'multiple-sessions'] as const)
+      expect(issueHandoffAvailability(issue, [], handoffRepos, handoffMachines, { blocker })).toEqual({ blocker })
+  })
   const issueWith = (refs: string[], over = {}) => makeIssue({ memberSessionIds: refs, ...over })
 
   it('surfaces the sole agent session and its candidate machines', () => {

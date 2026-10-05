@@ -28,6 +28,7 @@ vi.mock('./SessionContextMenu', () => ({
     return <output data-testid="pool-session-menu">{props.session.title}</output>
   },
 }))
+vi.mock('./use-feature', () => ({ useFeature: () => true }))
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useMemo, useSyncExternalStore } = await import('react')
   const { createPoolProjection } = await import('@podium/client-graph/runtime-pool')

@@ -14,7 +14,6 @@ import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { issuePages } from './issue-page'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
-import { missionView, readMissionActionInputs } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MOBILE_INBOX_SUMMARIES } from './mobile-inbox-schema'
 import { MobileInboxSource } from './mobile-inbox-source'
@@ -398,7 +397,6 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
     name: 'shell',
     read: (pool) => ({ issues: shellViews(pool).issues(), sessions: shellViews(pool).sessions() }),
   },
-  { name: 'mission catalog', read: (pool) => readMissionActionInputs(missionView(pool), []) },
   {
     name: 'board',
     read: (pool) => {

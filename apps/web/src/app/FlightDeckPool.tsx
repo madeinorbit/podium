@@ -16,6 +16,7 @@ import {
   useMemo,
 } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { useFeature } from '@/lib/use-feature'
 import {
   FlightDeckContent,
   type FlightDeckPreferences,
@@ -127,11 +128,12 @@ function PoolArchivedSessions(props: {
 
 function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
   const owner = useStoreHandle()
+  const handoffEnabled = useFeature('session-handoff')
   const ids = props.issues.map((issue) => issue.id).join('\n')
   const read = useCallback(
     (pool: MobxPool) =>
-      measurePoolMission(owner, () => readMissionActionInputs(missionView(pool), ids.split('\n'))),
-    [owner, ids],
+      measurePoolMission(owner, () => readMissionActionInputs(missionView(pool), ids.split('\n'), undefined, handoffEnabled)),
+    [owner, ids, handoffEnabled],
   )
   const values = useWorklistPoolProjection(read, LOADING)
   return values === LOADING ? null : (

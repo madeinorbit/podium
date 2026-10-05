@@ -851,6 +851,10 @@ const DECLARED = defineSchema({
         lazy: true,
         why: 'Every explicit mission sender, including headless and archived sessions; never cwd-only seats.',
       }),
+      handoffSessions: hasMany({
+        to: 'session', inverse: 'handoffIssue', lazy: true,
+        why: 'An open task menu asks only how many movable senders it has, or for its sole sender.',
+      }),
       sessions: hasMany({
         to: 'session',
         inverse: 'issue',
@@ -997,6 +1001,7 @@ const DECLARED = defineSchema({
       issueId: { type: 'id', optional: true, nullable: true, source: meta(), note: 'Foreign key of the `issue` relation.' },
       cwd: { type: 'string', source: meta(), note: "The path the `worktree` prefix relation places. There is no `session.worktreePath`." },
       agentKind: { type: 'string', optional: true, nullable: true, source: meta() },
+      harnessHandoff: { type: 'boolean', optional: true, source: meta(), note: 'Manifest capability used by the task menu handoff relation.' },
       headless: { type: 'boolean', optional: true, source: meta(), note: 'Structural membership filter on both session relations.' },
       status: { type: 'string', optional: true, nullable: true, source: meta() },
       archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
@@ -1068,6 +1073,15 @@ const DECLARED = defineSchema({
         inverse: 'missionSessions',
         lazy: true,
         why: 'missionSessionIndex uses explicit issueId ownership, including headless and archived sessions.',
+      }),
+      handoffIssue: belongsTo({
+        to: 'issue', foreignKey: 'issueId', targetKey: 'id', inverse: 'handoffSessions', lazy: true,
+        where: {
+          fields: ['agentKind', 'harnessHandoff'],
+          test: row => row['agentKind'] !== 'shell' && row['harnessHandoff'] === true,
+          why: 'The manifest capability decides handoff subjects, including archived and headless attachments.',
+        },
+        why: 'Menu handoff eligibility without loading the issue session history.',
       }),
       issue: belongsTo({
         to: 'issue',
