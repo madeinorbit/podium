@@ -2,7 +2,7 @@ import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
-import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import {
   _isComputingDerivation,
   compareStructural,
@@ -325,7 +325,7 @@ export function createHeaderViews(pool: MobxPool) {
       let repoId: string | null = null,
         scanned = false
       if (active) {
-        const scope = shippingScope(active.cwd, active.machineId)
+        const scope = pool.header.shippingScope(active.cwd, active.machineId)
         if (scope) {
           repoId = scope.repoId
           scanned = true
@@ -355,78 +355,6 @@ export function createHeaderViews(pool: MobxPool) {
       }
       return pool.header.shippingCounts(repoId)
     })
-  }
-  function scannedRepos() {
-    return memo('scannedRepos', () => {
-      const scans = headerIds(pool, 'repository').flatMap((id) => {
-        const scan = row('repository', id)
-        return scan ? [scan] : []
-      })
-      const linked = new Set(scans.flatMap((scan) => scan.worktrees.map((lane) => lane.path)))
-      const groups = new Map<string, HeaderRows['repository'][]>()
-      for (const scan of scans) {
-        if (linked.has(scan.path)) continue
-        const key =
-          scan.repoId ??
-          (normalizeOriginUrl(scan.originUrl) || `local:${scan.machineId ?? ''}:${scan.path}`)
-        const group = groups.get(key) ?? []
-        group.push(scan)
-        groups.set(key, group)
-      }
-      return [...groups.values()].map((group) => ({
-        repoId: group.find((scan) => scan.repoId !== undefined)?.repoId,
-        lanes: group.flatMap((scan) =>
-          [scan.path, ...scan.worktrees.map((lane) => lane.path)].map((path) => ({
-            path,
-            machineId: scan.machineId,
-            repoId: scan.repoId,
-          })),
-        ),
-      }))
-    })
-  }
-  type ShippingScope = { order: number; repoId: string | null }
-  /** Only resident discovery metadata participates. The index follows that
-   * metadata, never the selected pane. A click probes path prefixes and the
-   * addressed machine; unrelated repositories and machines are never walked. */
-  function shippingScopes() {
-    return memo('shippingScopes', () => {
-      const paths = new Map<string, Map<string | null | undefined, ShippingScope>>()
-      for (const [order, repo] of scannedRepos().entries()) {
-        for (const lane of repo.lanes) {
-          let machines = paths.get(lane.path)
-          if (!machines) {
-            machines = new Map()
-            paths.set(lane.path, machines)
-          }
-          const scope = { order, repoId: repo.repoId ?? lane.repoId ?? null }
-          // First group wins, even when a later group has a longer path.
-          // null answers a context with no machine; undefined is a lane that
-          // any machine may use. Both avoid a walk over other machines.
-          if (!machines.has(null)) machines.set(null, scope)
-          const machine = lane.machineId || undefined
-          if (!machines.has(machine)) machines.set(machine, scope)
-        }
-      }
-      return paths
-    })
-  }
-  function shippingScope(cwd: string, machineId: string | undefined): ShippingScope | undefined {
-    const paths = shippingScopes()
-    let first: ShippingScope | undefined
-    const take = (path: string) => {
-      const machines = paths.get(path)
-      const exact = machines?.get(machineId || null)
-      const wildcard = machineId ? machines?.get(undefined) : undefined
-      for (const candidate of [exact, wildcard])
-        if (candidate && (!first || candidate.order < first.order)) first = candidate
-    }
-    take(cwd)
-    for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
-      take(cwd.slice(0, at))
-      take(cwd.slice(0, at + 1))
-    }
-    return first
   }
   function reclaimCounts(afterDays: number) {
     return memo(`reclaim:${afterDays}`, () => {

@@ -113,6 +113,7 @@ export function createHeaderEntities() {
     idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
     repositoryGroup: (path: string) => repositories.group(path),
+    shippingScope: (cwd: string, machineId?: string) => repositories.shippingScope(cwd, machineId),
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
@@ -154,6 +155,7 @@ export function createHeaderEntities() {
           else table.set(record.id, record.value)
           change(record.kind, record.id, record.value)
         }
+        repositories.flush()
         for (const delta of pathChanges.values()) {
           if (delta === 0) continue
           repositoryPathsRevision.set(repositoryPathsRevision.get() + 1)
