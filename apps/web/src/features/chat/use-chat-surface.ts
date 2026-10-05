@@ -40,6 +40,7 @@ import {
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
+import { usePoolMachine } from '@/app/header-data'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -48,7 +49,6 @@ import {
   useChatContextWindow,
   useChatInteractions,
   useChatIssueSeq,
-  useChatMachines,
   useChatSession,
   useChatSessionExitKind,
   useChatThread,
@@ -267,7 +267,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     shallowEqual,
   )
   const session = useChatSession(sessionId)
-  const machines = useChatMachines()
+  const machineWire = usePoolMachine(active ? session?.machineId : undefined)
   const sessionExitKind = useChatSessionExitKind(sessionId)
   const storeHandle = useStoreHandle()
   const getIssueSeq = useChatIssueSeq()
@@ -288,16 +288,11 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const headless = session?.headless === true
 
   // LIVE machine presence (POD-4808 review, POD-4830): session.machineId ->
-  // the store's machines list. Unknown (no row) reads as no banner — never a
+  // the pool's named machine row. Unknown (no row) reads as no banner — never a
   // fabricated offline. Defensive against partial test stores. Reads the
   // live-terminal predicate (online OR daemon), not just `online`: a supervised
   // daemon loss keeps `online` true while the execution plane is gone, and the
   // transcript offline flag + `requireOnlineSession` already read the daemon.
-  const machineWire = useMemo(() => {
-    const id = session?.machineId
-    if (!id) return undefined
-    return (machines ?? []).find((m) => m.id === id)
-  }, [machines, session?.machineId])
   const presenceOfflineMachineName =
     machineWire && isMachineOfflineForLiveTerminal(machineWire)
       ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
