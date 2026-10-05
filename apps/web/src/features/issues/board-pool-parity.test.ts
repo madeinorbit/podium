@@ -103,28 +103,28 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
       { text: 'task' },
     ]) {
       for (const layout of ['board', 'list'] as const) {
-          expectBoard(handle.pool, {
-            display: { ...DEFAULT_DISPLAY, layout },
-            filter,
-            expanded: [],
-            isMobile: false,
-            openIssueId: null,
-            now: FIXED_NOW,
-          })
+        expectBoard(handle.pool, {
+          display: { ...DEFAULT_DISPLAY, layout },
+          filter,
+          expanded: [],
+          isMobile: false,
+          openIssueId: null,
+          now: FIXED_NOW,
+        })
       }
     }
     for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const)
       expectExplorer(handle.pool, tab, '')
     for (const query of ['task', 'POD-12', ''])
       expectExplorer(handle.pool, null, query)
-      expectBoard(handle.pool, {
-        display: { ...DEFAULT_DISPLAY, layout: 'list', ordering: 'updated', showAgentTasks: true },
-        filter: {},
-        expanded: replica.rows('issueProjections').map((row) => row.id),
-        isMobile: false,
-        openIssueId: null,
-        now: FIXED_NOW,
-      })
+    expectBoard(handle.pool, {
+      display: { ...DEFAULT_DISPLAY, layout: 'list', ordering: 'updated', showAgentTasks: true },
+      filter: {},
+      expanded: replica.rows('issueProjections').map((row) => row.id),
+      isMobile: false,
+      openIssueId: null,
+      now: FIXED_NOW,
+    })
     expect(handle.pool.tables.issue.size).toBeLessThan(replica.rows('issueProjections').length)
   } finally {
     handle.dispose()
