@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import { requestParentTopology, signalParentTopology } from '@podium/runtime/parent-control'
+
+const log = createLogger('daemon:transfer-lifecycle')
 
 export interface TargetLifecycleDeps {
   requestTopology?: typeof requestParentTopology
@@ -38,6 +41,6 @@ export function retireTargetDaemonAfterAcknowledgement(deps: TargetRetirementDep
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
   schedule(async () => {
     const posted = await signal({ children: ['server'], health: 'none' })
-    if (!posted.ok) console.error(`podium: target daemon remains live because ${posted.reason}`)
+    if (!posted.ok) log.error('target daemon remains live', { reason: posted.reason })
   }, deps.flushDelayMs ?? 50)
 }

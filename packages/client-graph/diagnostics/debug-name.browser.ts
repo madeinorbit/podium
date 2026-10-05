@@ -1,4 +1,5 @@
 /** Synthetic rows only. The driver inspects actual MobX name_ edges in V8. */
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { enableDebugNames } from '../src/debug-name'
 import { MobxPool } from '../src/pool'
@@ -19,7 +20,7 @@ for (let i = 0; i < count; i++) {
   } as RowRecord['value'] })
   rows.push({ kind: 'session', id: `heap-session-${i}`, value: {
     sessionId: `heap-session-${i}`, issueId: id, cwd: '/repo',
-    status: 'live', lastActiveAt: at, agentKind: 'codex',
+    status: 'live', lastActiveAt: at, agentKind: DEFAULT_HARNESS_AGENT,
   } as RowRecord['value'] })
 }
 rows.push({ kind: 'worktree', id: '/repo', value: {

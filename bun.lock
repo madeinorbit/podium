@@ -161,6 +161,7 @@
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
         "@podium/telemetry": "workspace:*",
+        "@podium/terminal-client": "workspace:*",
         "@trpc/client": "^11.0.0",
         "@trpc/server": "^11.0.0",
         "drizzle-orm": "1.0.0-rc.4",
@@ -171,7 +172,9 @@
       "devDependencies": {
         "@libsql/client": "^0.18.0",
         "@podium/api-types": "workspace:*",
+        "@podium/client-core": "workspace:*",
         "@types/ws": "^8.5.13",
+        "happy-dom": "^20.10.2",
         "typescript": "^6.0.3",
         "vitest": "5.0.0-beta.6",
       },
@@ -332,6 +335,7 @@
         "react": "19.2.7",
         "react-dom": "19.2.7",
         "typescript": "^7.0.2",
+        "vite": "^8.0.16",
       },
       "peerDependencies": {
         "react": ">=19",
@@ -543,6 +547,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/client-graph": "workspace:*",
+        "@podium/harness": "workspace:*",
         "@podium/mobx-helpers": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@tanstack/react-virtual": "3.14.13",

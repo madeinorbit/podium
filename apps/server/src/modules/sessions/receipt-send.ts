@@ -35,6 +35,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, isAbsolute, normalize } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnReceipt } from '@podium/protocol/daemon'
@@ -106,6 +107,8 @@ export interface ReceiptSenderPorts {
 /** What a caller learns when the receipt lands. `via` and the input echo back so
  *  a reconciler that batched several sends can tell them apart. */
 export type ReceiptReconciler = (receipt: TurnReceipt, via: ReceiptSendVia) => void
+
+const log = createLogger('server:receipt-send')
 
 /** A ref is usable only by the session whose daemon staging directory minted it.
  * The daemon repeats this check against the real filesystem; this structural
@@ -193,7 +196,7 @@ export class ReceiptSender {
       await onReceipt(receipt, via)
     }
     void reconcile().catch((error: unknown) => {
-      console.error('[receipt-send] reconciliation failed', {
+      log.error('reconciliation failed', {
         operationId,
         sessionId: input.sessionId,
         sourceMessageId: input.sourceMessageId,

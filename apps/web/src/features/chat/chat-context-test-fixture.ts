@@ -5,7 +5,7 @@ import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-
 type Store = ReferenceState & { drafts: Record<string, string> }
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asIssueId, asMachineId, asRepoId, asMutationId, asSessionId, type SessionId } from '@podium/model/browser'
+import { asIssueId, asMachineId, asRepoId, asMutationId, asSessionId, DEFAULT_HARNESS_AGENT, type SessionId } from '@podium/model/browser'
 import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
@@ -28,10 +28,12 @@ export async function createChatContextFixture(resumeTwins = false) {
     archived: index > 0, lastActiveAt: index ? '2020-01-01T00:00:00Z' : '2026-10-01T12:00:00Z' })) as Store['sessions']
   if (resumeTwins) {
     const cold = rawSessions[1]!
-    cold.resume = { kind: 'codex', value: 'synthetic-native-id' }
+    // Resume twins share the product default harness, as an identifier: the
+    // kind is arbitrary fixture data, never vendor behaviour (POD-5614).
+    cold.resume = { kind: DEFAULT_HARNESS_AGENT, value: 'synthetic-native-id' }
     rawSessions.push({ ...cold, sessionId: asSessionId('parked-twin'), displayRef: 'SYN-2-B', refLetter: 'B', lastActiveAt: '2021-01-01T00:00:00Z' })
-    rawSessions.push({ ...rawSessions[0]!, sessionId: asSessionId('active-twin'), displayRef: 'SYN-1-B', refLetter: 'B', resume: { kind: 'codex', value: 'synthetic-active-id' } })
-    rawSessions[0]!.resume = { kind: 'codex', value: 'synthetic-active-id' }
+    rawSessions.push({ ...rawSessions[0]!, sessionId: asSessionId('active-twin'), displayRef: 'SYN-1-B', refLetter: 'B', resume: { kind: DEFAULT_HARNESS_AGENT, value: 'synthetic-active-id' } })
+    rawSessions[0]!.resume = { kind: DEFAULT_HARNESS_AGENT, value: 'synthetic-active-id' }
     rawSessions.push({ ...cold, sessionId: asSessionId('headless-twin'), displayRef: 'SYN-2-C', refLetter: 'C', headless: true })
   }
   const sessions = dedupeSessionsByResume(rawSessions)

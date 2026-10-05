@@ -64,7 +64,8 @@
     "@podium/mobx-helpers": "workspace:*",
     "@podium/protocol": "workspace:*",
     "mobx": "7.0.3",
-    "mobx-react-lite": "5.0.3"
+    "mobx-react-lite": "5.0.3",
+    "@podium/logger": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19",
@@ -81,6 +82,7 @@
     "eslint-plugin-mobx": "0.0.14",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^8.0.16"
   }
 }

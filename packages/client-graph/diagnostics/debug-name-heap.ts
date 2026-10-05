@@ -7,7 +7,7 @@ import { createServer as httpServer } from 'node:http'
 import { hostname } from 'node:os'
 import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
-import { build, createServer } from '../../../apps/web/node_modules/vite/dist/node/index.js'
+import { build, createServer } from 'vite'
 
 if (hostname() !== 'flatblock') throw new Error('Synthetic heap check runs on flatblock')
 const root = resolve('packages/client-graph/diagnostics')

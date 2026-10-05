@@ -19,7 +19,8 @@
   "dependencies": {
     "@podium/client-core": "workspace:*",
     "@podium/model": "workspace:*",
-    "@podium/terminal-client": "workspace:*"
+    "@podium/terminal-client": "workspace:*",
+    "@podium/logger": "workspace:*"
   },
   "devDependencies": {
     "vitest": "5.0.0-beta.6",

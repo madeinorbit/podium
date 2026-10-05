@@ -1,6 +1,7 @@
 /** A strict newline-delimited JSON-RPC client for `grok agent stdio`. */
 
 import { RequestNotSentError } from '../../errors.js'
+import { createLogger } from '@podium/logger'
 import {
   GROK_ACP_METHODS,
   type GrokAcpFrame,
@@ -88,12 +89,13 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
   ])
   const reportedMethods = new Set<string>()
   let harnessVersion = 'unknown (initialize has not reported a version)'
+  const log = createLogger('harness:grok-acp-client')
   const diagnoseMethod = (method: string): void => {
     if (knownInboundMethods.has(method)) return
     const key = JSON.stringify([method, harnessVersion])
     if (reportedMethods.has(key)) return
     reportedMethods.add(key)
-    console.warn('[grok-acp] Unrecognised inbound JSON-RPC method', {
+    log.warn('Unrecognised inbound JSON-RPC method', {
       method,
       harnessVersion,
       sessionId: config.sessionId ?? 'unknown',

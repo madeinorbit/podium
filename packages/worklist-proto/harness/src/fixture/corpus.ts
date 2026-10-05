@@ -1,5 +1,11 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import {
+  SYNTHETIC_CLAUDE_KIND,
+  SYNTHETIC_CODEX_KIND,
+  SYNTHETIC_GROK_KIND,
+  SYNTHETIC_OPENCODE_KIND,
+} from './fixture-kinds.fixtures'
 import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalized-issues'
 /**
  * POD-4443 / POD-4635 — deterministic live-shaped corpus at 1x, 2x and 4x.
@@ -832,16 +838,16 @@ const TITLE_VERBS = [
   'unflake',
 ]
 const AGENT_KINDS: Array<[string, number]> = [
-  ['claude-code', 47],
-  ['codex', 42],
-  ['opencode', 7],
-  ['grok', 4],
+  [SYNTHETIC_CLAUDE_KIND, 47],
+  [SYNTHETIC_CODEX_KIND, 42],
+  [SYNTHETIC_OPENCODE_KIND, 7],
+  [SYNTHETIC_GROK_KIND, 4],
 ]
 const RESUME_KIND: Record<string, string> = {
-  'claude-code': 'claude-session',
-  codex: 'codex-thread',
-  opencode: 'opencode-session',
-  grok: 'grok-session',
+  [SYNTHETIC_CLAUDE_KIND]: 'claude-session',
+  [SYNTHETIC_CODEX_KIND]: 'codex-thread',
+  [SYNTHETIC_OPENCODE_KIND]: 'opencode-session',
+  [SYNTHETIC_GROK_KIND]: 'grok-session',
 }
 
 interface Mint {

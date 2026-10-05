@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { eagerClientGraphSources, eagerJsFiles } from './web-bundle-boundaries'
+import { eagerClientGraphSources, eagerJsFiles } from '../apps/web/test/web-bundle-boundaries'
 
 describe('pool startup bundle boundary', () => {
   const graph = {

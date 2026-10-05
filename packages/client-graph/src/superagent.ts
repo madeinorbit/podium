@@ -77,7 +77,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
         (address.kind === 'sessions' || address.kind === 'issueProjections') && !replica.row?.(address.kind, address.id))
       this.stops = [owner.onList('superThreads', () => { this.threadsDirty = true; if (this.demanded.has('threads') || this.addressedThreads.size) this.schedule() }),
         owner.onLocals(['superThreadId', 'paneA', 'selectedWorktree'], local),
-        owner.readPosition.subscribe(() => { if (this.demanded.has('cursor')) this.schedule() }),
+        owner.readPosition.subscribe(() => { if (this.demanded.has('position')) this.schedule() }),
         // `booting` can move only while it holds, or when the cursor is cold.
         ...(replica.subscribeCursor ? [replica.subscribeCursor(() => { if (this.booting || replica.getCursor() === null) boot() })] : []),
         replica.subscribeAddressedBatch!(batch => {
@@ -110,7 +110,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
         if (!this.loaded.has(`thread:${id}`)) { this.schedule(); return LOADING }
         return this.rows.get(`superThread:${id}`) as SuperagentRows['superThread'] | undefined
       }
-      const group = entity.startsWith('superagentEvent') ? 'events' : entity === 'superagentReadPosition' ? 'cursor' : 'threads'
+      const group = entity.startsWith('superagentEvent') ? 'events' : entity === 'superagentReadPosition' ? 'position' : 'threads'
       this.demanded.add(group)
       if (!this.loaded.has(group)) {
         if (group === 'threads') this.threadsDirty = true
@@ -214,9 +214,9 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
             for (const row of events) this.set(`superagentEvent:${row.id}`, row)
             this.tail(); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
           }
-          if (this.demanded.has('cursor')) {
+          if (this.demanded.has('position')) {
             this.set('superagentReadPosition:issueEvents', owner.readPosition.get('issueEvents'))
-            this.loaded.add('cursor')
+            this.loaded.add('position')
           }
           this.counts.batches++
         })

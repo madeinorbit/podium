@@ -612,7 +612,9 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       // POD-5615: the feeds' own tests and diagnostics replays read the
       // prototype's corpus/oracle/meter readers. Product pool code below the
       // tests does not reach back up.
-      'packages/worklist-proto'],
+      'packages/worklist-proto',
+      // POD-5615: pool feed diagnostics report through the logger barrel.
+      'packages/logger'],
   },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
@@ -651,10 +653,10 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // Worklist prototype screens, harnesses and experiments (POD-5615): the
   // pool-migration proving ground. L3 beside the feeds it proves — the L3/L4
   // tests and diagnostics that consume its corpus/oracle/meter readers import
-  // down or sideways (tests are exempt from the same-layer arm), and its own
-  // upward reads of app readers are fixed where they occur. browser-safe: the
-  // proofs and pool tests that import it run in browsers; its node bench tools
-  // are entry points nothing bundles.
+  // down or sideways (tests are exempt from the same-layer arm). Its own
+  // upward reads of app readers stay listed in PROTOTYPE_READER_EDGES below.
+  // browser-safe: the proofs and pool tests that import it run in browsers;
+  // its node bench tools are entry points nothing bundles.
   'packages/worklist-proto': {
     layer: 3,
     platform: 'browser-safe',
@@ -709,6 +711,37 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
 ])
 
 /**
+ * Prototype reader edges (POD-5615) — UPWARD reads the layer axiom would
+ * otherwise refuse, allowed explicitly and only here.
+ *
+ * WHAT THESE ARE. The worklist-proto screen-work harness executes the apps'
+ * own pool readers for coverage, and three client-graph tests/diagnostics
+ * drive app readers the same way. The readers stay owned by their apps:
+ * moving app modules into client-graph is an architecture change that needs
+ * the operator's yes, and the mission/chat lanes own those files — so the
+ * edge points the wrong way, and it is DEBT, not design. POD-5544 removes
+ * these edges when the prototype readers find their post-pilot home.
+ *
+ * RATCHET. Pair-scoped (`importing file -> target workspace`): a new app
+ * import from any other file still fails, and so does a new target workspace
+ * from a listed file. The ledger test pins the full list, so an entry can
+ * only change beside its ledger line.
+ */
+export const PROTOTYPE_READER_EDGES: ReadonlySet<string> = new Set<string>([
+  // Screen-work coverage executes the web mission pane + command-launch
+  // readers and the mobile work sections + pool menu.
+  'packages/worklist-proto/harness/src/pool-screen-work.ts -> apps/web',
+  'packages/worklist-proto/harness/src/pool-screen-work.ts -> apps/mobile',
+  // The mobile oracle compares the mobile sections reader.
+  'packages/worklist-proto/harness/src/oracle/mobile-snapshot.ts -> apps/mobile',
+  // Feed tests drive their app readers directly.
+  'packages/client-graph/src/header-scan-control.test.ts -> apps/web',
+  'packages/client-graph/src/mission-pane.work.test.ts -> apps/web',
+  // The mobile replay boots the mobile mission session.
+  'packages/client-graph/diagnostics/mobile-screens-replay.ts -> apps/mobile',
+])
+
+/**
  * THE BROWSER SURFACE of every NEUTRAL workspace (POD-335) — specifier → the
  * source module it names.
  *
@@ -757,6 +790,12 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // sqlite, git, connectivity, auth-store) lives behind its own subpath, which
   // is what makes "the bare specifier is the whole browser surface" true.
   ['@podium/runtime', 'packages/runtime/src/index.ts'],
+  // The setup reachability vocabulary (POD-5615): pure strings, no IO — the
+  // CLI setup flow and the web setup screen share the wording.
+  ['@podium/runtime/connect-check', 'packages/runtime/src/connect-check.ts'],
+  // The VPS bootstrap command builder (POD-5615): a pure string builder the
+  // web first-activation screen renders into its onboarding command.
+  ['@podium/runtime/vps-bootstrap', 'packages/runtime/src/vps-bootstrap.ts'],
   // packages/harness — the static facts a bundle may have (POD-2206), and ONLY
   // those. The barrel and `./metadata` both reach `AGENT_MANIFESTS`, whose
   // closure holds the sqlite modules that evaluate `createRequire` at module
@@ -933,7 +972,11 @@ export function checkManifestEdge(
   // rather than a guardrail issue quietly widening its own scope. Recorded in
   // docs/gates/pod-335-boundary-lint-end-state.md and filed, not swept.
   const upwardExempt = ref.typeOnly && !to.startsWith('apps/')
-  if (toTags.layer > fromTags.layer && !upwardExempt) {
+  // Prototype reader debt (POD-5615, owned by POD-5544): the listed
+  // prototype/test edges read app readers upward. Pair-scoped — anything not
+  // in PROTOTYPE_READER_EDGES still fails below.
+  const prototypeReader = PROTOTYPE_READER_EDGES.has(`${file} -> ${to}`)
+  if (toTags.layer > fromTags.layer && !upwardExempt && !prototypeReader) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -958,7 +1001,9 @@ export function checkManifestEdge(
   // Tests are NOT exempt — a near-leaf whose tests need a package it may not
   // import is a near-leaf that can no longer be built or tested without it,
   // which is the same architectural fact the upward rule refuses.
-  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed) {
+  // Prototype reader debt (POD-5615, owned by POD-5544) reads through the
+  // closed set the same way it reads through the layer axiom.
+  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed && !prototypeReader) {
     violations.push({
       file,
       specifier: ref.specifier,

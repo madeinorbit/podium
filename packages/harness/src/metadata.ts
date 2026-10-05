@@ -84,6 +84,10 @@ export type {
   PortableCredential,
 } from './manifest.js'
 export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'
+// The prompt-echo text predicate (POD-5615): a pure fact about what a harness
+// wrote — whether submitted text matches a recorded transcript prompt after
+// the terminal's whitespace normalization. No process, no host, no action.
+export { claudePromptTextMatches } from './accept-correlation.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.

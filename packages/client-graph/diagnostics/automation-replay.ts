@@ -8,7 +8,7 @@ import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { machineViewsFromWire } from '@podium/client-core/values'
-import { AutomationWire, AutomationRunWire, GitRepositoryWire, type MachineWire } from '@podium/model/browser'
+import { AutomationWire, AutomationRunWire, DEFAULT_HARNESS_AGENT, GitRepositoryWire, type MachineWire } from '@podium/model/browser'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
 import { createRowSource } from '../src/shared/row-source'
 import { AutomationSource } from '../src/automation-source'
@@ -84,7 +84,7 @@ async function main() {
     if (process.argv.includes('--red-control')) {
       const value = AutomationWire.parse({ id: 'planted-automation', name: 'Planted red control', enabled: true,
         repoPath: null, scheduleKind: 'cron', cron: '0 9 * * *', runAt: null, targetSessionId: null,
-        agentKind: 'codex', model: 'auto', effort: 'auto', prompt: 'Synthetic control', sessionMode: 'fresh',
+        agentKind: DEFAULT_HARNESS_AGENT, model: 'auto', effort: 'auto', prompt: 'Synthetic control', sessionMode: 'fresh',
         nextRunAt: null, lastRunAt: null, createdAt: new Date().toISOString(),
       })
       const record = { entity: 'automation', entityId: value.id, value, provenance: { seq: 2 } }

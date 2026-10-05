@@ -1,4 +1,7 @@
+import { createLogger } from '@podium/logger'
 import { _getGlobalState, compareDefault, computed, type IComputedValue, onBecomeUnobserved, runInAction } from 'mobx'
+
+const log = createLogger('mobx-helpers:keyed-computed')
 
 /** Permit imperative reads while preserving dependencies for reactive callers. */
 export function allowImperativeRead<T>(read: () => T): T {
@@ -43,7 +46,7 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
     const state = _getGlobalState()
     if (!state.trackingDerivation) {
       if (requiresReaction && state.computedRequiresReaction && state.inBatch === 0) {
-        console.warn(`[mobx] Computed value '${typeof name === 'function' ? name(key) ?? 'ComputedValue' : name}' is being read outside a reactive context. Doing a full recompute.`)
+        log.warn(`Computed value '${typeof name === 'function' ? name(key) ?? 'ComputedValue' : name}' is being read outside a reactive context. Doing a full recompute.`)
       }
       return derive()
     }

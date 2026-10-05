@@ -34,6 +34,7 @@
  */
 
 import { RequestNotSentError } from '../../errors.js'
+import { createLogger } from '@podium/logger'
 import {
   CODEX_METHODS,
   CODEX_NOTIFICATION_METHODS,
@@ -177,12 +178,13 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
   ])
   const reportedMethods = new Set<string>()
   let harnessVersion = 'unknown (initialize has not reported a version)'
+  const log = createLogger('harness:codex-client')
   const diagnoseMethod = (method: string): void => {
     if (knownInboundMethods.has(method)) return
     const key = JSON.stringify([method, harnessVersion])
     if (reportedMethods.has(key)) return
     reportedMethods.add(key)
-    console.warn('[codex] Unrecognised inbound JSON-RPC method', {
+    log.warn('Unrecognised inbound JSON-RPC method', {
       method,
       harnessVersion,
       sessionId: config.sessionId ?? 'unknown',

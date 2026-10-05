@@ -1,3 +1,4 @@
+import { SYNTHETIC_CLAUDE_KIND, SYNTHETIC_CODEX_KIND, SYNTHETIC_CODEX_TITLE } from '../../../harness/src/fixture/fixture-kinds.fixtures'
 import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { upsertIssue } from '../scenarios'
@@ -298,7 +299,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     return {
       sessionId,
       issueId,
-      agentKind: 'codex',
+      agentKind: SYNTHETIC_CODEX_KIND,
       cwd:
         (issue?.['worktreePath'] as string | undefined) ??
         (issue?.['repoPath'] as string | undefined) ??
@@ -458,7 +459,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const now = ctx.stamp()
         upsert(ctx, 'session', c.sessionId, {
           sessionId: c.sessionId,
-          agentKind: 'codex',
+          agentKind: SYNTHETIC_CODEX_KIND,
           cwd: `${wt}/sub`,
           title: `Session ${c.sessionId}`,
           status: 'live',
@@ -562,7 +563,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const patches: Record<string, unknown>[] = [
           {
             name: 'Named seat',
-            agentKind: 'claude-code',
+            agentKind: SYNTHETIC_CLAUDE_KIND,
             status: 'live',
             agentColor: '#8b5cf6',
             createdBy: { actor: { kind: 'user', id: 'u-sidebar' }, onBehalfOf: 'u-sidebar' },
@@ -617,15 +618,15 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
             stopReason: undefined,
             agentColor: '#3b82f6',
             createdBy: { actor: { kind: 'session', id: c.sessionId }, onBehalfOf: 'u-sidebar' },
-            agentKind: 'codex',
+            agentKind: SYNTHETIC_CODEX_KIND,
             name: null,
-            title: 'Codex',
+            title: SYNTHETIC_CODEX_TITLE,
             agentState: { phase: 'idle', since: stamp, idle: { kind: 'open_todos', summary: '' } },
           },
           {
             status: 'live',
             name: null,
-            title: 'Codex',
+            title: SYNTHETIC_CODEX_TITLE,
             agentState: {
               phase: 'idle',
               since: stamp,

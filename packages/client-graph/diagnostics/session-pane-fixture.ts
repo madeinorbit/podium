@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model/browser'
+import { asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { runInAction } from 'mobx'
 import type { PoolTransactions } from '../src/write/transactions'
@@ -29,7 +29,7 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', resumable: false },
     { status: 'starting' },
     { status: 'reconnecting' },
-    { condition: 'logged-out', agentKind: 'codex', machineId: 'machine-b', machineName: 'Offline host' },
+    { condition: 'logged-out', agentKind: DEFAULT_HARNESS_AGENT, machineId: 'machine-b', machineName: 'Offline host' },
     { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
     { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },
     { observedModel: 'claude-opus-4-8', observedEffort: 'medium', requestedModel: 'gpt-6' },
@@ -41,7 +41,7 @@ export function sessionPaneFixture(): SessionView[] {
     { archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z', stoppedAt: '2020-01-01T00:00:00Z',
       readAt: '2020-01-02T00:00:00Z', unread: false },
   ]
-  return variants.map((patch, i) => ({ sessionId: asSessionId(`pane-${i}`), agentKind: 'claude-code',
+  return variants.map((patch, i) => ({ sessionId: asSessionId(`pane-${i}`), agentKind: DEFAULT_HARNESS_AGENT,
     title: `Synthetic pane ${i}`, name: i % 2 ? `Named pane ${i}` : undefined, cwd: `/synthetic/w${i}`, status: 'live',
     machineId: 'machine-a', machineName: 'Host', displayRef: `POD-${i}.a`, controllerId: 'controller',
     geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 1, createdAt: '2026-10-01T00:00:00Z',

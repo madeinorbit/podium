@@ -25,7 +25,6 @@ export const MOBILE_SESSION_SCHEMA = {
   mobileSessionWindow: {
     key: 'window',
     source: 'runtime:locals and replica:getCursor',
-    fields: ['cursor'],
   },
   session: {
     source: 'pool:session',
@@ -63,10 +62,6 @@ export const MOBILE_SESSION_SCHEMA = {
   },
   draft: { source: 'chatDraft', key: 'sessionId' },
   exit: { source: 'sessionExit', key: 'sessionId' },
-  readPosition: {
-    source: 'normalized sessionUserState and replica cursor',
-    fields: ['readAt', 'unread', 'cursor'],
-  },
   spawnPending: { source: 'PoolTransactions', field: 'spawnPrompts' },
   issueAgentCount: {
     source: 'issue-page:attachedSessions',

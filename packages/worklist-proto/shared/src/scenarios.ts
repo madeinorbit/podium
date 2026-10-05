@@ -1,3 +1,4 @@
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -1203,7 +1204,7 @@ function liveSession(
   return {
     sessionId,
     issueId: fields.issueId,
-    agentKind: 'codex',
+    agentKind: DEFAULT_HARNESS_AGENT,
     cwd: fields.cwd,
     title: fields.title,
     status: 'live',

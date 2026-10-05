@@ -1,5 +1,8 @@
 /** Principal-local failure counters. Retains no rows or errors; repeated
- * failures stay countable without flooding the console. */
+ * failures stay countable without flooding the logs. */
+import { createLogger } from '@podium/logger'
+
+const log = createLogger('client-graph:feed-diagnostics')
 export type FeedFailureKind =
   | `listener:${'update' | 'replace'}`
   | `cold-index:${'update' | 'replace'}`
@@ -17,6 +20,6 @@ export class FeedDiagnostics {
     this.errors += 1
     const count = (this.counts[kind] ?? 0) + 1
     this.counts[kind] = count
-    if (count === 1) console.error(`[pool feed] ${kind} failed`, error)
+    if (count === 1) log.error(`[pool feed] ${kind} failed`, { error })
   }
 }

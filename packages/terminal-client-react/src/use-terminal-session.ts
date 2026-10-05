@@ -1,4 +1,5 @@
 import type { ConnectionState, SocketHub } from '@podium/client-core/socket-transport'
+import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
@@ -30,11 +31,12 @@ function loadTerminalRuntime(): Promise<TerminalRuntime> {
 
 /** Start the renderer chunk without mounting or attaching a PTY. The promise
  * lets an after-paint prefetch own the complete fetch/evaluation window. */
+const log = createLogger('terminal-client-react:use-terminal-session')
 export function preloadTerminalRuntime(): Promise<void> {
   return loadTerminalRuntime().then(
     () => {},
     (cause) => {
-      console.error('Could not load the terminal renderer', cause)
+      log.error('Could not load the terminal renderer', { cause })
     },
   )
 }
@@ -237,14 +239,14 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
             const cleanup = onMountedRef.current?.(nextMounted)
             cleanupMounted = typeof cleanup === 'function' ? cleanup : undefined
           } catch (cause) {
-            console.error('Could not mount the terminal renderer', cause)
+            log.error('Could not mount the terminal renderer', { cause })
           }
         },
         (cause) => {
           if (cancelled) return
           const retryDelay = TERMINAL_RUNTIME_RETRY_DELAYS_MS[runtimeRetryCount]
           if (retryDelay === undefined) {
-            console.error('Could not load the terminal renderer after 3 attempts', cause)
+            log.error('Could not load the terminal renderer after 3 attempts', { cause })
             return
           }
           runtimeRetryCount += 1

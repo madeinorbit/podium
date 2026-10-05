@@ -10,7 +10,7 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
 import { emptyWorkspace, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'
-import { asIssueId } from '@podium/model/browser'
+import { asIssueId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { runInAction } from 'mobx'
 import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
@@ -70,7 +70,7 @@ async function main() {
   try {
     sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))
   } finally { sessionReader.dispose() }
-  const lifecycle = { sessionDefaults: { agent: 'codex' }, hibernation: { enabled: false }, worktreeGc: { enabled: false, afterDays: 14 } }
+  const lifecycle = { sessionDefaults: { agent: DEFAULT_HARNESS_AGENT }, hibernation: { enabled: false }, worktreeGc: { enabled: false, afterDays: 14 } }
   let state = { ...sidebarReplayStore(corpus, replica), sessions, view: 'workspace', paneA: sessions[0]?.sessionId ?? null,
     reposLoaded: true, superOpen: false, paletteOpen: false, autoContinuePromptSessionId: null,
     selectedWorktree: null, approvals: [], fileTabs: [], workspaces: {},

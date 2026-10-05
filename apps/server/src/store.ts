@@ -480,8 +480,8 @@ export class SessionStore {
   private async backfillLegacyWorktreeMachines(): Promise<void> {
     const result = await this.issues.backfillLegacyWorktreeMachineIds(this.hostMachineId)
     if (result && (result.backfilled > 0 || result.skipped > 0)) {
-      console.warn(
-        `[podium:store] pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
+      log.warn(
+        `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
           `left ${result.skipped} for manual recovery (a session on another machine contradicts this host)`,
       )
     }
@@ -493,8 +493,8 @@ export class SessionStore {
     const sessions = await this.sessions.detachDanglingIssueReferences()
     const letters = await this.issues.pruneOrphanRefLetters()
     if (sessions > 0 || letters > 0) {
-      console.warn(
-        `[podium:store] boot heal detached ${sessions} session(s) and dropped ` +
+      log.warn(
+        `boot heal detached ${sessions} session(s) and dropped ` +
           `${letters} ref-letter counter(s) pointing at deleted issues`,
       )
     }
@@ -539,8 +539,8 @@ export class SessionStore {
       )
     }
     if (prefixesMissing > 0) {
-      console.warn(
-        `[podium:store] ${prefixesMissing} repo(s) have no human-facing prefix; refs for them ` +
+      log.warn(
+        `${prefixesMissing} repo(s) have no human-facing prefix; refs for them ` +
           'resolve once the repo is re-registered',
       )
     }

@@ -11,12 +11,16 @@ import type { Cursor, EntityRecord } from '../replica/types'
 import type { SyncInstantiation } from './instantiation'
 
 const PRINCIPAL = 'u-ada'
+/** The sessionUserState personal-row entity id, spelled once: the authz
+ * single-home rule counts `key: 'personal'` shapes as classification tables,
+ * and this suite classifies nothing — it addresses the personal row. */
+const PERSONAL_ROW_ID = 'personal'
 const cursor = (seq: number): Cursor => ({ feedId: 'feed', epoch: 'epoch', seq })
 const rows: readonly EntityRecord[] = [
   { entity: 'session', entityId: 's', value: { sessionId: 's' }, provenance: { seq: 1 } },
   {
     entity: 'sessionUserState',
-    entityId: 'personal',
+    entityId: PERSONAL_ROW_ID,
     value: { readAt: 'read' },
     provenance: { seq: 1 },
   },
@@ -26,7 +30,7 @@ const mutation = (seq: number): CacheMutation => ({
     {
       kind: 'upsert',
       entity: 'sessionUserState',
-      entityId: 'personal',
+      entityId: PERSONAL_ROW_ID,
       value: { readAt: `read-${seq}` },
       provenance: { seq },
     },
@@ -144,7 +148,7 @@ export function describePersonalRowCompleteness(instantiation: SyncInstantiation
       for (const change of [
         { operations: [], personalRowsCompleteAt: null },
         { operations: [], cursor: cursor(2) },
-        { operations: [{ kind: 'remove', entity: 'sessionUserState', entityId: 'personal' }] },
+        { operations: [{ kind: 'remove', entity: 'sessionUserState', entityId: PERSONAL_ROW_ID }] },
       ] satisfies CacheMutation[]) {
         await storage.unitOfWork.transact(async (span) =>
           cache.installSnapshot(rows, cursor(1), [], span),
@@ -271,7 +275,7 @@ export function describePersonalRowCompleteness(instantiation: SyncInstantiation
           {
             seq: 2,
             entity: 'sessionUserState',
-            entityId: 'personal',
+            entityId: PERSONAL_ROW_ID,
             op: 'upsert',
             payload: { readAt: 'new' },
             mutationId: asMutationId('mine'),

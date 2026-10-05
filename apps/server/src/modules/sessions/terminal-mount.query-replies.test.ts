@@ -1,4 +1,9 @@
 // @vitest-environment happy-dom
+// Terminal-mount integration (POD-5615): drives the real server SessionTerminal
+// against the real client mount + SocketHub. Lives with the server because
+// terminal-client (L2) may not reach up into apps/server (L4) or client-core
+// (L3); POD-1543 owns the socket-transport inversion that would let these
+// tests move back down.
 
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { asSessionId, asUserId } from '@podium/model'
@@ -9,10 +14,10 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { userClientPrincipal } from '../../../apps/server/src/gateway/client-principal'
-import type { ClientConn } from '../../../apps/server/src/gateway/client-registry'
-import { SessionTerminal } from '../../../apps/server/src/modules/sessions/terminal'
-import { mountSession, type MountedSession } from '../src/session-mount'
+import { userClientPrincipal } from '../../gateway/client-principal'
+import type { ClientConn } from '../../gateway/client-registry'
+import { SessionTerminal } from './terminal'
+import { mountSession, type MountedSession } from '@podium/terminal-client/session-mount'
 
 const SESSION = asSessionId('phone-query-replies')
 const cleanups: Array<() => void> = []

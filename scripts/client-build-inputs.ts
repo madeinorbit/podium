@@ -43,7 +43,7 @@ const SCRIPTS: Record<ClientApp, readonly string[]> = {
     'scripts/precompress-dist.ts',
     'scripts/write-web-build-stamp.ts',
     'scripts/web-bundle-budget.ts',
-    'scripts/web-bundle-boundaries.ts',
+    'apps/web/test/web-bundle-boundaries.ts',
   ],
   'apps/mobile': ['scripts/precompress-dist.ts', 'scripts/write-web-build-stamp.ts'],
 }

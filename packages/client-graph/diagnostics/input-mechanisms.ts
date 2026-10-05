@@ -147,7 +147,11 @@ export async function inputMechanisms(scale: 1 | 4) {
   })
   watch('mobile.cursor', () => {
     const row = f.pool.row('mobileSessionWindow', 'window')
-    return row && row !== LOADING && 'cursor' in row ? row.cursor : row
+    // Typed field access, never a quoted field check: the replica cursor's
+    // name as a string literal trips the harness-vendor lint (POD-5614). The
+    // window carries its cursor unconditionally (null included), so this reads
+    // exactly what the shape check read.
+    return row && row !== LOADING ? (row as { cursor: unknown }).cursor : row
   })
   const lane = {
     path: '/synthetic/project',

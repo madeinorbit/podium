@@ -16,24 +16,24 @@
 
 import { awaitingMergeOf } from '@podium/client-graph/shared/schema'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
+import { bundledDescriptorFor } from '@podium/harness/browser'
+// Single-home (POD-5614): the draft title and defer sentinel live in
+// @podium/model — import, never redefine.
+import { DEFER_NEXT_MESSAGE, DRAFT_ISSUE_TITLE } from '@podium/model'
 
 export const DAY_MS = 24 * 60 * 60 * 1000
 export const SIDEBAR_FINISHED_GRACE_MS = DAY_MS
 export const SIDEBAR_FINISHED_UNREAD_WINDOW_MS = 7 * DAY_MS
-export const DRAFT_ISSUE_TITLE = 'Draft'
-export const DEFER_NEXT_MESSAGE = 'next-message'
 
 const UNSTARTED = new Set(['proposed', 'backlog'])
 const UNDERWAY = new Set(['planning', 'in_progress', 'shipping'])
 
-const PANEL_LABELS: Record<string, string> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-  shell: 'Shell',
+/** Draft-session label (POD-5614): the adapter descriptor's short label read
+ * from the bundled descriptors — never a second displayName table (POD-4538).
+ * `shell` is not a harness, so its product copy stays local. */
+function panelLabelOf(kind: string): string {
+  if (kind === 'shell') return 'Shell'
+  return bundledDescriptorFor(kind)?.shortLabel ?? kind
 }
 
 export function parseMs(iso: string | null | undefined): number | null {
@@ -354,7 +354,7 @@ export function displayTitleOf(issue: SliceIssue, firstMember?: SliceSession): s
       if (!firstMember) return 'New agent'
       const name = (firstMember as { name?: string }).name?.trim()
       const kind = firstMember.agentKind ?? 'undefined'
-      return name || `New ${PANEL_LABELS[kind] ?? kind} session`
+      return name || `New ${panelLabelOf(kind)} session`
     }
   }
   return issue.title

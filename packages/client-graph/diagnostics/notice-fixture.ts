@@ -1,13 +1,13 @@
 /** Synthetic words only; used by focused parity checks and browser evidence. */
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asMutationId, asSessionId, type MessageRecordWire } from '@podium/model'
+import { asMutationId, asSessionId, DEFAULT_HARNESS_AGENT, type MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 
 export function noticeFixture(sessionId = 'synthetic-session-0') {
   const sessions = [
-    { sessionId: asSessionId(sessionId), name: '  Named agent  ', title: 'Title', cwd: '/synthetic/project', agentKind: 'codex' },
-    { sessionId: asSessionId('cold-notice-session'), title: 'Saved agent', cwd: '/synthetic/saved', agentKind: 'codex',
+    { sessionId: asSessionId(sessionId), name: '  Named agent  ', title: 'Title', cwd: '/synthetic/project', agentKind: DEFAULT_HARNESS_AGENT },
+    { sessionId: asSessionId('cold-notice-session'), title: 'Saved agent', cwd: '/synthetic/saved', agentKind: DEFAULT_HARNESS_AGENT,
       stoppedAt: '2020-01-01T00:00:00Z', lastActiveAt: '2020-01-01T00:00:00Z', agentState: { phase: 'ended' } },
   ] as SessionView[]
   const messages: MessageRecordWire[] = (['failed', 'expired', 'unknown', 'typed', 'confirmed'] as const).map((status, i) => ({

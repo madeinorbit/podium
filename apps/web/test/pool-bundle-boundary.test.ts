@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 import { describe, expect, it } from 'vitest'
-import { eagerClientGraphSources, eagerJsFiles } from '../../../scripts/web-bundle-boundaries'
+import { eagerClientGraphSources, eagerJsFiles } from './web-bundle-boundaries'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const entry = `${root}pool-boundary-fixture.js`

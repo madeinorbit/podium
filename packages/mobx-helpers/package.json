@@ -18,7 +18,8 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/mobx-helpers:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts"
   },
   "dependencies": {
-    "mobx": "7.0.3"
+    "mobx": "7.0.3",
+    "@podium/logger": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",

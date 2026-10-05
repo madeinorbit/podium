@@ -73,7 +73,7 @@ import {
 } from '@podium/client-graph/superagent'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asIssueId, asSessionId } from '@podium/model/browser'
+import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { autorun, compareStructural, observable, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
@@ -168,7 +168,9 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       archived: false,
       headless: false,
       status: 'live',
-      agentKind: 'codex',
+      // The guard seat runs the product default harness, as an identifier:
+      // the flip below must toggle this seat's own kind (POD-5614).
+      agentKind: DEFAULT_HARNESS_AGENT,
       lastActiveAt: ctx.stamp(),
     })
   }
@@ -649,9 +651,11 @@ async function measureScreenCells(
       'machine-flip': () => {
         const id = ctx.corpus.machines[0]!.id
         const machine = ctx.cache.read('machine', id)!.value as { loggedOutHarnesses: string[] }
-        const loggedOutHarnesses = machine.loggedOutHarnesses.includes('codex')
-          ? machine.loggedOutHarnesses.filter((kind) => kind !== 'codex')
-          : [...machine.loggedOutHarnesses, 'codex']
+        // Toggle the guard seat's own kind, as identifiers: branching on a
+        // quoted harness literal here is vendor behaviour (POD-5614).
+        const loggedOutHarnesses = machine.loggedOutHarnesses.includes(DEFAULT_HARNESS_AGENT)
+          ? machine.loggedOutHarnesses.filter((kind) => kind !== DEFAULT_HARNESS_AGENT)
+          : [...machine.loggedOutHarnesses, DEFAULT_HARNESS_AGENT]
         upsert(ctx, 'machine', id, { ...machine, loggedOutHarnesses }, 3)
       },
       'lane-change': () => issuePatch({ stage: 'review', updatedAt: ctx.stamp() }),
@@ -688,7 +692,7 @@ async function measureScreenCells(
         const machine = ctx.cache.read('machine', ctx.corpus.machines[0]!.id)!.value as {
           loggedOutHarnesses: string[]
         }
-        const wanted = machine.loggedOutHarnesses.includes('codex') ? 'logged-out' : undefined
+        const wanted = machine.loggedOutHarnesses.includes(DEFAULT_HARNESS_AGENT) ? 'logged-out' : undefined
         if (!session || session === LOADING || Reflect.get(session, 'condition') !== wanted)
           throw new Error('Machine flip did not reach its joined session')
       }

@@ -5,7 +5,7 @@ import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/r
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'
-import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model/browser'
+import { asIssueId, asMachineId, asRepoId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@podium/model'
 import { MobxPool } from '../src/pool'
 import { SHELL_ENTITIES, SHELL_SUMMARIES } from '../src/shell-schema'
@@ -27,7 +27,7 @@ export function shellFixture(count = 40) {
     cwd: index === 0 ? '/synthetic/project/w1/deep' : `/synthetic/project/w${index}`, machineId,
     refRepoId: repoId, refSeq: index + 1, refLetter: 'A',
     name: `Synthetic agent ${index}`, title: `Synthetic session ${index}`, archived: index >= 20,
-    status: index >= 20 ? 'exited' : 'live', agentKind: 'codex', headless: false, createdAt: stamp,
+    status: index >= 20 ? 'exited' : 'live', agentKind: DEFAULT_HARNESS_AGENT, headless: false, createdAt: stamp,
     lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}-A`, agentState: { phase: 'idle', since: stamp },
   })) as unknown as SessionView[]
   const approvals = [0, 1].map(index => ({ id: `shell-approval-${index}`, machineId, machineName: 'Synthetic host', sessionId: sessions[index]!.sessionId,

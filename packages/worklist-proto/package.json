@@ -54,6 +54,7 @@
     "mobx-react-lite": "5.0.3",
     "@podium/client-graph": "workspace:*",
     "@podium/protocol": "workspace:*",
+    "@podium/harness": "workspace:*",
     "@podium/mobx-helpers": "workspace:*"
   }
 }

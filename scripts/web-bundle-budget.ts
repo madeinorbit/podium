@@ -25,7 +25,7 @@ import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import { duplicateReport } from './web-bundle-duplicates'
-import { type BuildManifest, eagerClientGraphSources, eagerJsFiles } from './web-bundle-boundaries'
+import { type BuildManifest, eagerClientGraphSources, eagerJsFiles } from '../apps/web/test/web-bundle-boundaries'
 
 interface SourceMap {
   readonly sources: readonly string[]

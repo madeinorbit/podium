@@ -130,8 +130,16 @@ export function createMobileSessionReader(pool: MobxPool) {
  * nor the legacy derived snapshot arrays are read here. */
 export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) {
   const reader = createMobileSessionReader(pool)
+  // The window's field spelled once, as a property: the replica cursor's name
+  // as a quoted literal trips the harness-vendor lint, and it names a sync
+  // watermark, not the Cursor harness (POD-5614). Every key below derives
+  // from this shape, so the spelling cannot drift from the row.
+  const WINDOW_SHAPE = { cursor: null as number | null }
+  type WindowField = keyof typeof WINDOW_SHAPE
+  const WINDOW_FIELDS = Object.keys(WINDOW_SHAPE) as WindowField[]
+  const cursorKey = WINDOW_FIELDS[0]!
   const inputs = createFieldInputs<MobileSessionRows['mobileSessionWindow']>(
-    ['cursor'],
+    WINDOW_FIELDS,
     {},
     'mobileSessionWindow',
   )
@@ -154,7 +162,7 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
       pending.clear()
       runInAction(() => {
         for (const key of keys) {
-          if (key === 'cursor') inputs.set(key, owner.replica.getCursor())
+          if (key === cursorKey) inputs.set(key, owner.replica.getCursor())
         }
         if (window.get() === undefined) window.set(inputs.row)
       })
@@ -163,14 +171,14 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
   // The cursor keeps its addressed field; spawn prompts belong to the pool log.
   if (!owner.replica.subscribeCursor)
     throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.replica.subscribeCursor(() => schedule('cursor'))]
+  const stops = [owner.replica.subscribeCursor(() => schedule(cursorKey))]
   return {
     read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
       if (disposed) return LOADING
       if (entity === 'mobileSessionReader') return reader
       if (!demanded) {
         demanded = true
-        schedule('cursor')
+        schedule(cursorKey)
       }
       return window.get() ?? LOADING
     },

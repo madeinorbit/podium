@@ -54,12 +54,13 @@ import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { isDraftNameSession, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
 import type { EntityName } from '@podium/client-graph/shared/schema'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
+import { bundledDescriptorFor } from '@podium/harness/browser'
+// Single-home (POD-5614): the defer sentinel lives in @podium/model.
+import { DEFER_NEXT_MESSAGE } from '@podium/model'
 import type { Rollup } from './worklist/rollup'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
-/** The defer sentinel that never returns on its own (spec §3 R-ORDER). */
-export const DEFER_NEXT_MESSAGE = 'next-message'
 /** A draft's placeholder title (spec §3 R-SUM). */
 export const DRAFT_TITLE = 'Draft'
 
@@ -199,14 +200,12 @@ export function displayRefOf(seq: number, prefix: string | null | undefined): st
   return prefix ? `${prefix}-${seq}` : `#${seq}`
 }
 
-const PANEL_LABELS: Readonly<Record<string, string>> = {
-  'claude-code': 'Claude',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-  shell: 'Shell',
+/** Draft-session label (POD-5614): the adapter descriptor's short label read
+ * from the bundled descriptors — never a second displayName table (POD-4538).
+ * `shell` is not a harness, so its product copy stays local. */
+function panelLabelOf(kind: string): string {
+  if (kind === 'shell') return 'Shell'
+  return bundledDescriptorFor(kind)?.shortLabel ?? kind
 }
 
 /**
@@ -223,7 +222,7 @@ export function displayTitleOf(
   const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'
-  return `New ${PANEL_LABELS[kind] ?? kind} session`
+  return `New ${panelLabelOf(kind)} session`
 }
 
 const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {

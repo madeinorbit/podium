@@ -66,7 +66,7 @@ export function checkSuperagent(pool: MobxPool, state: State) {
           },
         })),
     },
-    { key: 'cursor', fields: { ...state.readPosition.get('issueEvents') }, rows: [] },
+    { key: 'position', fields: { ...state.readPosition.get('issueEvents') }, rows: [] },
     {
       key: 'focus',
       fields: {
@@ -100,7 +100,7 @@ export function checkSuperagent(pool: MobxPool, state: State) {
       fields: {},
       rows: feed.events.map((row) => ({ id: String(row.id), fields: { ...row } })),
     },
-    { key: 'cursor', fields: { ...cursor.cursor }, rows: [] },
+    { key: 'position', fields: { ...cursor.cursor }, rows: [] },
     {
       key: 'focus',
       fields: {

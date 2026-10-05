@@ -3900,6 +3900,122 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // with that invariant deliberately broken, shown going red. A human reads the
   // table to decide whether the hosted gate is evidence or decoration.
   'apps/server/src/store/spike/turso-append/defeat-check.ts',
+  // Mobile e2e probes (POD-5615): each probe drives the app and prints its
+  // diagnostics for a human to read — the printed evidence IS the product,
+  // not a log a service emits.
+  'apps/mobile/e2e/pod1251-chrome-diag.ts',
+  'apps/mobile/e2e/pod1251-jump.ts',
+  'apps/mobile/e2e/pod1251-open-pin.ts',
+  'apps/mobile/e2e/pod1251-probe.ts',
+  'apps/mobile/e2e/pod1251-serve.ts',
+  'apps/mobile/e2e/pod1251-touch.ts',
+  'apps/mobile/e2e/pod1251-watch.ts',
+  'apps/mobile/e2e/pod1356-deck-filter.ts',
+  'apps/mobile/e2e/pod1358-inspector.ts',
+  'apps/mobile/e2e/pod1666-composer-inset.ts',
+  // Web e2e shot/probe scripts (POD-5615): screenshot, probe and verify scripts
+  // whose printed progress and diagnostics are the evidence a human reads.
+  'apps/web/e2e/pod1158-diag.ts',
+  'apps/web/e2e/pod1158-live-webkit.ts',
+  'apps/web/e2e/pod1158-unroll-engine.ts',
+  'apps/web/e2e/pod1160-probe.ts',
+  'apps/web/e2e/pod1192-harness-sweep.ts',
+  'apps/web/e2e/pod1192-live-shelf.ts',
+  'apps/web/e2e/pod1192-shelf-flicker.ts',
+  'apps/web/e2e/pod1192-smoke.ts',
+  'apps/web/e2e/pod1201-shots.ts',
+  'apps/web/e2e/pod1203-coldstart-shots.ts',
+  'apps/web/e2e/pod1213-shelf-align.ts',
+  'apps/web/e2e/pod1224-rail.ts',
+  'apps/web/e2e/pod1225-shots.ts',
+  'apps/web/e2e/pod1253-harness.ts',
+  'apps/web/e2e/pod1253-preroll-rep.ts',
+  'apps/web/e2e/pod1253-raf-control.ts',
+  'apps/web/e2e/pod1253-sidebar-probe.ts',
+  'apps/web/e2e/pod1253-sidebar-shot.ts',
+  'apps/web/e2e/pod1253-spawn-hover.ts',
+  'apps/web/e2e/pod1253-spawn-label.ts',
+  'apps/web/e2e/pod1269-shot.ts',
+  'apps/web/e2e/pod1271-status-picker-shots.ts',
+  'apps/web/e2e/pod1277-explorer-shots.ts',
+  'apps/web/e2e/pod1285-newtask-shots.ts',
+  'apps/web/e2e/pod1289-shots.ts',
+  'apps/web/e2e/pod1298-errorpage-shots.ts',
+  'apps/web/e2e/pod1306-spine.ts',
+  'apps/web/e2e/pod1320-shot.ts',
+  'apps/web/e2e/pod1457-dock-launch.ts',
+  'apps/web/e2e/pod1469-agent-chip.ts',
+  'apps/web/e2e/pod1469-composer-shots.ts',
+  'apps/web/e2e/pod1469-review-verify.ts',
+  'apps/web/e2e/pod1469-sidebar-shot.ts',
+  'apps/web/e2e/pod1470-sidebar-menu.ts',
+  'apps/web/e2e/pod1607-idle-cost.ts',
+  'apps/web/e2e/pod1618-dock-rename-shots.ts',
+  'apps/web/e2e/pod1669-verify.ts',
+  'apps/web/e2e/pod1859-cost-shots.ts',
+  // Web dev-harness proofs and profiles (POD-5615): the printed tables, profiles
+  // and replay verdicts ARE the product — evidence a human reads, same category
+  // as the perf harnesses above.
+  'apps/web/harness/account-switch-proof.ts',
+  'apps/web/harness/full-screen-click-profile.ts',
+  'apps/web/harness/full-screen-profile-analyze.ts',
+  'apps/web/harness/heap-owners-selftest.ts',
+  'apps/web/harness/heap-owners.ts',
+  'apps/web/harness/idle-cost-entry.tsx',
+  'apps/web/harness/issue-board-controls.ts',
+  'apps/web/harness/issue-board-proof.ts',
+  'apps/web/harness/issue-board-replay.ts',
+  'apps/web/harness/issue-chips-proof.ts',
+  'apps/web/harness/issue-record-memory.ts',
+  'apps/web/harness/live-sidebar-profile.ts',
+  'apps/web/harness/mission-layout-guard.ts',
+  'apps/web/harness/old-vs-new-cpu.ts',
+  'apps/web/harness/pool-memory-report.ts',
+  'apps/web/harness/pool-memory.ts',
+  'apps/web/harness/selection-runtime.ts',
+  'apps/web/harness/sidebar-acceptance.ts',
+  'apps/web/harness/sidebar-actions-proof.ts',
+  'apps/web/harness/sidebar-renderer-proof.ts',
+  'apps/web/harness/speed-gate.ts',
+  'apps/web/harness/workspace-private-replay.ts',
+  // Feature proof and replay files (POD-5615): browser evidence and operator
+  // replay scripts whose printed output is the verdict.
+  'apps/web/src/features/files/file-viewer-proof.ts',
+  'apps/web/src/features/superagent/browser-proof.ts',
+  'apps/web/src/features/superagent/operator-replay.ts',
+  // API types build script (POD-5615): build-time stdout, same category as the
+  // test-fixture build output above.
+  'packages/api-types/build.ts',
+  // Client-graph diagnostics replays (POD-5615): offline replay and measurement
+  // tools whose printed evidence is the product.
+  'packages/client-graph/diagnostics/automation-replay.ts',
+  'packages/client-graph/diagnostics/command-launch-replay.ts',
+  'packages/client-graph/diagnostics/debug-name-heap.ts',
+  'packages/client-graph/diagnostics/input-mechanisms.ts',
+  'packages/client-graph/diagnostics/mobile-screens-replay.ts',
+  'packages/client-graph/diagnostics/notice-replay.ts',
+  'packages/client-graph/diagnostics/projection-comparison-mechanism.ts',
+  'packages/client-graph/diagnostics/session-pane-replay.ts',
+  'packages/client-graph/diagnostics/shell-red-controls.ts',
+  'packages/client-graph/diagnostics/shell-replay.ts',
+  'packages/client-graph/diagnostics/workflow-replay.ts',
+  // Worklist-proto bench, replay and oracle harnesses (POD-5615): printed
+  // measurements, census tables and replay verdicts are the product.
+  'packages/worklist-proto/harness/browser/layers.ts',
+  'packages/worklist-proto/harness/browser/matrix.ts',
+  'packages/worklist-proto/harness/browser/run.ts',
+  'packages/worklist-proto/harness/browser/window-cost.ts',
+  'packages/worklist-proto/harness/review/h3-witness.ts',
+  'packages/worklist-proto/harness/src/fixture/export-snapshot.ts',
+  'packages/worklist-proto/harness/src/mobx-trap.ts',
+  'packages/worklist-proto/harness/src/oracle/header-replay.ts',
+  'packages/worklist-proto/harness/src/oracle/issue-page-replay.ts',
+  'packages/worklist-proto/harness/src/oracle/mission-replay.ts',
+  'packages/worklist-proto/harness/src/oracle/mission-view-replay.ts',
+  'packages/worklist-proto/harness/src/oracle/session-homes-replay.ts',
+  'packages/worklist-proto/harness/src/oracle/sidebar-replay.ts',
+  'packages/worklist-proto/harness/src/per-row-census.ts',
+  'packages/worklist-proto/harness/web/entries/mobx.ts',
 ])
 
 /**
@@ -4007,6 +4123,17 @@ const SANCTIONED_UI_STORAGE_FILES: ReadonlySet<string> = new Set([
   'apps/web/src/lib/kernelReplica.ts',
   'apps/web/src/lib/use-kernel-replica.ts',
   'apps/mobile/src/client/MobileClientProvider.tsx',
+  // Accounts profile-metadata browser adapter (POD-5615): the same category as
+  // the replica adapter family — installation records available BEFORE a
+  // principal replica opens, so they cannot route through it. Server profiles
+  // choose the scoped keys; credentials and UI state keep separate owners.
+  'packages/client-core/src/accounts/storage.ts',
+  // Update restart handoff, single measured key (POD-5615, owned by POD-2225):
+  // the watched-operation id crosses one restart, principal or no principal,
+  // and every ui-state home is closed to it by a guard that exists for a
+  // reason (see the file's own exception note). POD-2225's measurement moves
+  // it; until answered, this entry holds the one key and licenses no second.
+  'apps/web/src/features/updates/use-update-state.ts',
 ])
 
 /** Product trees held to the storage-ownership rule (tests are exempt). */

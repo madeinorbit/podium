@@ -1,6 +1,7 @@
 import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import type { GitRepositoryWire } from '@podium/model'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -9,7 +10,7 @@ import { useSettingsClient } from './stable-access'
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
 const EMPTY_SETUP = {
   usage: new Map<string, number>() as ReadonlyMap<string, number>,
-  defaultAgent: 'claude-code',
+  defaultAgent: DEFAULT_HARNESS_AGENT,
   pending: 0,
 }
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>

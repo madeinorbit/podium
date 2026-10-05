@@ -7,7 +7,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import { encodeCursor } from '@podium/harness/browser'
-import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness'
+import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness/metadata'
 import measured283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on.jsonl?raw'
 import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
 import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on-queued.jsonl?raw'

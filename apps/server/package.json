@@ -25,7 +25,8 @@
     "drizzle-orm": "1.0.0-rc.4",
     "hono": "^4.6.14",
     "ws": "^8.18.0",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "@podium/terminal-client": "workspace:*"
   },
   "scripts": {
     "typecheck": "bun ../../scripts/typecheck-project.ts",
@@ -42,6 +43,8 @@
     "@types/ws": "^8.5.13",
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6",
-    "@podium/api-types": "workspace:*"
+    "@podium/api-types": "workspace:*",
+    "happy-dom": "^20.10.2",
+    "@podium/client-core": "workspace:*"
   }
 }

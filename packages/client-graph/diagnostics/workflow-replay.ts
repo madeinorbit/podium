@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { asAccountId, asMachineId, asSessionId, type MachineWire } from '@podium/model/browser'
+import { asAccountId, asMachineId, asSessionId, DEFAULT_HARNESS_AGENT, type MachineWire } from '@podium/model/browser'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'
 import { createRowSource } from '../src/shared/row-source'
@@ -68,7 +68,7 @@ async function main() {
     repos: [], machines, settingsTab: 'general', coarseNow: Date.now(), selectedIssueId: null,
   } as unknown as Store
   const profiles: ExecutionProfileWire[] = profileRefs.map(row => ({ id: String(row.id), name: '', machineId: row.machineId ? asMachineId(String(row.machineId)) : null,
-    accountId: asAccountId('replay-placeholder'), harness: 'codex', model: 'auto', effort: 'auto', createdAt: '', updatedAt: '' }))
+    accountId: asAccountId('replay-placeholder'), harness: DEFAULT_HARNESS_AGENT, model: 'auto', effort: 'auto', createdAt: '', updatedAt: '' }))
   // Cover every persisted target identity even when there are no workflow runs.
   // The envelopes are synthetic; only the subject IDs are operator references.
   const subjects = [...runRefs,

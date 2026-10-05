@@ -15,6 +15,7 @@
  */
 
 import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
+import { createLogger } from '@podium/logger'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon'
@@ -63,6 +64,7 @@ function failMessagesToRemovedSessions(
  *  column, from refs already checked against the session; a value that no
  *  longer decodes is reported, and the row goes on as text alone rather than
  *  blocking the session's whole queue. */
+const log = createLogger('server:session-wiring')
 function storedQueueAttachments(json: string | null): {
   attachments?: readonly RuntimeAttachmentRef[]
 } {
@@ -71,7 +73,7 @@ function storedQueueAttachments(json: string | null): {
     const parsed = RuntimeAttachmentRef.array().safeParse(JSON.parse(json))
     if (parsed.success) return parsed.data.length ? { attachments: parsed.data } : {}
   } catch {}
-  console.error('[session-inbox] queued row file refs do not decode; typing its text only')
+  log.error('queued row file refs do not decode; typing its text only')
   return {}
 }
 

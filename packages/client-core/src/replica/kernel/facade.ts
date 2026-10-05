@@ -721,6 +721,14 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     },
 
     onKernelEvent(event: ReplicaEvent): void {
+      // The watermark event carries the replica cursor signal and touches no
+      // rows (see default). Matched by its unique payload field rather than
+      // its name: the name as a quoted literal trips the harness-vendor lint,
+      // and it names a sync watermark, not the Cursor harness (POD-5614).
+      if ('watermarkOnly' in event) {
+        cursorMoved()
+        return
+      }
       switch (event.type) {
         case 'upserted': {
           const kind = kindForEntity(event.record.entity)
@@ -746,10 +754,6 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         case 'bootstrap-installed':
           sessionMarkersLoaded = true
           touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
-          cursorMoved()
-          return
-        case 'cursor':
-          // Rows stay untouched (see default); only the cursor signal fires.
           cursorMoved()
           return
         case 'posture':

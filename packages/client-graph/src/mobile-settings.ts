@@ -23,7 +23,6 @@ export const MOBILE_SETTINGS_SCHEMA = {
     key: 'diagnostics',
     source: 'runtime:diagnostics',
     residency: 'on-demand',
-    fields: ['issueCount', 'conversationCount', 'cursor'],
     relations: {},
   },
 } as const

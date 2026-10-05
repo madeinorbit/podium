@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+// Terminal-mount integration (POD-5615): drives the real client mount against
+// the real SocketHub. Lives with the server because terminal-client (L2) may
+// not reach up into client-core (L3); POD-1543 owns the socket-transport
+// inversion that would let these tests move back down.
 
 /**
  * T1 / T7 (POD-3239 SPEC-1 acceptance) — where a terminal's size comes from.
@@ -26,7 +30,7 @@ import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { FitAddon } from '@xterm/addon-fit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountSession } from './session-mount'
+import { mountSession } from '@podium/terminal-client/session-mount'
 
 const SESSION = asSessionId('s-authority')
 
