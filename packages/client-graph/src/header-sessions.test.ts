@@ -3,7 +3,9 @@ import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentConfirmedComputing, type MachineId } from '@podium/model/browser'
 import { autorun, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
+import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { EMPTY_HOST_AGGREGATE } from './header-session'
+import { HeaderSessions } from './header-sessions'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -70,6 +72,53 @@ function visits(pool: MobxPool) {
 }
 
 describe('incremental header sessions', () => {
+  it('counts working sessions and adjusts history without visiting the roster at 1x/4x', async () => {
+    const samples = []
+    for (const scale of [1, 4] as const) {
+      const f = fixture(128 * scale)
+      for (const id of f.rows.keys()) f.change(id, { status: 'live', agentState: state('working') })
+      f.pool.header.apply([{ kind: 'history', id: 'fleet', value: {
+        sampledAt: stamp(), bucketMs: 1800000, peak: 0,
+        buckets: Array.from({ length: 24 }, (_, index) => ({ start: stamp(NOW - index * 1800000), count: 0 })),
+      } }])
+      // Attachment maintains the roster; the question must only read its size.
+      expect(f.pool.headerViews.workingCount()).toBe(32 + 128 * scale)
+      const roster = vi.spyOn(HeaderSessions.prototype, 'working')
+      let count = 0, paints = 0, stop = () => {}
+      const read = () => {
+        count = f.pool.headerViews.workingCount()
+        expect(f.pool.headerViews.history()?.buckets.at(-1)?.count).toBe(count)
+        paints++
+      }
+      const measure = (name: string, action: () => void) =>
+        measureWork(async () => insideReader(name, action), { pool: f.pool })
+      try {
+        const first = await measure('first header count', () => { stop = autorun(read) })
+        const repeat = await measure('repeat header count', () => { f.pool.headerViews.workingCount(); f.pool.headerViews.history() })
+        const beforeRename = paints
+        const renamed = await measure('working title changed', () => f.change('resident-0', { title: 'Renamed' }))
+        expect(paints).toBe(beforeRename)
+        const removed = await measure('working phase ended', () => f.change('resident-0', { agentState: state('idle') }))
+        expect(count).toBe(31 + 128 * scale)
+        expect(paints).toBe(beforeRename + 1)
+        expect(roster).not.toHaveBeenCalled()
+        stop()
+        const closed = await measure('closed header count', () => f.change('resident-1', { agentState: state('idle') }))
+        expect(paints).toBe(beforeRename + 1)
+        expect(roster).not.toHaveBeenCalled()
+        const control = await measure('whole roster count control', () => { expect(f.pool.headerViews.working().length).toBe(30 + 128 * scale) })
+        expect(roster).toHaveBeenCalledOnce()
+        expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
+        samples.push({ scale, first: first.work, repeat: repeat.work, renamed: renamed.work, removed: removed.work, closed: closed.work, control: control.work })
+      } finally { stop(); roster.mockRestore(); f.dispose() }
+    }
+    console.info('[header count work1x4x]', JSON.stringify(samples))
+    for (const name of ['first', 'repeat', 'renamed', 'removed', 'closed'] as const)
+      for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+        expect(samples[1]![name][counter], `${name}:${counter}`).toBe(samples[0]![name][counter])
+    expect(samples[1]!.control.elements).toBeGreaterThan(samples[0]!.control.elements)
+  })
+
   it('reads painted fields of a working cold session without hydrating it', () => {
     const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })

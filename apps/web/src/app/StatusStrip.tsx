@@ -42,7 +42,7 @@ import { StatusPerformanceStats } from './StatusPerformanceStats'
  */
 export function StatusStrip(): JSX.Element {
   const { trpc } = useHeaderActions()
-  const { workingSessions, issue } = useHeaderStatus()
+  const { workingCount, issue } = useHeaderStatus()
   const { health, visible: connVisible } = useStableConnection()
   // The update affordance (POD-2102). It passes the same test as the rest of
   // the strip: window-scoped, stated nowhere else, and present only while it is
@@ -51,7 +51,7 @@ export function StatusStrip(): JSX.Element {
 
   return (
     <footer className="status-strip" data-testid="status-strip">
-      <AgentConcurrencyHistory workingSessions={workingSessions} />
+      <AgentConcurrencyHistory working={workingCount} />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
       {typeof issue === 'symbol' && (

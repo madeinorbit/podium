@@ -124,7 +124,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       const ids = known.get('shipOrder')!
       for (const record of batch.rows) {
         if (record.kind !== 'shipOrders') continue
-        const value = runtime.replica.row('shipOrders', record.id)
+        const value = runtime.replica.row!('shipOrders', record.id)
         if (value) ids.add(record.id)
         else ids.delete(record.id)
         records.push({ kind: 'shipOrder', id: record.id, value })

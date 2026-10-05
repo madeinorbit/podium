@@ -16,12 +16,18 @@ export function useHeaderActions() {
 }
 
 const readStatus = (pool: MobxPool) => ({
-  workingSessions: pool.headerViews.working(),
+  workingCount: pool.headerViews.workingCount(),
   issue: pool.headerViews.selectedIssue(),
 })
-const EMPTY_STATUS = { workingSessions: [], issue: undefined }
+const EMPTY_STATUS = { workingCount: 0, issue: undefined }
 export function useHeaderStatus() {
   return useWorklistPoolProjection(readStatus, EMPTY_STATUS)
+}
+
+const readWorking = (pool: MobxPool) => pool.headerViews.working()
+const EMPTY_WORKING: ReturnType<typeof readWorking> = []
+export function usePoolWorkingSessions() {
+  return useWorklistPoolProjection(readWorking, EMPTY_WORKING)
 }
 
 const readView = (pool: MobxPool) => pool.headerViews.row('window', 'window')?.view ?? 'workspace'

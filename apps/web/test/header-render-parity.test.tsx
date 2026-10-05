@@ -47,9 +47,9 @@ async function mount(roster = false) {
   let ready = false
   let runtime: ClientRuntime | undefined
   function Working() {
-    const { workingSessions } = useHeaderStatus()
+    const { workingCount } = useHeaderStatus()
     const { trpc } = useHeaderActions()
-    return <AgentConcurrencyHistory workingSessions={workingSessions} />
+    return <AgentConcurrencyHistory working={workingCount} />
   }
   function Header() {
     const owner = useStoreHandle() as ClientRuntime

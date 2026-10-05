@@ -1,7 +1,6 @@
 import { Popover } from '@base-ui/react/popover'
-import type { SessionView } from '@podium/client-core/session-values'
-import { type JSX, useMemo } from 'react'
-import { usePoolConcurrencyHistory } from './header-data'
+import { type JSX, useMemo, useState } from 'react'
+import { usePoolConcurrencyHistory, usePoolWorkingSessions } from './header-data'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
 
@@ -14,14 +13,11 @@ const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
  * reading rather than changing the instrument.
  */
 export function AgentConcurrencyHistory({
-  workingSessions,
+  working,
 }: {
-  workingSessions: readonly Pick<
-    SessionView,
-    'sessionId' | 'name' | 'title' | 'displayRef' | 'agentKind'
-  >[]
+  working: number
 }): JSX.Element {
-  const working = workingSessions.length
+  const [rosterOpen, setRosterOpen] = useState(false)
   const history = usePoolConcurrencyHistory()
 
   const buckets = useMemo(() => {
@@ -43,7 +39,7 @@ export function AgentConcurrencyHistory({
       tone="agents"
       current={
         working > 0 ? (
-          <Popover.Root>
+          <Popover.Root open={rosterOpen} onOpenChange={setRosterOpen}>
             <Popover.Trigger
               className="status-strip-live status-strip-roster-trigger"
               data-testid="status-strip-working"
@@ -58,14 +54,7 @@ export function AgentConcurrencyHistory({
                   <Popover.Title className="status-strip-roster-title">
                     Agents working now
                   </Popover.Title>
-                  <ul className="status-strip-roster-list">
-                    {workingSessions.map((session) => (
-                      <li key={session.sessionId}>
-                        <span>{session.name ?? session.title}</span>
-                        <b>{session.displayRef ?? session.agentKind}</b>
-                      </li>
-                    ))}
-                  </ul>
+                  {rosterOpen && <WorkingRoster />}
                   <p>Connected sessions with activity in the last 15 minutes.</p>
                 </Popover.Popup>
               </Popover.Positioner>
@@ -92,5 +81,19 @@ export function AgentConcurrencyHistory({
       bucketMs={history?.bucketMs ?? DEFAULT_BUCKET_MS}
       shareText={shareAgentConcurrency(working)}
     />
+  )
+}
+
+function WorkingRoster() {
+  const workingSessions = usePoolWorkingSessions()
+  return (
+    <ul className="status-strip-roster-list">
+      {workingSessions.map((session) => (
+        <li key={session.sessionId}>
+          <span>{session.name ?? session.title}</span>
+          <b>{session.displayRef ?? session.agentKind}</b>
+        </li>
+      ))}
+    </ul>
   )
 }

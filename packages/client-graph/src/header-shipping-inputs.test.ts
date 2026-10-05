@@ -5,9 +5,9 @@ import {
   shippingPanelModel,
 } from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
-import { measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import type { HeaderRecord, HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 
@@ -221,4 +221,47 @@ it('adopts resident scan changes, removal and group order without stale shipping
   } finally {
     ordered.dispose()
   }
+})
+
+it('maintains shipping counts through one-order edits, moves and removal at 1x/4x', async () => {
+  const samples = []
+  for (const scale of [1, 4] as const) {
+    const f = fixture(scale)
+    const orders = Array.from({ length: 128 * scale }, (_, index) => ({
+      id: `count-${index}`, repoId: 'first', humanState: 'needs_you',
+    } as HeaderRows['shipOrder']))
+    f.pool.header.apply(orders.map(value => ({ kind: 'shipOrder', id: value.id, value })))
+    const rows = vi.spyOn(f.pool, 'row')
+    const measure = (name: string, action: () => void) =>
+      measureWork(async () => insideReader(name, action), { pool: f.pool })
+    const update = (value: HeaderRows['shipOrder'] | undefined) =>
+      f.pool.header.apply([{ kind: 'shipOrder', id: 'count-0', value }])
+    try {
+      const first = await measure('first shipping counts', () => {
+        expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale + 1 })
+      })
+      const edited = await measure('one shipping state', () => update({ ...orders[0]!, humanState: 'waiting' }))
+      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale })
+      const moved = await measure('one shipping repository', () => update({ ...orders[0]!, repoId: 'other' }))
+      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 3, decisionCount: 2 })
+      const restored = await measure('restore shipping repository', () => update(orders[0]))
+      expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 2, decisionCount: 1 })
+      const shipped = await measure('finish shipping order', () => update({ ...orders[0]!, humanState: 'shipped' }))
+      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      const deleted = await measure('remove shipping order', () => update(undefined))
+      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      const repeated = await measure('repeat shipping removal', () => update(undefined))
+      expect(rows.mock.calls.filter(([kind]) => kind === 'shipOrder')).toEqual([])
+      const control = await measure('whole shipping count control', () => {
+        shippingPanelModel([...f.pool.header.tables.shipOrder.values()] as HeaderRows['shipOrder'][], [], 'first')
+      })
+      expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
+      samples.push({ scale, first: first.work, edited: edited.work, moved: moved.work, restored: restored.work, shipped: shipped.work, deleted: deleted.work, repeated: repeated.work, control: control.work })
+    } finally { rows.mockRestore(); f.dispose() }
+  }
+  console.info('[shipping count work1x4x]', JSON.stringify(samples))
+  for (const name of ['first', 'edited', 'moved', 'restored', 'shipped', 'deleted', 'repeated'] as const)
+    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+      expect(samples[1]![name][counter], `${name}:${counter}`).toBe(samples[0]![name][counter])
 })

@@ -6,6 +6,7 @@ enableFixtureHeader()
 
 // @vitest-environment happy-dom
 import { asIssueId } from '@podium/model'
+import { HeaderSessions } from '@podium/client-graph/header-sessions'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -140,6 +141,30 @@ describe('StatusStrip issue reference', () => {
 })
 
 describe('StatusStrip agent concurrency history', () => {
+  it.each([128, 512])('has no roster demand while closed with %i working sessions', async (size) => {
+    fixture.sessions.push(...Array.from({ length: size }, (_, index) => ({
+      sessionId: `closed-${index}`, agentKind: 'codex', title: `Worker ${index}`,
+      lastActiveAt: new Date(NOW).toISOString(), status: 'live',
+      agentState: { phase: 'working' },
+    })))
+    const roster = vi.spyOn(HeaderSessions.prototype, 'working')
+    const view = render(<StatusStrip />)
+    await waitFor(() => expect(fixture.query).toHaveBeenCalled())
+    expect(screen.getByTestId('status-strip-working').textContent).toContain(`${size} agents working`)
+    expect(roster).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('status-strip-roster')).toBeNull()
+    fireEvent.click(screen.getByTestId('status-strip-working'))
+    await waitFor(() => expect(screen.getByTestId('status-strip-roster').querySelectorAll('li')).toHaveLength(size))
+    expect(roster).toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('status-strip-working'))
+    await waitFor(() => expect(screen.queryByTestId('status-strip-roster')).toBeNull())
+    roster.mockClear()
+    fixture.sessions[0] = { ...fixture.sessions[0], title: 'Changed while closed' }
+    view.rerender(<StatusStrip />)
+    await waitFor(() => expect(screen.getByTestId('status-strip-working').textContent).toContain(`${size} agents working`))
+    expect(roster).not.toHaveBeenCalled()
+  })
+
   it('keeps the zero state singular: no spinner and no numeric working phrase', async () => {
     const { container } = render(<StatusStrip />)
 
