@@ -1,7 +1,9 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
+import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
 import { GitBranch, GitCommitHorizontal, RefreshCw, WrapText } from 'lucide-react'
+import { observable, type ObservableMap, runInAction } from 'mobx'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
@@ -83,22 +85,25 @@ export function DiffSheet({
 }): JSX.Element {
   const [selected, setSelected] = useState(initialPath)
   const [wrap, setWrap] = usePersistedUiState<boolean>(DIFF_SHEET_WRAP_KEY, readWrap, writeWrap)
-  const diffs = useDiffs({ entries, cwd, machineId, selected, sources, commit })
-
   // The inventory can change under the sheet (refresh, or an agent committing
   // while you read): fall back to the first file rather than an empty pane.
-  const current = entries.find((e) => e.path === selected) ?? entries[0]
+  const entryIndex = useMemo(
+    () => new Map(entries.map((entry, index) => [entry.path, index])),
+    [entries],
+  )
+  const current = entries[entryIndex.get(selected) ?? 0]
+  const diffs = useDiffs({ entries, entry: current, cwd, machineId, sources, commit })
   const railRef = useRef<HTMLElement | null>(null)
   const selectedRef = useRef<HTMLButtonElement | null>(null)
 
   const move = useCallback(
     (delta: number) => {
       if (entries.length === 0) return
-      const at = entries.findIndex((e) => e.path === current?.path)
+      const at = entryIndex.get(selected) ?? 0
       const next = entries[Math.min(entries.length - 1, Math.max(0, at + delta))]
       if (next) setSelected(next.path)
     },
-    [entries, current],
+    [entries, entryIndex, selected],
   )
 
   // j/k walk the files from anywhere in the sheet — the rail's own arrow keys
@@ -131,27 +136,6 @@ export function DiffSheet({
     row.scrollIntoView?.({ block: 'nearest' })
     if (railRef.current?.contains(document.activeElement)) row.focus({ preventScroll: true })
   }, [current?.path])
-
-  // Totals over VISITED files only, so the memo never walks the rail: with
-  // on-demand fetching, unvisited files are pending by definition, and a figure
-  // that climbs while the reader visits files would be a progress bar wearing a
-  // number's clothes (see the toolbar comment). Totals land only once every
-  // file has been visited and settled.
-  const totals = useMemo(() => {
-    let added = 0
-    let removed = 0
-    let settled = 0
-    for (const state of Object.values(diffs)) {
-      // Pending means UNRESOLVED, not "has no diff": a binary blob and an
-      // untracked folder are answers, and totals that waited for lines from
-      // them would never appear in a tree that holds one.
-      if (!state || state.loading) continue
-      settled += 1
-      added += state.parsed?.added ?? 0
-      removed += state.parsed?.removed ?? 0
-    }
-    return { added, removed, pending: entries.length - settled }
-  }, [entries.length, diffs])
 
   return (
     <AppSheet
@@ -190,19 +174,7 @@ export function DiffSheet({
           {/* The totals land when every file has been visited: a figure that
               climbs while the reader visits files is a progress bar wearing a
               number's clothes. */}
-          {totals.pending === 0 && entries.length > 0 && (
-            <span
-              className="diff-sheet-totals"
-              title={
-                commit
-                  ? 'Lines added and removed by this commit'
-                  : 'Lines added and removed against HEAD'
-              }
-            >
-              <span className="diff-count-add">+{totals.added}</span>
-              <span className="diff-count-del">−{totals.removed}</span>
-            </span>
-          )}
+          <DiffTotals cache={diffs} count={entries.length} committed={!!commit} />
           <button
             data-pressable
             type="button"
@@ -268,7 +240,7 @@ export function DiffSheet({
             <FileRow
               key={entry.path}
               entry={entry}
-              parsed={diffs[entry.path]?.parsed}
+              cache={diffs}
               selected={entry.path === current?.path}
               rowRef={entry.path === current?.path ? selectedRef : undefined}
               onSelect={() => setSelected(entry.path)}
@@ -277,7 +249,7 @@ export function DiffSheet({
         </nav>
         <div className="diff-pane">
           {current ? (
-            <FilePane key={current.path} entry={current} state={diffs[current.path]} wrap={wrap} />
+            <FilePane key={current.path} entry={current} cache={diffs} wrap={wrap} />
           ) : (
             <div className="diff-empty">
               {commit ? 'This commit touched no files.' : 'Working tree clean.'}
@@ -290,19 +262,20 @@ export function DiffSheet({
 }
 
 /** One rail row: axis badge, file name, its counts, and the folder it lives in. */
-function FileRow({
+const FileRow = observer(function FileRow({
   entry,
-  parsed,
+  cache,
   selected,
   rowRef,
   onSelect,
 }: {
   entry: StatusEntry
-  parsed?: ParsedDiff
+  cache: DiffCache
   selected: boolean
   rowRef?: React.RefObject<HTMLButtonElement | null>
   onSelect: () => void
 }): JSX.Element {
+  const parsed = cache.states.get(entry.path)?.parsed
   const { dir, name } = splitPath(entry.path)
   return (
     <button
@@ -330,18 +303,45 @@ function FileRow({
       )}
     </button>
   )
-}
+})
+
+const DiffTotals = observer(function DiffTotals({
+  cache,
+  count,
+  committed,
+}: {
+  cache: DiffCache
+  count: number
+  committed: boolean
+}): JSX.Element | null {
+  const totals = cache.totals
+  if (count === 0 || totals.settled !== count) return null
+  return (
+    <span
+      className="diff-sheet-totals"
+      title={
+        committed
+          ? 'Lines added and removed by this commit'
+          : 'Lines added and removed against HEAD'
+      }
+    >
+      <span className="diff-count-add">+{totals.added}</span>
+      <span className="diff-count-del">−{totals.removed}</span>
+    </span>
+  )
+})
 
 /** The reading half: what happened to this file, then the diff itself. */
-function FilePane({
+const FilePane = observer(function FilePane({
   entry,
-  state,
+  cache,
   wrap,
 }: {
   entry: StatusEntry
-  state?: DiffState
+  cache: DiffCache
   wrap: boolean
 }): JSX.Element {
+  const state = cache.states.get(entry.path)
   const { dir, name } = splitPath(entry.path)
   const parsed = state?.parsed
   return (
@@ -397,7 +397,7 @@ function FilePane({
       </div>
     </>
   )
-}
+})
 
 function Row({ row }: { row: DiffRow }): JSX.Element {
   if (row.kind === 'hunk')
@@ -455,6 +455,12 @@ type DiffState = {
   note?: string
 }
 
+type DiffCache = {
+  states: ObservableMap<string, DiffState>
+  totals: { settled: number; added: number; removed: number }
+  active: boolean
+}
+
 /**
  * Git reports an untracked FOLDER as a single entry (`.artifacts/POD-1/`), so
  * there is no file to read and no diff to ask for. That is an answer, not an
@@ -472,54 +478,52 @@ const TOO_LARGE = 'This file is too large to read here.'
  * Only the file being read is fetched. Visited files stay cached under the
  * sheet owner, so going back is instant, but opening the sheet on one file of
  * F issues one payload request — never one per rail row. There is no
- * background prefetch and no rail-wide pump: the demand effect below names a
- * single path, so neither selection nor any fetch completion walks the rail.
+ * background prefetch or completion pump. Each arrival updates one map entry
+ * and the running totals; only that path's readers and the totals observe it.
  */
 
 function useDiffs({
   entries,
+  entry,
   cwd,
   machineId,
-  selected,
   sources,
   commit,
 }: {
   entries: StatusEntry[]
+  entry: StatusEntry | undefined
   cwd: string
   machineId?: MachineId
-  selected: string
   sources?: Record<string, string> | undefined
   commit?: { sha: string } | undefined
-}): Record<string, DiffState> {
+}): DiffCache {
   const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
   // The sha, not the object: the caller builds its commit descriptor inline, so
   // depending on the object would rebuild `load` on every render for a value
   // that never changed.
   const commitSha = commit?.sha
-  const [diffs, setDiffs] = useState<Record<string, DiffState>>({})
-  const inflight = useRef(new Set<string>())
-  const alive = useRef(true)
+  // A new inventory or payload source owns a new cache. Old requests retain
+  // their old owner and cannot overwrite a refreshed result at the same path.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: these values define the cache's lifetime, even though its initial contents are empty.
+  const cache = useMemo<DiffCache>(
+    () => ({
+      states: observable.map<string, DiffState>(undefined, { deep: false }),
+      totals: observable({ settled: 0, added: 0, removed: 0 }),
+      active: false,
+    }),
+    [entries, cwd, machineId, sources, commitSha],
+  )
   useEffect(() => {
-    alive.current = true
+    cache.active = true
     return () => {
-      alive.current = false
+      cache.active = false
     }
-  }, [])
-
-  // A re-probe invalidates everything: the same path can hold a different diff.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new inventory IS the invalidation; the body deliberately reads nothing from it.
-  useEffect(() => {
-    inflight.current.clear()
-    setDiffs({})
-  }, [entries])
+  }, [cache])
 
   const load = useCallback(
     (entry: StatusEntry) => {
-      if (inflight.current.has(entry.path)) return
-      inflight.current.add(entry.path)
-      // The record holds visited files only, so this copy is bounded by
-      // visited selections — never by the rail length.
-      setDiffs((d) => ({ ...d, [entry.path]: { loading: true } }))
+      if (cache.states.has(entry.path)) return
+      runInAction(() => cache.states.set(entry.path, { loading: true }))
       void (async () => {
         let next: DiffState
         try {
@@ -570,26 +574,26 @@ function useDiffs({
         } catch (e) {
           next = { loading: false, error: e instanceof Error ? e.message : String(e) }
         }
-        if (!alive.current) return
-        // Visited-only record: this copy grows with selections made, not files.
-        setDiffs((d) => ({ ...d, [entry.path]: next }))
+        if (!cache.active) return
+        runInAction(() => {
+          cache.states.set(entry.path, next)
+          // Folders, binaries, and errors are settled answers too.
+          cache.totals.settled += 1
+          cache.totals.added += next.parsed?.added ?? 0
+          cache.totals.removed += next.parsed?.removed ?? 0
+        })
       })()
     },
-    [cwd, machineId, gitDiffFile, gitCommitDiffFile, readFileScoped, sources, commitSha],
+    [cache, cwd, machineId, gitDiffFile, gitCommitDiffFile, readFileScoped, sources, commitSha],
   )
 
-  // Demand: exactly the file being read, nothing else. Deliberately NOT keyed
-  // on the results — a completion must not re-walk the rail looking for more
-  // work. The `find … ?? first` mirrors the pane's own fallback, so a stale
-  // selection after a re-probe still loads the file actually shown.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selection/inventory demand only; results must not retrigger.
+  // Selection is resolved once by the sheet; completions never search the rail.
   useEffect(() => {
-    const entry = entries.find((e) => e.path === selected) ?? entries[0]
     if (!entry) return
     load(entry)
-  }, [entries, selected, load])
+  }, [entry, load])
 
-  return diffs
+  return cache
 }
 
 // ---------------------------------------------------------------------------

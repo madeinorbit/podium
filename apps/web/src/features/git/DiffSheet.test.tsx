@@ -14,11 +14,12 @@ import '@/test-support/mock-core-store-handle'
  *     file read and the synthesized hunk, and lands numbered from 1.
  */
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DiffSheet } from './DiffSheet'
-import { parseCommitFiles, parseStatus } from './git-panel'
+import { parseCommitFiles, parseStatus, type StatusEntry } from './git-panel'
 
 const { entries } = parseStatus(
   [
@@ -89,11 +90,26 @@ vi.mock('@/app/store', () => ({
 
 afterEach(() => {
   cleanup()
-  gitDiffFile.mockClear()
-  gitCommitDiffFile.mockClear()
-  readFileScoped.mockClear()
+  gitDiffFile.mockReset()
+  gitCommitDiffFile.mockReset()
+  readFileScoped.mockReset()
   uiRows.clear()
 })
+
+const sheetProps = {
+  cwd: '/w/787',
+  refreshing: false,
+  onRefresh: () => {},
+  onClose: () => {},
+}
+
+function pendingDiff() {
+  let resolve!: (value: { ok: boolean; output: string }) => void
+  const promise = new Promise<{ ok: boolean; output: string }>((finish) => {
+    resolve = finish
+  })
+  return { promise, resolve }
+}
 
 const open = (initialPath: string) =>
   render(
@@ -125,7 +141,7 @@ const openCommit = (initialPath: string) =>
     />,
   )
 
-/** Rail rows are options in one listbox; the path is how a test names one. */
+/** The path names one destination in the file rail. */
 const row = (path: string): HTMLElement => {
   const el = document.querySelector(`.diff-file[data-path="${path}"]`)
   if (!el) throw new Error(`no rail row for ${path}`)
@@ -133,6 +149,146 @@ const row = (path: string): HTMLElement => {
 }
 
 describe('DiffSheet', () => {
+  it.each([
+    16, 64,
+  ])('bounds payload demand and completion work with %i rail files', async (count) => {
+    let visits = 0
+    const inventory: StatusEntry[] = Array.from({ length: count }, (_, index) => ({
+      x: ' ',
+      y: 'M',
+      untracked: false,
+      get path() {
+        visits += 1
+        return `src/file-${index}.ts`
+      },
+    }))
+    const selected = `src/file-${count - 1}.ts`
+    const pending = pendingDiff()
+    gitDiffFile.mockImplementationOnce(() => pending.promise)
+    render(<DiffSheet {...sheetProps} entries={inventory} initialPath={selected} />)
+
+    expect(gitDiffFile.mock.calls.map((call) => call[0].path)).toEqual([selected])
+    visits = 0
+    await act(async () => pending.resolve({ ok: true, output: diffFor(selected) }))
+    expect(screen.getByText('function shape() {')).toBeTruthy()
+    expect(row(selected).textContent).toContain('+2')
+    // The completed file's row and pane may read its path. The inventory and
+    // previously visited results must not be walked or copied on completion.
+    expect(visits).toBeGreaterThan(0)
+    expect(visits).toBeLessThanOrEqual(12)
+    expect(gitDiffFile.mock.calls.map((call) => call[0].path)).toEqual([selected])
+    expect(readFileScoped).not.toHaveBeenCalled()
+    expect(gitCommitDiffFile).not.toHaveBeenCalled()
+  })
+
+  it('keeps a requested file cached when it finishes after selection moves away', async () => {
+    const pending = pendingDiff()
+    gitDiffFile.mockImplementationOnce(() => pending.promise)
+    open('src/a.ts')
+    await userEvent.click(row('src/deep/b.ts'))
+    await screen.findByText('function shape() {')
+    await act(async () => pending.resolve({ ok: true, output: diffFor('src/a.ts') }))
+    expect(row('src/a.ts').textContent).toContain('+2')
+    await userEvent.click(row('src/a.ts'))
+    expect(screen.getByText('// src/a.ts')).toBeTruthy()
+    expect(gitDiffFile).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores old requests after a refresh, including at the same path', async () => {
+    const old = pendingDiff()
+    const fresh = pendingDiff()
+    gitDiffFile
+      .mockImplementationOnce(() => old.promise)
+      .mockImplementationOnce(() => fresh.promise)
+    const view = open('src/a.ts')
+    view.rerender(<DiffSheet {...sheetProps} entries={[...entries]} initialPath="src/a.ts" />)
+    expect(gitDiffFile).toHaveBeenCalledTimes(2)
+    await act(async () => fresh.resolve({ ok: true, output: diffFor('fresh') }))
+    expect(screen.getByText('// fresh')).toBeTruthy()
+    await act(async () => old.resolve({ ok: true, output: diffFor('stale') }))
+    expect(screen.getByText('// fresh')).toBeTruthy()
+    expect(screen.queryByText('// stale')).toBeNull()
+  })
+
+  it('loads only the fallback file when a refreshed inventory removes the selection', async () => {
+    const view = open('src/deep/b.ts')
+    await screen.findByText('function shape() {')
+    view.rerender(
+      <DiffSheet
+        {...sheetProps}
+        entries={[entries[0]!, entries[2]!]}
+        initialPath="src/deep/b.ts"
+      />,
+    )
+    await screen.findByText('// src/a.ts')
+    expect(row('src/a.ts').getAttribute('aria-current')).toBe('true')
+    expect(gitDiffFile.mock.calls.map((call) => call[0].path)).toEqual([
+      'src/deep/b.ts',
+      'src/a.ts',
+    ])
+    expect(readFileScoped).not.toHaveBeenCalled()
+  })
+
+  it('deduplicates demand during strict effect replay', async () => {
+    const pending = pendingDiff()
+    gitDiffFile.mockImplementationOnce(() => pending.promise)
+    render(
+      <StrictMode>
+        <DiffSheet {...sheetProps} entries={entries} initialPath="src/a.ts" />
+      </StrictMode>,
+    )
+    expect(gitDiffFile).toHaveBeenCalledTimes(1)
+    await act(async () => pending.resolve({ ok: true, output: diffFor('src/a.ts') }))
+    expect(screen.getByText('// src/a.ts')).toBeTruthy()
+  })
+
+  it('reads supplied diffs only on demand and invalidates replaced sources', async () => {
+    const cold = vi.fn(() => diffFor('cold'))
+    const sources = {
+      'src/a.ts': diffFor('recorded'),
+      get 'src/deep/b.ts'() {
+        return cold()
+      },
+    }
+    const view = render(
+      <DiffSheet {...sheetProps} entries={entries} initialPath="src/a.ts" sources={sources} />,
+    )
+    await screen.findByText('// recorded')
+    expect(cold).not.toHaveBeenCalled()
+    await userEvent.click(row('src/deep/b.ts'))
+    await screen.findByText('// cold')
+    expect(cold).toHaveBeenCalledTimes(1)
+    await userEvent.click(row('src/a.ts'))
+    expect(screen.getByText('// recorded')).toBeTruthy()
+    view.rerender(
+      <DiffSheet
+        {...sheetProps}
+        entries={entries}
+        initialPath="src/a.ts"
+        sources={{ 'src/a.ts': diffFor('replaced') }}
+      />,
+    )
+    await screen.findByText('// replaced')
+    expect(gitDiffFile).not.toHaveBeenCalled()
+    expect(gitCommitDiffFile).not.toHaveBeenCalled()
+    expect(readFileScoped).not.toHaveBeenCalled()
+  })
+
+  it('invalidates the selected payload when the commit changes', async () => {
+    const view = openCommit('src/a.ts')
+    await screen.findByText('function shape() {')
+    const commit = { ...COMMIT, sha: 'def5678ffff0000' }
+    view.rerender(
+      <DiffSheet {...sheetProps} entries={commitEntries} initialPath="src/a.ts" commit={commit} />,
+    )
+    await screen.findByText('function shape() {')
+    expect(gitCommitDiffFile.mock.calls.map((call) => call[0].sha)).toEqual([
+      COMMIT.sha,
+      commit.sha,
+    ])
+    expect(gitDiffFile).not.toHaveBeenCalled()
+  })
+
   it('opens on the clicked file and numbers both sides of its diff', async () => {
     open('src/deep/b.ts')
     expect(await screen.findByText('function shape() {')).toBeTruthy()
