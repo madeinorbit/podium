@@ -30,16 +30,19 @@ describe('non-reference fallback labels', () => {
       title: 'Orphan',
       stage: 'review',
     }
-    const addressed = { ...fallback, id: 'iss_addressed', prefix: 'POD', displayRef: 'POD-17' }
+    const addressed = { ...fallback, id: 'iss_addressed', repoId: 'r', prefix: 'POD', displayRef: 'POD-17' }
     fixture.issues = [fallback, addressed] as IssueReferenceSource[]
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     pool?.apply({
       type: 'replace',
-      rows: [fallback, addressed].map((row) => ({
+      rows: [
+        { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'r', prefix: 'POD', repoPath: '/synthetic', repoName: 'Fixture' } as never },
+        ...[fallback, addressed].map((row) => ({
         kind: 'issue',
         id: row.id,
         value: { ...row, repoPath: '/synthetic', deps: [] } as never,
       })),
+      ],
     })
     fixture.pool = pool
     setKnownRefPrefixes(['POD'])

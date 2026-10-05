@@ -148,7 +148,7 @@ describe('per-issue pool references', () => {
     f.dispose()
   })
 
-  it('resolves cold references once, then queues the row through the pool reader', () => {
+  it('finds a cold identity directly and loads its missing label fields by id', () => {
     const cold = issue(1, { archived: true })
     const load = vi.fn(() => cold)
     let run: (() => void) | undefined
@@ -181,7 +181,7 @@ describe('per-issue pool references', () => {
     pool.dispose()
   })
 
-  it('resolves and loads 50 cold references in one local window, coalescing repeated chips', () => {
+  it('loads 50 named cold rows together and resolves only the unknown reference', () => {
     const cold = Array.from({ length: 50 }, (_, i) => issue(i + 1, { archived: true }))
     const load = vi.fn((_entity: string, id: string) => cold.find((row) => row.id === id))
     const due: Array<() => void> = []

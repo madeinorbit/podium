@@ -87,11 +87,13 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   private source(id: string): Loaded<IssueReferenceSource> {
-    const row = this.host.row('issue', id, 'summary-fields')
-    if (row === LOADING) {
-      void this.host.row('issue', id, 'load')
-      return LOADING
-    }
+    const summary = this.host.row('issue', id, 'summary-fields')
+    // A pool may declare only stage/residency fields for cold issues. A
+    // reference needs identity and label fields too; load this named row
+    // through the existing window when its declared summary is incomplete.
+    const row = summary === LOADING || (summary && !['id', 'seq', 'title', 'stage'].every(field => Object.hasOwn(summary, field)))
+      ? this.host.row('issue', id, 'load') : summary
+    if (row === LOADING) return LOADING
     if (row === undefined) return undefined
     const issue = row as IssueReferenceSource
     const repoId = this.host.relations.one('issue', id, 'repo')

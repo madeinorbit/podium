@@ -3,6 +3,7 @@ import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { PodiumTarget } from '@podium/protocol'
+import { parseAnyRef } from '@podium/protocol'
 
 interface AddressIssue {
   id: string
@@ -17,15 +18,22 @@ export function poolRouteFixture(input: {
   sessions: readonly { sessionId: string; displayRef?: string }[]
 }) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  // Historical route fixtures sometimes supplied displayRef alone. Feed
+  // their normalized identity through the same repo composition as production.
+  const issues = input.issues.map(row => {
+    const ref = parseAnyRef(row.displayRef ?? '')
+    return { ...row, seq: row.seq ?? (ref?.kind === 'issue' ? ref.seq : 0),
+      prefix: row.prefix ?? (ref?.kind === 'issue' ? ref.prefix : undefined) }
+  })
   pool.apply({
     type: 'replace',
     rows: [
-      ...[...new Set(input.issues.flatMap((row) => row.prefix ? [row.prefix] : []))].map((prefix) => ({
+      ...[...new Set(issues.flatMap((row) => row.prefix ? [row.prefix] : []))].map((prefix) => ({
         kind: 'worktree' as const, id: `/synthetic/${prefix}`, value: {
           path: `/synthetic/${prefix}`, repoId: prefix, prefix, repoPath: `/synthetic/${prefix}`, repoName: prefix,
         } as never,
       })),
-      ...input.issues.map((row) => ({
+      ...issues.map((row) => ({
         kind: 'issue' as const,
         id: row.id,
         value: {
