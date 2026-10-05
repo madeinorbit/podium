@@ -6,6 +6,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './test-support/client-core-mock'
+import { setFakeStore } from './test-support/fake-store-handle'
 
 // ---------------------------------------------------------------------------
 // POD-4808: offline machine chat shows nothing / looks live.
@@ -176,6 +177,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     ]
     storeMachines = [{ id: 'm1', name: 'desk', online: false }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
@@ -205,6 +207,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     ]
     storeMachines = [{ id: 'm1', name: 'desk', online: false }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
@@ -239,6 +242,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     // still be in flight behind it; the banner must already be gone).
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
@@ -264,6 +268,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     // the banner must read the daemon too, or a frozen daemon never shows.
     storeMachines = [{ id: 'm1', name: 'desk', online: true, availability: { daemon: false } }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
@@ -293,6 +298,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     // Daemon reattaches: the banner clears from live presence alone.
     storeMachines = [{ id: 'm1', name: 'desk', online: true, availability: { daemon: true } }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
@@ -307,6 +313,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     ]
     storeMachines = [{ id: 'm1', name: 'desk', online: false }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(reads).toHaveLength(1)
@@ -319,6 +326,7 @@ describe('ChatView machine-offline history (POD-4808)', () => {
     // replaced by history — no reload.
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
@@ -343,7 +351,7 @@ it('the live offline banner uses the replicated session machine name', async () 
     agentState: { phase: 'working', since: new Date(Date.now() - 149_380).toISOString(), nativeSubagentCount: 0 } })
   storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
   storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
-  act(() => { root.render(<ChatView sessionId={asSessionId('s1')} />) })
+  act(() => { setFakeStore({}); root.render(<ChatView sessionId={asSessionId('s1')} />) })
   await act(async () => { reads[0]?.resolve({ items: [{ id: 'tool-home', cursor: 'c-home', role: 'tool',
     text: '', toolName: 'Bash', toolInput: 'pwd', ts: new Date(Date.now() - 149_380).toISOString() } as TranscriptItem],
     head: 'c-home', tail: 'c-home', hasMore: false }) })

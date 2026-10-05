@@ -9,6 +9,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import './test-support/client-core-mock'
+import { setFakeStore } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 /**
@@ -185,6 +186,7 @@ describe('an invisible referent', () => {
     storeSessions = []
     exits.s1 = 'evicted'
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await flush()
@@ -207,6 +209,7 @@ describe('an invisible referent', () => {
 
   it('settles the bounded loading state once an empty read resolves', async () => {
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     expect(container.textContent).toContain('Loading transcript')
@@ -223,6 +226,7 @@ describe('an evicted open chat', () => {
   it('leaves once, with no deletion affordance and no heal loop', async () => {
     const onLeave = vi.fn()
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} onLeave={onLeave} />)
     })
     await act(async () => {
@@ -242,6 +246,7 @@ describe('an evicted open chat', () => {
     await act(async () => {
       storeSessions = []
       exits.s1 = 'evicted'
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} onLeave={onLeave} />)
     })
     await flush()
@@ -279,6 +284,7 @@ describe('no chat payload carries attribution', () => {
   it('sends only the message and its idempotency key', async () => {
     storeDrafts = { s1: 'ship it' }
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
@@ -303,6 +309,7 @@ describe('no chat payload carries attribution', () => {
 
   it('answers a question without naming who answered', async () => {
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
@@ -352,6 +359,7 @@ describe('no chat payload carries attribution', () => {
 describe('the attribution pair is rendered from server fields', () => {
   it('marks each row with its actor kind, and never invents the human half', async () => {
     act(() => {
+      setFakeStore({})
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
     await act(async () => {
