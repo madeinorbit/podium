@@ -1,9 +1,8 @@
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { renderWithMobileStore } from '../client/test-support'
 import { AUTO } from '../lib/agent-models'
 import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
@@ -14,6 +13,11 @@ const state = vi.hoisted(() => ({
   machines: [] as MachineWire[],
 }))
 vi.mock('../client/use-launch-inputs', () => ({ useLaunchInputs: () => state }))
+vi.mock('@podium/client-core/react', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@podium/client-core/react')>(),
+  useModelCatalogState: () => ({ catalog: {}, status: 'offline' }),
+  useHarnessDescriptors: () => ({ served: undefined }),
+}))
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
@@ -27,7 +31,6 @@ afterEach(() => {
 
 it('requests no fallback menu while closed at 1x/4x and builds only the opened picker', async () => {
   for (const scale of [1, 4] as const) {
-    console.info('[closed launch picker fixture]', scale)
     state.repos = [
       {
         kind: 'repository',
@@ -77,7 +80,9 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
         />
       )
     }
-    const view = await renderWithMobileStore(<Harness />, { principal: `user:closed-launch-picker-${scale}` })
+    // This guard measures the real parent's menu factory with large launch
+    // inputs. Pool attachment is covered by launch-inputs.pool.test.tsx.
+    const view = render(<Harness />)
     try {
       expect(sheet).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Machine, Auto' }))
