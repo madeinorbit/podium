@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -290,7 +291,7 @@ export const MissionDeck = memo(function MissionDeck({
   )
   const continuationState =
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rootFinished = Boolean(root.closedReason || root.stage === 'done')
+  const rootFinished = isFinished(root)
 
   // WHAT THE DECK IS ABOUT TO RENDER, COUNTED — the same predicates the JSX
   // below uses, so the height the panel animates to and the rows that appear

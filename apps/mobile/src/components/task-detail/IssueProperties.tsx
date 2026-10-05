@@ -1,3 +1,4 @@
+import { isClosed } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -312,7 +313,7 @@ export function PropertyBar({
     <View style={styles.bar}>
       <Chip
         label={
-          issue.closedReason ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]
+          isClosed(issue) ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]
         }
         accessibilityLabel={`Stage ${ISSUE_STAGE_LABELS[issue.stage]} — change`}
         onPress={onStage}

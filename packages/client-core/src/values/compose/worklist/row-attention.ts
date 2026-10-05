@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
@@ -50,7 +51,7 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   if (
     sessions.length === 0 &&
     row.kind === 'issue' &&
-    (row.issue.stage === 'done' || row.issue.closedReason != null)
+    (isFinished(row.issue))
   ) {
     return 'done'
   }
@@ -58,8 +59,7 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   if (
     phase === 'done' &&
     row.kind === 'issue' &&
-    row.issue.stage !== 'done' &&
-    row.issue.closedReason == null
+    !isFinished(row.issue)
   ) {
     return 'queued'
   }
@@ -138,7 +138,7 @@ export function rowWaitingCount(row: UnifiedWorkRow): number {
 export function rowPendingDecision(row: UnifiedIssueRow): IssuePendingDecision | null {
   const decision = issuePendingDecision(row.issue)
   if (decision === null) return null
-  const finished = row.issue.stage === 'done' || row.issue.closedReason != null
+  const finished = isFinished(row.issue)
   if (!finished && row.sessions.some(isSessionWorking)) return null
   // THE WORK LEFT, SO THE REVIEW LEFT WITH IT. `review` is a stage an agent
   // sets on ITSELF; the row prints it as an ask aimed at the operator. When the

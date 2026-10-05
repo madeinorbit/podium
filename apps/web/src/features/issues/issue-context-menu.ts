@@ -1,3 +1,4 @@
+import { isClosed } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -99,7 +100,7 @@ export function describeCascade(taskCount: number, sessionCount: number): string
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
 export function issueHasCloseReason(issue: IssueNavigationModel): boolean {
-  return issue.closedReason != null
+  return isClosed(issue)
 }
 
 /**

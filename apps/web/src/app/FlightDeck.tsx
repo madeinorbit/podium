@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
@@ -3797,7 +3798,7 @@ export function FlightDeckContent({
    * stop to report none: this button already says what it will do, and a dialog
    * that rises to answer "nothing found" is a tax on the ordinary case.
    */
-  const rootFinished = Boolean(root && (root.closedReason || root.stage === 'done'))
+  const rootFinished = root !== undefined && root !== null && isFinished(root)
   const [signpostClosing, setSignpostClosing] = useState(false)
   const needsCloseGuard = useIssueCloseGuard(poolValues.sessions)
   const closeAndTuckRoot = (): void => {
@@ -4091,7 +4092,7 @@ export function FlightDeckContent({
                       onOpenInExplorer={() => selectIssue(rootRow, true)}
                     />
                   )}
-                  {rootIssue && !rootIssue.closedReason && !rootIssue.deletedAt && (
+                  {rootIssue && !isFinished(rootIssue) && !rootIssue.deletedAt && (
                     <MissionAgentMenu
                       poolHosts={source.agentHosts}
                       key={`agent-menu:${rootIssue.id}`}

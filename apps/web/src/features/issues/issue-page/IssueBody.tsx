@@ -1,3 +1,4 @@
+import { isClosed } from '@podium/model/browser'
 /**
  * The issue's own text: inline-editable title, the at-a-glance status strip, the
  * description, the agent brief, and the long-form spec fields. Split out of
@@ -164,7 +165,7 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts: { key: string; text: string; title?: string }[] = [
-    ...(issue.closedReason ? [{ key: 'closed', text: `Closed · ${issue.closedReason}` }] : []),
+    ...(isClosed(issue) ? [{ key: 'closed', text: `Closed · ${issue.closedReason}` }] : []),
     ...(created ? [{ key: 'created', text: `created ${created}`, title: issue.createdAt }] : []),
     ...(updated ? [{ key: 'updated', text: `updated ${updated}`, title: issue.updatedAt }] : []),
   ]

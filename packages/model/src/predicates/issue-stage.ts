@@ -6,15 +6,16 @@
  */
 
 import { type Instant, toInstant } from '../clock'
+import { isFinished } from './issue-lifecycle'
 
 export interface IssueClosedFields {
   stage: string
   closedReason?: string | null
 }
 
-/** THE closed predicate: done-stage or an explicit close reason. */
+/** Existing server/CLI API over the shared finished rule. */
 export function isIssueClosed(row: IssueClosedFields): boolean {
-  return row.stage === 'done' || row.closedReason != null
+  return isFinished(row)
 }
 
 /** Sentinel `deferUntil` value: snoozed until a session on the issue next needs

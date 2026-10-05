@@ -1,3 +1,4 @@
+import { isFinished } from './predicates'
 import {
   type SessionHomes,
   type SessionValueInput,
@@ -604,7 +605,7 @@ export function createRowSource(
     // Replica blocking is a truth fact. Optimistic stages change their own
     // row immediately, but a neighbour stops blocking only on the server echo.
     const projection = authority('issueProjections', id)
-    return projection === undefined ? undefined : projection.stage === 'done'
+    return projection === undefined ? undefined : isFinished(projection)
   }
 
   function resolve(

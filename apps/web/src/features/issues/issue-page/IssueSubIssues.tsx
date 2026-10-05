@@ -31,6 +31,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import { type JSX, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { isFinished } from '@podium/model/browser'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -39,12 +40,6 @@ import { issueIdTitle, issueStateWord } from '../issue-card'
 import { confirmedWorkingAgentCountsByIssue } from '../issues-display'
 import { useIssueStatusApply } from '../use-issue-status-apply'
 import { SectionHeading } from './chrome'
-
-/** A child is DONE for the fold when the issue slice's own finished predicate
- *  says so — `stage === 'done'` or a recorded close reason. */
-function isFinished(child: IssueViewModel): boolean {
-  return child.stage === 'done' || child.closedReason != null
-}
 
 const STATE_TONE = {
   attention: 'text-attention',

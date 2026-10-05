@@ -1,3 +1,4 @@
+import { isFinished } from '../shared/predicates'
 /**
  * The row roll-ups: `phase`, `working`, `asking`,
  * `progressDone` / `progressTotal` and `workingSince` (L1b, spec §3 R-SUM and
@@ -428,7 +429,7 @@ export function phaseOf(agg: Aggregate, rowFinished: boolean): SlicePhase {
 
 /** `issuePendingDecision` (`slices/issues.ts:391-404`); `merge` reads the merge axis off the composed row. */
 export function pendingDecisionOf(issue: SliceIssue): 'review' | 'merge' | null {
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const finished = isFinished(issue)
   if (!finished && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
   if (issueAbandoned(issue)) return null
@@ -538,7 +539,7 @@ export function unitOwnOf(facts: ProgressFacts, vacated: boolean): UnitOwn {
   const gone = issueAbandoned(facts)
   const member = facts.stage !== 'proposed' && !gone
   const unit = member && !vacated
-  const closed = facts.stage === 'done' || Boolean(facts.closedReason)
+  const closed = isFinished(facts)
   return { member, unit, done: unit && closed, solo: !gone && !vacated, cold: false }
 }
 
@@ -682,7 +683,7 @@ export function ownFactsOf(issue: Loaded<SliceIssue>): OwnFacts {
   if (issue === undefined) return UNKNOWN_FACTS
   return {
     state: 'ready',
-    finished: issue.stage === 'done' || issue.closedReason != null,
+    finished: isFinished(issue),
     decision: pendingDecisionOf(issue),
     continuedByField: continuedByField(issue),
     updatedAt: issue.updatedAt,
@@ -729,7 +730,7 @@ export function tipPartOf(input: RollupInputs, id: string): Tip {
             seq: issue.seq,
             repoId: issue.repoId,
             staffed: node?.openOwn === true,
-            finished: issue.stage === 'done' || issue.closedReason != null,
+            finished: isFinished(issue),
             activeAt: new Date(
               Math.max(
                 Date.parse(issue.updatedAt) || 0,

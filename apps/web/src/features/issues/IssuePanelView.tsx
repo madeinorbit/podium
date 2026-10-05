@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -209,7 +210,7 @@ function UnifiedRow({
   errored?: boolean
   onOpen: () => void
 }): JSX.Element {
-  const closed = sub.stage === 'done' || Boolean(sub.closedReason)
+  const closed = isFinished(sub)
   return (
     <button
       data-pressable
@@ -945,8 +946,8 @@ export function IssuePanelBody({
     return <IssueExplorerList />
   }
 
-  const openChildren = children.filter((c) => c.stage !== 'done' && !c.closedReason)
-  const doneChildren = children.filter((c) => c.stage === 'done' || Boolean(c.closedReason))
+  const openChildren = children.filter((c) => !isFinished(c))
+  const doneChildren = children.filter((c) => isFinished(c))
   const runningChildren = openChildren.filter(
     (c) => c.stage === 'in_progress' || c.stage === 'review',
   ).length
@@ -981,7 +982,7 @@ export function IssuePanelBody({
   // reason, or an archive, is the end of the work. `deckDestinationFor` already
   // refuses an archived or deleted target; this adds the outcome half, which it
   // has no reason to know about.
-  const workable = !issue.closedReason && !issue.archived
+  const workable = !isFinished(issue) && !issue.archived
 
   // WHAT THIS TASK IS CALLED, and the write that changes it (POD-1618). Both are
   // derived HERE rather than in the head, which would otherwise open a second

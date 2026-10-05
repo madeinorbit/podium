@@ -1,3 +1,4 @@
+import { isFinished } from '../../src/shared/predicates'
 /** Independent, stateless fixture oracle for pool parity. */
 import {
   asIssueId,
@@ -40,6 +41,7 @@ export interface IssueViewInput {
   parentId?: string | null
   prefix?: string | null
   stage: string
+  closedReason?: string | null
   status?: string
   deferUntil?: string | null
   readAt?: string | null
@@ -152,7 +154,7 @@ export function deriveIssueViews(
 ): Map<string, IssueView> {
   const now = opts.now ?? Date.now
   const sessionsByIssue = indexSessionsByIssue(sessions)
-  const stageById = new Map(issues.map((i) => [i.id, i.stage]))
+  const finishedById = new Map(issues.map((i) => [i.id, isFinished(i)]))
   const childrenByParent = new Map<IssueId, IssueId[]>()
   // Reverse of every issue's `deps`: an edge A→B (A's dep on B) contributes B a
   // dependent { id: A, type }. Built once here in O(deps) so `dependents` is a
@@ -180,14 +182,17 @@ export function deriveIssueViews(
   for (const issue of issues) {
     const issueId = asIssueId(issue.id)
     const childIds = childrenByParent.get(issueId) ?? []
-    const childDoneCount = childIds.filter((id) => stageById.get(id) === 'done').length
+    const childDoneCount = childIds.filter((id) => finishedById.get(id) === true).length
     // `blocked`: something this issue depends on is not done yet. An unknown
     // dep id counts as NOT blocking — the alternative is that a replica which
     // has not yet seen a dependency renders every issue blocked, which is worse
     // than briefly rendering one ready.
     const blocked = (issue.deps ?? []).some((dep) => {
-      const stage = opts.dependencyStage ? opts.dependencyStage(dep.id) : stageById.get(dep.id)
-      return dep.type === 'blocks' && stage !== undefined && stage !== 'done'
+      const stage = opts.dependencyStage?.(dep.id)
+      const finished = opts.dependencyStage
+        ? stage === undefined ? undefined : isFinished({ stage })
+        : finishedById.get(dep.id)
+      return dep.type === 'blocks' && finished === false
     })
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
     const next: IssueView = {
@@ -199,7 +204,7 @@ export function deriveIssueViews(
       childDoneCount,
       blocked,
       deferred,
-      ready: !blocked && !deferred && issue.stage !== 'done',
+      ready: !blocked && !deferred && !isFinished(issue),
       dependents: dependentsByIssue.get(issueId) ?? [],
     }
     const previous = opts.previous?.get(issue.id)
@@ -315,6 +320,7 @@ function projectionToViewInput(
     parentId: p.parentId ?? null,
     prefix: p.repoId ? (prefixByRepoId.get(p.repoId) ?? null) : null,
     stage: p.stage,
+    closedReason: p.closedReason,
     deferUntil: p.deferUntil ?? null,
     readAt,
     updatedAt: p.updatedAt,

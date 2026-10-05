@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '../session-values'
 /**
  * F1 — WHAT ONE SESSION IS DOING. The presentation vocabulary every slice
@@ -161,7 +162,7 @@ export function agentBadge(meta: SessionView, issue?: Pick<IssueProjection, 'sta
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
   // except on a finished issue, where the close retired the decision (POD-290).
   const issueFinished =
-    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    issue !== undefined && (isFinished(issue))
   if (meta.offer && !issueFinished) {
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
@@ -464,7 +465,7 @@ export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage
   // drops historical stale offers so a closed row cannot keep demanding a
   // decision. Open review work still counts.
   if (attentionGroup(s) === 'needsYou') {
-    const finished = issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    const finished = issue !== undefined && (isFinished(issue))
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
   if (

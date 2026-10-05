@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
 
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-graph/diagnostics/reference/issue-views'
@@ -388,7 +389,7 @@ export class MissionViewReader {
     for (const childId of childIds) {
       const child = this.pool.row('issue', childId, 'summary') as Loaded<{ stage: string }>
       if (child === LOADING) pending = true
-      else if (child?.stage === 'done') childDoneCount++
+      else if (child && isFinished(child)) childDoneCount++
     }
     // One declared inverse yields source IDs. Reading each source's declared
     // edge list preserves custom types, duplicate edges and per-source order.
@@ -415,7 +416,7 @@ export class MissionViewReader {
       prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
       readAt, memberSessionIds: members.ids,
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
-      deferred, ready: !row.blocked && !deferred && row.stage !== 'done', dependents,
+      deferred, ready: !row.blocked && !deferred && !isFinished(row), dependents,
       unread: row.deletedAt ? false : unread, sessionSummary: members.summary,
     }) as IssueNavigationModel
   }
@@ -537,7 +538,7 @@ class MissionContext {
   }
   preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
     const staffed = local ? [] : candidates.filter(issue => this.live(issue.id))
-    const unfinished = candidates.filter(issue => !issue.closedReason && issue.stage !== 'done')
+    const unfinished = candidates.filter(issue => !isFinished(issue))
     return [...(staffed.length ? staffed : unfinished.length ? unfinished : candidates)]
       .sort((a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)))[0]
   }
@@ -761,7 +762,7 @@ function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: Rea
       liveAgentCount: allSessions.filter(openSession).length, workingAgentCount: allSessions.filter(working).length,
       waitingAgentCount, matched: matches(issue), collapsedSummary: {
         tasks: hidden.length, done: hidden.filter(child => issueClosed(child) && !issueAbandoned(child)).length,
-        run: hidden.filter(child => !child.closedReason && (underway(child.stage) || child.stage === 'review')).length,
+        run: hidden.filter(child => !isFinished(child) && (underway(child.stage) || child.stage === 'review')).length,
         kinds: [...new Set(allSessions.filter(openSession).map(session => session.agentKind))].slice(0, 2),
         crew: unique.sort((a, b) => rank(a) - rank(b)).slice(0, 12), needsYou: actionableCount > 0,
       } })

@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
@@ -59,9 +60,6 @@ export function IssueSubIssues({
     () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
     [now, sessions, subIssues],
   )
-
-  const finished = (c: IssueViewModel) => c.stage === 'done' || c.closedReason != null
-
   const create = () => {
     const next = title.trim()
     if (!next || busy) return
@@ -82,7 +80,7 @@ export function IssueSubIssues({
           workingAgents={workingByIssue.get(child.id) ?? 0}
           onOpen={onOpen}
           onStatus={onStatus}
-          muted={finished(child)}
+          muted={isFinished(child)}
         />
       ))}
       {subIssues.length === 0 ? (

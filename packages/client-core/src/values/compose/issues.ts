@@ -1,3 +1,4 @@
+import { isFinished, isClosed } from '@podium/model/browser'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
  * tree, and what the human is being asked to DECIDE about it.
@@ -100,7 +101,7 @@ export function branchRollup(
       if (seen.has(child.id)) continue
       seen.add(child.id)
       total += 1
-      if (child.stage === 'done' || child.closedReason != null) done += 1
+      if (isFinished(child)) done += 1
       stack.push(child.id)
     }
   }
@@ -324,7 +325,7 @@ export function issueFinishedAt(issue: Pick<IssueViewModel, 'closedAt' | 'update
 export function isClosedTopLevelIssue(
   issue: Pick<IssueViewModel, 'closedReason' | 'parentId' | 'audience'>,
 ): boolean {
-  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
+  return isClosed(issue) && !issue.parentId && issue.audience === 'human'
 }
 
 /**
@@ -373,7 +374,7 @@ function issueHasUnmergedDelivery(issue: IssueNavigationModel): boolean {
  * merge outstanding.
  */
 export function issueAwaitingMerge(issue: IssueNavigationModel): boolean {
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const finished = isFinished(issue)
   return finished && !issueAbandoned(issue) && issueHasUnmergedDelivery(issue)
 }
 
@@ -395,7 +396,7 @@ export function issueAwaitingMerge(issue: IssueNavigationModel): boolean {
 export type IssuePendingDecision = 'merge' | 'review'
 
 export function issuePendingDecision(issue: IssueNavigationModel): IssuePendingDecision | null {
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const finished = isFinished(issue)
   if (!finished && issue.stage !== 'review') return null
   // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
   // work is waiting on its dependency, not on a human merge/review decision.

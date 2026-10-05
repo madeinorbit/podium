@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -375,7 +376,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
           for (const child of children) {
             const detail = pool.row('issue', child, 'summary')
             if (detail === LOADING) pending++
-            else if (detail && (detail as { stage: string }).stage === 'done') childDoneCount++
+            else if (detail && isFinished(detail)) childDoneCount++
           }
           const members = pool.queries
             .ids({ kind: 'commandIssueSessions', issueId: id })

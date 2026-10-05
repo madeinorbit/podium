@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { operationalState } from '@podium/client-core/values'
 
@@ -318,7 +319,7 @@ function ExplorerRow({
   if (typeof data === 'symbol') return <div role="status">Loading task…</div>
   const issue = data?.issue ?? suppliedIssue
   const state = data ? operationalState(issue, data.sessions, data.byId) : suppliedState
-  const closed = issue.stage === 'done' || Boolean(issue.closedReason)
+  const closed = isFinished(issue)
   // An errored task is a needs-you with a cause (POD-1601): the row's own
   // `data-needs-you` tint is what makes it findable in a long list, and an
   // agent that died is exactly the row you would rather not scroll past.

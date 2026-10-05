@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 /** Mobile screen reads on the app-owned pool. No feed, replica, mutation owner,
  * world enumeration, peek reader, or independently maintained relationships. */
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -111,7 +112,7 @@ export function createMobileScreenReader(pool: MobxPool) {
         return false
       }
       const eligible = (id: string) =>
-        audience(id) && (options.showDone || issue(id)?.stage !== 'done')
+        audience(id) && (options.showDone || !isFinished(issue(id) ?? {}))
       const matched = new Set(
         query({
           kind: 'board',

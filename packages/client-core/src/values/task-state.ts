@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { isAgentConfirmedComputing } from '@podium/model'
 import { withoutShells } from '../focus'
 import type { SessionView } from '../session-values'
@@ -57,7 +58,7 @@ export function taskProgressMap<T extends TaskProgressIssue>(
         if (seen.has(issue.id)) continue
         seen.add(issue.id)
         total += 1
-        if (issue.stage === 'done') done += 1
+        if (isFinished(issue)) done += 1
         liveAgents += workingByIssue.get(issue.id) ?? 0
         for (const child of childrenOf.get(issue.id) ?? []) stack.push(child)
       }

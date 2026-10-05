@@ -1,3 +1,4 @@
+import { isFinished } from './predicates'
 import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
 
 type Row = Readonly<Record<string, unknown>>
@@ -39,7 +40,7 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
   return {
     fork: () => createIssueQuestions({ facts, children }),
     set(id: string, row: Row | undefined) {
-      setFacts(id, row ? { parentId: typeof row.parentId === 'string' ? row.parentId : undefined, done: row.stage === 'done' } : undefined)
+      setFacts(id, row ? { parentId: typeof row.parentId === 'string' ? row.parentId : undefined, done: isFinished(row) } : undefined)
     },
     setFacts,
     fact: (id: string) => facts.get(id),

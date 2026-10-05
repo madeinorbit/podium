@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -228,7 +229,7 @@ function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
   if (dependency) return { label: 'Waiting', detail: dependency, state: 'blocked' }
   if (issue.stage === 'proposed')
     return { label: 'Known next step', detail: 'Unassigned', state: 'future' }
-  if (row.sessions.length === 0 && issue.stage !== 'done')
+  if (row.sessions.length === 0 && !isFinished(issue))
     return { label: 'Unassigned', state: 'future' }
   return null
 }

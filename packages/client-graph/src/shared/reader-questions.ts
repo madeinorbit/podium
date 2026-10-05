@@ -1,3 +1,4 @@
+import { isFinished } from './predicates'
 /** History questions, answered by the row source. Results contain identities,
  * never rows or a map. The same questions can later be answered from storage. */
 import { issueStatusOf } from '@podium/model/browser'
@@ -173,7 +174,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       out.add(
         `issue:status:${issueStatusOf({ stage, closedReason } as Parameters<typeof issueStatusOf>[0])}`,
       )
-      out.add(stage === 'done' || closedReason != null ? 'issue:closed' : 'issue:open')
+      out.add(isFinished({ stage, closedReason }) ? 'issue:closed' : 'issue:open')
       if (blocked) out.add('issue:blocked')
       if (!archived && !deletedAt) out.add('issue:live')
       if (!archived || deletedAt) out.add('issue:unarchived')
@@ -181,7 +182,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       if (stage === 'proposed') out.add('issue:proposed')
       if (typeof worktreePath === 'string' && worktreePath) {
         out.add(`issue:root:${worktreePath}`)
-        if (!deletedAt && (stage === 'done' || closedReason)) out.add('issue:reclaim')
+        if (!deletedAt && isFinished({ stage, closedReason })) out.add('issue:reclaim')
       }
     } else if (kind === 'session') {
       const { archived, headless, agentKind, status, displayRef, issueId } = row

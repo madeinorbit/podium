@@ -1,3 +1,4 @@
+import { isFinished } from '../shared/predicates'
 /**
  * POD-5423 (review finding 8): each issue's explicit seats (`issue.sessions`)
  * judged ONCE PER SEAT CHANGE, not once per issue re-run.
@@ -95,7 +96,7 @@ function withId(list: readonly string[], id: string, on: boolean): readonly stri
 /** The finish facts of an issue its idle seats read. */
 function finishOf(issue: SliceIssue | undefined): string {
   if (issue === undefined) return ''
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const finished = isFinished(issue)
   return finished ? `1|${issue.closedAt ?? ''}|${issue.updatedAt ?? ''}` : '0'
 }
 
@@ -265,7 +266,7 @@ export class SeatVerdicts {
       if (retention.seat) {
         const issue = idle ? (known ?? this.host.issue(issueId)) : undefined
         const finished =
-          issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+          issue !== undefined && (isFinished(issue))
         // Only a threshold still ahead is a deadline: a passed one stays
         // passed until the clock rewinds (every seat is re-judged then).
         const passed = (at: number): boolean => {

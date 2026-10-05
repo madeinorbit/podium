@@ -1,3 +1,4 @@
+import { isFinished } from '../src/shared/predicates'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Explicit diagnostic job only. Private values are compared in memory; the
  * report contains counts, opaque row IDs, positions and fixed field names. */
@@ -141,7 +142,7 @@ export function checkIssuePages(pool: MobxPool, issues: readonly IssueViewModel[
   const expected = issues.map(issue => {
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > pool.clock.current
     if (deferred === issue.deferred) return issue
-    const ready = !issue.blocked && !deferred && issue.stage !== 'done'
+    const ready = !issue.blocked && !deferred && !isFinished(issue)
     acceptedDeadlineDifferences += 1 + Number(ready !== issue.ready)
     return { ...issue, deferred, ready }
   })

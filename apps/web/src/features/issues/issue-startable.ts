@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 /**
  * Startability gate for the "Run now" quick actions (POD-110): the ref
@@ -32,7 +33,7 @@ export type StartableIssueLike = StartabilityFields<
 export function isIssueStartable(issue: StartableIssueLike): boolean {
   return (
     !issue.worktreePath &&
-    issue.closedReason == null &&
+    !isFinished(issue) &&
     !issue.archived &&
     !issue.deletedAt &&
     (!issue.stage || issue.stage !== 'shipping')

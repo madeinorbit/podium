@@ -51,6 +51,9 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/shared/reader-questions.ts', 'src/shared/relation-index.ts', 'src/shared/repo-from-lane.ts',
   'src/shared/row-view.ts', 'src/shared/schema.ts', 'src/shared/session-questions.ts',
   'src/shared/write-contract.ts',
+  // Header and sidebar startup readers share these scalar lifecycle rules.
+  // This facade adds no optional screen or store implementation (POD-5545).
+  'src/shared/predicates.ts',
   'src/worklist/groups.ts', 'src/worklist/mobile-row.ts', 'src/worklist/mobile.ts',
   'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/sidebar-roster.ts',
   'src/worklist/sidebar-row.ts', 'src/worklist/sidebar.ts', 'src/worklist/sorted-lanes.ts',

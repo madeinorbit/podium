@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
@@ -234,8 +235,7 @@ export function createHeaderViews(pool: MobxPool) {
       }
       const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
       if (
-        value.stage !== 'done' &&
-        !value.closedReason &&
+        !isFinished(value) &&
         (asking || value.needsHuman || (value.stage === 'review' && !vacated))
       )
         needs++
@@ -440,7 +440,7 @@ export function createHeaderViews(pool: MobxPool) {
         if (
           !candidate?.worktreePath ||
           candidate.deletedAt ||
-          !(candidate.stage === 'done' || candidate.closedReason)
+          !isFinished(candidate)
         )
           continue
         const closed = Date.parse(candidate.closedAt ?? '')

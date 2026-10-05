@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -257,7 +258,7 @@ export function createIssuePageViews(pool: MobxPool) {
       childCount: 0,
       childDoneCount: 0,
       deferred: isDeferred,
-      ready: !value.blocked && !isDeferred && value.stage !== 'done',
+      ready: !value.blocked && !isDeferred && !isFinished(value),
     } as unknown as IssueViewModel
   }
   function summary(id: string): Loaded<IssueViewModel> {
@@ -292,9 +293,9 @@ export function createIssuePageViews(pool: MobxPool) {
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const child = pool.row('issue', childId, 'summary') as Loaded<{ stage?: string }>
+        const child = pool.row('issue', childId, 'summary') as Loaded<{ stage?: string; closedReason?: string | null }>
         if (child === LOADING) pending = true
-        else if (child?.stage === 'done') childDoneCount++
+        else if (child && isFinished(child)) childDoneCount++
       }
       const inverse = dependents(id)
       // Read every known requirement before returning LOADING so this issue's
@@ -329,7 +330,7 @@ export function createIssuePageViews(pool: MobxPool) {
         childDoneCount,
         blocked: value.blocked ?? false,
         deferred: isDeferred,
-        ready: !value.blocked && !isDeferred && value.stage !== 'done',
+        ready: !value.blocked && !isDeferred && !isFinished(value),
         unread: !value.deletedAt && unread,
         sessionSummary: facts.summary,
       }
@@ -349,8 +350,8 @@ export function createIssuePageViews(pool: MobxPool) {
         childIds: childIds.map(asIssueId),
         childCount: childIds.length,
         childDoneCount: childIds.filter((id) => {
-          const child = pool.row('issue', id, 'summary') as Loaded<{ stage?: string }>
-          return child && child !== LOADING && child.stage === 'done'
+          const child = pool.row('issue', id, 'summary') as Loaded<{ stage?: string; closedReason?: string | null }>
+          return child && child !== LOADING && isFinished(child)
         }).length,
       }
     })

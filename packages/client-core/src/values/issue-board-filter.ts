@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model'
 import type { IssueViewModel } from '../values/issue-type'
 
@@ -50,7 +51,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
     if (filter.priority != null && issue.priority !== filter.priority) return false
     if (filter.projectPaths?.length && !filter.projectPaths.includes(issue.repoPath)) return false
     if (filter.stage && issueStatusOf(issue) !== filter.stage) return false
-    const closed = issue.stage === 'done' || issue.closedReason != null
+    const closed = isFinished(issue)
     if (filter.status === 'open' && closed) return false
     if (filter.status === 'closed' && !closed) return false
     if (filter.status === 'ready' && !issue.ready) return false

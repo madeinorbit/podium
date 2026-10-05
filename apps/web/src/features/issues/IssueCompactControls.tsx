@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -530,7 +531,7 @@ export function IssueCompactControls({
 
   const active = issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
-  const closed = Boolean(issue.closedReason) || issue.archived
+  const closed = isFinished(issue) || issue.archived
   const statusLabel = issueStatusControlLabel(issue)
   const statusDetail = issueStatusLabel(issue)
   // WHERE THIS WORK WILL LIVE, offered at the moment it starts (POD-679).
@@ -658,7 +659,6 @@ export function IssueCompactControls({
    */
   const launchable =
     !closed &&
-    issue.stage !== 'done' &&
     action?.kind !== 'mark-done' &&
     !issueWorkBegun(issue, active.length)
 

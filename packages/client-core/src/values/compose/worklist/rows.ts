@@ -1,3 +1,4 @@
+import { isFinished, isExcluded } from '@podium/model/browser'
 import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
@@ -8,9 +9,7 @@ import type { IssueNavigationModel } from '../issues'
  * `row-order.ts`, attention in `row-attention.ts`, fold placement in
  * `folds.ts`; this module reads the first and neither of the others.
  */
-import {
-  type IssueId,
-  isSystemOwnedIssueStage} from '@podium/model'
+import { type IssueId } from '@podium/model'
 import { indexMissionSessions, issueContinuation, missionRollup } from '../../mission'
 import {
   issueIdOwningSession,
@@ -58,13 +57,7 @@ function buildUnifiedRows(
   const rows: UnifiedWorkRow[] = []
   const retainedSessionsByIssue = new Map<string, SessionView[]>()
   for (const issue of issues) {
-    if (
-      issue.archived ||
-      issue.deletedAt ||
-      issue.stage === 'proposed' ||
-      isSystemOwnedIssueStage(issue.stage)
-    )
-      continue
+    if (isExcluded(issue)) continue
     const retainedSessions = sessionsForIssueNav(
       issue,
       sessions,
@@ -86,7 +79,7 @@ function buildUnifiedRows(
     // children, awaiting-merge work, and explicitly closed top-level issues use
     // their existing completion visibility rules. [spec:SP-6144]
     if (retainedSessions.length === 0) {
-      const finished = issue.stage === 'done' || issue.closedReason != null
+      const finished = isFinished(issue)
       const activeHumanIssue =
         issue.audience === 'human' &&
         (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
@@ -133,15 +126,8 @@ function buildUnifiedRows(
     while (parentId && !walked.has(parentId)) {
       walked.add(parentId)
       const parent = issueById.get(parentId)
-      if (
-        !parent ||
-        parent.archived ||
-        parent.deletedAt ||
-        parent.stage === 'proposed' ||
-        isSystemOwnedIssueStage(parent.stage)
-      )
-        break
-      const parentFinished = parent.stage === 'done' || parent.closedReason != null
+      if (!parent || isExcluded(parent)) break
+      const parentFinished = isFinished(parent)
       if (!presentIssueIds.has(parent.id) && parent.audience === 'human' && !parentFinished) {
         rows.push({
           kind: 'issue',
@@ -196,14 +182,7 @@ function buildUnifiedRows(
       const issue = session.issueId ? issueByIdForSession.get(session.issueId) : undefined
       // A missing issue in this replica is intentionally treated as an orphan;
       // only known hidden lifecycle states are suppressed here.
-      if (
-        issue &&
-        (issue.archived ||
-          issue.deletedAt ||
-          issue.stage === 'proposed' ||
-          isSystemOwnedIssueStage(issue.stage))
-      )
-        return false
+      if (issue && isExcluded(issue)) return false
       return sessionRetainsWorklistRow(session, now, issue)
     })
     if (retainedGuests.length === 0) continue

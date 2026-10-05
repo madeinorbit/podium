@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
@@ -676,7 +677,7 @@ function TaskRow({
           <IdSquare
             issue={issue}
             state={
-              issue.stage === 'done'
+              isFinished(issue)
                 ? 'done'
                 : issue.needsHuman
                   ? 'waiting'

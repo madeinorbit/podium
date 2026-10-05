@@ -1,3 +1,4 @@
+import { isFinished } from '../src/shared/predicates'
 /** Diagnostic only: compare actual mission-view inputs from one publication.
  * Report locations, counts and opaque IDs; prose never leaves the comparator. */
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -40,7 +41,7 @@ function acceptedDeadlineIssues(issues: readonly IssueNavigationModel[], now: nu
     const deadline = issue.deferUntil ? Date.parse(issue.deferUntil) : NaN
     if (!Number.isFinite(deadline)) return issue
     const deferred = deadline > now
-    const ready = !issue.blocked && !deferred && issue.stage !== 'done'
+    const ready = !issue.blocked && !deferred && !isFinished(issue)
     if (issue.deferred === deferred && issue.ready === ready) return issue
     changed = true
     return { ...issue, deferred, ready }

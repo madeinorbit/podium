@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -116,7 +117,7 @@ export function MissionScreen() {
   }, [root, store])
   const fileRoot = useCallback(() => {
     if (!root) return
-    if (root.closedReason || root.stage === 'done') {
+    if (isFinished(root)) {
       void store.setIssueTucked(root.id, true).catch(() => {})
       return
     }

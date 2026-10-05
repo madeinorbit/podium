@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 /**
  * THE LAUNCH BOX (POD-1224, shared since POD-1457) — the four decisions that
  * make a session, and the button that spends them, inside one frame.
@@ -111,7 +112,7 @@ export function LaunchBox({
   fork?: (busy: boolean) => ReactNode
 }): JSX.Element {
   const [savingSettings, setSavingSettings] = useState(false)
-  const spent = issue.closedReason != null || issue.stage === 'done' || issue.archived
+  const spent = isFinished(issue) || issue.archived
   return (
     <div
       data-testid="launch-box"

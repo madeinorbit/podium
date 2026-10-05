@@ -1,3 +1,4 @@
+import { isClosed } from '../predicates/issue-lifecycle'
 /**
  * THE ISSUE STATUS VOCABULARY — one flat list of the states an issue can be
  * IN, projected from the two fields that actually store it.
@@ -220,7 +221,7 @@ export interface IssueStatusFields {
 export function issueStatusOf(row: IssueStatusFields): IssueStatus {
   const reason = canonicalIssueCloseReason(row.closedReason)
   if (reason) return reason
-  if (row.closedReason) return 'done'
+  if (isClosed(row)) return 'done'
   return row.stage
 }
 

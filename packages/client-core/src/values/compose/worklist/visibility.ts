@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 /**
@@ -24,7 +25,7 @@ export const SIDEBAR_FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
 export function issueVisibleInSidebar(issue: IssueNavigationModel, now: number): boolean {
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const finished = isFinished(issue)
   if (!finished) return true
   // POD-183: closed top-level issues visually decay into a fold; they do not
   // disappear with time. Unread and selected presentation is handled later.
@@ -49,7 +50,7 @@ export function sessionRetainsWorklistRow(
 ): boolean {
   if (s.archived) return false
   const issueFinished =
-    issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
+    issue !== undefined && (isFinished(issue))
   const agentState = s.agentState
   // A turn that ended with open todos ended: it decays with the finished issue
   // like any other completed run, rather than pinning the row forever (POD-415).

@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -403,7 +404,7 @@ function SheetBody({
       {children.length > 0 ? (
         <Part
           title="Subtasks"
-          meta={`${children.filter((c) => c.stage === 'done').length} / ${children.length}`}
+          meta={`${children.filter((c) => isFinished(c)).length} / ${children.length}`}
         >
           {children.map((child) => (
             <PressableScale

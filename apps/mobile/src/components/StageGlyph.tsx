@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { IssueStage, IssueStatus } from '@podium/model'
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg'
 import { STAGE_LABEL, STAGE_UNKNOWN, stageColor } from '../theme/stage'
@@ -88,7 +89,7 @@ export function StageGlyph({
 }) {
   const ink = tint ?? stageColor(stage)
   if (
-    stage === 'done' ||
+    isFinished({ stage }) ||
     stage === 'cancelled' ||
     stage === 'duplicate' ||
     stage === 'superseded'

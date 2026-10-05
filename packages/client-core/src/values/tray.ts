@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '../session-values'
 import { issueAsked } from './compose/issues'
 import type { SessionId, SessionOffer } from '@podium/model'
@@ -58,7 +59,7 @@ export function deriveTrayItems(
     // Finished work is not attention (POD-198 / POD-290): a closed issue must
     // not keep a delegate offer (or any other tray card) demanding a decision
     // after the work completed through another session.
-    const finished = issue.stage === 'done' || issue.closedReason != null
+    const finished = isFinished(issue)
     if (finished) continue
 
     if (issue.needsHuman) {

@@ -1,3 +1,4 @@
+import { isFinished } from './shared/predicates'
 import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -100,7 +101,7 @@ export function createIssueBoardSource(
       const row = facts(id)
       if (row === LOADING) return LOADING
       if (!row || row.archived || row.deletedAt || !scoped(row, false, false, id)) return undefined
-      return { tab: tabOf(row), needs: row.stage !== 'done' && !row.closedReason && actionable(row) }
+      return { tab: tabOf(row), needs: !isFinished(row) && actionable(row) }
     },
     matches: BOARD_EXPLORER_TABS.map(tab => value => tab === 'needs' ? value.needs : value.tab === tab),
     subscribe: changed => {
@@ -169,7 +170,7 @@ export function createIssueBoardSource(
       displayRef: prefix ? `${prefix}-${raw.seq}` : `#${raw.seq}`,
       blocked: raw.blocked ?? false,
       deferred,
-      ready: !raw.blocked && !deferred && raw.stage !== 'done',
+      ready: !raw.blocked && !deferred && !isFinished(raw),
       branch: raw.branch ?? null,
       worktreePath: raw.worktreePath ?? null,
     } as IssueViewModel
@@ -225,7 +226,7 @@ export function createIssueBoardSource(
     return disposed ? LOADING : roster(id).get()
   }
   function actionable(row: IssueViewModel): boolean {
-    if (row.archived || row.deletedAt || row.stage === 'done' || row.closedReason) return false
+    if (row.archived || row.deletedAt || isFinished(row)) return false
     const seats = roster(row.id)
     // The shared pure predicate needs only witnesses for these two
     // existential questions. Archived history never enters this read.
@@ -264,7 +265,7 @@ export function createIssueBoardSource(
       if (scoped(row, false, true)) keys.add('liveScope')
       if (scoped(row, true, true)) keys.add('liveAgents')
     }
-    keys.add(row.stage === 'done' || row.closedReason != null ? 'status:closed' : 'status:open')
+    keys.add(isFinished(row) ? 'status:closed' : 'status:open')
     for (const flag of ['ready', 'blocked', 'deferred'] as const)
       if (row[flag]) keys.add(`status:${flag}`)
     const tab = tabOf(row)
@@ -498,9 +499,9 @@ export function createIssueBoardSource(
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const row = pool.row('issue', childId, 'summary-fields') as Loaded<{ stage?: string }>
+        const row = pool.row('issue', childId, 'summary-fields') as Loaded<{ stage?: string; closedReason?: string | null }>
         if (row === LOADING) return LOADING
-        if (row?.stage === 'done') childDoneCount++
+        if (row && isFinished(row)) childDoneCount++
       }
       const dependents: IssueViewModel['dependents'] = []
       for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
@@ -559,7 +560,7 @@ export function createIssueBoardSource(
         if (row === LOADING) return LOADING
         if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
         total++
-        if (row.stage === 'done') done++
+        if (isFinished(row)) done++
         const seats = sessions(next)
         if (seats === LOADING) return LOADING
         liveAgents += confirmedWorkingAgentCount(seats ?? [], now)

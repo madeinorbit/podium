@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -316,7 +317,7 @@ function IssueContent({
             issue={issue}
             size={22}
             state={
-              issue.stage === 'done'
+              isFinished(issue)
                 ? 'done'
                 : issue.needsHuman
                   ? 'waiting'
@@ -656,7 +657,7 @@ function IssueContent({
         label: issue.archived ? 'Unarchive task' : 'Archive task',
         onPress: () => {
           // Archiving something still OPEN is the case that surprises people.
-          if (!issue.archived && !issue.closedReason && issue.stage !== 'done') {
+          if (!issue.archived && !isFinished(issue)) {
             setSheet({ kind: 'confirm-archive' })
             return
           }

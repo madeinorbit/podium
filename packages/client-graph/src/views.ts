@@ -1,3 +1,4 @@
+import { isClosed, issueAbandoned } from './shared/predicates'
 /**
  * One issue's `RowView` (L1b, `shared/src/row-view.ts`) as a pure function of
  * its inputs.
@@ -216,35 +217,7 @@ export function displayTitleOf(
   return firstMember.name?.trim() || `New ${label} session`
 }
 
-const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {
-  wontfix: 'cancelled',
-  wont_fix: 'cancelled',
-  "won't fix": 'cancelled',
-  'not planned': 'cancelled',
-  canceled: 'cancelled',
-  dupe: 'duplicate',
-}
-
-function canonicalCloseReason(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const key = value.trim().toLowerCase()
-  if (key === '') return null
-  if (Object.hasOwn(LEGACY_CLOSE_REASONS, key)) return LEGACY_CLOSE_REASONS[key] as string
-  return key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded'
-    ? key
-    : null
-}
-
-/**
- * Abandoned: closed as cancelled, duplicate or superseded (spec §3 R-GROUP;
- * `issueAbandoned` over the canonical close reason). Also R-ROLL's progress
- * test, so it reads only the two fields a cold child's progress facts carry.
- */
-export function issueAbandoned(issue: Pick<SliceIssue, 'closedReason' | 'stage'>): boolean {
-  const reason = canonicalCloseReason(issue.closedReason)
-  const status = reason ?? (issue.closedReason ? 'done' : issue.stage)
-  return status === 'cancelled' || status === 'duplicate' || status === 'superseded'
-}
+export { issueAbandoned } from './shared/predicates'
 
 /**
  * Closed top-level human issue (`isClosedTopLevelIssue`,
@@ -254,7 +227,7 @@ export function issueAbandoned(issue: Pick<SliceIssue, 'closedReason' | 'stage'>
 export function isClosedTopLevel(
   issue: Pick<SliceIssue, 'closedReason' | 'parentId' | 'audience'>,
 ): boolean {
-  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
+  return isClosed(issue) && !issue.parentId && issue.audience === 'human'
 }
 
 /**

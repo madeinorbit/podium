@@ -175,6 +175,7 @@ import {
   workspaceOf,
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
+import { checkIssuePredicates } from './check-issue-predicates'
 import {
   HARNESS_BASELINE_LEAK_COUNT,
   HARNESS_BASELINE_POLICY_COUNT,
@@ -3652,6 +3653,7 @@ export function checkFile(
   ownAdapterCtx?: HarnessOwnAdapterCtx,
 ): Violation[] {
   return [
+    ...checkIssuePredicates(file, source),
     ...checkHarnessOwnAdapter(file, source, ownAdapterCtx),
     ...checkTerminalObjectsProcess(file, source),
     ...checkTerminalObjectsTerminal(file, source),

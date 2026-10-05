@@ -1,4 +1,5 @@
 export * from './schema'
+export * from './predicates'
 export * from './row-view'
 export * from './row-source'
 export * from './locals-source'

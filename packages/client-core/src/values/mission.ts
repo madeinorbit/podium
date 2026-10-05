@@ -13,6 +13,8 @@ import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
+import { isFinished as issueClosed } from '@podium/model/browser'
+export { isFinished as issueClosed } from '@podium/model/browser'
 import { isCoordinatorSession } from './compose/terminal'
 
 /**
@@ -341,13 +343,6 @@ export function issueErrorLabel(
 ): string | null {
   const session = issueErroredSession(issue, sessions)
   return session ? sessionErrorLabel(session) : null
-}
-
-/** Closing is the operator's own "this is finished" flip. `done` and an explicit
- *  `closedReason` are the two spellings of it, and every reader that asks "is
- *  this over" must accept both — the board writes one, `issue close` the other. */
-export function issueClosed(issue: Pick<IssueNavigationModel, 'stage' | 'closedReason'>): boolean {
-  return issue.stage === 'done' || Boolean(issue.closedReason)
 }
 
 /**
@@ -734,7 +729,7 @@ function preferredSpinOffTip(
   const pool =
     staffed.length > 0
       ? staffed
-      : candidates.filter((issue) => !issue.closedReason && issue.stage !== 'done')
+      : candidates.filter((issue) => !issueClosed(issue))
   const pick = (pool.length > 0 ? pool : candidates).slice()
   pick.sort((a, b) =>
     lastActiveAt(b, sessions, sessionIndex).localeCompare(lastActiveAt(a, sessions, sessionIndex)),
@@ -1538,7 +1533,7 @@ export function missionDepartures(
     const originEmpty = !originSessions.some(openSession)
     for (const tip of liveSpinOffTips(origin, byId, sessions)) {
       if (ids.has(tip.id) || seen.has(tip.id)) continue
-      if (!originEmpty && (tip.stage === 'done' || tip.closedReason)) continue
+      if (!originEmpty && issueClosed(tip)) continue
       seen.add(tip.id)
       out.push({
         issue: tip,
@@ -1727,7 +1722,7 @@ export function buildFlightDeckRows(
         // child in `planning` or `shipping` counted it in `tasks` and in neither
         // tier, which paints picked-up work into the trough.
         run: hidden.filter(
-          (child) => !child.closedReason && (UNDERWAY.has(child.stage) || child.stage === 'review'),
+          (child) => !issueClosed(child) && (UNDERWAY.has(child.stage) || child.stage === 'review'),
         ).length,
         kinds: [...new Set(subtreeSessions.filter(openSession).map((s) => s.agentKind))].slice(
           0,
@@ -2155,7 +2150,7 @@ function waitingRefs(
     .filter((dep) => dep.type === 'blocks')
     .map((dep) => byId.get(dep.id))
     .filter((target): target is IssueNavigationModel => Boolean(target))
-    .filter((target) => target.stage !== 'done' && !target.closedReason)
+    .filter((target) => !issueClosed(target))
     .map((target) => issueDisplayRef(target))
 }
 
@@ -2611,8 +2606,7 @@ export function issueIsActionable(
   return (
     !issue.archived &&
     !issue.deletedAt &&
-    issue.stage !== 'done' &&
-    !issue.closedReason &&
+    !issueClosed(issue) &&
     issueNeedsHuman(issue, sessions)
   )
 }

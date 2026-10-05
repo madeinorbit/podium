@@ -1,3 +1,4 @@
+import { isFinished, isExcluded } from '../shared/predicates'
 /**
  * The worklist's visible collection and its order, over the pool's graph.
  *
@@ -217,21 +218,6 @@ export interface Standing {
   readonly formalParent: string | null
 }
 
-/** `isSystemOwnedIssueStage` (`model/src/entities/issue-vocabulary.ts:59`). */
-function systemOwnedStage(stage: string): boolean {
-  return stage === 'shipping'
-}
-
-/** Out of the list whatever else holds (archived, deleted, proposed, a system-owned stage). */
-function excludedOf(issue: Partial<Pick<SliceIssue, 'archived' | 'deletedAt' | 'stage'>>): boolean {
-  return (
-    issue.archived === true ||
-    issue.deletedAt != null ||
-    issue.stage === 'proposed' ||
-    (issue.stage !== undefined && systemOwnedStage(issue.stage))
-  )
-}
-
 /**
  * POD-4753 — what visibility reads of a HIDDEN issue: one the complete cold
  * rule keeps out of memory. The raw parent and exclusion fields let nesting
@@ -257,7 +243,7 @@ export function hiddenPresenceOf(
   self: Pick<IssueVisibility, 'parentRef'>,
 ): Presence {
   rescueWalkOf(input)?.paths.delete(self)
-  const keeps = !excludedOf(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
+  const keeps = !isExcluded(hidden) && keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
   // An unplaced agent row may still have pre-nesting presence from a seat.
   // A live descendant needs that verdict: it might nest under this row and
   // disappear with it. Load through the normal window only when needed,
@@ -269,8 +255,8 @@ export function hiddenPresenceOf(
 }
 
 export function standingOf(issue: SliceIssue): Standing {
-  const excluded = excludedOf(issue)
-  const finished = issue.stage === 'done' || issue.closedReason != null
+  const excluded = isExcluded(issue)
+  const finished = isFinished(issue)
   const human = issue.audience === 'human'
   const activeHuman =
     human &&
@@ -859,7 +845,7 @@ function flatKeptBelow(input: VisibleInputs, childIds: readonly string[]): boole
     if (child === undefined) continue
     const hidden = child.hidden
     if (hidden !== undefined) {
-      if (excludedOf(hidden)) continue
+      if (isExcluded(hidden)) continue
     } else {
       const standing = child.standing
       if (standing === undefined || standing.excluded) continue

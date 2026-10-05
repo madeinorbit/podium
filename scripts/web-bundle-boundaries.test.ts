@@ -51,6 +51,7 @@ describe('pool startup bundle boundary', () => {
       'packages/client-graph/src/worklist/sidebar.ts',
       'packages/client-graph/src/shared/session-questions.ts',
       'packages/client-graph/src/shared/feed-diagnostics.ts',
+      'packages/client-graph/src/shared/predicates.ts',
       'packages/client-graph/src/settings-schema.ts',
       'packages/client-graph/src/command-launch-schema.ts',
       'packages/client-graph/src/loading.ts',

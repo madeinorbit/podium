@@ -1,3 +1,4 @@
+import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
@@ -49,7 +50,7 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }) {
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts = [
-    ...(issue.closedReason ? [`Closed · ${issue.closedReason}`] : []),
+    ...(isClosed(issue) ? [`Closed · ${issue.closedReason}`] : []),
     ...(created ? [`created ${created}`] : []),
     ...(updated ? [`updated ${updated}`] : []),
   ]

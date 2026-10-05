@@ -1,3 +1,4 @@
+import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The issue page's header: repo breadcrumb, the copyable display ref, prev/next
@@ -219,7 +220,7 @@ export function IssueOverflowMenu({
       return
     }
     const subtree = issue.childCount > 0
-    if (!issue.closedReason && issue.stage !== 'done') {
+    if (!isFinished(issue)) {
       const ok = window.confirm(
         subtree
           ? 'Archive this open issue and every sub-task beneath it? They will leave active views.'

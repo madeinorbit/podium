@@ -1,3 +1,4 @@
+import { isFinished, isClosed, isExcluded, issueAbandoned } from './predicates'
 import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
 
 /**
@@ -554,19 +555,7 @@ function decayDeadline(finishMs: number, unread: boolean, readMs: number | null)
 }
 
 /** `rows.ts:62-69`: archived, deleted, `proposed`, or system-owned (`shipping`). */
-export function issueExcluded(row: Readonly<Record<string, unknown>>): boolean {
-  return (
-    row['archived'] === true ||
-    row['deletedAt'] != null ||
-    row['stage'] === 'proposed' ||
-    row['stage'] === 'shipping'
-  )
-}
-
-/** `rows.ts:82`: `done` or a close reason. */
-function issueFinished(row: Readonly<Record<string, unknown>>): boolean {
-  return row['stage'] === 'done' || row['closedReason'] != null
-}
+export { isExcluded as issueExcluded } from './predicates'
 
 /**
  * The most the merge verdict reads of an issue row: the finished and blocked
@@ -585,36 +574,6 @@ export interface MergeVerdictRow {
 }
 
 /**
- * `issueAbandoned`'s read of the close reason (`issueStatusOf`,
- * `model/src/entities/issue-status.ts:220-225`, via views.ts
- * `canonicalCloseReason`): the legacy spellings, else the four-word
- * vocabulary, else — an unknown word — `done`. Abandoned iff the answer is
- * not `done`. A third copy of the map (model, views.ts, here): shared cannot
- * import the model runtime (arms must not pull zod into their bundles to read
- * this file) nor the arm, so it is cited, not shared.
- */
-const LEGACY_CLOSE_REASONS: Readonly<Record<string, string>> = {
-  wontfix: 'cancelled',
-  wont_fix: 'cancelled',
-  "won't fix": 'cancelled',
-  'not planned': 'cancelled',
-  canceled: 'cancelled',
-  dupe: 'duplicate',
-}
-
-function abandonedCloseReason(closedReason: unknown): boolean {
-  if (typeof closedReason !== 'string') return false
-  const key = closedReason.trim().toLowerCase()
-  if (key === '') return false
-  const canonical =
-    LEGACY_CLOSE_REASONS[key] ??
-    (key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded'
-      ? key
-      : 'done')
-  return canonical !== 'done'
-}
-
-/**
  * `issuePendingDecision` (`slices/issues.ts:391-404`) without the review
  * fallback: a finished, non-abandoned issue whose private branch holds
  * unlanded work (`issueHasUnmergedDelivery`, `slices/issues.ts:357-367`).
@@ -622,9 +581,9 @@ function abandonedCloseReason(closedReason: unknown): boolean {
  * `visibility.ts:31-32`), so the cold bound must too.
  */
 export function awaitingMergeOf(row: MergeVerdictRow): boolean {
-  const finished = row.stage === 'done' || row.closedReason != null
+  const finished = isFinished(row)
   if (!finished) return false
-  if (abandonedCloseReason(row.closedReason)) return false
+  if (issueAbandoned(row)) return false
   return unmergedDeliveryOf(row)
 }
 
@@ -652,16 +611,16 @@ export function unmergedDeliveryOf(row: MergeVerdictRow): boolean {
  * anything else never.
  */
 function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
-  if (issueExcluded(row)) return Number.NEGATIVE_INFINITY
+  if (isExcluded(row)) return Number.NEGATIVE_INFINITY
   if (awaitingMergeOf(row)) return Number.POSITIVE_INFINITY
   const human = row['audience'] === 'human'
   const stage = row['stage']
   if (human && (stage === 'planning' || stage === 'in_progress' || stage === 'review')) {
     return Number.POSITIVE_INFINITY
   }
-  if (!issueFinished(row)) return Number.NEGATIVE_INFINITY
+  if (!isFinished(row)) return Number.NEGATIVE_INFINITY
   if (!row['parentId']) {
-    return human && row['closedReason'] != null
+    return human && isClosed(row)
       ? Number.POSITIVE_INFINITY
       : Number.NEGATIVE_INFINITY
   }
@@ -673,7 +632,7 @@ function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
 
 /** `issueFinishedAt` (`issues.ts:310`) when the issue is finished; an idle finished turn decays from it. */
 function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
-  return issueFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
+  return isFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
 }
 
 /**
@@ -683,7 +642,7 @@ function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
  * Parentless issues keep their started-by fallback and are not tightened.
  */
 function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext): boolean {
-  if (issueExcluded(row)) return false
+  if (isExcluded(row)) return false
   if (row['audience'] !== 'agent' || !row['parentId'] || ctx.summary === undefined) return true
   const seen = new Set<string>()
   let parent: unknown = row['parentId']
@@ -693,7 +652,7 @@ function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext):
     if (ancestor === undefined) return true
     // A parentless agent ancestor can itself be placed through its starter's
     // owner. Do not dismiss that fallback by looking only at the raw tree.
-    if (!issueExcluded(ancestor) &&
+    if (!isExcluded(ancestor) &&
       (ancestor['audience'] !== 'agent' || (!ancestor['parentId'] && ancestor['startedBySession'])) &&
       !ctx.coldTarget('issue', parent)) return true
     parent = ancestor['parentId']

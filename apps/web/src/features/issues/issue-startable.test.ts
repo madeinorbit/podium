@@ -14,6 +14,8 @@ describe('isIssueStartable (POD-110)', () => {
   it('closed, archived, and deleted issues are not startable', () => {
     expect(isIssueStartable({ closedReason: 'done' })).toBe(false)
     expect(isIssueStartable({ closedReason: 'wontfix' })).toBe(false)
+    expect(isIssueStartable({ closedReason: '' })).toBe(false)
+    expect(isIssueStartable({ stage: 'done', closedReason: null })).toBe(false)
     expect(isIssueStartable({ archived: true })).toBe(false)
     expect(isIssueStartable({ deletedAt: 't' })).toBe(false)
   })
