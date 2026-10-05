@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest'
+import { autorun } from 'mobx'
 import { missionIndexStats } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
@@ -28,6 +29,7 @@ it('selects a spin-off pane through the cached mission with zero legacy mission 
     navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
   const runtime = { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1]
   const focus = vi.fn()
+  const retain = autorun(() => { missions(pool).rootFor(root.id); missions(pool).members(root.id) })
   try {
     const work = createPoolWorkActions(pool, runtime, focus)
     const legacy = missionIndexStats()
@@ -42,7 +44,7 @@ it('selects a spin-off pane through the cached mission with zero legacy mission 
     expect(missionIndexStats()).toEqual(legacy)
     expect(reads.mock.calls.filter(([entity]) => entity === 'session').map(([, id]) => id)).toEqual(['pane'])
     reads.mockRestore()
-  } finally { row.mockRestore(); pool.dispose() }
+  } finally { retain(); row.mockRestore(); pool.dispose() }
 })
 
 it('keeps issue and session slice order for tied panes after relation buckets move', () => {
@@ -78,7 +80,7 @@ it('keeps issue and session slice order for tied panes after relation buckets mo
 it('selects one mission without visiting unrelated resident keys at 1x/4x', async () => {
   async function measured(scale: 1 | 4) {
     const stamp = '2026-10-01T12:00:00Z'
-    const root = { id: 'root', seq: 1, title: 'Root', stage: 'backlog', createdAt: stamp, updatedAt: stamp } satisfies SliceIssue
+    const root = { id: 'root', seq: 1, title: 'Root', stage: 'backlog', repoPath: '/root', createdAt: stamp, updatedAt: stamp } satisfies SliceIssue
     const pane = { sessionId: 'pane', issueId: root.id, cwd: '/root', status: 'live', agentKind: 'codex', createdAt: stamp, lastActiveAt: stamp } satisfies SliceSession
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
     const store = { paneA: null, fileTabs: [], batchGesture: (fn: () => void) => fn(), navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }

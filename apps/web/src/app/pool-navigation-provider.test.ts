@@ -82,9 +82,10 @@ describe('web pool navigation', () => {
       expect(changed).toHaveBeenCalledTimes(2)
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: session }] })
       expect(changed).toHaveBeenCalledTimes(3)
-      // apply() reports the changed seat through the pool's mark port; the
-      // topology observer never reads a row or allocates a summary facet.
-      expect(row.mock.calls.every(([, , mode]) => mode === 'mark')).toBe(true)
+      // Ingestion maintains the changed seat's addressed scalar facts. The
+      // topology observer never asks for an unrelated identity or full facet.
+      expect(row.mock.calls.every(([kind, id, mode]) => kind === 'session' && id === 'seat' &&
+        (mode === 'mark' || mode === 'summary-fields'))).toBe(true)
     } finally { stop(); pool.dispose() }
   })
 
