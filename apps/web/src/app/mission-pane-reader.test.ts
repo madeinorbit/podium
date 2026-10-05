@@ -23,6 +23,8 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
       if (!loaded) break
     }
     expect(pane, `cold loader batches: ${batches.join(', ')}`).not.toBe(LOADING)
+    expect(batches.filter(Boolean).length, `cold loader batches: ${batches.join(', ')}`).toBeLessThanOrEqual(4)
+    console.info('[mission cold batches]', JSON.stringify({ scale, batches }))
     if (pane === LOADING) throw new Error('Cold mission did not settle')
     expect(pane.mission.root?.id).toBe(input.selectedIssueId)
     expect(pane.mission.rows.length).toBeGreaterThan(0)

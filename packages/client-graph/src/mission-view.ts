@@ -470,8 +470,6 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
 // settled. Observing this boolean keeps LOADING in the data boundary; ordinary
 // header value changes are read by its observer, without republishing the pane.
 const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => settled(() => {
-  const root = requireLoaded(deck.view.issue(deck.id))
-  if (!root) return true
   const row = deck.model(deck.id)
   const reads: readonly (() => unknown)[] = [
     () => row.liveAgentCount, () => row.workingAgentCount,
@@ -483,11 +481,11 @@ const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => 
   return pending ? LOADING : true
 }))
 const rootContinuation = cachedGroup('deck.continuation', (deck: MissionDeckModel) =>
-  deck.view.continuation(requireLoaded(deck.view.issue(deck.id))!))
+  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.continuation(root) : null })
 const rootNote = cachedGroup('deck.note', (deck: MissionDeckModel) =>
-  deck.view.note(requireLoaded(deck.view.issue(deck.id))!))
+  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.note(root) : null })
 const rootPresence = cachedGroup('deck.presence', (deck: MissionDeckModel) =>
-  deck.view.presence(requireLoaded(deck.view.issue(deck.id))!, deck.model(deck.id).sessions))
+  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.presence(root, deck.model(deck.id).sessions) : null })
 const rootDepartures = cachedGroup('deck.departures', (deck: MissionDeckModel) => deck.view.departures(deck))
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
@@ -634,12 +632,17 @@ export class MissionViewReader {
    * derived pane instead of rebuilding it (review finding 2). */
   values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     if (!id) return EMPTY_MISSION_VIEW
-    const root = this.selectedRoot(id)
-    if (root === LOADING) return LOADING
+    const rootId = this.rootFor(id)
+    if (rootId === LOADING) return LOADING
+    if (!rootId) return EMPTY_MISSION_VIEW
+    const root = this.rootValue(rootId)
     if (!root) return EMPTY_MISSION_VIEW
-    const deck = this.deck(root.id, mode)
-    if (deck.topology === LOADING || deck.progress === LOADING || this.archiveCount(deck) === LOADING) return LOADING
-    return paneValues[mode](this.node(root.id))
+    const deck = this.deck(rootId, mode)
+    // These independent questions are needed by the same pane. Observe each
+    // before propagating LOADING, so their requests share the 50 ms window.
+    const shape = deck.topology, numbers = deck.progress, archived = this.archiveCount(deck), ready = deck.headerReady
+    if (root === LOADING || shape === LOADING || numbers === LOADING || archived === LOADING || ready === LOADING) return LOADING
+    return paneValues[mode](this.node(rootId))
   }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
@@ -944,6 +947,9 @@ export class MissionViewReader {
   selectedRoot(selectedId: string | null): Loaded<IssueNavigationModel> {
     const rootId = this.rootFor(selectedId)
     if (rootId === LOADING || !rootId) return rootId === LOADING ? LOADING : undefined
+    return this.rootValue(rootId)
+  }
+  private rootValue(rootId: string): Loaded<IssueNavigationModel> {
     const root = this.issue(rootId)
     if (root === LOADING || !root || !visible(root)) return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {

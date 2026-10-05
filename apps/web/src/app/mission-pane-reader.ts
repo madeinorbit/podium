@@ -57,14 +57,14 @@ export function readMissionPane(
 ) {
   const reader = missionView(pool)
   const mission = readMissionView(reader, input.selectedIssueId, input.mode)
-  if (mission === LOADING) return LOADING
-  if (mission.deck?.headerReady === LOADING) return LOADING
+  let pending = mission === LOADING
   for (const id of new Set([
     input.paneA,
     input.split ? input.paneB : null,
   ])) {
-    if (id && reader.session(id) === LOADING) return LOADING
+    if (id && reader.session(id) === LOADING) pending = true
   }
+  if (pending || mission === LOADING) return LOADING
   const handoff =
     input.handoff && mission.root ? readMissionHandoff(reader, mission.root.id) : undefined
   if (handoff === LOADING) return LOADING
