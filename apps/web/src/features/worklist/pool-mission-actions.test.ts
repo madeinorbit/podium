@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { autorun } from 'mobx'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { missionIndexStats } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
@@ -29,7 +29,8 @@ it('selects a spin-off pane through the cached mission with zero legacy mission 
     navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
   const runtime = { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1]
   const focus = vi.fn()
-  const retain = autorun(() => { missions(pool).rootFor(root.id); missions(pool).members(root.id) })
+  const projection = createPoolProjection(pool, () => [missions(pool).rootFor(root.id), missions(pool).members(root.id)])
+  const retain = projection.subscribe(() => {})
   try {
     const work = createPoolWorkActions(pool, runtime, focus)
     const legacy = missionIndexStats()
