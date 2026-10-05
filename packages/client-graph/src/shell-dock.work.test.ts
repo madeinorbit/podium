@@ -32,8 +32,8 @@ function fixture(scale: 1 | 4) {
         ...f.issues[1]!,
         id: asIssueId(`containing-${index}`),
         seq: index + 100,
-        parentId: null,
-      } as IssueViewModel,
+        parentId: undefined,
+      } satisfies IssueViewModel,
     })) as never,
   })
   const root = f.state().repos[0]!
