@@ -35,7 +35,7 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
     before === after || (!!before && !!after && before.path === after.path && before.seq === after.seq && before.order === after.order)
   function fileRoot(id: string, value: Containment, present: boolean) {
     const answer = roots.get(value.path)?.answer.fork() ?? createKeyedAnswer<ContainingIssue>(
-      (a, b) => a.value.seq - b.value.seq || a.value.order - b.value.order,
+      (a, b) => a.seq - b.seq || a.order - b.order,
     )
     if (present) answer.set(id, id, { id, ...value })
     else answer.delete(id)
