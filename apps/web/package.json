@@ -75,6 +75,7 @@
     "test:perf:large-state": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:perf -- bun --bun vitest --config vitest.frontend-perf.config.ts run"
   },
   "devDependencies": {
+    "mobx": "7.0.3",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/react": "^16.3.2",
