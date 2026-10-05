@@ -9,7 +9,7 @@ export function readAddressedIssueRef(
 ) {
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? pool.row('repo', repoId) : undefined
-  const prefix = repo && typeof repo !== 'symbol' ? (repo as { prefix?: string }).prefix : row.prefix
+  const prefix = (repo && typeof repo !== 'symbol' ? (repo as { prefix?: string }).prefix : undefined) ?? row.prefix
   return {
     prefix,
     displayRef: repoId

@@ -146,7 +146,9 @@ describe('declared command and launch targets', () => {
   it('browses cold summaries without warming history and batches selected contextual detail', async () => {
     const f = await fixture()
     try {
-      const cold = f.pool.residency!.ids('issue', true),
+      // The residency ledger contains asked IDs, not the source catalog.
+      // This test explicitly opens the palette's licensed issue choices.
+      const cold = f.pool.queries.ids({ kind: 'commandIssues' }).filter((id) => f.pool.residency!.isCold('issue', id)),
         resident = f.pool.tables.issue.size
       expect(cold.length).toBeGreaterThan(0)
       const browsing = runInAction(() => commandLaunchViews(f.pool).palette())
