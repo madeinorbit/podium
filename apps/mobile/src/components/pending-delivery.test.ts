@@ -25,7 +25,7 @@ function lineFor(status: string, over: Partial<MessageRecordWire> = {}): string 
   const [bubble] = projectConversation({
     turns: [],
     records: [record(status, over)],
-    transcript: [],
+    transcriptIds: new Set(),
     seenOpen: new Set(),
     hidden: new Set(),
   })

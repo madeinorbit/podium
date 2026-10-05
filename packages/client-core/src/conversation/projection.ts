@@ -86,7 +86,9 @@ export interface ConversationProjectionInput {
   readonly turns: readonly ConversationPendingTurn[]
   /** This session's records, as the feed carries them. */
   readonly records: readonly MessageRecordWire[]
-  readonly transcript: readonly TranscriptItem[]
+  /** Membership maintained when the transcript changes; projecting bubbles
+   * asks only about the history entries named by their records. */
+  readonly transcriptIds: ReadonlySet<string>
   /** Records this view saw before they were confirmed: only those may show a
    *  bubble once confirmed (an older confirmed record is history). */
   readonly seenOpen: ReadonlySet<string>
@@ -208,7 +210,7 @@ function fromRecord(received: MessageRecordWire): ConversationBubble {
  * of a transcript item.
  */
 export function projectConversation(input: ConversationProjectionInput): ConversationBubble[] {
-  const onScreen = new Set(input.transcript.map((item) => item.id))
+  const onScreen = input.transcriptIds
   const byId = new Map(input.records.map((record) => [record.id, record]))
   const bubbles: ConversationBubble[] = []
   const covered = new Set<string>()

@@ -1045,15 +1045,20 @@ export class ConversationController {
 
   private patch(patch: Partial<ConversationState>): void {
     const pending = patch.pending ?? this.state.pending
-    const bubbles = projectConversation({
-      turns: pending,
-      records: this.currentRecords(pending),
-      transcript: this.options.transcript.getSnapshot().items,
-      seenOpen: this.seenOpen,
-      seenHistory: this.seenUserIds,
-      hidden: new Set(this.hidden.keys()),
-      retracting: this.retracting,
-    })
+    // A context, offer or retract changes no transcript membership. The
+    // transcript observer owns that index; a stopped surface projects again
+    // from its current baseline when start() reattaches it.
+    const bubbles = this.started
+      ? projectConversation({
+          turns: pending,
+          records: this.currentRecords(pending),
+          transcriptIds: this.transcriptIds,
+          seenOpen: this.seenOpen,
+          seenHistory: this.seenUserIds,
+          hidden: new Set(this.hidden.keys()),
+          retracting: this.retracting,
+        })
+      : this.state.bubbles
     const latest = bubbles.findLast(
       (bubble) => bubble.state !== 'failed' && bubble.state !== 'unknown',
     )
