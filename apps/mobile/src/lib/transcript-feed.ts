@@ -246,7 +246,9 @@ export function buildMobileTranscript(
   }
 
   return {
-    blocks, rows, latestAssistantKey,
+    blocks,
+    rows,
+    latestAssistantKey,
     positionOfKey: (key) => positions.get(key),
     rowsForBlock: (blockIndex) => blockRows.get(blockIndex) ?? [],
   }
@@ -306,7 +308,11 @@ export function projectMobileTranscriptMatches(
       if (!firstRowByBlock.has(blockIndex)) firstRowByBlock.set(blockIndex, position)
     }
   }
-  return { matches, matchingRows: new Set([...matchingRows].sort((a, b) => a - b)), firstRowByBlock }
+  return {
+    matches,
+    matchingRows: new Set([...matchingRows].sort((a, b) => a - b)),
+    firstRowByBlock,
+  }
 }
 
 /** Answer which matched row is selected through the demanded match relation. */
