@@ -40,8 +40,8 @@ import { assertBunToolchain } from './bun-toolchain'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import {
   inspectProofContract,
-  parseEvidence,
   PROOF_CHECKS,
+  parseEvidence,
   validateEvidence,
 } from './parity-release-proof'
 import { runWithHeavyTestLease } from './test-heavy'
@@ -372,10 +372,9 @@ describe('test lane configuration', () => {
       ...manifest.shards.flatMap((shard) => shard.testFiles),
       ...(config(integrationConfig).test?.include ?? []),
     ])
-    expect(
-      files.filter((file) => !owned.has(file)).sort(),
-      'server tests without a lane',
-    ).toEqual([])
+    expect(files.filter((file) => !owned.has(file)).sort(), 'server tests without a lane').toEqual(
+      [],
+    )
   })
 
   it('keeps every server shard on the shared hermetic setup [POD-520]', () => {
@@ -993,27 +992,35 @@ describe('test lane configuration', () => {
   })
 
   it('refreshes the shared API declarations before checking their consumers', () => {
-    const api = JSON.parse(readFileSync(new URL('../packages/api-types/package.json', import.meta.url), 'utf8'))
+    const api = JSON.parse(
+      readFileSync(new URL('../packages/api-types/package.json', import.meta.url), 'utf8'),
+    )
     const turbo = JSON.parse(readFileSync(new URL('../turbo.json', import.meta.url), 'utf8'))
     expect(api.exports['.'].types).toBe('./src/index.d.ts')
     expect(Object.keys(api.exports['.']).sort()).toEqual(['@podium/source', 'types'])
     expect(turbo.tasks['@podium/api-types#typecheck'].dependsOn).toContain('build')
     expect(turbo.tasks['@podium/api-types#build'].outputs).toEqual(['src/index.d.ts'])
-    expect(turbo.tasks['@podium/api-types#build'].inputs).toEqual(expect.arrayContaining([
-      '$TURBO_ROOT$/apps/server/src/**',
-      '$TURBO_ROOT$/apps/server/tsconfig.json',
-      '$TURBO_ROOT$/packages/*/src/**',
-      '!$TURBO_ROOT$/packages/api-types/src/**',
-    ]))
+    expect(turbo.tasks['@podium/api-types#build'].inputs).toEqual(
+      expect.arrayContaining([
+        '$TURBO_ROOT$/apps/server/src/**',
+        '$TURBO_ROOT$/apps/server/tsconfig.json',
+        '$TURBO_ROOT$/packages/*/src/**',
+        '!$TURBO_ROOT$/packages/api-types/src/**',
+      ]),
+    )
     for (const app of ['mobile', 'web']) {
-      const pkg = JSON.parse(readFileSync(new URL(`../apps/${app}/package.json`, import.meta.url), 'utf8'))
+      const pkg = JSON.parse(
+        readFileSync(new URL(`../apps/${app}/package.json`, import.meta.url), 'utf8'),
+      )
       expect(pkg.dependencies['@podium/api-types']).toBe('workspace:*')
       expect(pkg.dependencies['@podium/server']).toBeUndefined()
       expect(turbo.tasks[`@podium/${app}#typecheck`].dependsOn).toContain('^typecheck')
     }
     // preserveSymlinks keeps the client at the app's logical path, so its
     // server peer must be visible there for conditional procedure inference.
-    const mobile = JSON.parse(readFileSync(new URL('../apps/mobile/package.json', import.meta.url), 'utf8'))
+    const mobile = JSON.parse(
+      readFileSync(new URL('../apps/mobile/package.json', import.meta.url), 'utf8'),
+    )
     expect(mobile.devDependencies['@trpc/server']).toBeTruthy()
   })
 
@@ -1589,7 +1596,9 @@ describe('test lane configuration', () => {
       // `vitest` as a command or path segment (`vitest run`, `bunx vitest`,
       // `node_modules/vitest/vitest.mjs`), never as part of a hyphenated file
       // name: `bun scripts/check-vitest-env.ts` is a lint script, not a vitest run.
-      for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*(?<![\w-])vitest(?![\w-])[^&|]*)/g)) {
+      for (const match of script.matchAll(
+        /(?:^|&&|\|\|)\s*([^&|]*(?<![\w-])vitest(?![\w-])[^&|]*)/g,
+      )) {
         const invocation = match[1]
         if (invocation === undefined) {
           throw new Error(`script "${name}": vitest invocation did not capture`)
@@ -1611,7 +1620,6 @@ describe('test lane configuration', () => {
     expect(lean[2]).toMatch(/node_modules\/vitest\/vitest\.mjs$/)
   })
 })
-
 
 describe('Bun toolchain selection', () => {
   it('keeps the executing runtime and package metadata aligned with mise', () => {
