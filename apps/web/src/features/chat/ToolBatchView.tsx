@@ -1,4 +1,11 @@
-import { formatClock, resolveToolEdit, toolEditUnifiedDiff } from '@podium/client-core/values'
+import {
+  formatClock,
+  resolveToolEdit,
+  toolEditDiffKey,
+  toolEditHasDiff,
+  toolEditUnifiedDiff,
+  type ToolEditView,
+} from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -209,11 +216,18 @@ export function ToolBatchView({
    * row whose whole subject was a change.
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
-  const { editedPaths, diffSources, pathByBlock } = useMemo(() => {
+  // FOLDED METADATA IS CHEAP; DIFF TEXT IS NOT. `resolveToolEdit` parses the
+  // recorded payload and `toolEditHasDiff` only splits lines — neither walks
+  // the LCS table `toolEditUnifiedDiff` needs for a replacement hunk. A chat
+  // mount can hold dozens of near-cap hunks, so building every diff up front
+  // costs up to 24k cells per hunk before the reader has opened anything. The
+  // rail and the per-row open targets therefore come from this cheap pass, and
+  // the sheet's text is built below only once the reader asks for it.
+  const { editedPaths, pathByBlock, editRefs } = useMemo(() => {
     const seen: string[] = []
-    const patches = new Map<string, string[]>()
     const created = new Set<string>()
     const byBlock = new Map<string, string>()
+    const refs: { blockId: string; path: string; edit: ToolEditView }[] = []
     // An agent names files however its harness does — `./x`, a path relative to
     // the session's cwd, or an absolute one. The sheet reads better on the short
     // form, and the rail's dir/name split is meaningless on a full absolute
@@ -230,18 +244,13 @@ export function ToolBatchView({
       // list of what this run changed. See the note above.
       const edit = resolveToolEdit(b.item)
       if (!edit?.path) continue
-      const text = toolEditUnifiedDiff(edit, SHEET_LINE_CAP)
-      if (!text) continue
+      if (!toolEditHasDiff(edit)) continue
       const path = normalise(edit.path)
       if (!seen.includes(path)) seen.push(path)
       if (edit.mode === 'write') created.add(path)
       byBlock.set(b.item.id, path)
-      // Several calls can edit one file in a single run; they stack in the
-      // order the agent made them, which is the order they should be read in.
-      patches.set(path, [...(patches.get(path) ?? []), text])
+      refs.push({ blockId: b.item.id, path, edit })
     }
-    const sources: Record<string, string> = {}
-    for (const [path, parts] of patches) sources[path] = parts.join('\n')
     return {
       // The rail's status word is the sheet's, and the sheet's vocabulary is
       // git's index: "modified (staged)" is a claim about the working tree that
@@ -253,10 +262,43 @@ export function ToolBatchView({
         path,
         untracked: false,
       })),
-      diffSources: sources,
       pathByBlock: byBlock,
+      editRefs: refs,
     }
   }, [row.blocks, cwd])
+  // THE SHEET'S TEXT, BUILT ONCE PER EDIT AND KEPT ACROSS APPENDS. The first
+  // open pays the LCS work; an unrelated transcript update afterwards reuses
+  // every unchanged call's entry (keyed by diff content, not by array
+  // position) and only diffs what actually arrived. Closing the sheet keeps
+  // the entries — reopening is a join, not a recompute.
+  const diffCache = useRef(new Map<string, { key: string; text: string }>())
+  const sheetOpen = diffPath !== null
+  const diffSources = useMemo(() => {
+    if (!sheetOpen) return {}
+    const live = new Set(editRefs.map((ref) => ref.blockId))
+    for (const key of [...diffCache.current.keys()]) {
+      if (!live.has(key)) diffCache.current.delete(key)
+    }
+    const patches = new Map<string, string[]>()
+    for (const ref of editRefs) {
+      const key = toolEditDiffKey(ref.edit, SHEET_LINE_CAP)
+      const cached = diffCache.current.get(ref.blockId)
+      let text: string
+      if (cached && cached.key === key) {
+        text = cached.text
+      } else {
+        text = toolEditUnifiedDiff(ref.edit, SHEET_LINE_CAP)
+        diffCache.current.set(ref.blockId, { key, text })
+      }
+      if (!text) continue
+      // Several calls can edit one file in a single run; they stack in the
+      // order the agent made them, which is the order they should be read in.
+      patches.set(ref.path, [...(patches.get(ref.path) ?? []), text])
+    }
+    const sources: Record<string, string> = {}
+    for (const [path, parts] of patches) sources[path] = parts.join('\n')
+    return sources
+  }, [sheetOpen, editRefs])
   const expanded = open || forceOpen
   const rowClass = cn(
     'transcript-row',

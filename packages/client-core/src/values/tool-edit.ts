@@ -95,6 +95,67 @@ export function toolEditMagnitude(edit: ToolEditView): string {
 }
 
 /**
+ * Cheap "does this edit have a diff worth showing" check for folded runs.
+ *
+ * `toolEditUnifiedDiff` builds full line diffs (including an LCS table up to
+ * `LCS_CELL_CAP` per replacement hunk) before the caller can know the result
+ * is empty. A collapsed transcript row must not pay that to decide rail
+ * membership — it only needs path/identity metadata. This answers the same
+ * emptiness question `toolEditUnifiedDiff` would answer (non-empty output?)
+ * using only splits and the patch parser, never the LCS walk.
+ */
+export function toolEditHasDiff(edit: ToolEditView): boolean {
+  if (edit.unavailable) return true
+  if (edit.patch) {
+    const lines = patchLines(edit.patch)
+    if (lines.length === 0) return edit.truncated === true
+    // A lone file label earns no row in the unified output — the sheet names
+    // the file itself — so a patch that is only that label reads as empty.
+    if (lines.length === 1 && lines[0]?.kind === 'hunk') return edit.truncated === true
+    return true
+  }
+  if (edit.hunks.length > 0) {
+    let headers = 0
+    for (const hunk of edit.hunks) {
+      if ((hunk.path ?? edit.path) !== undefined) headers += 1
+      const hasContent =
+        edit.mode === 'write' || hunk.oldText === undefined
+          ? splitLines(hunk.newText ?? '').length > 0
+          : splitLines(hunk.oldText).length > 0 ||
+            splitLines(hunk.newText ?? '').length > 0
+      // Any content line survives the single-header drop, so the diff is
+      // non-empty without needing to know which lines they are.
+      if (hasContent) return true
+    }
+    if (headers === 0) return edit.truncated === true
+    // Same lone-label rule as above: one header alone is dropped.
+    if (headers === 1) return edit.truncated === true
+    return true
+  }
+  return edit.truncated === true
+}
+
+/**
+ * Stable cache key for the unified diff text of one edit at one cap.
+ *
+ * Only the fields `toolEditUnifiedDiff` reads participate — provenance
+ * (`source`, `userModified`) and summary counts (`added`, `removed`) do not
+ * change the text, so they stay out and identical changes share one entry
+ * across unrelated transcript appends.
+ */
+export function toolEditDiffKey(edit: ToolEditView, cap?: number): string {
+  return JSON.stringify([
+    edit.path ?? null,
+    edit.mode,
+    edit.hunks,
+    edit.patch ?? null,
+    edit.truncated === true,
+    edit.unavailable === true,
+    cap ?? LINE_CAP,
+  ])
+}
+
+/**
  * The edit as a UNIFIED DIFF, for a viewer that renders one.
  *
  * The transcript is a real diff source and not a stand-in for one: `replace`
