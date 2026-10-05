@@ -7,6 +7,7 @@ import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LEGACY_WORKTREE_MIGRATION } from './store/issues'
+import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -158,9 +159,17 @@ describe('the run-once migration for legacy worktree machine identity', () => {
   it('never revisits skipped or newly unpinned rows, and warns only once', async () => {
     const path = tmpDb()
     await seedV010ShapedDb(path)
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await (await openTestStore(path, HOST)).close()
-    expect(warning.mock.calls.filter(([message]) => String(message).includes('legacy worktree'))).toHaveLength(1)
+    // The backfill report routes through @podium/logger now; watch the logged
+    // records rather than the console (POD-5614).
+    const captured = captureLogs()
+    try {
+      await (await openTestStore(path, HOST)).close()
+      expect(
+        captured.at('warn').filter((record) => String(record.msg).includes('legacy worktree')),
+      ).toHaveLength(1)
+    } finally {
+      captured.restore()
+    }
     const db = openDatabase(path)
     const receipt = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)
     expect(receipt).toEqual({ value: JSON.stringify({ hostMachineId: HOST, backfilled: 2, skipped: 2 }) })

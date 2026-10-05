@@ -1,5 +1,6 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { captureLogs } from '../../test-support/capture-logs'
 import { ReceiptSender, type ReceiptSenderPorts, type ReceiptSendInput, type ReceiptSendVia } from './receipt-send'
 
 function deferred<T>() {
@@ -46,45 +47,60 @@ describe('detached receipt reconciliation', () => {
     it(`reports asynchronous reconciliation failure for ${branch.name}`, async () => {
       const reconciliation = deferred<void>()
       void reconciliation.promise.catch(() => {})
-      const report = vi.spyOn(console, 'error').mockImplementation(() => {})
-      const input = { sessionId: asSessionId('receipt-target'), sourceMessageId: 'message-branch', text: 'private body', ...branch.input }
-      let called = false
-      await sender(branch.ports).send(branch.via, input, () => {
-        called = true
-        return reconciliation.promise
-      })
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(called).toBe(true)
-      const failure = new Error('reconciliation storage unavailable')
-      reconciliation.reject(failure)
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(report).toHaveBeenCalledTimes(1)
-      expect(report).toHaveBeenCalledWith('[receipt-send] reconciliation failed', expect.objectContaining({
-        sessionId: input.sessionId, sourceMessageId: input.sourceMessageId, via: branch.via, error: failure,
-      }))
-      expect(report.mock.calls[0]?.[1]).not.toHaveProperty('text')
+      // The report routes through @podium/logger now; watch the logged
+      // records rather than the console (POD-5614).
+      const captured = captureLogs()
+      try {
+        const input = { sessionId: asSessionId('receipt-target'), sourceMessageId: 'message-branch', text: 'private body', ...branch.input }
+        let called = false
+        await sender(branch.ports).send(branch.via, input, () => {
+          called = true
+          return reconciliation.promise
+        })
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        expect(called).toBe(true)
+        const failure = new Error('reconciliation storage unavailable')
+        reconciliation.reject(failure)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        const errors = captured.at('error')
+        expect(errors).toHaveLength(1)
+        expect(errors[0]?.msg).toBe('reconciliation failed')
+        expect(errors[0]).toMatchObject({
+          sessionId: input.sessionId, sourceMessageId: input.sourceMessageId, via: branch.via, error: failure,
+        })
+        expect(errors[0]).not.toHaveProperty('text')
+      } finally {
+        captured.restore()
+      }
     })
   }
 
   it('reports synchronous reconciliation throws without rejecting queue admission', async () => {
-    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const failure = new Error('synchronous reconciliation failure')
-    expect(
-      await sender().send(
-        'queue',
-        {
-          sessionId: asSessionId('receipt-target'),
-          text: 'body',
-        },
-        () => {
-          throw failure
-        },
-      ),
-    ).toEqual({ ok: true, queued: true, position: 1 })
-    await new Promise<void>((resolve) => setImmediate(resolve))
-    expect(report).toHaveBeenCalledWith('[receipt-send] reconciliation failed', expect.objectContaining({
-      operationId: expect.any(String), error: failure,
-    }))
+    const captured = captureLogs()
+    try {
+      const failure = new Error('synchronous reconciliation failure')
+      expect(
+        await sender().send(
+          'queue',
+          {
+            sessionId: asSessionId('receipt-target'),
+            text: 'body',
+          },
+          () => {
+            throw failure
+          },
+        ),
+      ).toEqual({ ok: true, queued: true, position: 1 })
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      const errors = captured.at('error')
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.msg).toBe('reconciliation failed')
+      expect(errors[0]).toMatchObject({
+        operationId: expect.any(String), error: failure,
+      })
+    } finally {
+      captured.restore()
+    }
   })
 
 })

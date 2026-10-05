@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
+import { addSink, type LogRecord } from '@podium/logger'
 import handshake from './__fixtures__/handshake.json' with { type: 'json' }
 import fixture from './__fixtures__/unknown-method.json' with { type: 'json' }
 import { createCodexClient } from './client.js'
 
 describe('unknown inbound methods', () => {
   it('diagnoses each method once and continues dispatching requests, notifications and responses', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The diagnosis routes through @podium/logger now; watch the logged
+    // records rather than the console (POD-5614).
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'test-capture', write: (record) => records.push(record) })
+    const warns = () => records.filter((record) => record.level === 'warn')
     let receive = (_frame: unknown): void => {}
     const writes: string[] = []
     const onServerRequest = vi.fn()
@@ -29,23 +34,17 @@ describe('unknown inbound methods', () => {
       receive(handshake.initializeResponse)
       // Deliberately before awaiting initialize: same-batch traffic knows the version.
       receive(fixture.request)
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenLastCalledWith(expect.any(String), {
-        method: fixture.request.method,
-        harnessVersion: '0.147.0',
-        sessionId: 'session-diagnostic',
-      })
+      expect(warns()).toHaveLength(1)
+      expect(warns().at(-1)).toMatchObject({ msg: 'Unrecognised inbound JSON-RPC method', method: fixture.request.method,
+        harnessVersion: '0.147.0', sessionId: 'session-diagnostic' })
       receive({ ...fixture.request, id: 901 })
       receive({ method: fixture.request.method })
-      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warns()).toHaveLength(1)
       expect(onServerRequest).toHaveBeenCalledTimes(2)
       receive(fixture.notification)
       receive(fixture.notification)
-      expect(warn).toHaveBeenCalledTimes(2)
-      expect(warn).toHaveBeenLastCalledWith(
-        expect.any(String),
-        expect.objectContaining({ method: fixture.notification.method }),
-      )
+      expect(warns()).toHaveLength(2)
+      expect(warns().at(-1)).toMatchObject({ msg: 'Unrecognised inbound JSON-RPC method', method: fixture.notification.method })
       await initialized
       const before = onNotification.mock.calls.length
       receive({
@@ -58,10 +57,10 @@ describe('unknown inbound methods', () => {
       receive({ id: outgoing.id, result: { alive: true } })
       await expect(result).resolves.toEqual({ alive: true })
       expect(client.ready).toBe(true)
-      expect(warn).toHaveBeenCalledTimes(2)
+      expect(warns()).toHaveLength(2)
     } finally {
       client.close()
-      warn.mockRestore()
+      dispose()
     }
   })
 })
