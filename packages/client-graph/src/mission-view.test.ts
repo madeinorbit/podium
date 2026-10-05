@@ -63,10 +63,12 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
 })
 
 it('counts a closed archive without observing prompt, activity or handoff history', () => {
-  const { pool, reader } = open([issue('root')], [
+  const { pool, reader } = open([coldRoot()], [
     session('drawn', 'root'), session('headless', 'root', { headless: true }),
     session('shell', 'root', { agentKind: 'shell' }),
   ])
+  expect(tracked(() => settled(() => reader.facts('root').visible))).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1)
   const history = vi.spyOn(reader, 'readHistory')
   let count: number | typeof LOADING = LOADING
   const stop = autorun(() => { count = reader.archiveCount(reader.deck('root')) })
