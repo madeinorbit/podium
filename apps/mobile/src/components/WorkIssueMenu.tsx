@@ -10,7 +10,7 @@ import {
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
 import {
   type WorkIssueMenuTarget,
@@ -45,7 +45,6 @@ type MenuSheet =
 export function WorkIssueMenu({
   target,
   issues,
-  sessions,
   onClose,
 }: {
   target: WorkIssueMenuTarget
@@ -56,6 +55,7 @@ export function WorkIssueMenu({
   // Actions only — identity-stable, so the open menu does not re-render on
   // every store publish while an agent streams underneath it.
   const store = useStoreActions()
+  const hasCloseBlockers = useIssueCloseGuard()
   const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
   const issue = target.issue
   const closeIf = (kind: NonNullable<MenuSheet>['kind']) => () =>
@@ -126,7 +126,7 @@ export function WorkIssueMenu({
             if (!intent) return
             if (intent.kind === 'stage') {
               finish(store.updateIssue(issue.id, { stage: intent.stage }))
-            } else if (issueCloseBlockers(issue, sessions).length > 0) {
+            } else if (hasCloseBlockers(issue.id)) {
               setSheet({ kind: 'confirm-close', reason: intent.reason })
             } else {
               finish(store.closeIssue(issue.id, intent.reason))
@@ -152,7 +152,6 @@ export function WorkIssueMenu({
 
       <IssueCloseSheet
         issue={issue}
-        sessions={sessions}
         reason={sheet?.kind === 'confirm-close' ? sheet.reason : null}
         onConfirm={(reason) => finish(store.closeIssue(issue.id, reason))}
         onClose={closeIf('confirm-close')}

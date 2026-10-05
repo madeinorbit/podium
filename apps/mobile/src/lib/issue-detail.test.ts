@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
@@ -100,7 +101,8 @@ function harness(
   const commands = issueCommands({
     trpc: {} as MobileTrpc,
     issue: over.issue ?? issue(),
-    sessions: over.sessions ?? [],
+    hasCloseBlockers: (id) => blockingCloseConcerns(issueCloseConcerns(over.issue ?? issue(),
+      (over.sessions ?? []).filter(row => row.issueId === id))).length > 0,
     run: async (fn) => {
       await fn()
     },

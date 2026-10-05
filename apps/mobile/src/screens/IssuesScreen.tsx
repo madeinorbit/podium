@@ -45,7 +45,7 @@ import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
@@ -68,6 +68,7 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
 export function IssuesScreen() {
   const router = useRouter()
   const store = useStoreActions()
+  const hasCloseBlockers = useIssueCloseGuard()
   const [showDone, setShowDone] = useState(false)
   /**
    * Which parents are showing their children — local, exactly as the desktop
@@ -285,7 +286,6 @@ export function IssuesScreen() {
       {closeIntent ? (
         <IssueCloseSheet
           issue={closeIntent.issue}
-          sessions={sessions}
           reason={closeIntent.reason}
           busy={false}
           onConfirm={(reason) => {
@@ -317,7 +317,7 @@ export function IssuesScreen() {
     if (!intent) return
     if (intent.kind === 'stage') {
       runAction(store.updateIssue(issue.id, { stage: intent.stage }))
-    } else if (issueCloseBlockers(issue, sessions).length > 0) {
+    } else if (hasCloseBlockers(issue.id)) {
       setCloseIntent({ issue, reason: intent.reason })
     } else {
       runAction(store.closeIssue(issue.id, intent.reason))

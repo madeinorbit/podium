@@ -1,11 +1,15 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 afterEach(cleanup)
+const seams = vi.hoisted(() => ({ read: vi.fn() }))
+vi.mock('../client/use-issue-close', () => ({ useIssueCloseConcerns: seams.read }))
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -92,17 +96,20 @@ const dirtyBranch = {
   dirtyOwn: 3,
 }
 
-function open(over: Partial<Parameters<typeof IssueCloseSheet>[0]> = {}) {
+function open(over: Partial<Parameters<typeof IssueCloseSheet>[0]> & { sessions?: SessionView[]; pending?: boolean } = {}) {
   const onConfirm = vi.fn()
   const onClose = vi.fn()
+  const { sessions = [], pending = false, ...props } = over
+  const task = over.issue ?? issue()
+  seams.read.mockReset().mockReturnValue(pending ? LOADING : blockingCloseConcerns(
+    issueCloseConcerns(task, sessions.filter(row => row.issueId === task.id))))
   render(
     <IssueCloseSheet
-      issue={issue()}
-      sessions={[]}
+      issue={task}
       reason="done"
       onConfirm={onConfirm}
       onClose={onClose}
-      {...over}
+      {...props}
     />,
   )
   return { onConfirm, onClose }
@@ -112,6 +119,14 @@ describe('IssueCloseSheet', () => {
   it('stays down until a close asks for it', () => {
     open({ reason: null })
     expect(screen.queryByLabelText('Keep open')).toBeNull()
+    expect(seams.read).not.toHaveBeenCalled()
+  })
+
+  it('keeps confirmation disabled until the addressed facts arrive', () => {
+    const { onConfirm } = open({ pending: true })
+    expect(screen.getByText('Checking this task…')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Close task'))
+    expect(onConfirm).not.toHaveBeenCalled()
   })
 
   it('names every consequence, with the sentence that says why it matters', () => {

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  */
 
 afterEach(cleanup)
+vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },

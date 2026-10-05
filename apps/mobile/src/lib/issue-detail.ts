@@ -1,5 +1,4 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
@@ -9,7 +8,6 @@ import {
   parseIssueStatusValue,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
-import { issueCloseBlockers } from './issue-close'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -114,15 +112,15 @@ export interface IssueWriteActions {
 export function issueCommands({
   trpc,
   issue,
-  sessions = [],
+  hasCloseBlockers,
   run,
   actions,
   requestClose,
 }: {
   trpc: MobileTrpc
   issue: IssueViewModel
-  /** The session roster, for the close guard's blocker check (POD-1129). */
-  sessions?: readonly SessionView[]
+  /** Current maintained facts for this task, read only on a close press. */
+  hasCloseBlockers: (id: string) => boolean
   run: RunMutation
   actions: IssueWriteActions
   /** Hand a GUARDED close back to the host so it can raise `IssueCloseSheet`
@@ -134,7 +132,7 @@ export function issueCommands({
    *
    *  Optional, and for the desktop's reason: a host with no sheet mounted stays
    *  usable and closes directly. It is also only ever CALLED when there is
-   *  something to say — see {@link issueCloseBlockers} at the call site. */
+   *  something to say through the host's addressed close guard. */
   requestClose?: (reason: IssueCloseReason) => void
 }) {
   const id = issue.id
@@ -220,7 +218,7 @@ export function issueCommands({
       if (!intent) return
       if (intent.kind === 'stage') {
         update({ stage: intent.stage })
-      } else if (requestClose && issueCloseBlockers(issue, sessions).length > 0) {
+      } else if (requestClose && hasCloseBlockers(id)) {
         requestClose(intent.reason)
       } else {
         void run(() => actions.closeIssue(id, intent.reason))

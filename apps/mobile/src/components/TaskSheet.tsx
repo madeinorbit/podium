@@ -24,7 +24,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
 import { useOptionalServerProfile } from '../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {
@@ -191,6 +191,7 @@ function SheetHead({
 }) {
   const trpc = useTrpc()
   const { updateIssue, closeIssue } = useStoreActions()
+  const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
@@ -300,7 +301,7 @@ function SheetHead({
             // The SAME guard the task page and the desktop raise (POD-1129),
             // over the same derivation — and raised only when it has something
             // to say, so a tidy task still closes on the press.
-            if (issueCloseBlockers(issue, sessions).length > 0) {
+            if (hasCloseBlockers(issue.id)) {
               setCloseReason(intent.reason)
               return
             }
@@ -311,7 +312,6 @@ function SheetHead({
 
       <IssueCloseSheet
         issue={issue}
-        sessions={sessions}
         reason={closeReason}
         onConfirm={(reason) => {
           void closeIssue(issue.id, reason).catch(() => {})

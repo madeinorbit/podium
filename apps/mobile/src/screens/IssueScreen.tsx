@@ -55,7 +55,7 @@ import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
@@ -190,6 +190,7 @@ function IssueContent({
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.
   const actions = useStoreActions()
+  const hasCloseBlockers = useIssueCloseGuard()
   const { sendChat } = actions
   const coarseNow = useCoarseNow()
   const inputs = useIssueInputs(issue)
@@ -237,7 +238,7 @@ function IssueContent({
   const commands = issueCommands({
     trpc,
     issue,
-    sessions: allSessions,
+    hasCloseBlockers,
     run,
     actions,
     // Only reached when the shared derivation found something to say; a clean
@@ -582,7 +583,6 @@ function IssueContent({
           own consequence — and a two-line subtitle can hold none of it. */}
       <IssueCloseSheet
         issue={sheet?.kind === 'confirm-child-close' ? sheet.child : issue}
-        sessions={allSessions}
         reason={
           sheet?.kind === 'confirm-close' || sheet?.kind === 'confirm-child-close'
             ? sheet.reason
@@ -691,7 +691,7 @@ function IssueContent({
       void run(() => actions.updateIssue(child.id, { stage: intent.stage }))
       return
     }
-    if (issueCloseBlockers(child, allSessions).length > 0) {
+    if (hasCloseBlockers(child.id)) {
       setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
       return
     }

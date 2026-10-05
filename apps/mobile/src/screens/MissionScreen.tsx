@@ -30,7 +30,7 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
@@ -60,6 +60,7 @@ export function MissionScreen() {
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
   const store = useStoreActions()
+  const hasCloseBlockers = useIssueCloseGuard()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
@@ -119,12 +120,12 @@ export function MissionScreen() {
       void store.setIssueTucked(root.id, true).catch(() => {})
       return
     }
-    if (issueCloseBlockers(root, sessions).length > 0) {
+    if (hasCloseBlockers(root.id)) {
       setFileRootPending(true)
       return
     }
     closeAndTuckRoot()
-  }, [closeAndTuckRoot, root, sessions, store])
+  }, [closeAndTuckRoot, root, hasCloseBlockers, store])
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!root) return []
@@ -260,7 +261,6 @@ export function MissionScreen() {
       {root ? (
         <IssueCloseSheet
           issue={root}
-          sessions={sessions}
           reason={fileRootPending ? 'done' : null}
           onConfirm={closeAndTuckRoot}
           onClose={() => setFileRootPending(false)}

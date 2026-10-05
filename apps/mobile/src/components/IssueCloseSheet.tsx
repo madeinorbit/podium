@@ -1,8 +1,8 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueCloseConcern, IssueNavigationModel } from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model'
 import { StyleSheet, Text, View } from 'react-native'
-import { issueCloseBlockers } from '../lib/issue-close'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { useIssueCloseConcerns } from '../client/use-issue-close'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
@@ -28,7 +28,7 @@ import { PressableScale } from './PressableScale'
  * This is that guard in the phone's own grammar rather than a ported dialog: the
  * one shared {@link BottomSheet}, the {@link ActionSheet}'s inset groups and its
  * hairlines, a destructive action, and a Cancel pill in the footer. The FACTS
- * are not restated here — they are {@link issueCloseBlockers} over the shared
+ * are not restated here — they come from the shared maintained close counts
  * derivation, which is the whole point: a guard that lists different things
  * depending on which screen you closed from teaches that the list is advisory.
  *
@@ -43,29 +43,33 @@ import { PressableScale } from './PressableScale'
  *     the further that row travels from wherever the previous tap landed. The
  *     interruption is proportional to the cost by construction.
  *
- * The list is derived LIVE from the roster, not snapshotted at the press. An
+ * The list follows LIVE scalar facts, not a snapshot taken at the press. An
  * agent that finishes while the sheet is open empties it, and the sheet then
  * says exactly that rather than holding up a stale warning — the same thing the
  * desktop dialog does, and the reason its no-blocker copy exists at all.
  */
 export function IssueCloseSheet({
   issue,
-  sessions,
   reason,
   busy = false,
   onConfirm,
   onClose,
 }: {
   issue: IssueNavigationModel
-  /** The whole roster; membership is resolved by {@link issueCloseBlockers}. */
-  sessions: readonly SessionView[]
   /** The ending being recorded, or `null` when the sheet is down. */
   reason: IssueCloseReason | null
   busy?: boolean
   onConfirm: (reason: IssueCloseReason) => void
   onClose: () => void
 }) {
-  const concerns = issueCloseBlockers(issue, sessions)
+  if (reason === null) return null
+  return <VisibleIssueCloseSheet issue={issue} reason={reason} busy={busy} onConfirm={onConfirm} onClose={onClose} />
+}
+
+function VisibleIssueCloseSheet({ issue, reason, busy, onConfirm, onClose }: Parameters<typeof IssueCloseSheet>[0]) {
+  const value = useIssueCloseConcerns(issue.id)
+  const pending = value === LOADING
+  const concerns = pending ? [] : value
 
   return (
     <BottomSheet
@@ -84,14 +88,14 @@ export function IssueCloseSheet({
             {/* The ending is named only when it is NOT the ordinary one:
                 "Close this task?" already means done, and spelling that out
                 would make the common path read like a special case. */}
-            {concerns.length > 0
+            {pending ? 'Checking this task…' : concerns.length > 0
               ? 'This task still needs attention'
               : reason && reason !== 'done'
                 ? `Close this task as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
                 : 'Close this task?'}
           </Text>
           <Text style={styles.subtitle}>
-            {concerns.length > 0
+            {pending ? 'Waiting for the latest task status.' : concerns.length > 0
               ? 'Closing is still available, but it should be an explicit decision.'
               : 'Nothing unresolved is left on it.'}
           </Text>
@@ -130,7 +134,7 @@ export function IssueCloseSheet({
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={confirmLabel(reason, concerns.length > 0, false)}
-          disabled={busy || reason === null}
+          disabled={busy || pending || reason === null}
           scaleTo={0.99}
           // Dismiss FIRST, then close. The store's close is optimistic and
           // outboxed (POD-781) — the row reaches the closed fold on the press —
