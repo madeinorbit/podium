@@ -5,12 +5,13 @@ import { shallowEqual } from '@podium/client-core/store'
 import {
   type IssueNavigationModel,
   issueClosedFoldAt,
+  isSessionWorking,
   planReorderKeys,
 } from '@podium/client-core/values'
-import { LOADING, type MobxPool } from '@podium/client-graph'
+import type { MobxPool } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph/loading'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
-import { isSessionWorking } from '@podium/client-graph/worklist/rollup'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { asIssueId, type SessionId } from '@podium/model/browser'
