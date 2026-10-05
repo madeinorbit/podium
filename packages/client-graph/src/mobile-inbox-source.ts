@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { observable, runInAction } from 'mobx'
 import type { MobileInboxRows } from './mobile-inbox-schema'
@@ -12,8 +13,12 @@ export class MobileInboxSource {
     deep: false,
   })
   private demanded = false
-  private scheduled = false
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   private readonly stop: () => void
   readonly counts = { batches: 0 }
 
@@ -29,32 +34,36 @@ export class MobileInboxSource {
   }
 
   read<E extends keyof MobileInboxRows>(_entity: E, _id: string): Loaded<MobileInboxRows[E]> {
-    if (this.disposed) return LOADING
+    return this.source.read(_entity, _id) as Loaded<MobileInboxRows[E]>
+  }
+
+  private readById<E extends keyof MobileInboxRows>(_entity: E, _id: string): Loaded<MobileInboxRows[E]> {
     this.demanded = true
     if (this.state.get() === LOADING) this.schedule()
     return this.state.get() as Loaded<MobileInboxRows[E]>
   }
 
   private schedule(): void {
-    if (this.scheduled || this.disposed) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed) return
-      const hasCursor = this.runtime.replica.getCursor() !== null
-      runInAction(() => {
-        if (
-          this.state.get() === LOADING ||
-          (this.state.get() as MobileInboxRows['mobileInboxState']).hasCursor !== hasCursor
-        )
-          this.state.set({ hasCursor })
-        this.counts.batches++
-      })
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    const hasCursor = this.runtime.replica.getCursor() !== null
+    runInAction(() => {
+      if (
+        this.state.get() === LOADING ||
+        (this.state.get() as MobileInboxRows['mobileInboxState']).hasCursor !== hasCursor
+      )
+        this.state.set({ hasCursor })
+      this.counts.batches++
     })
   }
 
   dispose(): void {
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     this.stop()
   }
 }

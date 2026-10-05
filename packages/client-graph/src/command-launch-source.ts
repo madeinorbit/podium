@@ -13,7 +13,7 @@ import { allResidentSessions } from './enumerate'
 import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
-import type { PoolSource, PoolSourceRows } from './source-registry'
+import { defineSource, type PoolSource, type PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
@@ -36,7 +36,11 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   private readonly sessionsByPath = new Map<string, Set<string>>()
   private readonly sessionCwd = new Map<string, string>()
   private readonly stops: (() => void)[] = []
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   readonly counts = {
     publications: 0,
     windowChanges: 0,
@@ -288,7 +292,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   }
 
   read<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
-    if (this.disposed) return LOADING
+    return this.source.read(entity, id) as Loaded<PoolSourceRows[K]>
+  }
+
+  private readById<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
     if (entity === 'commandIssue')
       return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
     return (
@@ -301,8 +308,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     return this.relations.many(`${entity}:${id}:${name}`)
   }
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     for (const stop of this.stops) stop()
     runInAction(() => {
       for (const table of Object.values(this.tables)) table.clear()

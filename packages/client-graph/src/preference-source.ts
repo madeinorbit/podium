@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { runInAction } from 'mobx'
@@ -18,8 +19,12 @@ export class PreferenceSource {
   private readonly pending = new Set<string>()
   private readonly refreshing = new Set<string>()
   private readonly homes = new Map<string, PreferenceRow['home']>()
-  private scheduled = false
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   private readonly unsubscribe: () => void
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
 
@@ -36,7 +41,10 @@ export class PreferenceSource {
   }
 
   read(key: string): Loaded<PreferenceRow> {
-    if (this.disposed) return LOADING
+    return this.source.read(key) as Loaded<PreferenceRow>
+  }
+
+  private readById(key: string): Loaded<PreferenceRow> {
     // Validate the routing home before either observing or reading the owner.
     if (!this.homes.has(key)) this.homes.set(key, declarePreference(key))
     this.atoms.observe(key)
@@ -77,23 +85,24 @@ export class PreferenceSource {
   }
 
   private schedule(): void {
-    if (this.scheduled || this.disposed || !this.pending.size) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed) return
-      const keys = [...this.pending]
-      this.pending.clear()
-      this.counts.batches++
-      // ui.get may finish the owner's one-shot legacy key migration and notify.
-      // Keep that write in the existing owner, outside the MobX publish action.
-      this.publish(keys.flatMap((key) => this.load(key) ?? []))
-    })
+    if (!this.pending.size) return
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    const keys = [...this.pending]
+    this.pending.clear()
+    this.counts.batches++
+    // ui.get may finish the owner's one-shot legacy key migration and notify.
+    // Keep that write in the existing owner, outside the MobX publish action.
+    this.publish(keys.flatMap((key) => this.load(key) ?? []))
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     this.unsubscribe()
     this.pending.clear()
     this.homes.clear()

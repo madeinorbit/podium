@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { outboxChatSends } from '@podium/client-core/chat-values'
 import { asSessionId } from '@podium/model'
@@ -28,13 +29,17 @@ export class ChatContextSource {
   private readonly demanded = new Set<string>()
   /** Demanded keys a wake moved (POD-5433): one draft, the window, the held sends. */
   private readonly dirty = new Set<string>()
-  private scheduled = false
   private outboxDirty = true
   /** The order lists, kept by address (finding 13): membership in replica
    *  insertion order, which a reader's `{ ids }` is derived from. A
    *  batch costs its addresses; the list is built only when it moved. */
   private readonly orders = new Map<string, ChatOrder>()
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   private readonly stops: (() => void)[]
   private readonly reader: ChatContextRows['chatContextReader']
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0, orderIds: 0 }
@@ -84,7 +89,10 @@ export class ChatContextSource {
   }
 
   read(entity: keyof ChatContextRows, id: string): Loaded<ChatContextRows[keyof ChatContextRows]> {
-    if (this.disposed) return LOADING
+    return this.source.read(entity, id) as Loaded<ChatContextRows[keyof ChatContextRows]>
+  }
+
+  private readById(entity: keyof ChatContextRows, id: string): Loaded<ChatContextRows[keyof ChatContextRows]> {
     if (entity === 'chatContextReader') return this.reader
     const key = `${entity}:${id}`
     this.demanded.add(key)
@@ -137,50 +145,50 @@ export class ChatContextSource {
   }
 
   private schedule(): void {
-    if (this.scheduled || this.disposed) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed) return
-      const heldKeys = [...this.demanded].filter((key) => key.startsWith('chatHeld:'))
-      const refreshHeld = heldKeys.some((key) => !this.loaded.has(key)) || this.outboxDirty
-      const pending = refreshHeld && heldKeys.length ? this.owner.outbox.pending() : undefined
-      const parked = pending ? this.owner.outbox.deadLetters() : undefined
-      if (pending) {
-        this.outboxDirty = false
-        this.counts.outboxReads++
-      }
-      runInAction(() => {
-        for (const key of this.demanded) {
-          const fresh = !this.loaded.has(key) || this.dirty.has(key)
-          if (key.startsWith('chatDraft:')) {
-            if (fresh) this.set(key, { text: this.owner.drafts.get(asSessionId(key.slice(10))) })
-          } else if (key === 'chatWindow:window') {
-            if (fresh)
-              this.set(key, {
-                attachedSessionId: this.owner.readLocal('attachedSessionId') ?? null,
-                transcriptReveal: this.owner.readLocal('transcriptReveal') ?? null,
-              })
-          } else if (key.startsWith('chatHeld:') && pending && parked)
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    const heldKeys = [...this.demanded].filter((key) => key.startsWith('chatHeld:'))
+    const refreshHeld = heldKeys.some((key) => !this.loaded.has(key)) || this.outboxDirty
+    const pending = refreshHeld && heldKeys.length ? this.owner.outbox.pending() : undefined
+    const parked = pending ? this.owner.outbox.deadLetters() : undefined
+    if (pending) {
+      this.outboxDirty = false
+      this.counts.outboxReads++
+    }
+    runInAction(() => {
+      for (const key of this.demanded) {
+        const fresh = !this.loaded.has(key) || this.dirty.has(key)
+        if (key.startsWith('chatDraft:')) {
+          if (fresh) this.set(key, { text: this.owner.drafts.get(asSessionId(key.slice(10))) })
+        } else if (key === 'chatWindow:window') {
+          if (fresh)
             this.set(key, {
-              sends: outboxChatSends(
-                { pending: () => pending, deadLetters: () => parked } as ClientRuntime['outbox'],
-                asSessionId(key.slice(9)),
-              ),
+              attachedSessionId: this.owner.readLocal('attachedSessionId') ?? null,
+              transcriptReveal: this.owner.readLocal('transcriptReveal') ?? null,
             })
-        }
-        this.dirty.clear()
-        for (const entity of Object.keys(CHAT_ORDER_KINDS)) {
-          if (this.demanded.has(`${entity}:order`) && !this.orders.has(entity)) this.fill(entity)
-        }
-        this.counts.batches++
-      })
+        } else if (key.startsWith('chatHeld:') && pending && parked)
+          this.set(key, {
+            sends: outboxChatSends(
+              { pending: () => pending, deadLetters: () => parked } as ClientRuntime['outbox'],
+              asSessionId(key.slice(9)),
+            ),
+          })
+      }
+      this.dirty.clear()
+      for (const entity of Object.keys(CHAT_ORDER_KINDS)) {
+        if (this.demanded.has(`${entity}:order`) && !this.orders.has(entity)) this.fill(entity)
+      }
+      this.counts.batches++
     })
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     for (const stop of this.stops) stop()
     this.demanded.clear()
     queueMicrotask(() =>

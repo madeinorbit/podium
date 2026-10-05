@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { observable, runInAction } from 'mobx'
 import type { SessionPaneRows } from './session-pane-schema'
@@ -12,7 +13,12 @@ export class SessionPaneSource {
     { deep: false },
   )
   private readonly stop: () => void
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    release: this.release.bind(this),
+    disposedValue: undefined,
+  })
+  private get disposed(): boolean { return this.source.disposed }
   constructor(runtime: Pick<ClientRuntime, 'readLocal' | 'onLocals'>) {
     const update = () => {
       if (this.disposed) return
@@ -34,11 +40,17 @@ export class SessionPaneSource {
     this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded'], update)
   }
   read(_entity: 'sessionPaneWindow', _id: string) {
+    return this.source.read(_entity, _id)
+  }
+
+  private readById(_entity: 'sessionPaneWindow', _id: string) {
     return this.value.get()
   }
   dispose() {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release() {
     this.stop()
     runInAction(() => this.value.set(undefined))
   }

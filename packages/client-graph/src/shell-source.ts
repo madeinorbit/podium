@@ -3,7 +3,7 @@ import { compareStructural, observable, runInAction } from 'mobx'
 import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
 import { SHELL_RELATIONS, SHELL_SCHEMA, type ShellEntity, type ShellRows } from './shell-schema'
-import type { PoolSource } from './source-registry'
+import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Read-side attachment. Locals are already authoritative engine values;
@@ -15,7 +15,11 @@ export class ShellSource implements PoolSource<ShellEntity> {
   })
   private readonly relations = new RelationBuckets()
   private readonly stops: (() => void)[]
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
 
   constructor(
@@ -140,15 +144,21 @@ export class ShellSource implements PoolSource<ShellEntity> {
     })
   }
   read<E extends ShellEntity>(entity: E, id: string): Loaded<ShellRows[E]> {
-    return this.disposed ? LOADING : (this.rows.get(`${entity}:${id}`) as ShellRows[E] | undefined)
+    return this.source.read(entity, id) as Loaded<ShellRows[E]>
+  }
+
+  private readById<E extends ShellEntity>(entity: E, id: string): Loaded<ShellRows[E]> {
+    return (this.rows.get(`${entity}:${id}`) as ShellRows[E] | undefined)
   }
   related(entity: string, id: string, name: string): readonly string[] {
     const relation = SHELL_RELATIONS.find((value) => value.from === entity && value.name === name)
     return relation ? (this.relations.many(`${relation.to}:${id}:${name}`)) : []
   }
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     for (const stop of this.stops) stop()
     runInAction(() => {
       this.rows.clear()

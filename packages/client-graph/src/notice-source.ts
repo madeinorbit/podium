@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import { isMessageRecordAttention, type MessageRecordWire } from '@podium/model'
@@ -49,9 +50,13 @@ export class NoticeSource {
   private recoveryReaders = 0
   private loaded = false
   private imperativeLoad = false
-  private scheduled = false
   private outboxDirty = false
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   private readonly stops: (() => void)[]
   readonly counts = { batches: 0, collectionReads: 0, addressedRows: 0, payloadReads: 0,
     outboxReads: 0, catalogBuilds: 0, catalogUpdates: 0, attentionBuilds: 0, attentionUpdates: 0 }
@@ -92,7 +97,10 @@ export class NoticeSource {
   }
 
   read(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
-    if (this.disposed) return LOADING
+    return this.source.read(entity, id) as Loaded<NoticeRows[NoticeEntity]>
+  }
+
+  private readById(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
     if ((entity === 'noticeAttention' && id !== 'attention') ||
       ((entity === 'noticeCatalog' || entity === 'noticeMessageCatalog' || entity === 'noticeRecoveryCatalog') && id !== 'catalog')) return undefined
     const tracked = this.watch(entity, id)
@@ -216,35 +224,36 @@ export class NoticeSource {
   }
 
   private schedule(): void {
-    if (this.scheduled || this.disposed) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed || (!this.watched.size && !this.imperativeLoad)) return
-      this.imperativeLoad = false
-      runInAction(() => {
-        if (this.outboxDirty && this.recoveryAnswer) {
-          const previous = this.recoveryAnswer
-          this.recoveryAnswer = undefined
-          const next = this.recovery()
-          if (!compareStructural(previous.ids, next.ids)) { this.wake(RECOVERY); this.wake(CATALOG) }
-          for (const id of new Set([...previous.ids, ...next.ids])) {
-            if (!compareStructural(previous.rows.get(id), next.rows.get(id))) this.wake(`outboxDeadLetter:${id}`)
-          }
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    if (!this.watched.size && !this.imperativeLoad) return
+    this.imperativeLoad = false
+    runInAction(() => {
+      if (this.outboxDirty && this.recoveryAnswer) {
+        const previous = this.recoveryAnswer
+        this.recoveryAnswer = undefined
+        const next = this.recovery()
+        if (!compareStructural(previous.ids, next.ids)) { this.wake(RECOVERY); this.wake(CATALOG) }
+        for (const id of new Set([...previous.ids, ...next.ids])) {
+          if (!compareStructural(previous.rows.get(id), next.rows.get(id))) this.wake(`outboxDeadLetter:${id}`)
         }
-        this.outboxDirty = false
-        if (!this.loaded) {
-          this.loaded = true
-          for (const atom of this.watched.values()) atom.reportChanged()
-        }
-        this.counts.batches++
-      })
+      }
+      this.outboxDirty = false
+      if (!this.loaded) {
+        this.loaded = true
+        for (const atom of this.watched.values()) atom.reportChanged()
+      }
+      this.counts.batches++
     })
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     for (const stop of this.stops) stop()
     this.watched.clear(); this.sessions.clear(); this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear()
     this.catalogAnswer = undefined; this.attentionAnswer = undefined; this.recoveryAnswer = undefined

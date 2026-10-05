@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { Replica } from '@podium/client-core/replica'
 import { compareStructural, observable, runInAction } from 'mobx'
 import { AUTOMATION_RELATIONS, type AutomationEntity, type AutomationRows } from './automation-schema'
@@ -11,9 +12,13 @@ export class AutomationSource {
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private readonly relations = new RelationBuckets({ trackedForward: true, sorted: true })
   private readonly loaded = observable.box(false)
-  private scheduled = false
   private demanded = false
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
   private readonly off: () => void
   readonly counts = { batches: 0, addressedRows: 0 }
 
@@ -37,7 +42,10 @@ export class AutomationSource {
   }
 
   read(entity: AutomationEntity, id: string): Loaded<AutomationRows[AutomationEntity]> {
-    if (this.disposed) return LOADING
+    return this.source.read(entity, id) as Loaded<AutomationRows[AutomationEntity]>
+  }
+
+  private readById(entity: AutomationEntity, id: string): Loaded<AutomationRows[AutomationEntity]> {
     this.demanded = true
     if (!this.loaded.get()) { this.schedule(); return LOADING }
     return this.rows.get(`${entity}:${id}`) as AutomationRows[AutomationEntity] | undefined
@@ -71,31 +79,31 @@ export class AutomationSource {
   }
 
   private schedule(): void {
-    if (this.disposed || this.scheduled) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed) return
-      const definitions = this.replica.rows('automations'), runs = this.replica.rows('automationRuns')
-      runInAction(() => {
-        const keep = new Set([...definitions.map(row => `automation:${row.id}`), ...runs.map(row => `automationRun:${row.id}`)])
-        for (const key of this.rows.keys()) {
-          if (key === 'automationCatalog:catalog' || keep.has(key)) continue
-          const split = key.indexOf(':')
-          this.change(key.slice(0, split) as 'automation' | 'automationRun', key.slice(split + 1), undefined)
-        }
-        for (const row of definitions) this.change('automation', row.id, row)
-        for (const row of runs) this.change('automationRun', row.id, row)
-        this.catalog()
-        this.loaded.set(true)
-        this.counts.batches++
-      })
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    const definitions = this.replica.rows('automations'), runs = this.replica.rows('automationRuns')
+    runInAction(() => {
+      const keep = new Set([...definitions.map(row => `automation:${row.id}`), ...runs.map(row => `automationRun:${row.id}`)])
+      for (const key of this.rows.keys()) {
+        if (key === 'automationCatalog:catalog' || keep.has(key)) continue
+        const split = key.indexOf(':')
+        this.change(key.slice(0, split) as 'automation' | 'automationRun', key.slice(split + 1), undefined)
+      }
+      for (const row of definitions) this.change('automation', row.id, row)
+      for (const row of runs) this.change('automationRun', row.id, row)
+      this.catalog()
+      this.loaded.set(true)
+      this.counts.batches++
     })
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     this.off()
     queueMicrotask(() => runInAction(() => {
       this.rows.clear(); this.relations.clear(); this.loaded.set(false)

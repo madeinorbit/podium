@@ -1,3 +1,4 @@
+import { defineSource } from './source-registry'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
@@ -42,13 +43,20 @@ export class SettingsSource {
   private readonly pending = new Set<string>()
   private readonly lists = new Map<Discovery, { readers: number; stop: () => void }>()
   private window: { readers: number; stop: () => void } | undefined
-  private scheduled = false
-  private disposed = false
+  private readonly source = defineSource({
+    readById: this.readById.bind(this),
+    refresh: this.refresh.bind(this),
+    release: this.release.bind(this),
+  })
+  private get disposed(): boolean { return this.source.disposed }
 
   constructor(private readonly owner: SettingsOwner) {}
 
   read(entity: SettingsEntity, id: string): Reading {
-    if (this.disposed) return LOADING
+    return this.source.read(entity, id) as Reading
+  }
+
+  private readById(entity: SettingsEntity, id: string): Reading {
     // Imperative questions read the runtime's existing keyed inputs directly;
     // only an observed question needs a stored source row and subscription.
     const key = `${entity}:${id}`
@@ -140,25 +148,25 @@ export class SettingsSource {
   }
 
   private schedule(): void {
-    if (this.disposed || this.scheduled) return
-    this.scheduled = true
-    queueMicrotask(() => {
-      this.scheduled = false
-      if (this.disposed) return
-      runInAction(() => {
-        const keys = [...this.pending]
-        this.pending.clear()
-        for (const key of keys) {
-          const entry = this.rows.get(key)
-          if (entry) this.load(entry)
-        }
-      })
+    this.source.schedule()
+  }
+
+  private refresh(): void {
+    runInAction(() => {
+      const keys = [...this.pending]
+      this.pending.clear()
+      for (const key of keys) {
+        const entry = this.rows.get(key)
+        if (entry) this.load(entry)
+      }
     })
   }
 
   dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
+    this.source.dispose()
+  }
+
+  private release(): void {
     const entries = [...this.rows.values()]
     const atoms = [...this.atoms.values()]
     for (const entry of entries) {

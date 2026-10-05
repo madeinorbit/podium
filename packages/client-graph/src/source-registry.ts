@@ -23,6 +23,39 @@ export interface PoolSource<E extends SourceEntity> {
   dispose(): void
 }
 
+/** The common read/lifecycle frame. Adapters declare their read and refresh
+ * policies; the frame coalesces wakes, cancels queued work at teardown, and
+ * releases the owner once. Refresh owns its existing publication action so
+ * runtime reads and effects keep their original transaction boundary. */
+export function defineSource<Args extends unknown[], Row>(definition: {
+  readById: (...args: Args) => Loaded<Row>
+  refresh?: () => void
+  release: () => void
+  disposedValue?: Loaded<Row>
+}) {
+  let scheduled = false, disposed = false
+  return {
+    get disposed(): boolean { return disposed },
+    read(...args: Args): Loaded<Row> {
+      if (disposed) return Object.hasOwn(definition, 'disposedValue') ? definition.disposedValue : LOADING
+      return definition.readById(...args)
+    },
+    schedule(): void {
+      if (scheduled || disposed || !definition.refresh) return
+      scheduled = true
+      queueMicrotask(() => {
+        scheduled = false
+        if (!disposed) definition.refresh!()
+      })
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      definition.release()
+    },
+  }
+}
+
 /** One registry per existing pool; it owns read-side sources, never mutations.
  * Registration is atomic and a source is disposed once even with many kinds. */
 export class PoolSources {
