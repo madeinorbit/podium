@@ -5,7 +5,7 @@ import {
   isAgentConfirmedComputing,
   type MachineId,
 } from '@podium/model/browser'
-import { autorun, observable, observe, runInAction } from 'mobx'
+import { autorun, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { EMPTY_HOST_AGGREGATE } from './header-session'
@@ -15,17 +15,22 @@ import { LOADING } from './worklist/rollup'
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 const HOSTS = ['header-host-a', 'header-host-b'] as MachineId[]
+const REF_REPO = 'header-references'
 const stamp = (ms = NOW) => new Date(ms).toISOString()
 const state = (
   phase: NonNullable<SessionView['agentState']>['phase'],
   at = NOW,
 ): NonNullable<SessionView['agentState']> => ({ phase, since: stamp(at), nativeSubagentCount: 0 })
 function session(id: string, patch: Partial<SessionView> = {}): SessionView {
+  const refSeq = Number(id.match(/\d+$/)?.[0] ?? 0) + 1
   return {
     sessionId: id,
     title: id,
     name: `Name ${id}`,
-    displayRef: `S-${id}`,
+    refRepoId: REF_REPO,
+    refSeq,
+    refLetter: 'A',
+    displayRef: `HEAD-${refSeq}-A`,
     agentKind: 'codex',
     status: 'live',
     cwd: '/synthetic/header',
@@ -58,10 +63,14 @@ function fixture(coldCount = 0) {
     else rows.delete(id)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: value as never }] })
   }
-  pool.apply({
+  const replace = () => pool.apply({
     type: 'replace',
-    rows: [...rows].map(([id, value]) => ({ kind: 'session', id, value: value as never })),
+    rows: [
+      { kind: 'repo', id: REF_REPO, value: { id: REF_REPO, prefix: 'HEAD', repoPath: '/synthetic/header' } as never },
+      ...[...rows].map(([id, value]) => ({ kind: 'session' as const, id, value: value as never })),
+    ],
   })
+  replace()
   expect(pool.tables.session.size).toBe(32)
   // POD-5407: the pool keeps no list of its cold rows; the index knows them.
   expect(pool.coldIndex().count('session') - pool.tables.session.size).toBe(coldCount)
@@ -95,6 +104,7 @@ function fixture(coldCount = 0) {
     apply,
     paint,
     rebase,
+    replace,
     change(id: string, patch: Partial<SessionView>) {
       apply(id, { ...rows.get(id)!, ...patch })
     },
@@ -132,24 +142,20 @@ function visits(pool: MobxPool) {
 
 describe('incremental header sessions', () => {
   it('tracks cold working labels without a session publication', () => {
-    const f = fixture(1), prefix = observable.box('FIRST'), read = f.pool.row.bind(f.pool)
+    const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })
     expect(f.pool.queries.ids({ kind: 'headerSessions' })).toContain('cold-0')
     expect(f.pool.tables.session.has('cold-0')).toBe(false)
-    const summary = session('cold-0', { agentState: state('working') })
-    Object.defineProperty(summary, 'displayRef', { enumerable: true, get: () => `${prefix.get()}-1-A` })
-    const row = vi.spyOn(f.pool, 'row').mockImplementation(((kind: string, id: string, mode?: string) =>
-      kind === 'session' && id === 'cold-0' && (mode === 'summary' || mode === 'summary-fields')
-        ? summary : (read as Function)(kind, id, mode)) as typeof f.pool.row)
     let references: (string | undefined)[] = []
     const stop = autorun(() => { references = f.pool.headerViews.working().map(value => value.displayRef) })
     try {
-      expect(references).toEqual(['FIRST-1-A'])
-      runInAction(() => prefix.set('NEXT'))
+      expect(references).toEqual(['HEAD-1-A'])
+      f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: REF_REPO,
+        value: { id: REF_REPO, prefix: 'NEXT', repoPath: '/synthetic/header' } as never }] })
       expect(references).toEqual(['NEXT-1-A'])
       expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(f.load).not.toHaveBeenCalled()
-    } finally { stop(); row.mockRestore(); f.dispose() }
+    } finally { stop(); f.dispose() }
   })
 
   it('counts working sessions and adjusts history without visiting the roster at 1x/4x', async () => {
@@ -463,7 +469,8 @@ describe('incremental header sessions', () => {
       f.change('resident-0', {
         title: 'Renamed',
         name: 'New name',
-        displayRef: 'S-999',
+        refSeq: 999,
+        displayRef: 'HEAD-999-A',
         archived: true,
       })
       parity()
@@ -485,10 +492,7 @@ describe('incremental header sessions', () => {
       f.rows.clear()
       f.rows.set('z', session('z', { agentState: state('working') }))
       f.rows.set('a', session('a', { agentState: state('compacting') }))
-      f.pool.apply({
-        type: 'replace',
-        rows: [...f.rows].map(([id, value]) => ({ kind: 'session', id, value: value as never })),
-      })
+      f.replace()
       parity()
       expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['a', 'z'])
     } finally {
