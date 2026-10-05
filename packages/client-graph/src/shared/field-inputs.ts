@@ -1,6 +1,5 @@
-import { createAtom, type IAtom } from 'mobx'
-
-const trackedRead = createAtom('fieldInputs.trackedRead')
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import type { IAtom } from 'mobx'
 
 /** A stable, frozen read facade over keyed inputs. Reading a field subscribes
  * only to that field; publication never compares or traverses another value.
@@ -15,7 +14,7 @@ export function createFieldInputs<T extends object>(
   let values: Partial<T> = typeof initial === 'function' ? {} : { ...initial }
   let borrowed = typeof initial === 'function' ? initial : undefined
   const valueAt = (key: keyof T) => (Object.hasOwn(values, key) ? values[key] : borrowed?.(key))
-  const atoms = new Map<keyof T, IAtom>()
+  const atoms = createDemandAtoms<keyof T>((key) => `${name}:${String(key)}`, { borrowAtom })
   const row = Object.freeze(
     Object.defineProperties(
       {},
@@ -25,12 +24,7 @@ export function createFieldInputs<T extends object>(
           {
             enumerable: true,
             get() {
-              if (trackedRead.reportObserved()) {
-                const atom = atoms.get(key) ?? borrowAtom?.(key) ??
-                  createAtom(`${name}:${String(key)}`, undefined, () => { atoms.delete(key) })
-                atoms.set(key, atom)
-                atom.reportObserved()
-              }
+              atoms.observe(key)
               return valueAt(key)
             },
           },

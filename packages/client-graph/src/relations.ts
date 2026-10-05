@@ -33,7 +33,8 @@
  * through this reader and never themselves.
  */
 
-import { createAtom, type IAtom, observable } from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import { observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
@@ -72,9 +73,6 @@ export interface PoolRelationsOptions {
 }
 
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
-// This constant atom admits tracked reads without allocating a slot for an
-// imperative maintenance probe. It never changes; the slot owns invalidation.
-const trackedRead = createAtom('relations.trackedRead')
 
 /** A slot's members, tracked when read: iterating one observes its atom. */
 class TrackedIds implements Iterable<string> {
@@ -95,7 +93,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly present: (entity: EntityName, id: string) => boolean
   private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
   /** One atom per slot a derivation has read, while observed. */
-  private readonly atoms = new Map<string, IAtom>()
+  private readonly atoms = createDemandAtoms<string>((key) => debugName(() => `pool.relation.${key}`) ?? 'Atom')
   /** Collections by name, and which outgoing links are many-valued (`from.relation`). */
   private readonly collections = new Set<string>()
   private readonly singles = new Set<string>()
@@ -252,18 +250,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /** Make a slot read tracked: an atom for this slot, on the first read inside a derivation. */
   private observe(key: string): void {
-    if (!trackedRead.reportObserved()) return
-    let atom = this.atoms.get(key)
-    let fresh = false
-    if (atom === undefined) {
-      const created = createAtom(debugName(() => `pool.relation.${key}`) ?? 'Atom', undefined, () => {
-        if (this.atoms.get(key) === created) this.atoms.delete(key)
-      })
-      this.atoms.set(key, created)
-      atom = created
-      fresh = true
-    }
-    if (!atom.reportObserved() && fresh) this.atoms.delete(key)
+    this.atoms.observe(key)
   }
 }
 

@@ -1,13 +1,6 @@
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
-import {
-  createAtom,
-  compareStructural,
-  type IObservableValue,
-  observable,
-  onBecomeObserved,
-  onBecomeUnobserved,
-  runInAction,
-} from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import { compareStructural, runInAction } from 'mobx'
 import type { SettingsEntity, SettingsRows } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -18,13 +11,11 @@ export type SettingsOwner = Pick<
 
 type Discovery = 'machines' | 'repos'
 const ENTITY = { machines: 'settingsMachine', repos: 'settingsRepository' } as const
-const trackedRead = createAtom('settingsSource.trackedRead')
 type Reading = Loaded<SettingsRows[SettingsEntity]>
 type Entry = {
   entity: SettingsEntity
   id: string
-  value: IObservableValue<Reading>
-  observed: boolean
+  value: Reading
   release: () => void
 }
 
@@ -33,6 +24,21 @@ type Entry = {
  * Observed rows follow their keys, and release their channel on unmount. */
 export class SettingsSource {
   private readonly rows = new Map<string, Entry>()
+  private readonly atoms = createDemandAtoms<string>((key) => `settingsSource.${key}`, {
+    onObserved: (key) => {
+      const at = key.indexOf(':')
+      const entry: Entry = { entity: key.slice(0, at) as SettingsEntity, id: key.slice(at + 1), value: LOADING, release: () => {} }
+      this.rows.set(key, entry)
+      entry.release = this.follow(entry)
+      this.pending.add(key)
+      this.schedule()
+    },
+    onUnobserved: (key) => {
+      this.rows.get(key)?.release()
+      this.rows.delete(key)
+      this.pending.delete(key)
+    },
+  })
   private readonly pending = new Set<string>()
   private readonly lists = new Map<Discovery, { readers: number; stop: () => void }>()
   private window: { readers: number; stop: () => void } | undefined
@@ -45,31 +51,9 @@ export class SettingsSource {
     if (this.disposed) return LOADING
     // Imperative questions read the runtime's existing keyed inputs directly;
     // only an observed question needs a stored source row and subscription.
-    if (!trackedRead.reportObserved()) return this.lookup(entity, id)
     const key = `${entity}:${id}`
-    let entry = this.rows.get(key)
-    if (!entry) {
-      const value = observable.box<Reading>(LOADING, { deep: false, name: `settingsSource.${key}` })
-      entry = { entity, id, value, observed: false, release: () => {} }
-      const current = entry
-      onBecomeObserved(value, () => {
-        current.observed = true
-        current.release = this.follow(current)
-      })
-      onBecomeUnobserved(value, () => {
-        current.observed = false
-        current.release()
-        current.release = () => {}
-        if (this.rows.get(key) === current) {
-          this.rows.delete(key)
-          this.pending.delete(key)
-        }
-      })
-      this.rows.set(key, entry)
-      this.pending.add(key)
-      this.schedule()
-    }
-    return entry.value.get()
+    if (!this.atoms.observe(key)) return this.lookup(entity, id)
+    return this.rows.get(key)!.value
   }
 
   private follow(entry: Entry): () => void {
@@ -126,9 +110,9 @@ export class SettingsSource {
   private changed(name: Discovery, change: KeyedListChange): void {
     for (const id of change.ids) {
       const key = `${ENTITY[name]}:${id}`
-      if (this.rows.get(key)?.observed) this.pending.add(key)
+      if (this.rows.has(key)) this.pending.add(key)
     }
-    if (change.order && this.rows.get('settingsCatalog:catalog')?.observed)
+    if (change.order && this.rows.has('settingsCatalog:catalog'))
       this.pending.add('settingsCatalog:catalog')
     if (this.pending.size) this.schedule()
   }
@@ -150,7 +134,9 @@ export class SettingsSource {
 
   private load(entry: Entry): void {
     const next = this.lookup(entry.entity, entry.id)
-    if (!compareStructural(entry.value.get(), next)) entry.value.set(next)
+    if (compareStructural(entry.value, next)) return
+    entry.value = next
+    this.atoms.get(`${entry.entity}:${entry.id}`)?.reportChanged()
   }
 
   private schedule(): void {
@@ -174,16 +160,18 @@ export class SettingsSource {
     if (this.disposed) return
     this.disposed = true
     const entries = [...this.rows.values()]
+    const atoms = [...this.atoms.values()]
     for (const entry of entries) {
       entry.release()
       entry.release = () => {}
     }
     this.window = undefined
+    this.atoms.clear()
     this.rows.clear()
     this.pending.clear()
     queueMicrotask(() =>
       runInAction(() => {
-        for (const entry of entries) entry.value.set(LOADING)
+        for (const atom of atoms) atom.reportChanged()
       }),
     )
   }

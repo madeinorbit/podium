@@ -60,7 +60,7 @@
  * first access, applied to residency itself.
  */
 
-import { createAtom, type IAtom } from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import { debugName } from './debug-name'
 import type { ColdQueries } from './shared/cold-index'
 import type { RelationDelta } from './shared/relation-index'
@@ -73,9 +73,6 @@ import {
   type ModelSchema,
 } from './shared/schema'
 import { drop, type IngestOut, type IngestTarget, put, type StoredRow } from './tables'
-
-// Public tracking admission, with no per-id atom for imperative cold probes.
-const trackedRead = createAtom('residency.trackedRead')
 
 /** The kinds the feed can read by id (`RowSource.row`). */
 export type LoadableEntity = 'issue' | 'session'
@@ -150,9 +147,9 @@ export class Residency {
   /** Cold ids a derivation or reader has asked about since the last attach. */
   private readonly asked = new Map<EntityName, Set<string>>()
   /** Header-only catalog subscriptions, ids only, released when unobserved. */
-  private readonly idAtoms = new Map<EntityName, IAtom>()
+  private readonly idAtoms = createDemandAtoms<EntityName>((entity) => debugName(() => `residency.ids.${entity}`) ?? 'Atom')
   /** One atom per `entity:id` a derivation has asked about, while observed. */
-  private readonly atoms = new Map<string, IAtom>()
+  private readonly atoms = createDemandAtoms<string>((key) => debugName(() => `pool.cold.${key}`) ?? 'Atom')
   /** Declared summaries read this publication (each read once by id). */
   private readonly summaryMemo = new Map<string, Row | undefined>()
   private readonly queue = new Map<LoadableEntity, Set<string>>()
@@ -258,19 +255,7 @@ export class Residency {
    * partition check). Never every cold row: the index holds those.
    */
   ids(entity: EntityName, tracked = false): readonly string[] {
-    if (tracked && trackedRead.reportObserved()) {
-      let atom = this.idAtoms.get(entity)
-      let fresh = false
-      if (!atom) {
-        const created = createAtom(debugName(() => `residency.ids.${entity}`) ?? 'Atom', undefined, () => {
-          if (this.idAtoms.get(entity) === created) this.idAtoms.delete(entity)
-        })
-        atom = created
-        this.idAtoms.set(entity, atom)
-        fresh = true
-      }
-      if (!atom.reportObserved() && fresh) this.idAtoms.delete(entity)
-    }
+    if (tracked) this.idAtoms.observe(entity)
     return [...(this.asked.get(entity) ?? [])].filter((id) => this.isCold(entity, id))
   }
 
@@ -702,20 +687,6 @@ export class Residency {
 
   /** Make "is `id` cold" a tracked read: an atom for this id, on first question. */
   private observe(entity: EntityName, id: string): void {
-    if (!trackedRead.reportObserved()) return
-    const key = `${entity}:${id}`
-    let atom = this.atoms.get(key)
-    let fresh = false
-    if (atom === undefined) {
-      const created = createAtom(debugName(() => `pool.cold.${key}`) ?? 'Atom', undefined, () => {
-        if (this.atoms.get(key) === created) this.atoms.delete(key)
-      })
-      this.atoms.set(key, created)
-      atom = created
-      fresh = true
-    }
-    // An atom made earlier is kept whatever this read is: a derivation may
-    // observe it (POD-4569). It drops itself once unobserved.
-    if (!atom.reportObserved() && fresh) this.atoms.delete(key)
+    this.atoms.observe(`${entity}:${id}`)
   }
 }

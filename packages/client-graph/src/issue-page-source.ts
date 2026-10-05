@@ -1,11 +1,10 @@
 import type { Replica } from '@podium/client-core/replica'
-import { createAtom, type IAtom, runInAction } from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import { runInAction } from 'mobx'
 import type { IssuePageSourceRows } from './issue-page-schema'
 import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
-
-const trackedRead = createAtom('issueExit.trackedRead')
 
 /** Borrow the kernel's canonical exit evidence on demand. No exit ledger,
  * entity cache or mutation owner is copied into this source.
@@ -14,7 +13,7 @@ const trackedRead = createAtom('issueExit.trackedRead')
  * each observed id has its own atom, so an issue batch wakes only the readers
  * of the ids it names, and an id leaves the set when its last reader goes. */
 export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Replica, 'exitKind' | 'subscribeAddressedBatch'> }): () => void {
-  const demanded = new Map<string, IAtom>()
+  const demanded = createDemandAtoms<string>((id) => `issueExit:${id}`)
   let disposed = false
   const subscribe = owner.replica.subscribeAddressedBatch?.bind(owner.replica)
   if (!subscribe) throw new Error('Issue page requires the addressed replica boundary')
@@ -31,14 +30,7 @@ export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Rep
     counts,
     read(_entity, id): Loaded<IssuePageSourceRows['issueExit']> {
       if (disposed) return LOADING
-      if (trackedRead.reportObserved()) {
-        const known = demanded.get(id)
-        const atom: IAtom = known ?? createAtom(`issueExit:${id}`, undefined, () => {
-          if (demanded.get(id) === atom) demanded.delete(id)
-        })
-        demanded.set(id, atom)
-        if (!atom.reportObserved() && known === undefined) demanded.delete(id)
-      }
+      demanded.observe(id)
       return { kind: owner.replica.exitKind?.('issueProjection', id) }
     },
     dispose() { if (!disposed) { disposed = true; stop(); demanded.clear() } },

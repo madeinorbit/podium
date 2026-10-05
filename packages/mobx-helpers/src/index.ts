@@ -2,3 +2,4 @@ export { allowImperativeRead, assertReactiveRead, keyedComputed, type KeyedCompu
 export { DeadlineClock, nextUp } from './clock'
 export { debugName, enableDebugNames } from './debug-name'
 export { configureDevelopmentChecks } from './development'
+export { createDemandAtoms, type DemandAtomOptions } from './demand'

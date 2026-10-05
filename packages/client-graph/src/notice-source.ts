@@ -1,7 +1,8 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import { isMessageRecordAttention, type MessageRecordWire } from '@podium/model'
-import { compareStructural, createAtom, type IAtom, runInAction } from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import { compareStructural, runInAction } from 'mobx'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
 import { createKeyedAnswer } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -16,7 +17,6 @@ interface Recovery { ids: readonly string[]; rows: Map<string, OutboxDeadLetterE
 const RECORD_KINDS = { messageRecord: 'messageRecords', pendingInteraction: 'pendingInteractions' } as const
 const CATALOG = 'noticeCatalog:catalog', ATTENTION = 'noticeAttention:attention'
 const MESSAGES = 'noticeMessageCatalog:catalog', RECOVERY = 'noticeRecoveryCatalog:catalog'
-const trackedRead = createAtom('notices.trackedRead')
 
 // Reverse the timestamp key for the existing ascending identity tree. The end
 // marker reverses prefix order too. Equal timestamps retain ID order.
@@ -34,7 +34,15 @@ export class NoticeSource {
   private readonly identities = { messageRecord: new Map<string, Identity>(), pendingInteraction: new Map<string, Identity>() }
   private readonly positions = { messageRecord: 0, pendingInteraction: 0 }
   private readonly sessions = new Map<string, SessionMembers>()
-  private readonly watched = new Map<string, IAtom>()
+  private readonly watched = createDemandAtoms<string>((key) => key, {
+    onObserved: (key) => {
+      if (key.startsWith('outboxDeadLetter:')) this.recoveryReaders++
+    },
+    onUnobserved: (key) => {
+      if (key.startsWith('outboxDeadLetter:')) this.recoveryReaders--
+      this.releaseAnswers()
+    },
+  })
   private catalogAnswer: SessionMembers | undefined
   private attentionAnswer: IdAnswer | undefined
   private recoveryAnswer: Recovery | undefined
@@ -113,25 +121,7 @@ export class NoticeSource {
   }
 
   private watch(entity: NoticeEntity, id: string): boolean {
-    if (!trackedRead.reportObserved()) return false
-    const key = `${entity}:${id}`
-    let atom = this.watched.get(key)
-    if (!atom) {
-      const created = createAtom(key, undefined, () => {
-        if (this.watched.get(key) !== created) return
-        this.watched.delete(key)
-        if (entity === 'outboxDeadLetter') this.recoveryReaders--
-        this.releaseAnswers()
-      })
-      atom = created
-      this.watched.set(key, atom)
-      if (entity === 'outboxDeadLetter') this.recoveryReaders++
-    }
-    if (atom.reportObserved()) return true
-    this.watched.delete(key)
-    if (entity === 'outboxDeadLetter') this.recoveryReaders--
-    this.releaseAnswers()
-    return false
+    return this.watched.observe(`${entity}:${id}`)
   }
 
   private releaseAnswers(): void {
