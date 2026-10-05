@@ -120,7 +120,6 @@ import {
   type ViewInputs,
 } from './views'
 import { type Placement, withWaiting } from './worklist/groups'
-import { type MobileRowValues, mobileIssueValues, mobileWaitingCount } from './worklist/mobile-row'
 import {
   type Aggregate,
   type Attention,
@@ -143,12 +142,6 @@ import {
   waitingPartOf,
 } from './worklist/rollup'
 import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
-import {
-  NO_SIDEBAR_SESSIONS,
-  type SidebarRowValues,
-  sidebarLifecycle,
-  sidebarTimingFromFacts,
-} from './worklist/sidebar-row'
 import {
   childIdsPartOf,
   type HeldIssue,
@@ -450,20 +443,6 @@ function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): bool
   return compareStructural(a, b)
 }
 
-/** The own seats are borrowed rows (by identity); everything else by value. */
-function sameSidebar(a: LoadedRow<SidebarRowValues>, b: LoadedRow<SidebarRowValues>): boolean {
-  if (a === b) return true
-  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-  const { sessions: ownA, ...factsA } = a
-  const { sessions: ownB, ...factsB } = b
-  const sameSeats =
-    ownA === ownB || (ownA.length === ownB.length && ownA.every((seat, index) => seat === ownB[index]))
-  return sameSeats && compareStructural(factsA, factsB)
-}
-
-/** Feed summaries stay inside derivation; the legacy navigation record never
- * carried them. The compatibility view borrows all other issue properties. */
-const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
 
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
@@ -472,26 +451,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   // These rule groups construct fresh records/arrays; compare values explicitly.
   // TODO(POD-5575): move pane/phone consumers onto smaller model answers.
   private static readonly groups = {
-    mobileWork: cachedGroup(
-      'mobileWork',
-      (issue: IssueModel): LoadedRow<MobileRowValues> => {
-        const sidebar = issue.sidebar
-        return sidebar === LOADING || sidebar === undefined
-          ? sidebar
-          : mobileIssueValues(sidebar, issue.mobileWaitingCount, issue.activityAt)
-      },
-      (a, b) => {
-        if (a === b) return true
-        if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-        const { sidebar: left, sessions: leftSeats, ...leftFacts } = a
-        const { sidebar: right, sessions: rightSeats, ...rightFacts } = b
-        return (
-          left === right && leftSeats === rightSeats && compareStructural(leftFacts, rightFacts)
-        )
-      },
-    ),
-    /** One drawn row's complete payload, suppressing equal intermediate roll-ups. */
-    sidebar: cachedGroup('sidebar', (issue: IssueModel) => issue.sidebarValues(), sameSidebar),
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
     facts: cachedGroup('facts', (issue: IssueModel) =>
       issueFactsPartOf(issue.host.visibleInputs, issue.id), compareStructural,
@@ -642,148 +601,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.host.edit('issue', this.id, patch)
   }
 
-  /** All facts needed by the real row; reuses the issue's existing caches. */
-  get sidebar(): SidebarRowValues | typeof LOADING | undefined {
-    return IssueModel.groups.sidebar(this)
-  }
-
-  /** Native work-row facts on this same issue object, built only when read. */
-  get mobileWork(): LoadedRow<MobileRowValues> {
-    return IssueModel.groups.mobileWork(this)
-  }
-
-  get mobileWaitingCount(): number {
-    return mobileWaitingCount(this.aggregate, this.finished === true)
-  }
-
-  private sidebarValues(): SidebarRowValues | typeof LOADING | undefined {
-    const own = this.host.rollupInputs.loadedIssue(this.id)
-    if (own === LOADING) return LOADING
-    if (own === undefined) return undefined
-    const facts = this.loaded.facts
-    const issue = overlayRow(
-      own,
-      {
-        displayRef: this.displayRef,
-        readAt: this.host.visibleInputs.issueRead(this.id),
-        unread: this.unread,
-      },
-      SIDEBAR_ISSUE_OMISSIONS,
-    )
-    const agg = this.aggregate
-    const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
-    // The own seats' rows, by id: a heartbeat redraws this row only when the
-    // seat is its own (an ancestor's payload carries ids, POD-5423).
-    const sessions: SliceSession[] = []
-    for (const id of this.ownAttention.sessionIds ?? []) {
-      const seat = this.host.row('session', id)
-      if (seat !== undefined && seat !== LOADING) sessions.push(seat as SliceSession)
-    }
-    const aggregateSessionIds = agg.sessionIds ?? []
-    const targetId = own.supersededBy ?? own.duplicateOf
-    const origin =
-      this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef)
-    if (origin === LOADING) return LOADING
-    const originTick =
-      origin === undefined
-        ? null
-        : {
-            id: origin.id,
-            seq: origin.seq,
-            title: origin.title,
-            ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
-          }
-    const tip = !targetId && !this.openOwn ? this.tip : undefined
-    if (
-      agg.pending > 0 ||
-      this.unitsBelow.pending > 0 ||
-      this.unitOwn.cold ||
-      (tip?.pending ?? 0) > 0
-    )
-      return LOADING
-    const fromChildren = this.unitsBelow.members > 0
-    const progress = fromChildren
-      ? {
-          done: 0,
-          run: 0,
-          review: 0,
-          stall: 0,
-          block: 0,
-          wait: 0,
-          ...this.unitsBelow.progress,
-          total: this.unitsBelow.units,
-        }
-      : {
-          done: 0,
-          run: 0,
-          review: 0,
-          stall: 0,
-          block: 0,
-          wait: 0,
-          total: this.unitOwn.solo ? 1 : 0,
-          ...(this.unitOwn.solo ? { [this.unitOwn.state ?? 'wait']: 1 } : {}),
-        }
-    const decision = this.ownAttention.deciding ? facts.decision : null
-    let continuation: SidebarRowValues['continuation'] = null
-    if (targetId) {
-      if (this.host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
-      const target = this.host.inputs.parts(targetId)?.label
-      continuation = {
-        kind: own.supersededBy ? 'continued' : 'duplicate',
-        ref: target?.displayRef ?? 'another task',
-      }
-    } else if (!this.openOwn) {
-      const destination = tip?.target
-      if (destination)
-        continuation = {
-          kind: 'continued',
-          ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}`,
-        }
-    }
-    const readMs = Date.parse(issue.readAt ?? '')
-    const descendantUnread =
-      this.nested.length > 0 &&
-      issue.readAt &&
-      Number.isFinite(readMs) &&
-      ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (this.seatActivity ?? 0) > readMs)
-    return {
-      idNumber: this.seq,
-      color: own.color ?? null,
-      title: this.title,
-      timing: sidebarTimingFromFacts(
-        sessionFacts,
-        this.phase,
-        facts.finished,
-        this.activityAt,
-        agg.decidingAt,
-      ),
-      working: this.working,
-      asking: this.asking,
-      originTick,
-      decision,
-      mergeCommits: decision === 'merge' ? (own.gitState?.ahead ?? 0) : 0,
-      progress,
-      fromChildren,
-      statusFromChildren: this.nestParent === null && fromChildren,
-      gitState: own.gitState,
-      unread: !this.working && (this.unread || Boolean(descendantUnread)),
-      errorClass: facts.finished ? null : sessionFacts.errorClass,
-      internal: own.audience === 'agent',
-      ...sidebarLifecycle(issue, this.asking, this.host.inputs.passed, this.host.inputs.reached),
-      draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
-      firstSessionId: this.ownAttention.firstSessionId ?? null,
-      continuation,
-      fleet: sessionFacts.fleet,
-      issue,
-      sessions,
-      aggregateSessionIds,
-      awaitingFirstPrompt:
-        own.isDraftVessel === true &&
-        this.phase === 'queued' &&
-        aggregateSessionIds.length > 0 &&
-        sessionFacts.allUnstarted,
-    }
-  }
 
   // ------------------------------------------------------------- the groups
 

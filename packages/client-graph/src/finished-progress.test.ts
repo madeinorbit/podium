@@ -51,7 +51,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
     expect(isClosed(rows[3]!)).toBe(true)
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
     expect(pool.tables.issue.has('cold-empty')).toBe(false)
-    const read = () => ({ header: header.folded(), pane: pane.values('root', 'full'), sidebar: pool.issue('root')?.sidebar } as const)
+    const read = () => ({ header: header.folded(), pane: pane.values('root', 'full'), sidebar: pool.sidebar.row('root') } as const)
     const openIds = () => {
       const result = board.queryIds({ kind: 'board', filter: { status: 'open' } })
       if (!result || result === LOADING) throw new Error('Unsettled board filter')

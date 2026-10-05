@@ -1,3 +1,4 @@
+import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4748 — the tracking objects the MobX pool builds, counted from outside
@@ -53,7 +54,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * its slot (`PoolRowSlot`: the model, else its residence), its shell
  * (`PoolRowView`: `model.inMemory`) and its row (`PoolRow`, POD-4756: its id and every
  * field it draws, `ROW_DISPLAYED_FIELDS`, and the complete real-sidebar
- * payload (`IssueModel.sidebar`, POD-4953), read off the same issue. The window is the first 20 rows in list
+ * payload (`sidebarIssueRow`, POD-4953), read off the same issue. The window is the first 20 rows in list
  * order, with the headers among them. A cold row in it queues a load that
  * never lands here (the load window never closes): what is counted is the
  * paint before loads.
@@ -276,7 +277,7 @@ function paintWindow(pool: MobxPool): () => void {
             if (!model.inMemory) return
             void model.id
             for (const field of ROW_DISPLAYED_FIELDS) void model[field]
-            void model.sidebar
+            void sidebarIssueRow(model)
           },
           { name: `paint.row.${id}` },
         ),

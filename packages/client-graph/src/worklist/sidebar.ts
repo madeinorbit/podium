@@ -4,13 +4,13 @@
  */
 
 import { compareStructural, observable, reaction } from 'mobx'
-import { keyedViews } from '../cached'
-import type { ModelHost } from '../models'
+import { cachedGroup, keyedViews } from '../cached'
+import { modelHost, type IssueModel, type ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { attentionGroup, LOADING } from './rollup'
-import { type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
+import { attentionGroup, LOADING, type Loaded } from './rollup'
+import { NO_SIDEBAR_SESSIONS, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
 
 const overlayRow = createRowOverlay()
@@ -86,6 +86,158 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   return { ids, pending }
 }
 
+/** The own seats are borrowed rows (by identity); everything else by value. */
+function sameSidebar(a: Loaded<SidebarRowValues>, b: Loaded<SidebarRowValues>): boolean {
+  if (a === b) return true
+  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+  const { sessions: ownA, ...factsA } = a
+  const { sessions: ownB, ...factsB } = b
+  const sameSeats =
+    ownA === ownB || (ownA.length === ownB.length && ownA.every((seat, index) => seat === ownB[index]))
+  return sameSeats && compareStructural(factsA, factsB)
+}
+
+/** Feed summaries stay inside derivation; the legacy navigation record never
+ * carried them. The compatibility view borrows all other issue properties. */
+const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
+
+
+/** One drawn issue payload, shared only while a screen observes it. */
+export const sidebarIssueRow = cachedGroup(
+  'sidebar', sidebarValues, sameSidebar,
+)
+
+function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
+  const host = modelHost(model)
+  const own = host.rollupInputs.loadedIssue(model.id)
+  if (own === LOADING) return LOADING
+  if (own === undefined) return undefined
+  const facts = model.loaded.facts
+  const issue = overlayRow(
+    own,
+    {
+      displayRef: model.displayRef,
+      readAt: host.visibleInputs.issueRead(model.id),
+      unread: model.unread,
+    },
+    SIDEBAR_ISSUE_OMISSIONS,
+  )
+  const agg = model.aggregate
+  const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
+  // The own seats' rows, by id: a heartbeat redraws this row only when the
+  // seat is its own (an ancestor's payload carries ids, POD-5423).
+  const sessions: SliceSession[] = []
+  for (const id of model.ownAttention.sessionIds ?? []) {
+    const seat = host.row('session', id)
+    if (seat !== undefined && seat !== LOADING) sessions.push(seat as SliceSession)
+  }
+  const aggregateSessionIds = agg.sessionIds ?? []
+  const targetId = own.supersededBy ?? own.duplicateOf
+  const origin =
+    model.originRef === null ? undefined : host.rollupInputs.loadedIssue(model.originRef)
+  if (origin === LOADING) return LOADING
+  const originTick =
+    origin === undefined
+      ? null
+      : {
+          id: origin.id,
+          seq: origin.seq,
+          title: origin.title,
+          ref: host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
+        }
+  const tip = !targetId && !model.openOwn ? model.tip : undefined
+  if (
+    agg.pending > 0 ||
+    model.unitsBelow.pending > 0 ||
+    model.unitOwn.cold ||
+    (tip?.pending ?? 0) > 0
+  )
+    return LOADING
+  const fromChildren = model.unitsBelow.members > 0
+  const progress = fromChildren
+    ? {
+        done: 0,
+        run: 0,
+        review: 0,
+        stall: 0,
+        block: 0,
+        wait: 0,
+        ...model.unitsBelow.progress,
+        total: model.unitsBelow.units,
+      }
+    : {
+        done: 0,
+        run: 0,
+        review: 0,
+        stall: 0,
+        block: 0,
+        wait: 0,
+        total: model.unitOwn.solo ? 1 : 0,
+        ...(model.unitOwn.solo ? { [model.unitOwn.state ?? 'wait']: 1 } : {}),
+      }
+  const decision = model.ownAttention.deciding ? facts.decision : null
+  let continuation: SidebarRowValues['continuation'] = null
+  if (targetId) {
+    if (host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
+    const target = host.inputs.parts(targetId)?.label
+    continuation = {
+      kind: own.supersededBy ? 'continued' : 'duplicate',
+      ref: target?.displayRef ?? 'another task',
+    }
+  } else if (!model.openOwn) {
+    const destination = tip?.target
+    if (destination)
+      continuation = {
+        kind: 'continued',
+        ref: host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}`,
+      }
+  }
+  const readMs = Date.parse(issue.readAt ?? '')
+  const descendantUnread =
+    model.nested.length > 0 &&
+    issue.readAt &&
+    Number.isFinite(readMs) &&
+    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (model.seatActivity ?? 0) > readMs)
+  return {
+    idNumber: model.seq,
+    color: own.color ?? null,
+    title: model.title,
+    timing: sidebarTimingFromFacts(
+      sessionFacts,
+      model.phase,
+      facts.finished,
+      model.activityAt,
+      agg.decidingAt,
+    ),
+    working: model.working,
+    asking: model.asking,
+    originTick,
+    decision,
+    mergeCommits: decision === 'merge' ? (own.gitState?.ahead ?? 0) : 0,
+    progress,
+    fromChildren,
+    statusFromChildren: model.nestParent === null && fromChildren,
+    gitState: own.gitState,
+    unread: !model.working && (model.unread || Boolean(descendantUnread)),
+    errorClass: facts.finished ? null : sessionFacts.errorClass,
+    internal: own.audience === 'agent',
+    ...sidebarLifecycle(issue, model.asking, host.inputs.passed, host.inputs.reached),
+    draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
+    firstSessionId: model.ownAttention.firstSessionId ?? null,
+    continuation,
+    fleet: sessionFacts.fleet,
+    issue,
+    sessions,
+    aggregateSessionIds,
+    awaitingFirstPrompt:
+      own.isDraftVessel === true &&
+      model.phase === 'queued' &&
+      aggregateSessionIds.length > 0 &&
+      sessionFacts.allUnstarted,
+  }
+}
+
+
 export class SidebarIndex {
   private seenSelected: string | null = null
   private readonly evicted = observable.box(false)
@@ -122,7 +274,7 @@ export class SidebarIndex {
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
     const model = this.pool.issue(id)
-    if (model !== undefined) return model.sidebar
+    if (model !== undefined) return sidebarIssueRow(model)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined
   }
 
@@ -135,7 +287,7 @@ export class SidebarIndex {
   active(id: string, state: SidebarState): boolean {
     const model = this.pool.issue(id)
     if (model?.selected !== true) return false
-    const row = model.sidebar
+    const row = sidebarIssueRow(model)
     return (
       row !== undefined &&
       row !== LOADING &&

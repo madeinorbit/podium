@@ -3,10 +3,12 @@ import { keyedComputed } from '@podium/mobx-helpers'
  * worklist derivation, second runtime, row copies or new filing reactions. */
 import { compareStructural, computed, type IComputedValue } from 'mobx'
 import type { MobxPool } from '../pool'
+import type { IssueModel } from '../models'
+import { cachedGroup } from '../cached'
 import { debugName } from '../debug-name'
-import { LOADING } from './rollup'
-import type { SidebarState } from './sidebar'
-import { mobileWorktreeValues, type MobileRowValues } from './mobile-row'
+import { LOADING, type Loaded } from './rollup'
+import { sidebarIssueRow, type SidebarState } from './sidebar'
+import { mobileIssueValues, mobileWaitingCount, mobileWorktreeValues, type MobileRowValues } from './mobile-row'
 
 export interface MobileWorkState extends SidebarState {
   /** Search overrides folds; text matching stays in the native UI. */
@@ -37,6 +39,24 @@ export interface MobileWorkSections {
   readonly pending: number
 }
 
+/** Phone issue payloads belong to the phone view, over the same entity facts. */
+const issueRow = cachedGroup(
+  'mobileWork',
+  (issue: IssueModel): Loaded<MobileRowValues> => {
+    const sidebar = sidebarIssueRow(issue)
+    return sidebar === LOADING || sidebar === undefined
+      ? sidebar
+      : mobileIssueValues(sidebar, mobileWaitingCount(issue.aggregate, issue.finished === true), issue.activityAt)
+  },
+  (a, b) => {
+    if (a === b) return true
+    if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+    const { sidebar: left, sessions: leftSeats, ...leftFacts } = a
+    const { sidebar: right, sessions: rightSeats, ...rightFacts } = b
+    return left === right && leftSeats === rightSeats && compareStructural(leftFacts, rightFacts)
+  },
+)
+
 export class MobileWorkIndex {
   private readonly views = new WeakMap<MobileWorkState, MobileSectionsView>()
   constructor(private readonly pool: MobxPool) {}
@@ -44,7 +64,7 @@ export class MobileWorkIndex {
   row(ref: Pick<MobileWorkRef, 'id' | 'kind'>): MobileRowValues | typeof LOADING | undefined {
     if (ref.kind === 'issue') {
       const issue = this.pool.issue(ref.id)
-      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issue.mobileWork
+      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issueRow(issue)
     }
     if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
     const row = this.pool.sidebar.worktree(ref.id)
@@ -150,7 +170,7 @@ class MobileSectionsView {
     if (row.kind === 'issue') {
       const issue = this.pool.issue(row.id)
       if (issue === undefined) return { asking: false, pending: this.pool.row('issue', row.id) === LOADING ? 1 : 0 }
-      return { asking: issue.mobileWaitingCount > 0, pending: issue.aggregate.pending }
+      return { asking: mobileWaitingCount(issue.aggregate, issue.finished === true) > 0, pending: issue.aggregate.pending }
     }
     const value = this.pool.mobileWork.row(row)
     return { asking: value !== undefined && value !== LOADING && value.waitingCount > 0, pending: value === LOADING ? 1 : 0 }
