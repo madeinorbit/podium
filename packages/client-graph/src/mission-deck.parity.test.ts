@@ -9,7 +9,6 @@ import { seedCacheFromCorpus } from '../../worklist-proto/shared/src/scenarios'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { MobxPool } from './pool'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 
 for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly at ${scale}x in every spine mode`, () => {
   const corpus = buildCorpus(scale)
@@ -27,10 +26,9 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
     ...repos.map(value => ({ kind: 'repo' as const, id: value.id, value })),
     ...machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
   ]
-  const input = new Map(rows.map(row => [`${row.kind}:${row.id}`, row.value]))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined,
-    { load: (kind, id) => input.get(`${kind}:${id}`), summaries: MISSION_VIEW_SUMMARIES,
-      schedule: () => () => {}, worklist: 'demand' })
+  // Direct value parity uses full rows, as the existing rendered-corpus test
+  // does. The separate loading test covers cold rows and ancestor rollups.
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   pool.apply({ type: 'replace', rows })
   try {
     const roots = new Set(issues.map(issue => missionRootFor(issues, issue.id)?.id))
@@ -38,8 +36,7 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
       let result!: ReturnType<typeof checkMissionView>
       const stop = autorun(() => { result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths) })
       try {
-        for (let round = 0; result.pending && round < 64; round++) if (!pool.hydrate()) break
-        expect(result.pending, `${root} ${mode}`).toBe(0)
+        expect(result.pending, `${root} ${mode}: ${JSON.stringify(result)}`).toBe(0)
         expect(result.differences, JSON.stringify(result.first)).toBe(0)
       } finally { stop() }
     }
