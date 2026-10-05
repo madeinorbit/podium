@@ -4,6 +4,9 @@ import { ISSUE_BOARD_STAGES, type IssueId } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from './board-pool-projection'
+import { readBoardCatalog } from './board-pool-reader'
+
+export { readBoardCatalog } from './board-pool-reader'
 
 export const EMPTY_BOARD: PoolBoardData = {
   activeIds: [],
@@ -41,9 +44,6 @@ export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[])
   const read = useCallback((pool: MobxPool) => pool.row('issueBoardColumn', key), [key])
   const ids = useWorklistPoolProjection(read, undefined)
   return ids && typeof ids !== 'symbol' ? ids : fallback
-}
-export function readBoardCatalog(pool: MobxPool, open: boolean, agents: boolean) {
-  return open ? pool.row('issueBoardCatalog', String(agents)) : undefined
 }
 export function useBoardCatalog(open: boolean, agents: boolean) {
   const read = useCallback((pool: MobxPool) => readBoardCatalog(pool, open, agents), [open, agents])

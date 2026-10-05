@@ -87,7 +87,7 @@ import {
   readPalette,
 } from '../../../../apps/web/src/app/command-launch-readers'
 import { readMissionPane } from '../../../../apps/web/src/app/mission-pane-reader'
-import { readBoardCatalog } from '../../../../apps/web/src/features/issues/board-pool-data'
+import { readBoardCatalog } from '../../../../apps/web/src/features/issues/board-pool-reader'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   type FixtureScale,
