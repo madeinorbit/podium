@@ -138,7 +138,12 @@ const SessionComposer = observer(function SessionComposer({
   canInterrupt: boolean
 }) {
   const draft = conversation.draft
-  const setDraft = useCallback((text: string) => { conversation.draft = text }, [conversation])
+  const setDraft = useCallback(
+    (text: string) => {
+      conversation.draft = text
+    },
+    [conversation],
+  )
   const handleStop = useCallback(() => {
     void conversation.sends.interrupt(conversation.draft)
   }, [conversation])
@@ -177,79 +182,159 @@ const SessionComposer = observer(function SessionComposer({
  * Everything in this component is the transcript half of the old SessionScreen,
  * moved rather than rewritten.
  */
-export function SessionConversation(props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history'>) {
+export function SessionConversation(
+  props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history'>,
+) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
   const sessionId = props.session.sessionId
   const readiness = useSessionConversationPorts(sessionId)
-  const ports = useMemo(() => pool ? mobileConversationPorts(pool, sessionId) : readiness, [pool, sessionId])
+  const ports = useMemo(
+    () => (pool ? mobileConversationPorts(pool, sessionId) : readiness),
+    [pool, sessionId],
+  )
   const history = useRef({ following: true, searching: false })
   const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
-  useLayoutEffect(() => action(() => recognized.set(!props.deferInitialTranscript))(), [recognized, props.deferInitialTranscript])
-  const model = useConversation(sessionId, drafts => ({
+  useLayoutEffect(
+    () => action(() => recognized.set(!props.deferInitialTranscript))(),
+    [recognized, props.deferInitialTranscript],
+  )
+  const model = useConversation(
     sessionId,
-    drafts,
-    readSession: () => pool?.sessionPanes.session(sessionId),
-    hub: owner.hub,
-    connection: hubConnection(owner.hub),
-    scheduler: {
-      visible: () => AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-      onVisibilityChange: listener => {
-        const subscription = AppState.addEventListener('change', listener)
-        return () => subscription.remove()
-      },
-    },
-    transcript: {
-      retainHistory: () => !history.current.following || history.current.searching,
-      initialLimit: 80, pageLimit: 80,
-      source: {
-        read: request => when(() => recognized.get()).then(() => owner.access.trpc.sessions.transcriptRead.query(request)),
-        subscribe: (id, since, listener) => {
-          let off = () => {}
-          const stop = reaction(() => recognized.get(), ready => {
-            off()
-            off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
-          }, { fireImmediately: true })
-          return () => { stop(); off() }
+    (drafts) => ({
+      sessionId,
+      drafts,
+      readSession: () => pool?.sessionPanes.session(sessionId),
+      hub: owner.hub,
+      connection: hubConnection(owner.hub),
+      scheduler: {
+        visible: () =>
+          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+        onVisibilityChange: (listener) => {
+          const subscription = AppState.addEventListener('change', listener)
+          return () => subscription.remove()
         },
       },
-      cache: {
-        read: id => owner.replica.transcriptWindow(id),
-        write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+      transcript: {
+        retainHistory: () => !history.current.following || history.current.searching,
+        initialLimit: 80,
+        pageLimit: 80,
+        source: {
+          read: (request) =>
+            when(() => recognized.get()).then(() =>
+              owner.access.trpc.sessions.transcriptRead.query(request),
+            ),
+          subscribe: (id, since, listener) => {
+            let off = () => {}
+            const stop = reaction(
+              () => recognized.get(),
+              (ready) => {
+                off()
+                off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+              },
+              { fireImmediately: true },
+            )
+            return () => {
+              stop()
+              off()
+            }
+          },
+        },
+        cache: {
+          read: (id) => owner.replica.transcriptWindow(id),
+          write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+        },
       },
-    },
-    sends: {
-      records: ports.records, outbox: ports.outbox,
-      initialPending: [
-        ...(props.initialPendingText ? [{ id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: props.initialPendingText, wire: props.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const, reconcile: 'next-user-item' as const }] : []),
-        ...ports.outbox.held().map((send, index): ConversationPendingTurn => ({ id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId, text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'message', ...(send.failure ? { error: send.failure.message, ...(send.failure.retryable ? {} : { retryable: false }) } : {}) })),
-      ],
-      initialJustSent: props.initialPendingText !== undefined,
-      createDeliveryId: () => `msg_${randomUUID()}`,
-      lookupRecords: ids => owner.access.trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-      deliver: async turn => {
-        try {
-          const session = pool?.sessionPanes.session(sessionId)
-          const composer = composerState({ session: session ?? props.session, headless: false, turnRunning: false, compact: false })
-          const held = ports.outbox.held().some(send => send.mutationId === turn.deliveryId)
-          const transport = held ? { kind: 'send' as const, wake: false } : chatSendTransport(composer)
-          if (transport.kind === 'refused') throw new Error(transport.reason)
-          return await owner.access.sendChat({ sessionId, text: turn.wire, wake: transport.wake }, asMutationId(turn.deliveryId))
-        } catch (error) {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-          throw error
-        }
+      sends: {
+        records: ports.records,
+        outbox: ports.outbox,
+        initialPending: [
+          ...(props.initialPendingText
+            ? [
+                {
+                  id: 'pending-first-turn',
+                  deliveryId: 'pending-first-turn',
+                  text: props.initialPendingText,
+                  wire: props.initialPendingText,
+                  at: Date.now(),
+                  state: 'sent' as const,
+                  kind: 'message' as const,
+                  reconcile: 'next-user-item' as const,
+                },
+              ]
+            : []),
+          ...ports.outbox
+            .held()
+            .map(
+              (send, index): ConversationPendingTurn => ({
+                id: `outbox-${index}-${send.mutationId}`,
+                deliveryId: send.mutationId,
+                text: send.text,
+                wire: send.text,
+                at: send.queuedAt,
+                state: send.state,
+                kind: 'message',
+                ...(send.failure
+                  ? {
+                      error: send.failure.message,
+                      ...(send.failure.retryable ? {} : { retryable: false }),
+                    }
+                  : {}),
+              }),
+            ),
+        ],
+        initialJustSent: props.initialPendingText !== undefined,
+        createDeliveryId: () => `msg_${randomUUID()}`,
+        lookupRecords: (ids) =>
+          owner.access.trpc.messages.records
+            .query({ ids: [...ids] })
+            .then((answer) => answer.records),
+        deliver: async (turn) => {
+          try {
+            const session = pool?.sessionPanes.session(sessionId)
+            const composer = composerState({
+              session: session ?? props.session,
+              headless: false,
+              turnRunning: false,
+              compact: false,
+            })
+            const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
+            const transport = held
+              ? { kind: 'send' as const, wake: false }
+              : chatSendTransport(composer)
+            if (transport.kind === 'refused') throw new Error(transport.reason)
+            return await owner.access.sendChat(
+              { sessionId, text: turn.wire, wake: transport.wake },
+              asMutationId(turn.deliveryId),
+            )
+          } catch (error) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+            throw error
+          }
+        },
+        retract: (id) =>
+          owner.access.trpc.messages.cancel
+            .mutate({ id })
+            .then(
+              (message) =>
+                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+            ),
+        discard: (id) => owner.access.discardChat(asMutationId(id)),
+        dismissNotice: (id) =>
+          owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
+        dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
+        optimisticDismissOffer: false,
+        interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       },
-      retract: id => owner.access.trpc.messages.cancel.mutate({ id }).then(message => (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus),
-      discard: id => owner.access.discardChat(asMutationId(id)),
-      dismissNotice: id => owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-      dismissOffer: at => owner.access.dismissOffer(sessionId, at),
-      optimisticDismissOffer: false,
-      interrupt: id => interruptSession(owner.access.trpc.sessions, sessionId, id),
-      optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-    },
-  }), { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready })
-  return model ? <SessionConversationBody {...props} model={model} history={history.current} /> : <TranscriptSkeleton />
+    }),
+    { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
+  )
+  return model ? (
+    <SessionConversationBody {...props} model={model} history={history.current} />
+  ) : (
+    <TranscriptSkeleton />
+  )
 }
 
 const SessionConversationBody = observer(function SessionConversationBody({
@@ -329,8 +414,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
     useRefreshableList()
   const keyboardLift = useKeyboardLift()
 
-  const followTranscript = useCallback((following: boolean) => (history.following = following), [history])
-  const searchTranscript = useCallback((searching: boolean) => (history.searching = searching), [history])
+  const followTranscript = useCallback(
+    (following: boolean) => (history.following = following),
+    [history],
+  )
+  const searchTranscript = useCallback(
+    (searching: boolean) => (history.searching = searching),
+    [history],
+  )
   const transcript = model.transcript
   const conversation = model.sends
   const loaded = transcript.initialLoaded
@@ -350,7 +441,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
-  useEffect(() => { transcript.markRendered() }, [itemCount, transcript])
+  useEffect(() => {
+    transcript.markRendered()
+  }, [itemCount, transcript])
   const pendingSeed = conversation.pending.some((turn) => turn.id === 'pending-first-turn')
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
@@ -544,10 +637,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       conversation.sendOffer(prompt, offerCreatedAt).then(() => {}),
     [conversation],
   )
-  const retractPending = useCallback(
-    (id: string) => void conversation.retract(id),
-    [conversation],
-  )
+  const retractPending = useCallback((id: string) => void conversation.retract(id), [conversation])
   const quoteIntoDraft = useCallback((text: string) => {
     setDraftInsertion({ id: insertionSeq.current++, text })
   }, [])
@@ -565,11 +655,10 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const tailState = useMemo(
     () => ({
       label: activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
-      tone: (activity?.tone === 'attention'
-        ? 'attention'
-        : activity
-          ? 'working'
-          : 'idle') as 'working' | 'attention' | 'idle',
+      tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
+        | 'working'
+        | 'attention'
+        | 'idle',
       since: session.agentState?.since,
     }),
     [activity, session.agentState?.phase, session.agentState?.since, session.status],
@@ -620,10 +709,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
         </View>
       ) : null}
       {readOnly && !hasTranscript ? null : (
-        <BootstrapCrossfade
-          resolved={loaded || itemCount > 0}
-          placeholder={<TranscriptSkeleton />}
-        >
+        <BootstrapCrossfade resolved={loaded || itemCount > 0} placeholder={<TranscriptSkeleton />}>
           <PullToRefreshBoundary
             connected={connected}
             refreshing={refreshing}

@@ -20,4 +20,3 @@ describe('liveTranscriptItem', () => {
     expect(liveTranscriptItem('   ', true)).toBeUndefined()
   })
 })
-

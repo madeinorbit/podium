@@ -36,8 +36,7 @@ import type { DraftStore } from './draft-store'
 import type { TranscriptChange, TranscriptLog } from './transcript-log'
 import { freezePlain } from './frozen'
 
-export interface SendsOptions
-  extends ConversationSendOptions {
+export interface SendsOptions extends ConversationSendOptions {
   transcript: TranscriptLog
   drafts: Pick<DraftStore, 'get' | 'set'>
   /** Reads the observable pool session row; no updateContext pushes. */
@@ -281,7 +280,11 @@ export class Sends {
   finishTurn(error: string | null): void {
     this.endOpenSend()
     if (!error) return
-    this.pending.replace(this.pending.map(turn => turn.state === 'failed' ? turn : freezePlain({ ...turn, state: 'failed' as const, error })))
+    this.pending.replace(
+      this.pending.map((turn) =>
+        turn.state === 'failed' ? turn : freezePlain({ ...turn, state: 'failed' as const, error }),
+      ),
+    )
   }
 
   async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {

@@ -1,4 +1,9 @@
-import { createKeyedInputs, type KeyedInputs, type LocalKey, type LocalsListener } from '../src/engine/keyed-inputs'
+import {
+  createKeyedInputs,
+  type KeyedInputs,
+  type LocalKey,
+  type LocalsListener,
+} from '../src/engine/keyed-inputs'
 import type { EngineState } from '../src/engine/state'
 
 /**
@@ -79,18 +84,30 @@ export function keyedInputsOverStore(store: {
 }
 
 /** Give a fixture's whole-snapshot runtime the keyed surface, in place. */
-export function withKeyedInputs<T extends { getSnapshot(): object; subscribe(listener: () => void): () => void }>(
-  fake: T,
-): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
+export function withKeyedInputs<
+  T extends { getSnapshot(): object; subscribe(listener: () => void): () => void },
+>(fake: T): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
-  const fixture = fake as T & { services?: object; replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] } }
+  const fixture = fake as T & {
+    services?: object
+    replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] }
+  }
   if (!fixture.services) {
     let services: object | undefined
-    Object.defineProperty(fixture, 'services', { get: () => {
-      const snapshot = fake.getSnapshot()
-      return snapshot ? services ??= Object.fromEntries(Object.entries(snapshot).filter(([, value]) => typeof value === 'function')) : {}
-    } })
+    Object.defineProperty(fixture, 'services', {
+      get: () => {
+        const snapshot = fake.getSnapshot()
+        return snapshot
+          ? (services ??= Object.fromEntries(
+              Object.entries(snapshot).filter(([, value]) => typeof value === 'function'),
+            ))
+          : {}
+      },
+    })
   }
-  if (fixture.replica && !fixture.replica.rowCount) fixture.replica.rowCount = kind => fixture.replica!.rows(kind).length
-  return Object.defineProperty(Object.assign(fake, inputs), 'access', { get: () => fake.getSnapshot() }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
+  if (fixture.replica && !fixture.replica.rowCount)
+    fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
+  return Object.defineProperty(Object.assign(fake, inputs), 'access', {
+    get: () => fake.getSnapshot(),
+  }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
 }

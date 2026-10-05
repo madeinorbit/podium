@@ -21,9 +21,7 @@ import type {
   ThreadId,
   WorkState,
 } from '@podium/model'
-import type {
-  ApprovalWire,
-} from '@podium/protocol'
+import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
@@ -601,5 +599,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
 }
 
 export type SpawnPlaceholderEvent =
-  | { readonly type: 'painted'; readonly overlays: readonly import('../command-reducers').PendingOverlay[]; readonly sessionId: SessionId; readonly prompt?: string }
+  | {
+      readonly type: 'painted'
+      readonly overlays: readonly import('../command-reducers').PendingOverlay[]
+      readonly sessionId: SessionId
+      readonly prompt?: string
+    }
   | { readonly type: 'removed'; readonly ids: readonly string[] }

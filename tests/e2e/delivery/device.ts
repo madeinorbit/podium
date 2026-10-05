@@ -46,11 +46,7 @@ import {
   type SessionId,
   type TranscriptItem,
 } from '@podium/model'
-import {
-  CAP_SYNC_HTTP_V1,
-  CLIENT_WIRE_VERSION,
-  type MetadataChangeLenient,
-} from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, type MetadataChangeLenient } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import WebSocket from 'ws'
@@ -113,18 +109,20 @@ export class RecordsView {
   cursor = 0
   forSession(sessionId: SessionId): ConversationRecords {
     let source = this.snapshot
-    let mine = source.messageRecords.filter(record => record.sessionId === sessionId)
+    let mine = source.messageRecords.filter((record) => record.sessionId === sessionId)
     return {
       getSnapshot: () => {
         if (source !== this.snapshot) {
           source = this.snapshot
-          mine = source.messageRecords.filter(record => record.sessionId === sessionId)
+          mine = source.messageRecords.filter((record) => record.sessionId === sessionId)
         }
         return mine
       },
       subscribe: (listener) => {
         this.listeners.add(listener)
-        return () => { this.listeners.delete(listener) }
+        return () => {
+          this.listeners.delete(listener)
+        }
       },
     }
   }
@@ -254,7 +252,11 @@ export class Device {
     this.outbox = outbox
     this.drafts = new DraftStore({
       storage: { get: () => null, set: () => {} },
-      hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'down', since: Date.now() }) } as never,
+      hub: {
+        on: () => () => {},
+        sendDraftEdit: () => false,
+        connectionHealth: () => ({ status: 'down', since: Date.now() }),
+      } as never,
     })
     for (const sessionId of this.options.sessionIds) {
       // What a reload restores (the shared React useConversation hook): every send the outbox still
@@ -274,35 +276,44 @@ export class Device {
       const conversation = new Conversation({
         sessionId,
         drafts: this.drafts,
-        connection: { connected: () => this.connected, subscribe: listener => { this.connectionListeners.add(listener); return () => { this.connectionListeners.delete(listener) } } },
+        connection: {
+          connected: () => this.connected,
+          subscribe: (listener) => {
+            this.connectionListeners.add(listener)
+            return () => {
+              this.connectionListeners.delete(listener)
+            }
+          },
+        },
         transcript: {
           source: {
-            read: request => this.api.sessions.transcriptRead.query(request),
+            read: (request) => this.api.sessions.transcriptRead.query(request),
             subscribe: () => () => {},
           },
         },
         sends: {
-        initialPending: held,
-        createDeliveryId: () => {
-          const id = this.nextId ?? `msg_${randomUUID()}`
-          this.nextId = undefined
-          return id
-        },
-        deliver: (turn) =>
-          this.track(
-            sendChatThroughOutbox(
-              { outbox, settlements: this.settlements },
-              { sessionId, text: turn.wire, wake: false },
-              asMutationId(turn.deliveryId),
+          initialPending: held,
+          createDeliveryId: () => {
+            const id = this.nextId ?? `msg_${randomUUID()}`
+            this.nextId = undefined
+            return id
+          },
+          deliver: (turn) =>
+            this.track(
+              sendChatThroughOutbox(
+                { outbox, settlements: this.settlements },
+                { sessionId, text: turn.wire, wake: false },
+                asMutationId(turn.deliveryId),
+              ),
             ),
-          ),
-        records: this.records.forSession(sessionId),
-        lookupRecords: (ids) =>
-          this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
-        retract: (id) =>
-          this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
-        discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
-        dismissNotice: (id) => this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
+          records: this.records.forSession(sessionId),
+          lookupRecords: (ids) =>
+            this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
+          retract: (id) =>
+            this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
+          discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
+          dismissNotice: (id) =>
+            this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
         },
       })
       this.transcripts.set(sessionId, conversation.transcript)
@@ -371,16 +382,15 @@ export class Device {
         return
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
-      if (
-        frame.type === 'feedDelta' &&
-        Array.isArray(frame.changes)
-      ) {
+      if (frame.type === 'feedDelta' && Array.isArray(frame.changes)) {
         this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
         return
       }
       if (frame.type !== 'transcriptDelta' || !frame.sessionId || !Array.isArray(frame.items))
         return
-      this.transcripts.get(frame.sessionId as SessionId)?.merge(frame.items, { reset: frame.reset === true })
+      this.transcripts
+        .get(frame.sessionId as SessionId)
+        ?.merge(frame.items, { reset: frame.reset === true })
     })
     const lost = (): void => {
       if (this.socket !== ws) return
@@ -450,8 +460,8 @@ export class Device {
   async retry(sessionId: SessionId, messageId: string): Promise<void> {
     const bubble = this.bubble(sessionId, messageId)
     if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retry`)
-    await this.conversation(sessionId).sends
-      .retry(bubble.id)
+    await this.conversation(sessionId)
+      .sends.retry(bubble.id)
       .catch(() => undefined)
   }
 
@@ -471,14 +481,15 @@ export class Device {
         `${this.name}: no bubble for ${messageId} to retract (frames: ${JSON.stringify([...this.socketFrames])}, records: ${this.records.all().length})`,
       )
     }
-    await this.conversation(sessionId).sends
-      .retract(bubble.id)
+    await this.conversation(sessionId)
+      .sends.retract(bubble.id)
       .catch(() => undefined)
   }
 
   private bubble(sessionId: SessionId, messageId: string) {
-    return this.conversation(sessionId).sends
-      .bubbles.find((candidate) => candidate.deliveryId === messageId)
+    return this.conversation(sessionId).sends.bubbles.find(
+      (candidate) => candidate.deliveryId === messageId,
+    )
   }
 
   /** The `message` records this device's feed carries right now. */
@@ -577,6 +588,7 @@ export function bubblesOf(
   for (const item of transcript) {
     if (item.role === 'user') draw(messageIdsIn(item.text), 'in-transcript')
   }
-  for (const bubble of state.bubbles) draw([bubble.deliveryId], `pending:${bubble.state}`, bubble.error)
+  for (const bubble of state.bubbles)
+    draw([bubble.deliveryId], `pending:${bubble.state}`, bubble.error)
   return drawn
 }

@@ -19,7 +19,7 @@ const nextFrame = globalThis.requestAnimationFrame.bind(globalThis)
 async function frameAct(work: () => unknown) {
   await act(async () => {
     await work()
-    await new Promise<void>(resolve => nextFrame(() => resolve()))
+    await new Promise<void>((resolve) => nextFrame(() => resolve()))
   })
 }
 
@@ -85,50 +85,55 @@ vi.mock('../components/BottomSheet', () => ({
 vi.mock('../components/TranscriptList', async () => {
   const { observer } = await import('mobx-react-lite')
   return {
-  TranscriptList: observer(({
-    transcript,
-    items = [],
-    liveItem,
-    tail,
-    pendingTurns = [],
-    transcriptQuestion,
-  }: {
-    transcript?: import('@podium/client-core/conversation').TranscriptLog
-    items?: { text: string }[]
-    liveItem?: { text: string }
-    tail?: { label: string; tone: string }
-    pendingTurns?: { text: string; failed?: string }[]
-    transcriptQuestion: TranscriptItem | null
-  }) => {
-    if (transcript) {
-      // Track order only; production message versions belong to row observers.
-      transcript.ids.length
-      items = transcript.items
-    }
-    transcriptProps.push({
-      items,
-      ...(liveItem ? { liveItem } : {}),
-      pendingTurns,
-      transcriptQuestion,
-    })
-    return (
-      <div>
-        transcript
-        <span data-testid="superagent-live-text">{liveItem?.text ?? items.at(-1)?.text ?? ''}</span>
-        {pendingTurns
-          .filter((turn) => turn.failed)
-          .map((turn) => (
-            <span key={turn.text} data-testid="superagent-failed-row">
-              Not sent: {turn.text}
+    TranscriptList: observer(
+      ({
+        transcript,
+        items = [],
+        liveItem,
+        tail,
+        pendingTurns = [],
+        transcriptQuestion,
+      }: {
+        transcript?: import('@podium/client-core/conversation').TranscriptLog
+        items?: { text: string }[]
+        liveItem?: { text: string }
+        tail?: { label: string; tone: string }
+        pendingTurns?: { text: string; failed?: string }[]
+        transcriptQuestion: TranscriptItem | null
+      }) => {
+        if (transcript) {
+          // Track order only; production message versions belong to row observers.
+          transcript.ids.length
+          items = transcript.items
+        }
+        transcriptProps.push({
+          items,
+          ...(liveItem ? { liveItem } : {}),
+          pendingTurns,
+          transcriptQuestion,
+        })
+        return (
+          <div>
+            transcript
+            <span data-testid="superagent-live-text">
+              {liveItem?.text ?? items.at(-1)?.text ?? ''}
             </span>
-          ))}
-        {tail?.tone === 'working' ? (
-          <span data-testid="superagent-working-indicator">{tail.label}</span>
-        ) : null}
-      </div>
-    )
-  }),
-}})
+            {pendingTurns
+              .filter((turn) => turn.failed)
+              .map((turn) => (
+                <span key={turn.text} data-testid="superagent-failed-row">
+                  Not sent: {turn.text}
+                </span>
+              ))}
+            {tail?.tone === 'working' ? (
+              <span data-testid="superagent-working-indicator">{tail.label}</span>
+            ) : null}
+          </div>
+        )
+      },
+    ),
+  }
+})
 vi.mock('../components/Composer', () => ({
   Composer: ({
     leading,
@@ -307,7 +312,9 @@ describe('SuperagentScreen chrome', () => {
     )
     expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
     items = []
-    await frameAct(async () => view.emit('transcriptDelta', 'session:superagent', [], { reset: true }))
+    await frameAct(async () =>
+      view.emit('transcriptDelta', 'session:superagent', [], { reset: true }),
+    )
     expect(transcriptProps.at(-1)?.items).toEqual([])
     expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
   })
@@ -835,7 +842,9 @@ describe('SuperagentScreen chrome', () => {
         await frameAct(() => view.emit('headlessActivity', 'session:superagent', event))
       }
       if (activity !== 'failed turn-end') {
-        await frameAct(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }))
+        await frameAct(() =>
+          view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }),
+        )
       }
       if (timing === 'after') await frameAct(async () => resolveFailure?.(savedFailure))
 
@@ -911,10 +920,17 @@ describe('SuperagentScreen chrome', () => {
 it('does not poll the thread every five seconds while a turn is running', async () => {
   const interval = vi.spyOn(globalThis, 'setInterval')
   try {
-    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(async () => null))
+    const view = await renderWithMobileStore(
+      <SuperagentScreen />,
+      failureFixture(async () => null),
+    )
     await screen.findByText('transcript')
-    await frameAct(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' }))
+    await frameAct(() =>
+      view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' }),
+    )
     await waitFor(() => expect(screen.getByTestId('superagent-working-indicator')).toBeTruthy())
     expect(interval.mock.calls.filter(([, delay]) => delay === 5000)).toEqual([])
-  } finally { interval.mockRestore() }
+  } finally {
+    interval.mockRestore()
+  }
 })

@@ -299,7 +299,12 @@ export const COARSE_CLOCK_MS = 60_000
 
 const log = createLogger('client-core:runtime')
 
-export { DRAFT_SEND_DEBOUNCE_MS, DRAFT_PERSIST_DEBOUNCE_MS, DRAFT_KEEP_LIMIT, DRAFTS_UI_KEY } from '../conversation/draft-store'
+export {
+  DRAFT_SEND_DEBOUNCE_MS,
+  DRAFT_PERSIST_DEBOUNCE_MS,
+  DRAFT_KEEP_LIMIT,
+  DRAFTS_UI_KEY,
+} from '../conversation/draft-store'
 
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
@@ -530,7 +535,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts = new DraftStore({
       storage: this.ui,
       hub: this.hub,
-      onStorageError: err => log.warn('could not cache this device drafts', { err }),
+      onStorageError: (err) => log.warn('could not cache this device drafts', { err }),
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
@@ -547,11 +552,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     ) as Store<TApi>
   }
 
-
   /** The provider supplies addressed pool ports once, for this principal. */
   readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
     if (this.destroyed) throw new Error('The conversation owner has changed')
-    return this.conversationCache ??= new ConversationCache(options)
+    return (this.conversationCache ??= new ConversationCache(options))
   }
 
   // ------------------------------------------------------------------ read seam
@@ -887,9 +891,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.pendingWorktreeMoves.set(id, { ...previous, after: provider.topologySession(id) })
       for (const change of delta?.sessions ?? []) {
         const previous = this.pendingWorktreeMoves.get(change.id)
-        this.pendingWorktreeMoves.set(change.id, previous
-          ? { id: change.id, before: previous.before, after: change.after }
-          : change)
+        this.pendingWorktreeMoves.set(
+          change.id,
+          previous ? { id: change.id, before: previous.before, after: change.after } : change,
+        )
       }
       this.pendingNavigationTopology = true
       this.queueNavigationWake(provider)
@@ -923,7 +928,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       !this.state.openIssueId &&
       !this.pendingSessionNavigation &&
       !this.pendingNavigation &&
-      this.pendingWorktreeMoves.size === 0 && !this.pendingWorktreeFallback && !this.pendingNavigationTopology
+      this.pendingWorktreeMoves.size === 0 &&
+      !this.pendingWorktreeFallback &&
+      !this.pendingNavigationTopology
     ) {
       previous?.()
       return
@@ -950,12 +957,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         return [
           this.pendingNavigationTopology
             ? [...this.pendingWorktreeMoves.values()]
-                .filter(change => change.before && change.after && change.before.cwd !== change.after.cwd)
-                .map(change => provider.worktreeSession?.(change.id))
+                .filter(
+                  (change) =>
+                    change.before && change.after && change.before.cwd !== change.after.cwd,
+                )
+                .map((change) => provider.worktreeSession?.(change.id))
             : undefined,
-          (this.pendingNavigationTopology || this.pendingWorktreeFallback) && provider.registeredWorktree
+          (this.pendingNavigationTopology || this.pendingWorktreeFallback) &&
+          provider.registeredWorktree
             ? st.selectedWorktree
-              ? [provider.registeredWorktree(st.selectedWorktree), provider.hasWorktreeSession?.(st.selectedWorktree)]
+              ? [
+                  provider.registeredWorktree(st.selectedWorktree),
+                  provider.hasWorktreeSession?.(st.selectedWorktree),
+                ]
               : provider.firstWorktree?.()
             : undefined,
           !provider.onTopology && (this.pendingNavigationTopology || this.pendingWorktreeFallback)
@@ -1020,7 +1034,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           if (this.pendingNavigationTopology) {
             const followed = this.reactions.worktreeFollow([...this.pendingWorktreeMoves.values()])
             if (followed) this.pendingWorktreeMoves.clear()
-            if (followed && this.reactions.worktreeFallback() && this.reactions.sessionIssueFollow()) {
+            if (
+              followed &&
+              this.reactions.worktreeFallback() &&
+              this.reactions.sessionIssueFollow()
+            ) {
               this.pendingNavigationTopology = false
               this.pendingWorktreeFallback = false
               this.reactions.pruneWorkspaces()
@@ -1359,12 +1377,20 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (!canShow && st.navigation.registeredWorktree && st.navigation.hasWorktreeSession) {
         const known = st.navigation.registeredWorktree(route.worktree)
         const anchored = known === true ? false : st.navigation.hasWorktreeSession(route.worktree)
-        canShow = known === true || anchored === true || known === NAVIGATION_LOADING || anchored === NAVIGATION_LOADING
+        canShow =
+          known === true ||
+          anchored === true ||
+          known === NAVIGATION_LOADING ||
+          anchored === NAVIGATION_LOADING
       } else if (!canShow) {
         const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
         const crew = st.navigation.worktreeSessions?.()
-        canShow = worktrees.some(w => w.path === route.worktree) || crew === NAVIGATION_LOADING ||
-          (crew ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
+        canShow =
+          worktrees.some((w) => w.path === route.worktree) ||
+          crew === NAVIGATION_LOADING ||
+          (crew ?? []).some(
+            (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
+          )
       }
       if (canShow) patch.selectedWorktree = route.worktree
     }

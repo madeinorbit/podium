@@ -38,7 +38,10 @@ type Row<K extends LocalKey> = K extends unknown
   : never
 
 /** One discovery repo's id: the scan root on its machine. */
-export function discoveryRepoId(repo: { readonly machineId?: string | null; readonly path: string }): string {
+export function discoveryRepoId(repo: {
+  readonly machineId?: string | null
+  readonly path: string
+}): string {
   return JSON.stringify([repo.machineId ?? '', repo.path])
 }
 
@@ -89,7 +92,10 @@ export interface KeyedInputsChannel extends KeyedInputs {
 function entriesOf(name: KeyedListName, value: unknown): [string, unknown][] {
   const key = LIST_KEYS[name]
   if (key === null) return Object.entries((value ?? {}) as Record<string, unknown>)
-  return ((value ?? []) as readonly never[]).map((row) => [(key as (row: never) => string)(row), row])
+  return ((value ?? []) as readonly never[]).map((row) => [
+    (key as (row: never) => string)(row),
+    row,
+  ])
 }
 
 /** `read` returns the runtime's current state; the channel publishes from it

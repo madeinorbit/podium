@@ -108,7 +108,10 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     history.current.searching = searching
   }, [])
   const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
-  const backend = useMemo(() => resolveSuperagentBackend(superagent.active, backendPick), [superagent.active, backendPick])
+  const backend = useMemo(
+    () => resolveSuperagentBackend(superagent.active, backendPick),
+    [superagent.active, backendPick],
+  )
   const history = useRef({ following: true, searching: false })
   const { conversation, podiumSid, binding } = useThreadConversation(backend, history.current)
   const transcript = conversation?.transcript
@@ -126,7 +129,9 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     if (podiumSid) return podiumSid
     const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
     if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
-    action(() => { binding.acked = result.podiumSessionId })()
+    action(() => {
+      binding.acked = result.podiumSessionId
+    })()
     return result.podiumSessionId
   }, [binding, podiumSid, trpc.superagent.ensureSession])
   const attachments = useComposerAttachments(podiumSid, {
@@ -154,19 +159,40 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   }, [refreshSuperThreads])
 
   const pendingTurns = conversation?.sends.bubbles.map(pendingTurnOf) ?? []
-  const loadOlder = useCallback(() => { void conversation?.transcript.loadOlder() }, [conversation])
-  const send = useCallback((text: string, files?: readonly SentAttachment[]) => {
-    const trimmed = text.trim(), attached = files ?? []
-    if (!conversation || (!trimmed && attached.length === 0)) return
-    setPinRequest(count => count + 1)
-    void conversation.sends.submit({ text: trimmed, wire: buildImagePrompt(attached.map(file => file.path), trimmed), ...(attached.length ? { files: attached, toolPaths: attached.map(file => file.path) } : {}) })
+  const loadOlder = useCallback(() => {
+    void conversation?.transcript.loadOlder()
   }, [conversation])
-  const retry = useCallback((turn: PendingTurn) => {
-    if (!conversation) return
-    if (turn.id.startsWith('restored:')) { send(turn.text); return }
-    setPinRequest(count => count + 1)
-    void conversation.sends.retry(turn.id)
-  }, [conversation, send])
+  const send = useCallback(
+    (text: string, files?: readonly SentAttachment[]) => {
+      const trimmed = text.trim(),
+        attached = files ?? []
+      if (!conversation || (!trimmed && attached.length === 0)) return
+      setPinRequest((count) => count + 1)
+      void conversation.sends.submit({
+        text: trimmed,
+        wire: buildImagePrompt(
+          attached.map((file) => file.path),
+          trimmed,
+        ),
+        ...(attached.length
+          ? { files: attached, toolPaths: attached.map((file) => file.path) }
+          : {}),
+      })
+    },
+    [conversation],
+  )
+  const retry = useCallback(
+    (turn: PendingTurn) => {
+      if (!conversation) return
+      if (turn.id.startsWith('restored:')) {
+        send(turn.text)
+        return
+      }
+      setPinRequest((count) => count + 1)
+      void conversation.sends.retry(turn.id)
+    },
+    [conversation, send],
+  )
   const interrupt = useCallback(async () => {
     if (!conversation) return
     await conversation.sends.interrupt(conversation.draft)
@@ -179,15 +205,24 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
       // The server drops the thread's harness+headless binding, so the old
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
-      action(() => { binding.cleared = podiumSid; binding.acked = undefined })()
+      action(() => {
+        binding.cleared = podiumSid
+        binding.acked = undefined
+      })()
       attachments.clear()
       conversation?.clear()
       void refreshSuperThreads().catch(() => {})
-    } catch (error) { conversation?.setTurnError(humanizeSendFailure(error)) }
+    } catch (error) {
+      conversation?.setTurnError(humanizeSendFailure(error))
+    }
   }, [attachments.clear, binding, conversation, podiumSid, refreshSuperThreads, trpc])
 
-  const liveItem = useMemo(() => liveTranscriptItem(conversation?.headless?.text ?? '', running), [conversation?.headless?.text, running])
-  const visibleRestoredFailure = pendingTurns.length === 0 && !working ? conversation?.visibleFailure : null
+  const liveItem = useMemo(
+    () => liveTranscriptItem(conversation?.headless?.text ?? '', running),
+    [conversation?.headless?.text, running],
+  )
+  const visibleRestoredFailure =
+    pendingTurns.length === 0 && !working ? conversation?.visibleFailure : null
   const restoredRow = useMemo((): LocalPendingTurn | null => {
     if (!visibleRestoredFailure?.userText) return null
     return {
@@ -342,8 +377,19 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   )
 })
 
-const ThreadComposer = observer(function ThreadComposer({ conversation, ...props }: React.ComponentProps<typeof Composer> & { conversation?: Conversation }) {
-  return <Composer {...props} value={conversation?.draft ?? ''} onChangeText={text => { if (conversation) conversation.draft = text }} />
+const ThreadComposer = observer(function ThreadComposer({
+  conversation,
+  ...props
+}: React.ComponentProps<typeof Composer> & { conversation?: Conversation }) {
+  return (
+    <Composer
+      {...props}
+      value={conversation?.draft ?? ''}
+      onChangeText={(text) => {
+        if (conversation) conversation.draft = text
+      }}
+    />
+  )
 })
 
 const styles = StyleSheet.create({
