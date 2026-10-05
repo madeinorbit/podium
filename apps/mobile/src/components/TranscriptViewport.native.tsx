@@ -15,6 +15,7 @@ function NativeViewport<Item>(
   {
     identity,
     anchorKeys: _anchorKeys,
+    positionOfKey: _positionOfKey,
     moreAbove,
     loadingOlder,
     onLoadOlder,

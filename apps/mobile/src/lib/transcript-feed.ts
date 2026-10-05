@@ -48,6 +48,7 @@ export interface MobileTranscriptModel {
   blocks: ChatBlock[]
   rows: MobileTranscriptRow[]
   latestAssistantKey: string | undefined
+  positionOfKey(key: string): number | undefined
 }
 
 interface MobileTranscriptIndex {
@@ -78,9 +79,19 @@ export function buildMobileTranscript(
   items: TranscriptItem[],
   options: {
     collapseContext?: boolean
+    hiddenQuestionId?: string | null
   } = {},
 ): MobileTranscriptModel {
   const rows: MobileTranscriptRow[] = []
+  const positions = new Map<string, number>()
+  const append = (row: MobileTranscriptRow) => {
+    const position = rows.length
+    rows.push(row)
+    if (!positions.has(row.key)) positions.set(row.key, position)
+    if (row.kind === 'tools')
+      for (const block of row.blocks ?? [])
+        if (!positions.has(block.item.id)) positions.set(block.item.id, position)
+  }
   const index = indexedTranscript(items)
   const { blocks, rows: chatRows } = index
   let latestAssistantKey: string | undefined
@@ -91,7 +102,7 @@ export function buildMobileTranscript(
     if (chatRow.kind === 'tools') {
       const first = chatRow.blocks[0]
       if (!first) continue
-      rows.push({
+      append({
         key: transcriptItemKey(first.item),
         kind: 'tools',
         item: first.item,
@@ -104,7 +115,8 @@ export function buildMobileTranscript(
 
     const { item } = chatRow.block
     if (isAskUserQuestion(item)) {
-      rows.push({
+      if (!item.toolResult && item.id === options.hiddenQuestionId) continue
+      append({
         key: transcriptItemKey(item),
         kind: item.toolResult ? 'receipt' : 'question',
         item,
@@ -114,7 +126,7 @@ export function buildMobileTranscript(
       continue
     }
     if (item.role === 'tool' && item.toolName === 'SendUserFile') {
-      rows.push({
+      append({
         key: transcriptItemKey(item),
         kind: 'shared',
         item,
@@ -124,7 +136,7 @@ export function buildMobileTranscript(
       continue
     }
     if (item.role === 'tool') {
-      rows.push({
+      append({
         key: transcriptItemKey(item),
         kind: 'tools',
         item,
@@ -136,7 +148,7 @@ export function buildMobileTranscript(
     }
     if (item.role === 'system') {
       if (item.systemKind === 'recap' && item.text.trim()) {
-        rows.push({
+        append({
           key: transcriptItemKey(item),
           kind: 'recap',
           item,
@@ -150,7 +162,7 @@ export function buildMobileTranscript(
           ? `churned ${formatChurn(item.durationMs)}`
           : item.text.trim()
       if (quietText) {
-        rows.push({
+        append({
           key: transcriptItemKey(item),
           kind: 'quiet',
           item,
@@ -162,7 +174,7 @@ export function buildMobileTranscript(
       continue
     }
     if (item.event === 'interrupt') {
-      rows.push({
+      append({
         key: transcriptItemKey(item),
         kind: 'quiet',
         item,
@@ -174,7 +186,7 @@ export function buildMobileTranscript(
     }
     if (!item.text.trim()) continue
     if (options.collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text)) {
-      rows.push({
+      append({
         key: transcriptItemKey(item),
         kind: 'context',
         item,
@@ -187,7 +199,7 @@ export function buildMobileTranscript(
       const batch = parseEnvelopeBatch(item.text)
       if (batch) {
         batch.envelopes.forEach((envelope, index) => {
-          rows.push({
+          append({
             key: `${transcriptItemKey(item)}:message:${envelope.id}`,
             kind: 'envelope',
             item,
@@ -197,7 +209,7 @@ export function buildMobileTranscript(
           })
         })
         if (batch.operatorText) {
-          rows.push({
+          append({
             key: `${transcriptItemKey(item)}:operator`,
             kind: 'user',
             item: { ...item, text: batch.operatorText },
@@ -207,7 +219,7 @@ export function buildMobileTranscript(
         }
         continue
       }
-      rows.push({
+      append({
         key: transcriptItemKey(item),
         kind: 'user',
         item,
@@ -217,7 +229,7 @@ export function buildMobileTranscript(
       continue
     }
     latestAssistantKey = transcriptItemKey(item)
-    rows.push({
+    append({
       key: transcriptItemKey(item),
       kind: item.answer ? 'answer' : 'prose',
       item,
@@ -226,7 +238,7 @@ export function buildMobileTranscript(
     })
   }
 
-  return { blocks, rows, latestAssistantKey }
+  return { blocks, rows, latestAssistantKey, positionOfKey: key => positions.get(key) }
 }
 
 /** Shape the one in-progress assistant row without touching settled history. */

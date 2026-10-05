@@ -1043,27 +1043,18 @@ export function TranscriptList({
   )
   const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
+  const pending = useMemo(() => latestPendingQuestion(items), [items])
+  const pendingKey = pending ? transcriptItemKey(pending) : null
   const model = useMemo(
-    () => buildMobileTranscript(items, { collapseContext }),
-    [collapseContext, items],
+    () => buildMobileTranscript(items, { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined }),
+    [collapseContext, hidePendingQuestion, items, pendingKey],
   )
   const liveRow = useMemo(
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],
   )
-  const pending = useMemo(() => latestPendingQuestion(items), [items])
-  const pendingKey = pending ? transcriptItemKey(pending) : null
   const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
-  const visibleModel = useMemo(
-    () =>
-      hidePendingQuestion
-        ? {
-            ...model,
-            rows: model.rows.filter((row) => row.kind !== 'question' || row.key !== pendingKey),
-          }
-        : model,
-    [hidePendingQuestion, model, pendingKey],
-  )
+  const visibleModel = model
   // The settled rows remain stable viewport data while transport text changes.
   // Tail-only rows are a bounded suffix rendered in the footer, in the same
   // order they had when all rows shared one array.
@@ -1233,6 +1224,7 @@ export function TranscriptList({
         onLoadOlder={onLoadOlder}
         onFollowChange={followChanged}
         data={rows}
+        positionOfKey={model.positionOfKey}
         keyExtractor={(row) => row.key}
         anchorKeys={(row) =>
           row.kind === 'tools'

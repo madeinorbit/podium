@@ -27,6 +27,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     identity,
     data,
     keyExtractor,
+    positionOfKey,
     anchorKeys,
     renderItem,
     ListEmptyComponent,
@@ -52,11 +53,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   )
   const retainedStart =
     !following && heldHead.current?.identity === identity
-      ? data.findIndex(
-          (item, index) =>
-            keyExtractor(item, index) === heldHead.current?.key ||
-            anchorKeys?.(item).includes(heldHead.current?.key ?? ''),
-        )
+      ? (positionOfKey(heldHead.current.key) ?? -1)
       : -1
   const renderStart = retainedStart >= 0 ? Math.min(tailStart, retainedStart) : tailStart
   const visibleRows = useMemo(() => data.slice(renderStart), [data, renderStart])
@@ -111,11 +108,11 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   useLayoutEffect(() => {
     const target = pendingTarget.current
     if (!target) return
-    const index = data.findIndex((item, index) => keyExtractor(item, index) === target.key)
+    const index = positionOfKey(target.key) ?? -1
     if (index < renderStart) return
     pendingTarget.current = null
     if (index >= 0) scroll.scrollToBlock(index, { instant: !target.animated })
-  }, [data, keyExtractor, renderStart, scroll.scrollToBlock])
+  }, [positionOfKey, renderStart, scroll.scrollToBlock])
   const setScrollView = useCallback(
     (node: ScrollView | null) => {
       const element = (node?.getNativeScrollRef() ?? null) as HTMLDivElement | null

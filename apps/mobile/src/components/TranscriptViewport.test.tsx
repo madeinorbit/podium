@@ -112,12 +112,14 @@ function content(
     keyboardDismissMode?: 'on-drag' | 'none'
   } = {},
 ): ReactElement {
+  const positions = new Map(data.map((key, index) => [key, index]))
   return (
     <TranscriptViewport
       identity="one"
       ref={options.viewportRef}
       data={data}
       keyExtractor={(key) => key}
+      positionOfKey={key => positions.get(key)}
       renderItem={({ item }) => <span>{item}</span>}
       ListFooterComponent={<span>Working</span>}
       moreAbove

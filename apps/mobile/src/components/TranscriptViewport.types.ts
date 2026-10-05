@@ -10,6 +10,8 @@ export interface TranscriptViewportProps<Item> extends ScrollViewProps {
   identity: string
   data: readonly Item[]
   keyExtractor(item: Item, index: number): string
+  /** Maintained row-key and folded-item aliases, addressed in display order. */
+  positionOfKey(key: string): number | undefined
   anchorKeys?: (item: Item) => readonly string[]
   renderItem: ListRenderItem<Item>
   ListEmptyComponent?: ReactElement
