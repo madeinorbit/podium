@@ -1,6 +1,6 @@
 import type { TranscriptChange, TranscriptLog } from '@podium/client-core/conversation'
 import { type ChatBlock, type ChatRow, type TranscriptSearchState } from '@podium/client-core/values'
-import { action, actionBound, compareStructural, computed, makeObservable, observable, runInAction, type IComputedValue } from 'mobx'
+import { action, actionBound, compareStructural, computed, makeObservable, observable, observableRef, runInAction, type IComputedValue } from 'mobx'
 import { transcriptComputeClient, type WebTranscriptComputeResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 
@@ -42,15 +42,15 @@ export class ConversationPresentation {
 
   constructor() {
     makeObservable<this, 'heldHead'>(this, {
-      result: observable.ref,
-      query: observable,
-      cursor: observable,
-      renderCount: observable,
-      followTail: observable,
-      heldHead: observable,
-      deepeningSearch: observable,
+      result: observableRef,
+      query: observable, observableRef,
+      cursor: observable, observableRef,
+      renderCount: observable, observableRef,
+      followTail: observable, observableRef,
+      heldHead: observable, observableRef,
+      deepeningSearch: observable, observableRef,
       changed: action,
-      blocks: computed({ equals: (a, b) => compareStructural(a.map(blockShape), b.map(blockShape)) }),
+      blocks: computed({ equals: (a: ChatBlock[], b: ChatBlock[]) => compareStructural(a.map(blockShape), b.map(blockShape)) }),
       rows: computed({ equals: sameRows }),
       blocksById: computed,
       computeReady: computed,

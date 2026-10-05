@@ -1,7 +1,8 @@
 import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState & { drafts: Record<string, string> }
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asIssueId, asMachineId, asMutationId, asSessionId, type SessionId } from '@podium/model/browser'

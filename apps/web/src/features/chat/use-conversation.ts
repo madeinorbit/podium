@@ -8,7 +8,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, HarnessAgent, type SessionId } from '@podium/model/browser'
-import { action, actionBound, compareShallow, computed, makeObservable, observable, reaction, runInAction } from 'mobx'
+import { action, actionBound, compareShallow, computed, makeObservable, observable, observableRef, reaction, runInAction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -41,10 +41,10 @@ export class WebConversation extends Conversation {
     super(options)
     this.presentation = presentation
     makeObservable(this, {
-      lastSubmittedPrompt: observable,
+      lastSubmittedPrompt: observable, observableRef,
       rememberPrompt: actionBound,
-      ctxSeq: observable,
-      backendPick: observable.ref,
+      ctxSeq: observable, observableRef,
+      backendPick: observableRef,
       session: computed,
       thread: computed,
       backend: computed,
@@ -165,7 +165,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         }
         if (route.kind === 'refused') { conversation.setTurnError(route.reason); throw new Error(route.reason) }
         const focus = store.getUserFocus()
-        if (mount.compact) runInAction(() => { conversation.ctxSeq = focus.issueId ? loaded(pool.row('issue', focus.issueId))?.seq ?? null : null })
+        if (mount.compact) runInAction(() => { conversation.ctxSeq = focus.issueId ? loaded(readReader()?.issue(focus.issueId))?.seq ?? null : null })
         const backend = conversation.backend
         const harness = HarnessAgent.safeParse(backend.agentKind)
         const choice = { ...(backend.model ? { model: backend.model } : {}), ...(backend.effort ? { effort: backend.effort } : {}), ...(harness.success && backend.model !== 'auto' ? { agentKind: harness.data } : {}) }

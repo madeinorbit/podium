@@ -134,7 +134,7 @@ it('preserves discovery list order and responds to changed, added and removed id
   const a = { id: 'a', name: 'A' },
     b = { id: 'b', name: 'B' }
   state.machines = [a, b] as EngineState['machines']
-  inputs.emit(new Set(['machines']), new Set())
+  inputs.emit(new Set(['machines']))
   let renders = 0
   function Machines() {
     renders++
@@ -149,7 +149,7 @@ it('preserves discovery list order and responds to changed, added and removed id
   render(<Machines />)
   expect(screen.getByTestId('machines').textContent).toBe('A|B')
   const before = renders
-  act(() => inputs.emit(new Set(['coarseNow']), new Set()))
+  act(() => inputs.emit(new Set(['coarseNow'])))
   expect(renders).toBe(before)
   act(() => {
     state.machines = [
@@ -157,12 +157,12 @@ it('preserves discovery list order and responds to changed, added and removed id
       { ...a, name: 'Renamed' },
       { id: 'c', name: 'C' },
     ] as EngineState['machines']
-    inputs.emit(new Set(['machines']), new Set())
+    inputs.emit(new Set(['machines']))
   })
   expect(screen.getByTestId('machines').textContent).toBe('B|Renamed|C')
   act(() => {
     state.machines = [b] as EngineState['machines']
-    inputs.emit(new Set(['machines']), new Set())
+    inputs.emit(new Set(['machines']))
   })
   expect(screen.getByTestId('machines').textContent).toBe('B')
 })
@@ -186,7 +186,7 @@ it('preserves harness availability and discovery changes without legacy list rea
     },
   } satisfies EngineState['machines'][number]
   state.machines = [machine]
-  inputs.emit(new Set(['repos', 'machines']), new Set())
+  inputs.emit(new Set(['repos', 'machines']))
   function Fleet() {
     const status = useAgentFleetOptions({ repoPath: '/repo' }).find(
       (option) => option.value === 'cursor',
@@ -211,12 +211,12 @@ it('preserves harness availability and discovery changes without legacy list rea
         },
       },
     ]
-    inputs.emit(new Set(['machines']), new Set())
+    inputs.emit(new Set(['machines']))
   })
   expect(screen.getByTestId('fleet').textContent).toBe('available|')
   act(() => {
     state.repos = []
-    inputs.emit(new Set(['repos']), new Set())
+    inputs.emit(new Set(['repos']))
   })
   expect(screen.getByTestId('fleet').textContent).toBe('available|')
 })
@@ -248,7 +248,7 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   state.paneB = other
   state.split = true
   state.focusedPane = 'A'
-  inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']), new Set())
+  inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']))
   drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
   drafts.values.set(sid, 'Saved draft')
   f.owner = {
@@ -274,18 +274,18 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   expect(screen.getByTestId('focus').textContent).toBe('third')
   act(() => {
     state.workspaces = { none: { ...state.workspaces.none!, root: { kind: 'leaf', paneId: 'A' } } }
-    inputs.emit(new Set(['workspaces']), new Set())
+    inputs.emit(new Set(['workspaces']))
   })
   expect(screen.getByTestId('focus').textContent).toBe(sid)
   act(() => {
     state.workspaces = {}
     state.focusedPane = 'B'
-    inputs.emit(new Set(['workspaces', 'focusedPane']), new Set())
+    inputs.emit(new Set(['workspaces', 'focusedPane']))
   })
   expect(screen.getByTestId('focus').textContent).toBe(other)
   act(() => {
     state.split = false
-    inputs.emit(new Set(['split']), new Set())
+    inputs.emit(new Set(['split']))
   })
   expect(screen.getByTestId('focus').textContent).toBe(sid)
 })

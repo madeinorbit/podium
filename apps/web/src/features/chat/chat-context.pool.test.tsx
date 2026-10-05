@@ -2,7 +2,7 @@
 
 import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
 
-type Store = ReferenceState<import('@/app/trpc').Trpc>
+type Store = ReferenceState<import('@/app/trpc').Trpc> & { drafts: Record<string, string> }
 
 import { bindStoreStatsOwner, readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import type { MobxPool } from '@podium/client-graph'

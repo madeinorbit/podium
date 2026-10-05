@@ -166,7 +166,7 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
     pending: state.pending.map(b => b.error === undefined ? b : { ...b, failure: b.error.startsWith('not sent') || b.notice !== undefined ? b.error : `not delivered — ${b.error}` }),
     setDraft: text => { conversation.draft = text },
     send: async (text, tags, toolPaths, attachments) => { options.pinToBottom(); await sends.submit({ text, wire: text, tags, toolPaths, attachments }) },
-    sendOfferPrompt: sends.sendOffer.bind(sends), dismissOffer: sends.dismissOffer.bind(sends),
+    sendOfferPrompt: async (prompt, at) => { await sends.sendOffer(prompt, at) }, dismissOffer: sends.dismissOffer.bind(sends),
     retryPending: sends.retry.bind(sends), discardPending: sends.discard.bind(sends),
     sendAgain: sends.sendAgain.bind(sends), retractQueuedMessage: sends.retract.bind(sends),
     markInterrupted: sends.markInterrupted.bind(sends), interrupt: sends.interrupt.bind(sends),
