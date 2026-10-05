@@ -6,8 +6,8 @@ import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 
-const repo = (path: string, branch = 'main') =>
-  ({ path, branch, worktrees: [] }) as HeaderRows['repository']
+const repo = (path: string, branch = 'main'): HeaderRows['repository'] =>
+  ({ kind: 'repository', path, branch, worktrees: [] })
 
 it('answers the path-change key without repository reads at 1x/4x and ignores metadata or atomic moves', async () => {
   const samples = []

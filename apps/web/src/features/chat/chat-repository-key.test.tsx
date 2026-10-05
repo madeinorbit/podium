@@ -31,6 +31,7 @@ it('bounds the actual always-mounted repository change hook at first use and upd
       (_, index) =>
         ({
           path: `/repo/${index}`,
+          kind: 'repository',
           branch: 'main',
           worktrees: [],
         }) as HeaderRows['repository'],
