@@ -449,7 +449,7 @@ const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => 
   const root = requireLoaded(deck.view.issue(deck.id))
   if (!root) return true
   const row = deck.model(deck.id)
-  const reads = [
+  const reads: readonly (() => unknown)[] = [
     () => row.liveAgentCount, () => row.workingAgentCount,
     () => deck.view.continuation(root), () => deck.view.note(root),
     () => deck.view.presence(root, row.sessions), () => deck.view.departures(deck),
