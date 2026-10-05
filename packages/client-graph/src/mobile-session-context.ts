@@ -106,6 +106,30 @@ export function createMobileSessionReader(pool: MobxPool) {
         ready: !!held && held !== LOADING && !!draft && draft !== LOADING && records.pending === 0,
       }
     },
+    /**
+     * Conversation ports WITHOUT the draft text (this issue, phone composer
+     * isolation). `conversation()` reads `draft.text`, so every keystroke
+     * re-renders its subscribers via the stored-draft write. The screen only
+     * needs records/held/ready after its controller exists; the draft seed
+     * is read once imperatively (no subscription) and later copies arrive
+     * via the composer's stored-draft hook. Checking draft EXISTENCE for
+     * `ready` does not subscribe to its text.
+     */
+    conversationPorts(id: string) {
+      const held = pool.row('chatHeld', id),
+        draftRow = pool.row('chatDraft', id),
+        records = chatRecords(pool, id)
+      return {
+        records: records.records,
+        sends: held && held !== LOADING ? held.sends : [],
+        ready:
+          !!held &&
+          held !== LOADING &&
+          !!draftRow &&
+          draftRow !== LOADING &&
+          records.pending === 0,
+      }
+    },
   }
 }
 

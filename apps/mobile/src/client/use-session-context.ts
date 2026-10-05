@@ -8,7 +8,7 @@ import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { demoEnabled } from './demoData'
-import { useMobilePoolProjection } from './mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 
 type Reader = MobileSessionRows['mobileSessionReader']
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
@@ -174,17 +174,28 @@ type Ports = {
   ready: boolean
   draft: string
 }
-const EMPTY_INPUT = {
+const EMPTY_PORTS_INPUT = {
   records: [] as readonly MessageRecordWire[],
   sends: [] as readonly OutboxChatSend[],
   ready: false,
-  draft: '',
 }
 export function useSessionConversationPorts(id: SessionId): Ports {
-  const read = useCallback((reader: Reader) => reader.conversation(id), [id])
-  const data = useRead(read, EMPTY_INPUT)
+  // Draft-text-insensitive (this issue): conversation() reads draft.text, so
+  // every keystroke re-rendered the screen via this hook even after the screen
+  // moved to the controller surface. conversationPorts() tracks only
+  // records/held/ready-existence; the draft seed is read once imperatively
+  // (no subscription) and later copies arrive via the composer's stored-draft
+  // hook.
+  const read = useCallback((reader: Reader) => reader.conversationPorts(id), [id])
+  const data = useRead(read, EMPTY_PORTS_INPUT)
+  const pool = useMobilePool()
   const initial = useRef<{ id: string; draft: string } | undefined>(undefined)
-  if (data.ready && initial.current?.id !== id) initial.current = { id, draft: data.draft }
+  useLayoutEffect(() => {
+    if (!data.ready || initial.current?.id === id || !pool) return
+    const row = pool.row('chatDraft', id) as { text?: string } | symbol | undefined
+    if (!row || typeof row === 'symbol') return
+    initial.current = { id, draft: row.text ?? '' }
+  }, [data.ready, id, pool])
   // One bridge per conversation. Late attachment restores the seed once;
   // subsequent records/outbox demand never replaces the live controller.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the bridge owns its listeners per addressed conversation
