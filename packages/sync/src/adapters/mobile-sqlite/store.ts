@@ -110,6 +110,7 @@ import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
+import { ChangedKeyDraft } from '../changed-key-draft'
 import {
   ALL_TABLES,
   applySchema,
@@ -196,8 +197,8 @@ interface SqlOp {
 
 /** The post-state one span has staged, per region, plus the statements that produce it. */
 interface SpanDraft {
-  /** principal → key → row. Absent principal means "untouched". */
-  readonly entities: Map<string, Map<string, EntityRecord>>
+  /** Principal → changed keys or snapshot replacement. Absent means untouched. */
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
   readonly cursors: Map<string, ScopedCacheCursor | null>
   readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -422,7 +423,7 @@ export class SqliteSyncStore {
           params: [principal],
         },
       )
-      draft.entities.set(principal, new Map())
+      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
       draft.cursors.set(principal, null)
       draft.personalRowsCompleteAt.set(principal, null)
       draft.outbox.set(principal, [])
@@ -763,9 +764,10 @@ export class SqliteSyncStore {
     this.options.onSecretsScrubbed?.(report)
   }
 
-  /** Swap a committed draft into the mirror. Runs only after COMMIT returned. */
+  /** Publish a committed draft into the mirror. Runs only after COMMIT returned. */
   private applyDraftToMirror(draft: SpanDraft): void {
-    for (const [principal, rows] of draft.entities) this.entities.set(principal, rows)
+    for (const [principal, rows] of draft.entities)
+      this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
     for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
     for (const [principal, marker] of draft.personalRowsCompleteAt)
       this.personalRowsCompleteAt.set(principal, marker)
@@ -1055,7 +1057,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
         sql: `DELETE FROM ${ENTITY_TABLE} WHERE principal = ?`,
         params: [this.principal],
       })
-      const next = new Map<string, EntityRecord>()
+      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
@@ -1084,7 +1086,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
     // Reaches entities and the cursor. The `outbox` table is not named here, and
     // there is no method on this port through which it could be.
     this.store.autocommit((draft) => {
-      draft.entities.set(this.principal, new Map())
+      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
       draft.cursors.set(this.principal, null)
       this.setPersonalRowsCompleteAt(draft, null)
       draft.ops.push({
@@ -1125,7 +1127,7 @@ class SqliteCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: Map<string, EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
@@ -1186,13 +1188,13 @@ class SqliteCacheStore implements ReplicaCacheStore {
     )
   }
 
-  /** This principal's rows as the draft has them so far, copied on first touch. */
-  private slice(draft: SpanDraft): Map<string, EntityRecord> {
+  /** Stage only changed keys; published rows stay untouched until publish. */
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const copy = new Map(this.store.entitiesOf(this.principal))
-    draft.entities.set(this.principal, copy)
-    return copy
+    const changes = new ChangedKeyDraft<EntityRecord>()
+    draft.entities.set(this.principal, changes)
+    return changes
   }
 }
 

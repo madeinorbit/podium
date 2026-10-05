@@ -97,6 +97,7 @@ import {
   requestAsPromise,
 } from './idb'
 import { enqueueWrites } from './write-batch'
+import { ChangedKeyDraft } from '../changed-key-draft'
 import {
   ALL_STORES,
   CURSOR_KEY,
@@ -177,8 +178,8 @@ type IdbOp =
 
 /** The post-state one span has staged, per region, plus the durable operations that produce it. */
 interface SpanDraft {
-  /** principal → key → row. Absent principal means "untouched". */
-  readonly entities: Map<string, Map<string, EntityRecord>>
+  /** Principal → changed keys or snapshot replacement. Absent means untouched. */
+  readonly entities: Map<string, ChangedKeyDraft<EntityRecord>>
   readonly cursors: Map<string, ScopedCacheCursor | null>
   readonly personalRowsCompleteAt: Map<string, PersonalRowsCompleteness | null>
   readonly outbox: Map<string, StoredOutboxRecord[]>
@@ -424,7 +425,7 @@ export class IndexedDbSyncStore {
           key: [principal, row.entity, row.entityId],
         })
       }
-      draft.entities.set(principal, new Map())
+      draft.entities.set(principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
       draft.cursors.set(principal, null)
       draft.personalRowsCompleteAt.set(principal, null)
       draft.ops.push({ kind: 'delete', store: META_STORE, key: [principal, CURSOR_KEY] })
@@ -778,9 +779,10 @@ export class IndexedDbSyncStore {
     }
   }
 
-  /** Swap a committed draft into the mirror. Runs only after IndexedDB said complete. */
+  /** Publish a committed draft into the mirror. Runs only after IndexedDB said complete. */
   private applyDraftToMirror(draft: SpanDraft): void {
-    for (const [principal, rows] of draft.entities) this.entities.set(principal, rows)
+    for (const [principal, rows] of draft.entities)
+      this.entities.set(principal, rows.publish(this.entitiesOf(principal)))
     for (const [principal, cursor] of draft.cursors) this.cursors.set(principal, cursor)
     for (const [principal, marker] of draft.personalRowsCompleteAt)
       this.personalRowsCompleteAt.set(principal, marker)
@@ -1100,16 +1102,14 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
       // rows, the buffered deltas apply on top, and the cursor commits — one
       // transaction, no half-installed replica.
       const current = this.slice(draft)
-      for (const key of current.keys()) {
-        const existing = current.get(key)
-        if (existing === undefined) continue
+      for (const existing of current.values(this.store.entitiesOf(this.principal))) {
         draft.ops.push({
           kind: 'delete',
           store: ENTITY_STORE,
           key: [this.principal, existing.entity, existing.entityId],
         })
       }
-      const next = new Map<string, EntityRecord>()
+      const next = new ChangedKeyDraft(new Map<string, EntityRecord>())
       draft.entities.set(this.principal, next)
       draft.touchedCache = true
       for (const row of rows) {
@@ -1139,14 +1139,14 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     // and there is no method on this port through which it could be.
     this.store.autocommitEager((draft) => {
       const current = this.slice(draft)
-      for (const row of current.values()) {
+      for (const row of current.values(this.store.entitiesOf(this.principal))) {
         draft.ops.push({
           kind: 'delete',
           store: ENTITY_STORE,
           key: [this.principal, row.entity, row.entityId],
         })
       }
-      draft.entities.set(this.principal, new Map())
+      draft.entities.set(this.principal, new ChangedKeyDraft(new Map<string, EntityRecord>()))
       draft.cursors.set(this.principal, null)
       draft.ops.push({ kind: 'delete', store: META_STORE, key: [this.principal, CURSOR_KEY] })
       this.setPersonalRowsCompleteAt(draft, null)
@@ -1180,7 +1180,7 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
    */
   private applyOperations(
     draft: SpanDraft,
-    slice: Map<string, EntityRecord>,
+    slice: ChangedKeyDraft<EntityRecord>,
     mutation: CacheMutation,
   ): void {
     draft.touchedCache = true
@@ -1247,13 +1247,13 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
     )
   }
 
-  /** This principal's rows as the draft has them so far, copied on first touch. */
-  private slice(draft: SpanDraft): Map<string, EntityRecord> {
+  /** Stage only changed keys; published rows stay untouched until publish. */
+  private slice(draft: SpanDraft): ChangedKeyDraft<EntityRecord> {
     const staged = draft.entities.get(this.principal)
     if (staged !== undefined) return staged
-    const copy = new Map(this.store.entitiesOf(this.principal))
-    draft.entities.set(this.principal, copy)
-    return copy
+    const changes = new ChangedKeyDraft<EntityRecord>()
+    draft.entities.set(this.principal, changes)
+    return changes
   }
 }
 
