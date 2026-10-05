@@ -5,6 +5,7 @@
     "apps/mobile/src",
     "apps/mobile/app",
     "packages/client-graph/src",
+    "packages/mobx-helpers/src",
     "packages/client-core/src"
   ],
   "entries": [

@@ -12,6 +12,7 @@ export const INTERACTION_ROOTS = [
   'apps/mobile/src',
   'apps/mobile/app',
   'packages/client-graph/src',
+  'packages/mobx-helpers/src',
   'packages/client-core/src',
 ] as const
 export const MANIFEST = 'scripts/interaction-scan-census.json'
@@ -311,7 +312,7 @@ export function scanSources(sources: Record<string, string>): Scan[] {
   const resolveModule = (from: string, module: string): string | undefined => {
     let base = module.startsWith('.')
       ? posix.normalize(posix.join(posix.dirname(from), module))
-      : module.replace(/^@podium\/(client-core|client-graph)(?:\/|$)/, 'packages/$1/src/')
+      : module.replace(/^@podium\/(client-core|client-graph|mobx-helpers)(?:\/|$)/, 'packages/$1/src/')
     if (base.endsWith('/')) base += 'index'
     for (const candidate of [
       base,
