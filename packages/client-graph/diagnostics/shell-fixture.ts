@@ -28,7 +28,7 @@ export function shellFixture(count = 40) {
     refRepoId: repoId, refSeq: index + 1, refLetter: 'A',
     name: `Synthetic agent ${index}`, title: `Synthetic session ${index}`, archived: index >= 20,
     status: index >= 20 ? 'exited' : 'live', agentKind: 'codex', headless: false, createdAt: stamp,
-    lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}A`, agentState: { phase: 'idle', since: stamp },
+    lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}-A`, agentState: { phase: 'idle', since: stamp },
   })) as unknown as SessionView[]
   const approvals = [0, 1].map(index => ({ id: `shell-approval-${index}`, machineId, machineName: 'Synthetic host', sessionId: sessions[index]!.sessionId,
     issueId: issues[index]!.id, issueSeq: index + 1, issueDisplayRef: `SYN-${index + 1}`, issueTitle: `Synthetic task ${index}`, op: { kind: 'channel', target: 'dev' },
