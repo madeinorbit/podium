@@ -25,7 +25,6 @@ import type { SessionId } from '@podium/model'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { useFeature } from '@/lib/use-feature'
 import { WebSyncProgressStore } from '@/lib/sync-progress'
 import type { JSX, ReactNode } from 'react'
@@ -34,7 +33,7 @@ import { AppBody } from './AppShell'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { StoreProvider } from './store'
-import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
+import { useWorklistPool } from './store-worklist-pool'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import type { Trpc } from './trpc'
 
@@ -198,20 +197,14 @@ export function WebDemoProvider({ children }: { children: ReactNode }): JSX.Elem
   const [demoReplica] = useState(createDemoReplica)
   const createReplicaFn = useMemo(() => () => demoReplica, [demoReplica])
   return (
+    // The default attachRuntime already attaches the worklist pool (plus
+    // reload preparation), exactly what the demo shell reads through.
     <StoreProvider
       principal={principal}
       config={DEMO_CONFIG}
       api={api}
       onFatalError={() => {}}
       createReplicaFn={createReplicaFn}
-      attachRuntime={(runtime) => {
-        const detachPool = attachWorklistPool(runtime, () => {})
-        const detachReload = registerReloadPreparation(runtime.prepareReload)
-        return () => {
-          detachReload()
-          detachPool()
-        }
-      }}
     >
       <DemoSlicePublisher replica={demoReplica} />
       <ConfirmProvider>{children}</ConfirmProvider>
