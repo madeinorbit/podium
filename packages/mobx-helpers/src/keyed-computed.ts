@@ -1,9 +1,9 @@
-import { _isComputingDerivation, compareDefault, computed, type IComputedValue, onBecomeUnobserved } from 'mobx'
+import { _getGlobalState, compareDefault, computed, type IComputedValue, onBecomeUnobserved } from 'mobx'
 
 export interface KeyedComputedOptions<K, V> {
   equals?: (previous: V, next: V) => boolean
   context?: (key: K) => unknown
-  /** Opt into MobX's public untracked-read assertion for development diagnostics. */
+  /** Warn on an untracked read outside a batch, for development diagnostics. */
   requiresReaction?: boolean
 }
 
@@ -21,15 +21,18 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
   { equals = compareDefault, context, requiresReaction = false }: KeyedComputedOptions<K, V> = {},
 ): KeyedComputed<K, V, A> {
   const cache = new Map<K, IComputedValue<V>>()
-  const read = (key: K, ...args: A): V => {
+  const read = (...args: [K, ...A]): V => {
+    const key = args[0]
     const cached = cache.get(key)
     if (cached) return cached.get()
-    const derive = () => fn(key, ...args)
-    if (!_isComputingDerivation()) {
-      // No cache entry without a reader. The public computed assertion also
-      // stays silent inside actions/batches. Assert with an empty body so
-      // the actual read cannot create nested tracking/cache entries in a batch.
-      if (requiresReaction) computed(() => undefined, { requiresReaction, name: typeof name === 'function' ? name(key) : name }).get()
+    const derive = () => fn.apply(undefined, args)
+    // One private read, equivalent to _isComputingDerivation, also lets the
+    // diagnostic stay silent in a batch without creating a temporary computed.
+    const state = _getGlobalState()
+    if (!state.trackingDerivation) {
+      if (requiresReaction && state.inBatch === 0) {
+        console.warn(`[mobx] Computed value '${typeof name === 'function' ? name(key) ?? 'ComputedValue' : name}' is being read outside a reactive context. Doing a full recompute.`)
+      }
       return derive()
     }
     const value = computed(derive, {

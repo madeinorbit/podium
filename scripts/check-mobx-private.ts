@@ -23,7 +23,7 @@ export function mobxPrivateUses(source: string, file: string): string[] {
     hits.push(`${file}:${line}: private MobX API ${name}; use @podium/mobx-helpers or public MobX APIs`)
   }
   const inspectName = (node: ts.Node, name: string, importOnly = false) => {
-    if (privateName(name) && !(importOnly && file === HELPER && name === '_isComputingDerivation')) report(node, name)
+    if (privateName(name) && !(importOnly && file === HELPER && name === '_getGlobalState')) report(node, name)
   }
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {

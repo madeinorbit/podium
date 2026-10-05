@@ -96,7 +96,7 @@ describe('keyedComputed', () => {
     })
   })
 
-  it('provides a public development assertion without retaining an untracked entry', () => {
+  it('warns in development without retaining an untracked entry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const read = vi.fn((_key: string) => 1)

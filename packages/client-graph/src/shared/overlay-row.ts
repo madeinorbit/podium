@@ -53,7 +53,12 @@ export function createRowOverlay() {
     const keys = Reflect.ownKeys(overrides)
     const same = previous !== undefined && keys.length === Reflect.ownKeys(previous).length &&
       keys.every(key => Object.hasOwn(previous, key) && Object.is(Reflect.get(previous, key), Reflect.get(overrides, key)))
-    const stable = same ? previous as O : Object.freeze(Object.fromEntries(keys.map(key => [key, Reflect.get(overrides, key)]))) as O
+    let stable = previous as O
+    if (!same) {
+      const snapshot = Object.create(null)
+      for (const key of keys) Object.defineProperty(snapshot, key, { value: Reflect.get(overrides, key), enumerable: true })
+      stable = Object.freeze(snapshot) as O
+    }
     overridesByRow.set(row, stable)
     return overlayRow(row, stable, omitted)
   }

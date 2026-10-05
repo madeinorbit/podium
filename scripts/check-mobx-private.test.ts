@@ -21,9 +21,9 @@ describe('MobX private API boundary', () => {
   })
   it('permits only the named tracking import inside the helper', () => {
     const helper = 'packages/mobx-helpers/src/keyed-computed.ts'
-    expect(mobxPrivateUses("import { _isComputingDerivation } from 'mobx'", helper)).toEqual([])
-    expect(mobxPrivateUses("import { _getGlobalState } from 'mobx'", helper)).toHaveLength(1)
-    expect(mobxPrivateUses("export { _isComputingDerivation } from 'mobx'", helper)).toHaveLength(1)
+    expect(mobxPrivateUses("import { _getGlobalState } from 'mobx'", helper)).toEqual([])
+    expect(mobxPrivateUses("import { _isComputingDerivation } from 'mobx'", helper)).toHaveLength(1)
+    expect(mobxPrivateUses("export { _getGlobalState } from 'mobx'", helper)).toHaveLength(1)
   })
   it('permits public observation and ignores private-looking text', () => {
     expect(mobxPrivateUses("import { computed, getAtom } from 'mobx'; getAtom(computed(() => 1)).reportObserved()", file)).toEqual([])
