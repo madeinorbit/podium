@@ -589,6 +589,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   },
 
   // L3 — features / adapters / engine.
+  'packages/mobx-helpers': { layer: 1, platform: 'browser-safe', features: ['mobx-helpers'] },
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['values'] },
   'packages/client-graph': {
     layer: 3,

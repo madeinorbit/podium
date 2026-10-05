@@ -391,6 +391,18 @@
         "vitest": "5.0.0-beta.6",
       },
     },
+    "packages/mobx-helpers": {
+      "name": "@podium/mobx-helpers",
+      "version": "0.0.0",
+      "dependencies": {
+        "mobx": "7.0.3",
+      },
+      "devDependencies": {
+        "@types/node": "^25.9.1",
+        "typescript": "^7.0.2",
+        "vitest": "5.0.0-beta.6",
+      },
+    },
     "packages/model": {
       "name": "@podium/model",
       "version": "0.0.0",
@@ -1399,6 +1411,8 @@
     "@podium/logger": ["@podium/logger@workspace:packages/logger"],
 
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
+
+    "@podium/mobx-helpers": ["@podium/mobx-helpers@workspace:packages/mobx-helpers"],
 
     "@podium/model": ["@podium/model@workspace:packages/model"],
 
