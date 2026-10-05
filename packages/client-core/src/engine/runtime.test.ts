@@ -1454,3 +1454,20 @@ describe('runtime-owned header inputs', () => {
     } finally { engine.destroy() }
   })
 })
+
+describe('principal-owned conversations', () => {
+  it('keeps the shared cache across restartable cleanup and destroys it on sign-out', () => {
+    const { engine } = makeEngine()
+    const start = vi.fn(async () => {}), dispose = vi.fn()
+    const cache = engine.ownConversations({ create: () => ({ start, dispose }) as unknown as import('../conversation/model').Conversation })
+    const panel = cache.acquire(asSessionId('cached'))
+    engine.dispose()
+    expect(dispose).not.toHaveBeenCalled()
+    expect(engine.ownConversations({ create: () => { throw new Error('second factory must not run') } })).toBe(cache)
+    engine.destroy()
+    expect(dispose).toHaveBeenCalledTimes(1)
+    panel.release()
+    expect(() => cache.acquire(asSessionId('cached'))).toThrow('disposed')
+    expect(() => engine.ownConversations({ create: () => { throw new Error('late factory') } })).toThrow('owner has changed')
+  })
+})

@@ -31,7 +31,7 @@ export class ChatContextSource {
   private readonly reader: ChatContextRows['chatContextReader']
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0, orderIds: 0 }
 
-  constructor(private readonly owner: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onDraft' | 'outbox' | 'replica'>, pool: MobxPool) {
+  constructor(private readonly owner: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onDraft' | 'drafts' | 'outbox' | 'replica'>, pool: MobxPool) {
     if (!owner.replica.row || !owner.replica.subscribeAddressedBatch) throw new Error('Chat context requires the existing addressed replica')
     this.reader = createChatContextReader(pool)
     const wake = (key: string) => {
@@ -109,7 +109,7 @@ export class ChatContextSource {
       runInAction(() => {
         for (const key of this.demanded) {
           const fresh = !this.loaded.has(key) || this.dirty.has(key)
-          if (key.startsWith('chatDraft:')) { if (fresh) this.set(key, { text: this.owner.readLocal('drafts')?.[key.slice(10)] ?? '' }) }
+          if (key.startsWith('chatDraft:')) { if (fresh) this.set(key, { text: this.owner.drafts.get(asSessionId(key.slice(10))) }) }
           else if (key === 'chatWindow:window') { if (fresh) this.set(key, { attachedSessionId: this.owner.readLocal('attachedSessionId') ?? null, transcriptReveal: this.owner.readLocal('transcriptReveal') ?? null }) }
           else if (key.startsWith('chatHeld:') && pending && parked) this.set(key, {
             sends: outboxChatSends({ pending: () => pending, deadLetters: () => parked } as ClientRuntime['outbox'], asSessionId(key.slice(9))),

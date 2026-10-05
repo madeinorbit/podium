@@ -19086,6 +19086,358 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/catchUp/carried",
+      "rule": "materialize:Set",
+      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
+      "gate": [
+        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
+        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
+      ],
+      "origin": [
+        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
+      ],
+      "fingerprint": "3d6ddf27cb7bd47e42d6117662fba46d6d6022834bb8241c9709c4103dc6a10f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/catchUp/carried",
+      "rule": "consume:map",
+      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
+      "gate": [
+        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
+        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
+      ],
+      "origin": [
+        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
+      ],
+      "fingerprint": "db5967eb2d26e787609acd48885289d926649a35941206ddb6e8c576341fdd1b",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/observeRecords",
+      "rule": "loop:for-of",
+      "tokens": "179c87b3174962c57ef6b9b56591ed5044cb258e5ba7bb7097f6fd5894c06dd6",
+      "gate": [],
+      "origin": [
+        "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
+      ],
+      "fingerprint": "fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/patch",
+      "rule": "consume:map",
+      "tokens": "2fde65ab5c3ddae9deec7d84796e36e4fd5c7b19ecce9c62568fba27a10db4b3",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
+        "then:8735c0a54303e0a7d0051a3b8156d2a4566199aecbba597a4a75ccfb76bd88d0"
+      ],
+      "origin": [
+        "1508cccef48341c43530b3443bbc51b9f041fb561721430ef7040810a58d949d"
+      ],
+      "fingerprint": "0eab31048dd7e1dc93f8a5ffd52820344e45717e1a34848db125d82a8dd23f9d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5621",
+      "trigger": "A send outcome replaces this conversation's pending turns.",
+      "bound": "Only this conversation's held pending turns are mapped; work is independent of transcript length.",
+      "reason": "Pending values are frozen without reading or enumerating transcript history.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup",
+      "rule": "loop:for-of",
+      "tokens": "128dc58329b42987d686119410a9b87ea9b5d7e59f79be228bb2941289fcc0a0",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "3ea58f6dcea72fe63b90443e5869968520edab2150fa28c8ab2cc3beab718190"
+      ],
+      "fingerprint": "0ea0751270b198db981cb044a2ccd55a42944e1d763955b32a36b3e4acc586e9",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup/carried",
+      "rule": "materialize:Set",
+      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
+      ],
+      "fingerprint": "0a2ab122da6ac4ee6cdf403ac05a5893b9277af37bb8e97cc4c4ba9ecac976e7",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup/carried",
+      "rule": "consume:map",
+      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
+      ],
+      "fingerprint": "f793c38ce1d435bf5cf7723ccea52e97f5c0ff3ef19e797de158f9028fcb61db",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/boundFollowingWindow/tail",
+      "rule": "consume:slice",
+      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
+      "gate": [
+        "exit:then:d59720cbd2484aec41113428fb4d2bd12de587a465329f96676ab9784a148aaf"
+      ],
+      "origin": [
+        "5faf488eafb9a7d64cb052b86063c5ddc4aaf4e8ddb687600820b7dadd5b8c47"
+      ],
+      "fingerprint": "3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge",
+      "rule": "loop:for-of",
+      "tokens": "3429875fdb369d306b8b9b0a2237b9a7e99d21d60ed4d22fa2a679ad503d3e16",
+      "gate": [
+        "exit:then:c43e8c57ccec5b6cd84a76b71db82a2d02afd65be1a45156c24952b5d117e6a4",
+        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "6678e36d5749a674dc2d4d1bb8cc3c9666cdbe616288a5097ea6ebb24b42ecb8",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge/bounded",
+      "rule": "helper-consumer",
+      "tokens": "12862e0ac72c76c1fae271e057264c6f4de16cec95b0a71f246504a46b6cbe7f",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
+        "then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "c062d0956250ab8c906beb46993213bf3e3fbea526ff4b41c70b6987bdb0949d",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge/merged",
+      "rule": "helper-consumer",
+      "tokens": "320535e22dab92bd9b2ca195fa25a257baf7454ca01921944285f7ace102ae93",
+      "gate": [
+        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "ada5aefb7dcd6224528b526455ff434d5ab98b85095d426e1d75811694a0ada7",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch",
+      "rule": "loop:for-of",
+      "tokens": "ff36351acd3fbfdec3cfc1c0fa56bd8f478b4cb35b84f3c6be035d855e4453a0",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "6ad2e3a257a0a877c1b9cc7f76317254a12a930f95c2872d52f8c7d1afe65984",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/added",
+      "rule": "consume:filter",
+      "tokens": "fddd3eaa4898b51a0711cd63fdae2b54677fb3b75189a8a48ebb1a2172381403",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "5fa0a0b03ee9b3eefe7a6b6596622f768a4ca4e38555cb5512b8451f812ab749",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "spread",
+      "tokens": "162ac2dc7255264c8674769460fcced3ca85c2a191ea8849facb4734dfca6e6e",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "b045c9171bba5dee5051175992a03c1f24d7587f76e6675bb082ac150b3c9d0f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "materialize:Map",
+      "tokens": "6b47111b332c97732c1543a7fb49ac32ee968223be89f73d3e5ebafee5f3055e",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "d2574efd0bb8d818713332a4aacf2979924098b112c84e5b139d0a989effb658",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "enumerate:values",
+      "tokens": "62ee3c8c6b3c806e6b8204235dc2772d63ccd4e9a0c3adf199cfb47c67c0983a",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e"
+      ],
+      "fingerprint": "db7f76e3f10d36e3f5d68c557c693b0b3ffa5fab0fb50e714f3d568ec4fc1868",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "consume:map",
+      "tokens": "30ef85262f8855c5b03df0e6a4a16eae6c6a35536ee8a5ed7037a6ce29a7a766",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "fb5b589db91ea6fb8826dd08d6428d2c259b4a16fb4f06c05e98126b1793b04c",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
       "file": "packages/client-core/src/conversation/controller.ts",
       "holder": "ConversationController/catchUp/carried",
       "rule": "materialize:Set",
@@ -21859,15 +22211,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "dedupeTranscriptItems/unique",
       "rule": "consume:filter",
       "tokens": "0e6b4475b8e84ff359793d100ebba68c4fc98f69c3f57d7bdfd2117aced6e102",
       "gate": [],
       "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
+        "cc346192428c55578fb18fa7455c4b1c8ee8856b0cb9b9979da252619bfbec1f"
       ],
-      "fingerprint": "5a15999bd7a3025c21fc6f9f4165d5b619ab1eac3ea88203ca97c46d31d50819",
+      "fingerprint": "8b2c10446cc28d373ba30b3726647de8702a6ad3e59c7a4d737b76b214b3ea6a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21877,15 +22229,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "dedupeTranscriptItems/unique",
       "rule": "consume:filter",
       "tokens": "0e6b4475b8e84ff359793d100ebba68c4fc98f69c3f57d7bdfd2117aced6e102",
       "gate": [],
       "origin": [
-        "8aa976f6473fadd610b2706971bf44b329aa4ed9a6ec4598ffce1dd85cf67709"
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
       ],
-      "fingerprint": "8760cf056f2cc9dc24e7692f3b4ed20f11fcab679463dbc3863ac015ffe8fd1d",
+      "fingerprint": "c8125147322f435735dbd306fe50e6518b3c9988f2d2529008bd5a73e19b1e65",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21895,7 +22247,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "freshOlderTranscriptPage",
       "rule": "consume:filter",
       "tokens": "b353cd3a03865ac80baf4621da8fb53897d83a5f30e6e9804e3b9c9e2932d170",
@@ -21903,9 +22255,9 @@
         "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
       ],
       "origin": [
-        "25f8ce26bff7996f4236c7ef7f87c62b89335d6edd01882e9d77381b538f2d68"
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
       ],
-      "fingerprint": "060509d1b64501457495aef2f679c03051ff50b0eb875cd13c7e9416bf21d632",
+      "fingerprint": "29953e000723bf5c1bfcd4c39274dd54528837d5766cf2aba00cb62af659f182",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21915,7 +22267,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "freshOlderTranscriptPage",
       "rule": "consume:filter",
       "tokens": "b353cd3a03865ac80baf4621da8fb53897d83a5f30e6e9804e3b9c9e2932d170",
@@ -21923,9 +22275,9 @@
         "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
       ],
       "origin": [
-        "5a997ea6c519eac983212039908028e396f02dbb3ebb17cb46ba0242c8bb06bf"
+        "57517aef9b35fec9794f0b461f4ad437773d38d955e3d7c87611ce62c30c665e"
       ],
-      "fingerprint": "bf8b027990f3b42b820f96a0ba9c68e7e4c866af3591b6de0865d17467bab9cd",
+      "fingerprint": "5ee3274da4b5ca1ebb7655d39b473e75bea6dcec409c4e7a2a77f422cce8750d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21935,27 +22287,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "freshOlderTranscriptPage/seen",
-      "rule": "consume:map",
-      "tokens": "fcd63f9bf8f77b588139727328cb1a0c13016894f65d2502b0c6367ba074f6a2",
-      "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
-      ],
-      "origin": [
-        "88a99f9ac4311a977d40712b018280a642b246acf5b88f5b30ada4e124c6a0e1"
-      ],
-      "fingerprint": "031eacf26d92368122b736f26955a246b54a744c5d495fab61690318ef97a4ca",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of freshOlderTranscriptPage/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "freshOlderTranscriptPage/seen",
       "rule": "materialize:Set",
       "tokens": "76192f021054071b6a2ed1bf7600b45f0c838a93f93c26f01a76c5096452aee2",
@@ -21963,9 +22295,9 @@
         "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
       ],
       "origin": [
-        "88a99f9ac4311a977d40712b018280a642b246acf5b88f5b30ada4e124c6a0e1"
+        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
       ],
-      "fingerprint": "b7a24cd9d4a7ddf8a13851fcef1a069409bf6ed6457a70e1209bce180b947f2b",
+      "fingerprint": "7a7c197271480fc7d00cf1bf921981445d9a2739f466fe427b772893d44a6973",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21975,27 +22307,27 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "mergeIndexedTranscriptFrame",
-      "rule": "loop:for-of",
-      "tokens": "594af9d8c33dec0923bf285eaf4b2f843d2ba2c7fa048f43aa817d46281c2aab",
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "freshOlderTranscriptPage/seen",
+      "rule": "consume:map",
+      "tokens": "fcd63f9bf8f77b588139727328cb1a0c13016894f65d2502b0c6367ba074f6a2",
       "gate": [
-        "exit:then:1778a6c19b7c9ad65bb3cbf9964d6aa158245af485e01d2a157b96f16fab4af6"
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
       ],
       "origin": [
-        "6d6b65da95d11b593771bdd9d55693583256f8a3995db603dbc7ea154c8922bf"
+        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
       ],
-      "fingerprint": "4783ce720d9ea4d6f3e163a2fbdc73d3bddf16c14a3813a14c636cd07c275058",
+      "fingerprint": "9f3d5ee67bad9e70aae938a68098ecf2eb6e80d4eb7039de8075cfa90f482de2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mergeIndexedTranscriptFrame",
+      "trigger": "Invocation of freshOlderTranscriptPage/seen",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame",
       "rule": "spread",
       "tokens": "05071afd2273bbd626069d12f75d4c52d293c76a278eaaed1a1c9002f5a655eb",
@@ -22005,9 +22337,9 @@
         "then:716d948df6ba22821e8fa74ce1e08bd906e71d271949b01441a3accad2ab69a7"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "a63194057c21c6c471f3b7d4821cd973cca6eaecb1cd0b4b3ae932877951e1b1",
+      "fingerprint": "582a1ae13489200233521117356c1e11574c374cf46b7185f45724ae3db344db",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22017,29 +22349,27 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame",
-      "rule": "helper-consumer",
-      "tokens": "bb6a748ab812ff6a0a2a993ae7e13bd55378e834d9ddf17822bf14abba8f62e4",
+      "rule": "loop:for-of",
+      "tokens": "594af9d8c33dec0923bf285eaf4b2f843d2ba2c7fa048f43aa817d46281c2aab",
       "gate": [
-        "exit:then:1778a6c19b7c9ad65bb3cbf9964d6aa158245af485e01d2a157b96f16fab4af6",
-        "then:2c21494df3f89cd874cd33503ddb5041326228a53220b3ae80a4877e033dde48",
-        "&&:b252e15ff1d6be606cebf4ba8d9ffc2d32495e65d9cd477a0bd7e61e953547d6"
+        "exit:then:1778a6c19b7c9ad65bb3cbf9964d6aa158245af485e01d2a157b96f16fab4af6"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "614900f7aa09b2e5dbd937a5fdf2d89618ead2123d0246781ed9d0a9bd84f66f"
       ],
-      "fingerprint": "d3f71975b890f5f97ad5297266909543419bb745d8bc5710d3fb8af7d2231848",
+      "fingerprint": "9de0956faf0db8c3d02b1be337458de14d27ffca886f733a8d72d163e0a1de54",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of mergeIndexedTranscriptFrame",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame",
       "rule": "loop",
       "tokens": "4cd533838e50487c2cd97cab58135b761fe134f0e9a287521f4e3666a96258c4",
@@ -22049,9 +22379,9 @@
         "else:b4f607ed7bca787efef71575ee27ef7eea59ce288321d3e5ac31918abfe5971d"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "e9916a949d797adf68b6fa0ee935faff28d7681376c8cd315111ab75c03b6d47",
+      "fingerprint": "e2d5c90edda6d465a5a77424613a205a0c0d0eba8a98f6b17626e1a26596db2e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22061,7 +22391,29 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeIndexedTranscriptFrame",
+      "rule": "helper-consumer",
+      "tokens": "bb6a748ab812ff6a0a2a993ae7e13bd55378e834d9ddf17822bf14abba8f62e4",
+      "gate": [
+        "exit:then:1778a6c19b7c9ad65bb3cbf9964d6aa158245af485e01d2a157b96f16fab4af6",
+        "then:2c21494df3f89cd874cd33503ddb5041326228a53220b3ae80a4877e033dde48",
+        "&&:b252e15ff1d6be606cebf4ba8d9ffc2d32495e65d9cd477a0bd7e61e953547d6"
+      ],
+      "origin": [
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
+      ],
+      "fingerprint": "f78dc5067806fe45214a1a9902231ff60865092462cb8e21cc60950b56d0832c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeIndexedTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame/insertion",
       "rule": "helper-consumer",
       "tokens": "723aa6ab5c5862000c2d56f61c6ff42b8be13e105dc1a8c34bee59fc2ed77226",
@@ -22070,9 +22422,9 @@
         "exit:then:1778a6c19b7c9ad65bb3cbf9964d6aa158245af485e01d2a157b96f16fab4af6"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "6aeff5f349a56204ee285f98c9a62ebd72279a1e3a87a0c554ce244421789206",
+      "fingerprint": "21f948c9a12e20c44f051a18b28e2fea2cc0329e8fef3f601723f3a0b8321ecb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22082,7 +22434,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame/merged",
       "rule": "spread",
       "tokens": "05071afd2273bbd626069d12f75d4c52d293c76a278eaaed1a1c9002f5a655eb",
@@ -22092,9 +22444,9 @@
         "??:c73688a95fe8418b2b5b21093474b84f356aa956938bd53898e4321681162e05"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "3bd91aefb2387a9f9c619151c85d3d82193944e0a6887b4754269891a33e9082",
+      "fingerprint": "0ced4870ce2f924c051bdf3f935dff89702ba1181c7c5e59fb031789450b3c33",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22104,15 +22456,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeTranscriptFrame",
       "rule": "reader-summary",
       "tokens": "325b1e4599f88185a7c707dba8735eaa662fd205a8fe14fb12580babcb129f09",
       "gate": [],
       "origin": [
-        "9126ac848f76fc82edfceeaa7855781b12b1ed9ad76bc6d92a2a2c58652c8a0f"
+        "993102166bcdcf6a93e640c06a5b2fa90c2bd6952eb4ece6b2419ca50174afe9"
       ],
-      "fingerprint": "07f4d6a7852f3388305c0d8839ae4f7efc394934eb9168bb0fe4c2e69d254d77",
+      "fingerprint": "2efe2d5e294203f113fb3adbb53cb101986686bcbf1c43a7a943ca6b3ff20c28",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22122,89 +22474,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "mergeTranscriptFrame",
-      "rule": "enumerate:forEach",
-      "tokens": "66d26c133c89af621fdba166b67522ddcb04cf08b082c228f4bd6f8552781655",
-      "gate": [],
-      "origin": [
-        "ea9dd44a6e8894b10a1285587cf3a37d4da06d9727202594b19b6689b2f7d40a"
-      ],
-      "fingerprint": "554f812333af113b4a85e7d52d420f2b62feb10f63a0da9bd46e2338f9e70cd7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeTranscriptFrame",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "enumerate:forEach carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "mergeTranscriptFrame",
-      "rule": "helper-consumer",
-      "tokens": "2d09eddf3f72bd2a0c023279d48f8ed1cd350b74f3006794a433f9223e893175",
-      "gate": [],
-      "origin": [
-        "9126ac848f76fc82edfceeaa7855781b12b1ed9ad76bc6d92a2a2c58652c8a0f",
-        "bc578749bbb99c7abe6a7800eb432f1ac02160ff2f249d7f3460138c607b3dac"
-      ],
-      "fingerprint": "b07607a6367238b7ac33899417feebc625c3e6dfeea23edff1607785b64ef339",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeTranscriptFrame",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "mergeTranscriptFrame",
-      "rule": "helper-consumer",
-      "tokens": "2d09eddf3f72bd2a0c023279d48f8ed1cd350b74f3006794a433f9223e893175",
-      "gate": [],
-      "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b",
-        "a8e38d87af1fdd5ca0ba9373e504a7fe1276519ec9e01f86132cb1b4615b8856"
-      ],
-      "fingerprint": "b447ebae2a57bda8d65a4766198dca9dafe6cb974fdbb04037feda90c6c70c8a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeTranscriptFrame",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "mergeTranscriptFrame",
-      "rule": "reader-summary",
-      "tokens": "325b1e4599f88185a7c707dba8735eaa662fd205a8fe14fb12580babcb129f09",
-      "gate": [],
-      "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
-      ],
-      "fingerprint": "be5356f5f389e3a4367f69aebba0b90337eb44323be7546f48c2f98e11565052",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeTranscriptFrame",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeTranscriptFrame",
       "rule": "consume:forEach",
       "tokens": "66d26c133c89af621fdba166b67522ddcb04cf08b082c228f4bd6f8552781655",
       "gate": [],
       "origin": [
-        "9126ac848f76fc82edfceeaa7855781b12b1ed9ad76bc6d92a2a2c58652c8a0f"
+        "993102166bcdcf6a93e640c06a5b2fa90c2bd6952eb4ece6b2419ca50174afe9"
       ],
-      "fingerprint": "eaaa02171a4a55e62d1c042d97f3908d29c4ab5643c9fcdd0e5b6f6277b0c320",
+      "fingerprint": "5152155fc301883589e9821ecd1ccb6f9cce48b4588244ab36ef5d9198af9dbb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22214,7 +22492,99 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeTranscriptFrame",
+      "rule": "reader-summary",
+      "tokens": "325b1e4599f88185a7c707dba8735eaa662fd205a8fe14fb12580babcb129f09",
+      "gate": [],
+      "origin": [
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
+      ],
+      "fingerprint": "a2f448dba1f255c23ea457b1c2e6fc56efac7d54371f9838e9c8651b927cce5b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeTranscriptFrame",
+      "rule": "helper-consumer",
+      "tokens": "2d09eddf3f72bd2a0c023279d48f8ed1cd350b74f3006794a433f9223e893175",
+      "gate": [],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "b389e2dec6cfed8f5e20bbd6ce3b0d938e1d30e73ef4ffc68d8844d536f9a6e1",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeTranscriptFrame",
+      "rule": "enumerate:forEach",
+      "tokens": "66d26c133c89af621fdba166b67522ddcb04cf08b082c228f4bd6f8552781655",
+      "gate": [],
+      "origin": [
+        "8962eaea7982b7c4430a583c2c4f3b92c2f9cb5a1754913a92bfe8404119ec11"
+      ],
+      "fingerprint": "b84f7881a62767cb56bce9b4525a23fa7955901bfe71f8500235cc808b3af63a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "enumerate:forEach carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeTranscriptFrame",
+      "rule": "helper-consumer",
+      "tokens": "2d09eddf3f72bd2a0c023279d48f8ed1cd350b74f3006794a433f9223e893175",
+      "gate": [],
+      "origin": [
+        "24c6a7eaf0ad5c7eb9c233ae43c094ade0950644d8c8b87a1745b5b62a939983",
+        "993102166bcdcf6a93e640c06a5b2fa90c2bd6952eb4ece6b2419ca50174afe9"
+      ],
+      "fingerprint": "bce7eb0e440fd987f4141718f918c0475578ecd859c801091b1a6054d3803582",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "mergeTranscriptFrame",
+      "rule": "helper-consumer",
+      "tokens": "2d09eddf3f72bd2a0c023279d48f8ed1cd350b74f3006794a433f9223e893175",
+      "gate": [],
+      "origin": [
+        "2a91c8b6b400d6103b6142ca70bf5e975ce1d7943538cde0ae6e58815ddc3d86",
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
+      ],
+      "fingerprint": "e813c69cac4bfe2ce3588024f61eec61eccd6cb37415d95651a93a2ffc2d4960",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mergeTranscriptFrame",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "prependTranscriptItems",
       "rule": "spread",
       "tokens": "ecf5785a3d5ca06f922973caa42e1f31ac86aaf5c22af95d7c7e269bcdcff424",
@@ -22222,9 +22592,9 @@
         "else:eb9afc66c4b426ccc2a991e295d0c591766cae2ad4a3ca694107271ea706c8e9"
       ],
       "origin": [
-        "25f8ce26bff7996f4236c7ef7f87c62b89335d6edd01882e9d77381b538f2d68"
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
       ],
-      "fingerprint": "50653df060ed29416bb5e6d80f39e8e8ff21a10e30d6d62db50262e96eb897a9",
+      "fingerprint": "bde51ad10beb3e69ca5eccf65aa279be74499c1f4023220a55b0b5661ccd6021",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22234,7 +22604,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "prependTranscriptItems",
       "rule": "spread",
       "tokens": "307379b614a662bce57ecc547ef8bc18094d3f7019003fbb98523151a80dbf9e",
@@ -22242,9 +22612,9 @@
         "else:eb9afc66c4b426ccc2a991e295d0c591766cae2ad4a3ca694107271ea706c8e9"
       ],
       "origin": [
-        "9b84a37a765b6c2a40d926cc42bcb59dd661025ed180e6c1186de3a309fbe384"
+        "70e2d0feda762536600f3bb34b92a04e8cd6bd35a2bee7ea6091449bbe633067"
       ],
-      "fingerprint": "e3194d01f385257bbae47f23eab4c511ede3ff238291f6fd10902dc133fdc23b",
+      "fingerprint": "e4567da65fc73b4fb414040cf112823b484d59aa4d9372f53300c66712f4ed18",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22254,15 +22624,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "prependTranscriptItems/fresh",
       "rule": "reader-summary",
       "tokens": "f5ed06efd0786b45019b755b2a294703050229ba59196169f826d6a6865fbc8f",
       "gate": [],
       "origin": [
-        "25f8ce26bff7996f4236c7ef7f87c62b89335d6edd01882e9d77381b538f2d68"
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
       ],
-      "fingerprint": "34197877c6d548dc307ddc4f33b702a8eea3e1b228a19cce78e34be07e21cd1b",
+      "fingerprint": "b7a741a0e0326d3b9e3d2c4591d2763d895d629fa382a3b7cac7385a4f737dae",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22272,16 +22642,16 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "prependTranscriptItems/fresh",
       "rule": "helper-consumer",
       "tokens": "7cc3a95483975c4df6fba414c9673ddedbfae902e681b47ec608f82f6b10d521",
       "gate": [],
       "origin": [
-        "25f8ce26bff7996f4236c7ef7f87c62b89335d6edd01882e9d77381b538f2d68",
-        "9b84a37a765b6c2a40d926cc42bcb59dd661025ed180e6c1186de3a309fbe384"
+        "70e2d0feda762536600f3bb34b92a04e8cd6bd35a2bee7ea6091449bbe633067",
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
       ],
-      "fingerprint": "d215381f94d4214129b8f83db04562b3f2eea7eb7d11d5af0531ce8d487a0d45",
+      "fingerprint": "ea2a319ee231722dec9f633325ea00cf92f42ea0104d0e692c9c34bc108f340d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22291,7 +22661,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot",
       "rule": "helper-consumer",
       "tokens": "1fa62206edcf60a9ffae348edc9b318dab491fc4f5bce4f8ea3749a07917653d",
@@ -22301,10 +22671,10 @@
         "else:618a29be6fdcf4a03f921706bd7e0b947659dbd12bcaba323f2e052d7b46116a"
       ],
       "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b",
-        "a8e38d87af1fdd5ca0ba9373e504a7fe1276519ec9e01f86132cb1b4615b8856"
+        "2a91c8b6b400d6103b6142ca70bf5e975ce1d7943538cde0ae6e58815ddc3d86",
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
       ],
-      "fingerprint": "6247936e301eaca0f79388af606610589937204208a5020fcd1d44fa4c06f2fa",
+      "fingerprint": "1586aa4937a5f12997bf5f68dead01cde33a077263d38c7c9c55f62d542b2950",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22314,7 +22684,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot",
       "rule": "reader-summary",
       "tokens": "f571a5c1ef01fb20a8690990ea9cb82de0e367cfa28124e88c37442c2e746199",
@@ -22324,9 +22694,9 @@
         "else:618a29be6fdcf4a03f921706bd7e0b947659dbd12bcaba323f2e052d7b46116a"
       ],
       "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
       ],
-      "fingerprint": "90a0245d9e594f06cd909223db23e579b492f8508544e56b1ebb4028c80ee4b3",
+      "fingerprint": "4f1efbcb010d500ba706c5bd581e99a0a2b021e52ece3f2759f96b0bf08a4213",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22336,7 +22706,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot/newerHeld",
       "rule": "consume:slice",
       "tokens": "8bf07caa6bc41f90885dcb4db2e4de6820935dce50c64aeed64bc0f87bf290c8",
@@ -22345,9 +22715,9 @@
         "exit:then:be374eca9acf0ce7e497d93db9a87f9d927d882ec9997cef1a44ef9452415f55"
       ],
       "origin": [
-        "a8e38d87af1fdd5ca0ba9373e504a7fe1276519ec9e01f86132cb1b4615b8856"
+        "2a91c8b6b400d6103b6142ca70bf5e975ce1d7943538cde0ae6e58815ddc3d86"
       ],
-      "fingerprint": "b27406267b3c370a9babc73408943a6d3a6874a9fe56bec5bce944b12c59c78e",
+      "fingerprint": "fe9c5fefae945a9cd321d04671eafc528b15761c7f163262c2546eb32f93d540",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22357,7 +22727,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot/tail",
       "rule": "consume:find",
       "tokens": "a9792a1ee6e7310aae4459b3661cd0fd57025679b37962db356d534d534013ba",
@@ -22366,9 +22736,9 @@
         "else:9b2a9587bd35153d4df4d222ded8b6597048e516f096bd85e1b0ec71df44180b"
       ],
       "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
       ],
-      "fingerprint": "fc9760666ccdc709480dbcbbaf9872e6a96553374e6880097cc97299cf565677",
+      "fingerprint": "1240356b5cf387e99f0d03ec4911143277d97fac3385988434d420cc2f7ed367",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22378,7 +22748,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot/tailIndex",
       "rule": "consume:findIndex",
       "tokens": "00a5fb3dbce3c85885671d2c35d374b55e4bc8598c5c7bd082446e7d725e6eb8",
@@ -22387,9 +22757,9 @@
         "else:f87679fa8854512db926dfcf3ccfbe4f00183c69f65b575b79387829ad038f16"
       ],
       "origin": [
-        "a8e38d87af1fdd5ca0ba9373e504a7fe1276519ec9e01f86132cb1b4615b8856"
+        "2a91c8b6b400d6103b6142ca70bf5e975ce1d7943538cde0ae6e58815ddc3d86"
       ],
-      "fingerprint": "047c102c53715452c49e30881134bc39c6dcd8ee8afa0a0c8eaa645cdd9cd40c",
+      "fingerprint": "0aa48a5385b3b5f1d305eb7d257fb458a261fafa42b573ef7a50215a10f4be7c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22399,27 +22769,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "reconcileTranscriptSnapshot/unique",
-      "rule": "helper-consumer",
-      "tokens": "d5495633b1c4aae3263b0c570a9ba37c5d1dab908ea160badd6f0b77b2f6f3d4",
-      "gate": [
-        "exit:then:be374eca9acf0ce7e497d93db9a87f9d927d882ec9997cef1a44ef9452415f55"
-      ],
-      "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
-      ],
-      "fingerprint": "099cda0392f054a808b88389480e51c189cf3e21de01894bbbc394ecbdc9ee13",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of reconcileTranscriptSnapshot/unique",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "reconcileTranscriptSnapshot/unique",
       "rule": "reader-summary",
       "tokens": "c79cc332b07b0c504c4200d1c340bcdb3bfba4cbb46fbd0e90dde7af71193eaa",
@@ -22427,9 +22777,9 @@
         "exit:then:be374eca9acf0ce7e497d93db9a87f9d927d882ec9997cef1a44ef9452415f55"
       ],
       "origin": [
-        "2dbde4e4e1ac7e66215225fd3c7e565343956cca12708920f747ecbc90c24e3b"
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
       ],
-      "fingerprint": "db29b919e665c5ee145648424b780a1d42209e3aabce4492b145ba8c2a7d4df9",
+      "fingerprint": "371f11730c5511cc3ee1f7fff486389385fb7e6fce546ed4115c471417103787",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22439,15 +22789,35 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "reconcileTranscriptSnapshot/unique",
+      "rule": "helper-consumer",
+      "tokens": "d5495633b1c4aae3263b0c570a9ba37c5d1dab908ea160badd6f0b77b2f6f3d4",
+      "gate": [
+        "exit:then:be374eca9acf0ce7e497d93db9a87f9d927d882ec9997cef1a44ef9452415f55"
+      ],
+      "origin": [
+        "502ba255ae3105e675767ca4fc2d26bdb9f625dd521afc462daff7779a661ff0"
+      ],
+      "fingerprint": "6e792a36ecaa238b45320269919f02a0b8de9bc74413684396b0eaf05fdcd7f5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of reconcileTranscriptSnapshot/unique",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameTranscriptItem",
       "rule": "helper-consumer",
       "tokens": "07227481d76401a962e4cf6d57ee09489ccadc5cb5cdb524f4e2fdc77d2b435f",
       "gate": [],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "852b550bd12eb42a239772d136adf314ab17a537c5db008412811e4e0c8d4bbc",
+      "fingerprint": "67320a35cc6f79174b66409621914398236f21923b81977ba01db0ef49a2c9a8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22457,15 +22827,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameTranscriptItem",
       "rule": "helper-consumer",
       "tokens": "07227481d76401a962e4cf6d57ee09489ccadc5cb5cdb524f4e2fdc77d2b435f",
       "gate": [],
       "origin": [
-        "19ef5a6037724be0fe1689c10d8d6d8cdb4e4e6d2b66ab6e4eb3de17426e667b"
+        "246478bab4abbdb636e3bc49488bdd38ef78da39c3d683204d2b7db708a81de7"
       ],
-      "fingerprint": "ee7beb58322e7c2ad784c4ddea1ee5bdaac889f0430ca1c9a4e6f22c9f5c13ec",
+      "fingerprint": "6964239f6a34f2c8ce5d1c46d9d74315c12adb5368849954ef778190b39fcfda",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22475,7 +22845,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameTranscriptItems",
       "rule": "consume:every",
       "tokens": "8862c99bb7aac6bbac90f513c5b384f56f531165c01134c8846804c5f46dc0f7",
@@ -22484,9 +22854,9 @@
         "&&:b62e395fe1395e51a317de7815d08f56caf6842f282d7551ec6e762d54195ebc"
       ],
       "origin": [
-        "478794a87b46d48f527ecfe22dcb2a69d6b656277e5a764bf7db1dfb4c95a4a8"
+        "362648ad40de980d25adea47ae810a29ece17533b6411691d1dbc5713c30db8e"
       ],
-      "fingerprint": "42260272eb4361cb7832624e457bab2cdccd6a87a8be9753d35d23ebcb664c4c",
+      "fingerprint": "315345055a0214b170dce24506b0eca3f1ed7b5e602a78ef09563ca3e17d93f5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22496,7 +22866,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameTranscriptItems/every:callback",
       "rule": "helper-consumer",
       "tokens": "3e5878f1b46c91ede6375a722a130ab0b1d97a157ffabb12f4c478e8dc861408",
@@ -22506,9 +22876,9 @@
         "&&:79452edb22a34f42037bf1d1a3270e050e227b3376783e4e656d9aec8e6c8337"
       ],
       "origin": [
-        "19ef5a6037724be0fe1689c10d8d6d8cdb4e4e6d2b66ab6e4eb3de17426e667b"
+        "246478bab4abbdb636e3bc49488bdd38ef78da39c3d683204d2b7db708a81de7"
       ],
-      "fingerprint": "fe233629ddc0d8bbd501fdd9ef1bba5773473a77b9109e12d9b1e06b8839e391",
+      "fingerprint": "4618d70e3f2c0e9fd131488c8e0773d2a69036a15c5a6dc677b2fc9c44188644",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22518,7 +22888,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue",
       "rule": "consume:every",
       "tokens": "93a40f017daf7e8fb2003dc887083a49de5a8af1a7b155898233dde5480fa546",
@@ -22529,10 +22899,10 @@
         "&&:2c01d0ab8dbc6c806a3e2c3d1af65f52e9a1fca6a915126c3cbce933163643ed"
       ],
       "origin": [
-        "1b58300122dab75cde98676410caa7b4d421b3c43507eee01089433c25157959",
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "14946f9f98c374d0c664602d79bfdc832683df2d2ac065675dc1aa27a880c6e9",
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "9d486245705b9cae5d74791ff7921dce2580ef651bf61f89d433688fdf334361",
+      "fingerprint": "990985adf8d2e5951e3727d47b60d3e8e4bd7f980fd934a71349c5c2f915acb0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22542,7 +22912,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue",
       "rule": "consume:every",
       "tokens": "6dc0e237ff31a417c56f610b4a363bca25112bdf5190280869f3eeb3a84c0678",
@@ -22553,9 +22923,9 @@
         "exit:then:19d7b77bf300d5c789964a471ca1a73eefc16841d0945d307f4550c046f400db"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "e7c02113e85b9fad9dab956ecbb547f868fb0058478268a74665a3f3735d48bf",
+      "fingerprint": "bfec60de3ec2c62f5fe35ad7424dea6d034da3028009ce5ab0dc034cfa32c2eb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22565,7 +22935,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue/every:callback",
       "rule": "helper-consumer",
       "tokens": "06669c3f3f2070969176ecb4ef474f7157ccc96ee383588849e8f7b82b272123",
@@ -22577,9 +22947,9 @@
         "&&:c009bcd667db404cc63ed9a5c5f29b4d0c9426632d6fb44b278b0bdbe4d995dc"
       ],
       "origin": [
-        "da66137cff95326a1e77e738b5b250eca4e0c98d715fc88bc7e69d5046ad4f36"
+        "e4d2b95e0f4ca8c0dd7dd2caed6a45282fda7568d01058c31e59183b18a64ed1"
       ],
-      "fingerprint": "c7a1881753f70b4aa49d39ef38cee1ff7b39222dfeaac8a0bd7ce9a3eeb33fa8",
+      "fingerprint": "20626ffdc16d7a5918595e60af3baee13388a3e7d07487a95593f4b7f0c99017",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22589,7 +22959,31 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "sameValue/every:callback",
+      "rule": "helper-consumer",
+      "tokens": "06669c3f3f2070969176ecb4ef474f7157ccc96ee383588849e8f7b82b272123",
+      "gate": [
+        "exit:then:ccb0b062f1caa4b412cb4b6ca35a2676a7ef8a92747729b0e3453859e407055a",
+        "exit:then:3ca256bb645d0c0fe4a2a9737f713286a19310fd4d647f2eb5ffefa70de636dd",
+        "exit:then:c26d460d6ad6154a89a38195a5772fa0298c10e9112fb2b242570d62b31cd317",
+        "&&:2c01d0ab8dbc6c806a3e2c3d1af65f52e9a1fca6a915126c3cbce933163643ed",
+        "&&:c009bcd667db404cc63ed9a5c5f29b4d0c9426632d6fb44b278b0bdbe4d995dc"
+      ],
+      "origin": [
+        "246478bab4abbdb636e3bc49488bdd38ef78da39c3d683204d2b7db708a81de7"
+      ],
+      "fingerprint": "2fe8c15df0d30b6ffb017dfaf94b459f2053689ef96b47921eba0ffe814aa847",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of sameValue/every:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue/every:callback",
       "rule": "helper-consumer",
       "tokens": "5c4da7d980cbabd0f3f19c049cf0aab45363b4d4adb17b77354082007a50d4c5",
@@ -22600,9 +22994,9 @@
         "exit:then:19d7b77bf300d5c789964a471ca1a73eefc16841d0945d307f4550c046f400db"
       ],
       "origin": [
-        "19ef5a6037724be0fe1689c10d8d6d8cdb4e4e6d2b66ab6e4eb3de17426e667b"
+        "246478bab4abbdb636e3bc49488bdd38ef78da39c3d683204d2b7db708a81de7"
       ],
-      "fingerprint": "e05fb37d1e3cb98f38ebdb99dcbb52649e855bd8f59b6468659fe759d22c73e7",
+      "fingerprint": "3fcd503820d75561002f565a6354b221a137afb797250fc86c45d531b6f09ffa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22612,31 +23006,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "sameValue/every:callback",
-      "rule": "helper-consumer",
-      "tokens": "06669c3f3f2070969176ecb4ef474f7157ccc96ee383588849e8f7b82b272123",
-      "gate": [
-        "exit:then:ccb0b062f1caa4b412cb4b6ca35a2676a7ef8a92747729b0e3453859e407055a",
-        "exit:then:3ca256bb645d0c0fe4a2a9737f713286a19310fd4d647f2eb5ffefa70de636dd",
-        "exit:then:c26d460d6ad6154a89a38195a5772fa0298c10e9112fb2b242570d62b31cd317",
-        "&&:2c01d0ab8dbc6c806a3e2c3d1af65f52e9a1fca6a915126c3cbce933163643ed",
-        "&&:c009bcd667db404cc63ed9a5c5f29b4d0c9426632d6fb44b278b0bdbe4d995dc"
-      ],
-      "origin": [
-        "19ef5a6037724be0fe1689c10d8d6d8cdb4e4e6d2b66ab6e4eb3de17426e667b"
-      ],
-      "fingerprint": "e5509079204df5fe8454b61479fc68ca40defb74f60d81f2de70fa5532452a2a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sameValue/every:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue/leftKeys",
       "rule": "enumerate:Object.keys",
       "tokens": "6703c184f2d13b63c54af74d093d82859ec72f4a2ee48eea76b193450f892fa6",
@@ -22646,9 +23016,9 @@
         "exit:then:c26d460d6ad6154a89a38195a5772fa0298c10e9112fb2b242570d62b31cd317"
       ],
       "origin": [
-        "1b58300122dab75cde98676410caa7b4d421b3c43507eee01089433c25157959"
+        "14946f9f98c374d0c664602d79bfdc832683df2d2ac065675dc1aa27a880c6e9"
       ],
-      "fingerprint": "374d8d14910a6eab24a8cb42f3e63722c30fe870d9a8b301af21b5767d66c730",
+      "fingerprint": "55bc2fc33065e0b197de2739d7350191de91bccc0d2a421a128edb00e53a48d3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -22658,7 +23028,7 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/transcript/controller.ts",
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "sameValue/rightKeys",
       "rule": "enumerate:Object.keys",
       "tokens": "b0a44eaafa5047c27efc4cd8878f0c4add0f0af619e7d9b530c4eb5dcb45202d",
@@ -22668,9 +23038,9 @@
         "exit:then:c26d460d6ad6154a89a38195a5772fa0298c10e9112fb2b242570d62b31cd317"
       ],
       "origin": [
-        "c4dfe6cb6d65949afe0176791f52bacfbd9a0513935c74e3f1411df98ceb2d15"
+        "b250a5d08abfd0136be63fe54966f0539828e0a39eb645a60349d076421cf66c"
       ],
-      "fingerprint": "e33f899034fd7a75c832ca39cf28b936af63d422ae4cf8e1b86fe0a17c6266f0",
+      "fingerprint": "c14f95832e87341803b017bb2cac8cde803bc7d4932120a61fc3fbd086fb6ad0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

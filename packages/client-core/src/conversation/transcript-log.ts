@@ -1,5 +1,18 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
+import { action, makeObservable, observable, observableRef, observableShallow } from 'mobx'
 import { isAskUserQuestion } from '../values/ask-question'
+import type {
+  TranscriptControllerOptions,
+  TranscriptFreshness,
+  TranscriptPage,
+  TranscriptRefreshOptions,
+  TranscriptState,
+  TranscriptActivity,
+} from '../transcript/controller'
+import {
+  TRANSCRIPT_ACTIVITY_SETTLE_MS,
+  TRANSCRIPT_LIVE_HEARTBEAT_MS,
+} from '../transcript/controller'
 import {
   LatestTranscriptId,
   mergeIndexedTranscriptFrame,
@@ -8,141 +21,40 @@ import {
   freshOlderTranscriptPage,
   sameTranscriptItem,
   sameTranscriptItems,
-} from './merge'
-export {
-  mergeTranscriptFrame,
-  reconcileTranscriptSnapshot,
-  dedupeTranscriptItems,
-  freshOlderTranscriptPage,
-  prependTranscriptItems,
-  sameTranscriptItem,
-  sameTranscriptItems,
-} from './merge'
+} from '../transcript/merge'
+import { freezePlain } from './frozen'
 
-export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
-
-export interface TranscriptPage {
-  reset?: boolean
-  items: TranscriptItem[]
-  head?: string
-  tail?: string
-  hasMore: boolean
-  /** The session's machine is offline; this page is the best the server could
-   *  do without it (POD-4808). Present even when items are present (mirrored
-   *  history) so a live-looking session still names its machine, and present
-   *  on an empty page so it does not read as "done". */
-  offline?: { machineName: string }
+export interface TranscriptChange {
+  readonly changed: readonly TranscriptItem[]
+  readonly added: readonly TranscriptItem[]
+  readonly rebuild: boolean
 }
 
-export interface TranscriptReadRequest {
-  sessionId: SessionId
-  anchor?: string
-  direction: 'before'
-  limit: number
+export interface TranscriptLogOptions extends TranscriptControllerOptions {
+  /** The conversation owns real-time scheduling; a standalone log merges immediately. */
+  enqueueFrame?: (items: TranscriptItem[], meta: { reset: boolean }) => void
+  onChange?: (change: TranscriptChange) => void
 }
 
-export interface TranscriptSource {
-  read(request: TranscriptReadRequest): Promise<TranscriptPage>
-  subscribe(
-    sessionId: SessionId,
-    since: string | undefined,
-    listener: (items: TranscriptItem[], meta: { reset: boolean }) => void,
-  ): () => void
-}
-
-export interface TranscriptCacheEntry {
-  items: TranscriptItem[]
-  savedAt: number
-}
-
-export interface TranscriptCache {
-  read(sessionId: SessionId): TranscriptCacheEntry | undefined
-  write(sessionId: SessionId, items: readonly TranscriptItem[]): void
-}
-
-export interface TranscriptConnection {
-  connected(): boolean
-  subscribe(listener: (connected: boolean) => void): () => void
-}
-
-export interface TranscriptControllerOptions {
-  sessionId: SessionId
-  source: TranscriptSource
-  cache?: TranscriptCache
-  connection?: TranscriptConnection
-  initialLimit?: number
-  pageLimit?: number
-  /** Whether the reader can see the transcript now. The live heartbeat skips
-   *  a tick nobody would see; absent means always visible. */
-  visible?: () => boolean
-  /** Keep the loaded prefix during newest reads while a host is reading history.
-   * An explicit source reset always replaces the transcript. */
-  retainHistory?: () => boolean
-  /** Extra maintained facts declared by the host that consumes them. */
-  questions?: readonly ('userEcho' | 'latestRecordedAt')[]
-}
-
-/**
- * What the session row says about activity the transcript should be recording
- * — see {@link TranscriptController.observeActivity}.
- */
-export interface TranscriptActivity {
-  /** A fingerprint of the row fields that move when the agent does anything;
-   *  {@link transcriptActivitySignal} is the one every host uses. */
-  signal: string
-  /** The session has a process that can append to the transcript. */
-  live: boolean
-}
-
-/** Trailing settle before a moved row re-reads: a working agent moves the row
- *  several times a second, and the point is to be current, not to re-read on
- *  every tick. */
-export const TRANSCRIPT_ACTIVITY_SETTLE_MS = 400
-/** The floor under a live transcript: one newest-item probe, escalating to a
- *  full reconcile only when the tail differs [POD-701]. */
-export const TRANSCRIPT_LIVE_HEARTBEAT_MS = 6_000
-
-/** The row fields that advance on exactly the activity a transcript records. */
-export function transcriptActivitySignal(session: {
-  lastActiveAt?: string | null
-  busy?: boolean | null
-  agentState?: { phase?: string; since?: string } | null
-}): string {
-  return `${session.lastActiveAt ?? ''}|${session.agentState?.phase ?? ''}|${session.agentState?.since ?? ''}|${session.busy ?? ''}`
-}
-
-export interface TranscriptState {
-  sessionId: SessionId
-  items: TranscriptItem[]
-  latestOperatorPrompt: string | null
-  pendingQuestion: TranscriptItem | null
-  latestRecordedAt: number | null
-  head: string | undefined
-  tail: string | undefined
-  hasMoreOlder: boolean
-  loadingOlder: boolean
-  initialLoaded: boolean
-  /** A non-empty authority read established the current stream, and no reset has broken it. */
-  subscriptionHealthy: boolean
-  freshness: TranscriptFreshness
-  offlineAsOf: number | null
-  /** The session's machine is offline as of the last authority read (POD-4808).
-   *  Null when the machine is online. Distinct from offlineAsOf, which is the
-   *  CLIENT's own replica fallback when the server is unreachable. */
-  offlineMachineName: string | null
-}
-
-export interface TranscriptRefreshOptions {
-  disclose?: boolean
-}
-
-type Listener = () => void
-
-export class TranscriptController {
-  private readonly listeners = new Set<Listener>()
+export class TranscriptLog {
+  readonly ids = observable.array<string>([], { deep: false })
+  readonly byId = observable.map<string, TranscriptItem>(undefined, { deep: false })
+  private orderedItems: TranscriptItem[] = []
+  latestOperatorPrompt: string | null = null
+  pendingQuestion: TranscriptItem | null = null
+  latestRecordedAt: number | null = null
+  latestUserId: string | null = null
+  head: string | undefined = undefined
+  tail: string | undefined = undefined
+  hasMoreOlder = true
+  loadingOlder = false
+  initialLoaded = false
+  subscriptionHealthy = false
+  freshness: TranscriptFreshness = null
+  offlineAsOf: number | null = null
+  offlineMachineName: string | null = null
   private readonly initialLimit: number
   private readonly pageLimit: number
-  private state: TranscriptState
   private started = false
   private disposed = false
   private generation = 0
@@ -161,6 +73,7 @@ export class TranscriptController {
   private probing: Promise<boolean> | null = null
   private indexedItems: readonly TranscriptItem[] = []
   private readonly itemPositions = new Map<string, number>()
+  private readonly userItems = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly userPrompts = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly questions = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly recordedAt = new Map<string, number>()
@@ -168,52 +81,57 @@ export class TranscriptController {
     (id) => this.recordedAt.get(id) ?? -Infinity,
   )
   private readonly userEchoes = new Map<string, { text: string; paths: string }>()
-  private readonly userTexts = new Map<string, number>()
-  private readonly userPaths = new Map<string, number>()
+  private readonly userTexts = observable.map<string, number>(undefined, { deep: false })
+  private readonly userPaths = observable.map<string, number>(undefined, { deep: false })
   private readonly trackEchoes: boolean
   private readonly trackRecordedTime: boolean
 
-  constructor(private readonly options: TranscriptControllerOptions) {
+  constructor(private readonly options: TranscriptLogOptions) {
     this.initialLimit = options.initialLimit ?? 200
     this.pageLimit = options.pageLimit ?? 400
-    this.trackEchoes = options.questions?.includes('userEcho') ?? false
-    this.trackRecordedTime = options.questions?.includes('latestRecordedAt') ?? false
-    this.state = {
-      sessionId: options.sessionId,
-      items: [],
-      latestOperatorPrompt: null,
-      pendingQuestion: null,
-      latestRecordedAt: null,
-      head: undefined,
-      tail: undefined,
-      hasMoreOlder: true,
-      loadingOlder: false,
-      initialLoaded: false,
-      subscriptionHealthy: false,
-      freshness: null,
-      offlineAsOf: null,
-      offlineMachineName: null,
-    }
+    this.trackEchoes = options.questions?.includes('userEcho') ?? true
+    this.trackRecordedTime = options.questions?.includes('latestRecordedAt') ?? true
+    makeObservable<this, 'patch'>(this, {
+      ids: observableShallow,
+      byId: observableShallow,
+      latestOperatorPrompt: observable,
+      pendingQuestion: observableRef,
+      latestRecordedAt: observable,
+      head: observable,
+      tail: observable,
+      hasMoreOlder: observable,
+      loadingOlder: observable,
+      initialLoaded: observable,
+      subscriptionHealthy: observable,
+      freshness: observable,
+      offlineAsOf: observable,
+      offlineMachineName: observable,
+      merge: action,
+      patch: action,
+      markRendered: action,
+    })
+    // Seed before start() and before any network read or first render.
+    const cached = options.cache?.read(options.sessionId)
+    if (cached?.items.length) this.patch({ items: cached.items, freshness: 'checking' })
   }
 
-  getSnapshot = (): TranscriptState => this.state
+  get sessionId(): SessionId {
+    return this.options.sessionId
+  }
+
+  /** Materialization seam for the existing transcript worker. Rows observe byId. */
+  get items(): TranscriptItem[] {
+    return this.orderedItems
+  }
 
   getItem(id: string | undefined): TranscriptItem | undefined {
-    if (id === undefined) return undefined
-    const position = this.itemPositions.get(id)
-    return position === undefined ? undefined : this.state.items[position]
+    return id === undefined ? undefined : this.byId.get(id)
   }
 
-  latestOperatorPrompt(): string | null {
-    return this.getItem(this.userPrompts.latest())?.text ?? null
+  position(id: string): number | undefined {
+    return this.itemPositions.get(id)
   }
 
-  latestPendingQuestion(): TranscriptItem | null {
-    const item = this.getItem(this.questions.latest())
-    return item && !item.toolResult ? item : null
-  }
-
-  /** Match the existing optimistic-turn rule by text, or by ordered file paths. */
   hasUserEcho(text: string, paths: readonly string[] = []): boolean {
     if (!this.trackEchoes) throw new Error('The host must declare the userEcho transcript question')
     return paths.length > 0
@@ -222,7 +140,7 @@ export class TranscriptController {
   }
 
   private moveEchoCount(
-    counts: Map<string, number>,
+    counts: Pick<Map<string, number>, 'get' | 'set' | 'delete'>,
     before: string | undefined,
     after: string | undefined,
   ): void {
@@ -236,6 +154,7 @@ export class TranscriptController {
   }
 
   private fileFacts(item: TranscriptItem): void {
+    this.userItems.set(item.id, item.role === 'user')
     this.userPrompts.set(item.id, item.role === 'user' && item.text.trim().length > 0)
     this.questions.set(item.id, isAskUserQuestion(item))
     if (this.trackRecordedTime) {
@@ -257,18 +176,9 @@ export class TranscriptController {
     }
   }
 
-  subscribe = (listener: Listener): (() => void) => {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
-  }
-
   async start(): Promise<void> {
     if (this.started || this.disposed) return
     this.started = true
-    const cached = this.options.cache?.read(this.options.sessionId)
-    if (cached && cached.items.length > 0) {
-      this.patch({ items: cached.items, freshness: 'checking' })
-    }
     const connection = this.options.connection
     if (connection) {
       this.lastConnected = connection.connected()
@@ -288,11 +198,11 @@ export class TranscriptController {
       if (!this.accepts(generation, serial)) return
       const fallback = this.options.cache?.read(this.options.sessionId)
       this.patch({
-        ...(this.state.items.length === 0 && fallback ? { items: fallback.items } : {}),
+        ...(this.items.length === 0 && fallback ? { items: fallback.items } : {}),
         hasMoreOlder: false,
         initialLoaded: true,
         subscriptionHealthy: false,
-        freshness: this.state.items.length > 0 || fallback ? 'saved' : null,
+        freshness: this.items.length > 0 || fallback ? 'saved' : null,
         offlineAsOf: fallback?.savedAt ?? null,
       })
       this.attachSubscription(undefined)
@@ -309,7 +219,7 @@ export class TranscriptController {
     // controller first) takes the row as of its completion instead, rather
     // than paying a second read on every mount.
     const signal = this.activity?.signal
-    if (options.disclose && this.state.items.length > 0) this.patch({ freshness: 'checking' })
+    if (options.disclose && this.items.length > 0) this.patch({ freshness: 'checking' })
     try {
       const page = await this.options.source.read({
         sessionId: this.options.sessionId,
@@ -319,8 +229,8 @@ export class TranscriptController {
       if (!this.accepts(generation, serial)) return false
       const retainHistory =
         !page.reset &&
-        this.state.initialLoaded &&
-        this.state.items.length > 0 &&
+        this.initialLoaded &&
+        this.items.length > 0 &&
         this.options.retainHistory?.() === true
       if (!retainHistory) this.windowEpoch += 1
       this.reconciledSignal = signal ?? this.activity?.signal ?? null
@@ -328,22 +238,19 @@ export class TranscriptController {
       const reconciled = page.reset
         ? mergeTranscriptFrame([], page.items)
         : retainHistory
-          ? mergeTranscriptFrame(this.state.items, page.items)
-          : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
+          ? mergeTranscriptFrame(this.items, page.items)
+          : reconcileTranscriptSnapshot(this.items, page.items, page.items.at(-1)?.cursor)
       const bounded = this.boundFollowingWindow(reconciled)
-      const items = sameTranscriptItems(this.state.items, bounded.items)
-        ? this.state.items
-        : bounded.items
+      const items = sameTranscriptItems(this.items, bounded.items) ? this.items : bounded.items
       this.patch({
         items,
-        head: retainHistory ? (this.state.head ?? page.head) : page.head,
+        head: retainHistory ? (this.head ?? page.head) : page.head,
         tail: page.tail,
-        hasMoreOlder: retainHistory ? this.state.hasMoreOlder : page.hasMore,
-        loadingOlder: retainHistory ? this.state.loadingOlder : false,
+        hasMoreOlder: retainHistory ? this.hasMoreOlder : page.hasMore,
+        loadingOlder: retainHistory ? this.loadingOlder : false,
         initialLoaded: true,
         subscriptionHealthy: page.items.length > 0,
-        freshness:
-          this.state.freshness === null ? null : page.items.length > 0 ? 'rendering' : 'saved',
+        freshness: this.freshness === null ? null : page.items.length > 0 ? 'rendering' : 'saved',
         offlineAsOf: null,
         offlineMachineName: page.offline?.machineName ?? null,
         ...bounded.paging,
@@ -358,7 +265,7 @@ export class TranscriptController {
       this.scheduleSettle()
       return true
     } catch (error) {
-      if (this.accepts(generation, serial) && this.state.items.length > 0) {
+      if (this.accepts(generation, serial) && this.items.length > 0) {
         this.patch({ freshness: 'saved' })
       }
       throw error
@@ -369,7 +276,7 @@ export class TranscriptController {
     if (this.disposed) return false
     const generation = this.generation
     const serial = ++this.readSerial
-    if (options.disclose && this.state.items.length > 0) this.patch({ freshness: 'checking' })
+    if (options.disclose && this.items.length > 0) this.patch({ freshness: 'checking' })
     let page: TranscriptPage
     try {
       page = await this.options.source.read({
@@ -378,42 +285,37 @@ export class TranscriptController {
         limit: 1,
       })
     } catch (error) {
-      if (this.accepts(generation, serial) && this.state.items.length > 0) {
+      if (this.accepts(generation, serial) && this.items.length > 0) {
         this.patch({ freshness: 'saved' })
       }
       throw error
     }
     if (!this.accepts(generation, serial)) return false
     const offlineMachineName = page.offline?.machineName ?? null
-    if (offlineMachineName !== this.state.offlineMachineName) {
+    if (offlineMachineName !== this.offlineMachineName) {
       this.patch({ offlineMachineName })
     }
     const remote = page.items.at(-1)
     if (!remote) {
-      if (this.state.items.length > 0) this.patch({ freshness: 'saved' })
+      if (this.items.length > 0) this.patch({ freshness: 'saved' })
       return true
     }
     const position = this.itemPositions.get(remote.id)
-    const held = position === undefined ? undefined : this.state.items[position]
+    const held = position === undefined ? undefined : this.items[position]
     if (held && sameTranscriptItem(held, remote)) {
-      if (this.state.freshness !== null) this.patch({ freshness: null })
+      if (this.freshness !== null) this.patch({ freshness: null })
       return true
     }
     return this.refresh({ disclose: true })
   }
 
   async loadOlder(): Promise<boolean> {
-    if (
-      this.disposed ||
-      this.state.loadingOlder ||
-      !this.state.hasMoreOlder ||
-      this.state.head === undefined
-    ) {
+    if (this.disposed || this.loadingOlder || !this.hasMoreOlder || this.head === undefined) {
       return false
     }
     const generation = this.generation
     const epoch = this.windowEpoch
-    const anchor = this.state.head
+    const anchor = this.head
     this.patch({ loadingOlder: true })
     try {
       const page = await this.options.source.read({
@@ -432,9 +334,9 @@ export class TranscriptController {
         this.options.cache?.write(this.options.sessionId, items)
         return true
       }
-      const fresh = freshOlderTranscriptPage(page.items, this.state.items)
+      const fresh = freshOlderTranscriptPage(page.items, this.items)
       if (fresh.length > 0) this.pagedBack = true
-      const items = fresh.length > 0 ? [...fresh, ...this.state.items] : this.state.items
+      const items = fresh.length > 0 ? [...fresh, ...this.items] : this.items
       const head = page.head ?? fresh[0]?.cursor ?? anchor
       this.patch({
         items,
@@ -448,7 +350,7 @@ export class TranscriptController {
   }
 
   markRendered(): void {
-    if (this.state.freshness === 'rendering') this.patch({ freshness: null })
+    if (this.freshness === 'rendering') this.patch({ freshness: null })
   }
 
   /** Release live resources while keeping the controller restartable by an adapter effect. */
@@ -469,7 +371,6 @@ export class TranscriptController {
     if (this.disposed) return
     this.stop()
     this.disposed = true
-    this.listeners.clear()
   }
 
   /**
@@ -506,7 +407,7 @@ export class TranscriptController {
       signal === undefined ||
       !this.started ||
       this.disposed ||
-      !this.state.initialLoaded ||
+      !this.initialLoaded ||
       (this.pagedBack && !this.options.retainHistory) ||
       signal === this.reconciledSignal
     ) {
@@ -542,11 +443,7 @@ export class TranscriptController {
   }
 
   private beat(): void {
-    if (
-      !this.state.initialLoaded ||
-      (this.pagedBack && !this.options.retainHistory) ||
-      this.probing
-    )
+    if (!this.initialLoaded || (this.pagedBack && !this.options.retainHistory) || this.probing)
       return
     if (this.options.visible && !this.options.visible()) return
     const probing = this.probe().catch(() => false)
@@ -570,42 +467,50 @@ export class TranscriptController {
       this.options.sessionId,
       since,
       (frame, meta) => {
-        if (this.disposed) return
-        if (meta.reset) {
-          this.windowEpoch += 1
-          // A reset is authoritative even when the replacement is empty and
-          // the follow-up paging read fails. It must remove held/cache rows now.
-          const bounded = this.boundFollowingWindow(mergeTranscriptFrame([], frame))
-          const items = bounded.items
-          this.patch({
-            items,
-            head: undefined,
-            tail: items.at(-1)?.cursor,
-            hasMoreOlder: false,
-            loadingOlder: false,
-            subscriptionHealthy: false,
-            ...bounded.paging,
-          })
-          this.options.cache?.write(this.options.sessionId, items)
-          void this.refresh({ disclose: true }).catch(() => {})
-          return
-        }
-        const merged = mergeIndexedTranscriptFrame(this.state.items, frame, this.itemPositions)
-        this.indexedItems = merged
-        if (merged === this.state.items) return
-        for (const item of frame) this.fileFacts(item)
-        const bounded = this.boundFollowingWindow(merged)
-        const items = bounded.items
-        const tail = items.at(-1)?.cursor ?? this.state.tail
-        this.patch({
-          items,
-          ...(tail === undefined ? {} : { tail }),
-          freshness: this.state.freshness === null ? null : 'rendering',
-          ...bounded.paging,
-        })
-        this.options.cache?.write(this.options.sessionId, items)
+        if (this.options.enqueueFrame) this.options.enqueueFrame(frame, meta)
+        else this.merge(frame, meta)
       },
     )
+  }
+
+  merge(frame: TranscriptItem[], meta: { reset: boolean } = { reset: false }): void {
+    if (this.disposed) return
+    if (meta.reset) {
+      this.windowEpoch += 1
+      // A reset is authoritative even when the replacement is empty and
+      // the follow-up paging read fails. It must remove held/cache rows now.
+      const bounded = this.boundFollowingWindow(mergeTranscriptFrame([], frame))
+      const items = bounded.items
+      this.patch({
+        items,
+        head: undefined,
+        tail: items.at(-1)?.cursor,
+        hasMoreOlder: false,
+        loadingOlder: false,
+        subscriptionHealthy: false,
+        ...bounded.paging,
+      })
+      this.options.cache?.write(this.options.sessionId, items)
+      void this.refresh({ disclose: true }).catch(() => {})
+      return
+    }
+    const merged = mergeIndexedTranscriptFrame(this.items, frame, this.itemPositions)
+    this.indexedItems = merged
+    if (merged === this.items) return
+    for (const item of frame) this.fileFacts(item)
+    const bounded = this.boundFollowingWindow(merged)
+    const items = bounded.items
+    const tail = items.at(-1)?.cursor ?? this.tail
+    this.patch(
+      {
+        items,
+        ...(tail === undefined ? {} : { tail }),
+        freshness: this.freshness === null ? null : 'rendering',
+        ...bounded.paging,
+      },
+      frame,
+    )
+    this.options.cache?.write(this.options.sessionId, items)
   }
 
   private boundFollowingWindow(items: TranscriptItem[]): {
@@ -614,7 +519,7 @@ export class TranscriptController {
   } {
     const retainHistory = this.options.retainHistory ? this.options.retainHistory() : this.pagedBack
     const limit = this.initialLimit * 2
-    if (retainHistory || this.state.loadingOlder || items.length <= limit) return { items }
+    if (retainHistory || this.loadingOlder || items.length <= limit) return { items }
     const tail = items.slice(-limit)
     // Store readers accept the native item cursor as their opaque anchor. Keep
     // the authority's original page head until an actual trim, then page from
@@ -623,48 +528,54 @@ export class TranscriptController {
     return { items: tail, paging: { head: tail[0].cursor, hasMoreOlder: true } }
   }
 
-  private patch(patch: Partial<TranscriptState>): void {
-    if (patch.items && patch.items !== this.indexedItems) {
-      this.itemPositions.clear()
-      this.userPrompts.clear()
-      this.questions.clear()
-      this.recordedAt.clear()
-      this.recordedItems.clear()
-      this.userEchoes.clear()
-      this.userTexts.clear()
-      this.userPaths.clear()
-      patch.items.forEach((item, index) => {
-        this.itemPositions.set(item.id, index)
-        this.fileFacts(item)
-      })
-      this.indexedItems = patch.items
-    }
-    let facts:
-      | Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion' | 'latestRecordedAt'>
-      | undefined
-    if (patch.items && patch.items !== this.state.items) {
-      const userId = this.userPrompts.latest(),
-        questionId = this.questions.latest()
-      const userPosition = userId === undefined ? undefined : this.itemPositions.get(userId)
-      const questionPosition =
-        questionId === undefined ? undefined : this.itemPositions.get(questionId)
-      const question = questionPosition === undefined ? undefined : patch.items[questionPosition]
-      const recordedId = this.recordedItems.latest()
-      facts = {
-        latestOperatorPrompt:
-          userPosition === undefined ? null : (patch.items[userPosition]?.text ?? null),
-        pendingQuestion: question && !question.toolResult ? question : null,
-        latestRecordedAt:
-          recordedId === undefined ? null : (this.recordedAt.get(recordedId) ?? null),
+  private patch(patch: Partial<TranscriptState>, frame?: readonly TranscriptItem[]): void {
+    const next = patch.items
+    if (next && next !== this.orderedItems) {
+      const rebuild = next !== this.indexedItems
+      const changed = rebuild
+        ? next
+        : [...new Map((frame ?? next).map((item) => [item.id, item])).values()]
+      const added = changed.filter((item) => !this.byId.has(item.id))
+      if (rebuild) {
+        this.itemPositions.clear()
+        this.userPrompts.clear()
+        this.userItems.clear()
+        this.questions.clear()
+        this.recordedAt.clear()
+        this.recordedItems.clear()
+        this.userEchoes.clear()
+        this.userTexts.clear()
+        this.userPaths.clear()
+        const retained = new Set(next.map((item) => item.id))
+        for (const id of this.byId.keys()) if (!retained.has(id)) this.byId.delete(id)
+        next.forEach((item, index) => {
+          this.itemPositions.set(item.id, index)
+          this.fileFacts(item)
+        })
+        this.indexedItems = next
       }
+      for (const item of changed) {
+        freezePlain(item)
+        const held = this.byId.get(item.id)
+        if (!held || !sameTranscriptItem(held, item)) this.byId.set(item.id, freezePlain(item))
+      }
+      if (rebuild || next.length !== this.orderedItems.length) {
+        const ids = next.map((item) => item.id)
+        if (ids.length !== this.ids.length || ids.some((id, index) => this.ids[index] !== id))
+          this.ids.replace(ids)
+      }
+      this.orderedItems = next
+      this.latestOperatorPrompt = this.getItem(this.userPrompts.latest())?.text ?? null
+      const question = this.getItem(this.questions.latest())
+      this.pendingQuestion = question && !question.toolResult ? question : null
+      const recorded = this.recordedItems.latest()
+      this.latestRecordedAt =
+        recorded === undefined ? null : (this.recordedAt.get(recorded) ?? null)
+      this.latestUserId = this.userItems.latest() ?? null
+      // The owning conversation retires sends inside this same action.
+      this.options.onChange?.({ changed, added, rebuild })
     }
-    this.state = { ...this.state, ...patch, ...facts }
-    for (const listener of this.listeners) listener()
+    const { items: _items, sessionId: _sessionId, ...status } = patch
+    Object.assign(this, status)
   }
-}
-
-export function createTranscriptController(
-  options: TranscriptControllerOptions,
-): TranscriptController {
-  return new TranscriptController(options)
 }

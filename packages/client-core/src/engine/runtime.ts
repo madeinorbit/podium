@@ -62,7 +62,8 @@ import { asUserId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
-import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
+import { DraftStore } from '../conversation/draft-store'
+import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
@@ -298,33 +299,7 @@ export const COARSE_CLOCK_MS = 60_000
 
 const log = createLogger('client-core:runtime')
 
-/**
- * How long a keystroke waits before its text goes out (POD-2045).
- *
- * The STORE is written on every keystroke — that is what the caret is attached
- * to and it must never lag. What is debounced is only the WIRE, whose whole job
- * is showing the draft on this person's other devices. That audience does not
- * need per-character fidelity, and sending the full text per keystroke made an
- * O(n²) stream of frames that the server had to parse, arbitrate, broadcast and
- * persist — the most expensive traffic in the product, generated fastest exactly
- * when the server was already struggling.
- */
-export const DRAFT_SEND_DEBOUNCE_MS = 250
-/** How long before an edited draft is written to device storage. Longer than the
- *  wire debounce: storage exists for the reload case, which is not a race. */
-export const DRAFT_PERSIST_DEBOUNCE_MS = 500
-/**
- * How many drafts this device keeps, most-recently-edited first.
- *
- * Local drafts are never dropped when a session leaves the replica: under the
- * scoped feed an eviction is a VISIBILITY change (POD-1077), and deleting
- * someone's unsent writing because a share was revoked would be the same bug
- * this file exists to fix, wearing a different hat. A count cap bounds the
- * store without ever consulting that question.
- */
-export const DRAFT_KEEP_LIMIT = 50
-/** Device-local ui-state key holding this device's drafts. */
-export const DRAFTS_UI_KEY = 'podium.drafts.v1'
+export { DRAFT_SEND_DEBOUNCE_MS, DRAFT_PERSIST_DEBOUNCE_MS, DRAFT_KEEP_LIMIT, DRAFTS_UI_KEY } from '../conversation/draft-store'
 
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
@@ -415,15 +390,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private pendingReactions = new Set<keyof EngineState>()
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
-  // ---- offline-first composer drafts (POD-2045) ----
-  /** What this device believes about each composer, and who wins a disagreement.
-   *  Every draft decision in this class defers to it; none is taken here. */
-  private readonly draftLedger = createDraftLedger()
-  private readonly draftSendTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
-  private draftPersistTimer: ReturnType<typeof setTimeout> | null = null
-  private readonly draftSendDebounceMs: number
+  readonly drafts: DraftStore
+  private conversationCache: ConversationCache | undefined
   private readonly coarseClock: CoarseClock
-  private readonly draftPersistDebounceMs: number
   private readonly networkEnabled: boolean
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
    *  even across a StrictMode dispose/re-start cycle. */
@@ -437,9 +406,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.onFatalError = init.onFatalError
     this.formatError = init.formatError ?? defaultFormatError
     this.httpOrigin = init.config.httpOrigin
-    this.draftSendDebounceMs = init.draftSendDebounceMs ?? DRAFT_SEND_DEBOUNCE_MS
     this.coarseClock = init.coarseClock ?? wallCoarseClock
-    this.draftPersistDebounceMs = init.draftPersistDebounceMs ?? DRAFT_PERSIST_DEBOUNCE_MS
     this.networkEnabled = init.networkEnabled ?? true
     // The runtime type is only half the guard — an untyped caller omitting the
     // factory must fail LOUDLY here rather than quietly adopt ambient storage.
@@ -562,7 +529,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // It happens HERE rather than in start() because start() is a passive
     // effect — a frame late is a frame of blank box, and on a cold boot with no
     // server there is nothing else that would ever fill it in.
-    this.state.drafts = this.hydrateDrafts()
+    this.drafts = new DraftStore({
+      storage: this.ui,
+      hub: this.hub,
+      onChange: (sessionId, text) => this.applyDraftToStore(sessionId, text),
+      onStorageError: err => log.warn('could not cache this device drafts', { err }),
+      sendDebounceMs: init.draftSendDebounceMs,
+      persistDebounceMs: init.draftPersistDebounceMs,
+    })
+    this.state.drafts = Object.fromEntries(this.drafts.values)
     this.inputs = createKeyedInputs(() => this.state)
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
@@ -576,30 +551,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     ) as Store<TApi>
   }
 
-  /** Read this device's persisted drafts into the ledger, and return the map the
-   *  first snapshot paints. A poisoned blob is a cold start, never a crash. */
-  private hydrateDrafts(): EngineState['drafts'] {
-    let stored: string | null = null
-    try {
-      stored = this.ui.get(DRAFTS_UI_KEY)
-    } catch {
-      // Unreadable device storage (private mode, quota) — the app still runs,
-      // it simply starts with no remembered drafts.
-      return this.state.drafts
-    }
-    if (!stored) return this.state.drafts
-    try {
-      this.draftLedger.restore(JSON.parse(stored) as DraftLedgerSnapshot)
-    } catch {
-      return this.state.drafts
-    }
-    const drafts = { ...this.state.drafts }
-    for (const id of Object.keys(this.draftLedger.snapshot())) {
-      const sessionId = id as SessionId
-      const local = this.draftLedger.get(sessionId)
-      if (local) drafts[sessionId] = local.text
-    }
-    return drafts
+
+  /** The provider supplies addressed pool ports once, for this principal. */
+  readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
+    if (this.destroyed) throw new Error('The conversation owner has changed')
+    return this.conversationCache ??= new ConversationCache(options)
   }
 
   // ------------------------------------------------------------------ read seam
@@ -650,6 +606,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   start(): void {
     if (this.started || this.destroyed) return
     this.started = true
+    this.drafts.start()
     const offs = this.offs
     if (this.networkEnabled) this.headerPolling.start()
 
@@ -720,32 +677,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       }),
     )
-    // An arriving composer document. It is OFFERED to the ledger rather than
-    // applied: while this device holds unsent text, the person's caret outranks
-    // anything the socket says (POD-2045).
-    offs.push(
-      this.hub.on('sessionDraft', (sessionId, text, meta) => {
-        const previous = this.draftLedger.get(sessionId)
-        const outcome = this.draftLedger.adoptRemote(sessionId, {
-          text,
-          ...(meta?.rev !== undefined ? { rev: meta.rev } : {}),
-        })
-        if (outcome.acceptText) {
-          this.applyDraftToStore(sessionId, text)
-        }
-        const current = this.draftLedger.get(sessionId)
-        if (
-          outcome.acceptText ||
-          previous?.serverRev !== current?.serverRev ||
-          previous?.dirty !== current?.dirty
-        ) {
-          // Acknowledgements also move the durable revision, even though no
-          // visible text changed. Retain a cleared document across reload.
-          this.scheduleDraftPersist()
-        }
-        if (outcome.resend) this.scheduleDraftSend(sessionId, { immediate: false })
-      }),
-    )
     offs.push(
       this.hub.on('userLayouts', (rows: LayoutWire[]) => {
         this.replicatedLayout.replace(Object.fromEntries(rows.map((row) => [row.key, row.value])))
@@ -777,14 +708,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.hub.on('connectionHealth', (h) => {
         if (h.status === 'ok' && prevHealth !== 'ok') {
           this.outbox.notifyConnected()
-          // …and the same for drafts, which are NOT outbox mutations: they are
-          // ephemeral shared state with last-writer-wins arbitration, not a
-          // durable command with an id and a receipt. What they share with the
-          // outbox is the moment they need — the reconnect edge, which the
-          // browser's own 'online' event misses when a server restarts behind a
-          // healthy network. Every draft this device typed while the socket was
-          // down goes out here, at once, at its latest text.
-          this.flushDirtyDrafts()
         }
         prevHealth = h.status
       }),
@@ -900,17 +823,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.reactions.dispose()
     this.dropPaneLink()
-    // Drafts: drop the timers, but FLUSH the pending storage write first. A tab
-    // closing is the most likely moment for a draft to be lost, and a debounce
-    // that discards its last write on teardown would lose exactly the keystrokes
-    // that were never sent anywhere else.
-    for (const timer of this.draftSendTimers.values()) clearTimeout(timer)
-    this.draftSendTimers.clear()
-    if (this.draftPersistTimer !== null) {
-      clearTimeout(this.draftPersistTimer)
-      this.draftPersistTimer = null
-      this.persistDrafts()
-    }
+    this.drafts.stop()
     for (const off of this.offs.splice(0)) {
       try {
         off()
@@ -941,6 +854,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.dispose()
       return
     }
+    this.conversationCache?.dispose()
+    this.conversationCache = undefined
+    this.drafts.dispose()
     this.dispose()
     this.stopNavigationWatch?.()
     this.stopNavigationWatch = undefined
@@ -1613,106 +1529,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ drafts: { ...d, [sessionId]: text } })
   }
 
-  /**
-   * Put this session's unsent text on the wire — after the debounce, or now.
-   *
-   * The send is deliberately NOT conditional on it succeeding. A frame the
-   * socket refused leaves the entry dirty, which puts it in the reconnect flush
-   * set; a frame that went out ALSO leaves it dirty until the server echoes it
-   * back. Nothing here has to distinguish those two, which is why there is no
-   * retry timer, no ack table and no queue: dirty means "the server has not
-   * confirmed this", and there are exactly two moments it is worth saying again
-   * — when typing pauses, and when the connection returns.
-   */
-  private scheduleDraftSend(sessionId: SessionId, opts: { immediate: boolean }): void {
-    const existing = this.draftSendTimers.get(sessionId)
-    if (existing) clearTimeout(existing)
-    this.draftSendTimers.delete(sessionId)
-    if (opts.immediate) {
-      this.sendDraftNow(sessionId)
-      return
-    }
-    const timer = setTimeout(() => {
-      this.draftSendTimers.delete(sessionId)
-      this.sendDraftNow(sessionId)
-    }, this.draftSendDebounceMs)
-    timer.unref?.()
-    this.draftSendTimers.set(sessionId, timer)
-  }
-
-  private sendDraftNow(sessionId: SessionId): void {
-    if (this.destroyed) return
-    const local = this.draftLedger.get(sessionId)
-    // Not dirty means the server already agrees. Saying it again would be a
-    // no-op edit the server has to arbitrate, persist and fan out.
-    if (!local?.dirty) return
-    this.hub.sendDraftEdit(sessionId, local.serverRev, local.text)
-  }
-
-  /** Re-offer every draft this device holds unsent. The reconnect edge. */
-  private flushDirtyDrafts(): void {
-    for (const sessionId of this.draftLedger.dirtySessions()) {
-      this.scheduleDraftSend(sessionId, { immediate: true })
-    }
-  }
-
-  /**
-   * Write the drafts to device storage, coalesced.
-   *
-   * This is the half that makes typing survive a RELOAD with no server, and it
-   * is the reason a draft is safe on a machine that has never been online. The
-   * cap is applied here rather than at read time so the ledger and the stored
-   * blob stay the same size — an unbounded local store of other people's
-   * revoked sessions would be the slow leak this feature paid for.
-   */
-  private scheduleDraftPersist(): void {
-    if (this.draftPersistTimer !== null) return
-    const timer = setTimeout(() => {
-      this.draftPersistTimer = null
-      this.persistDrafts()
-    }, this.draftPersistDebounceMs)
-    timer.unref?.()
-    this.draftPersistTimer = timer
-  }
-
   /** Preserve the last keystroke and wait only for local queue durability.
    * Delivery and awaiting-truth entries are already durable and resume after reload. */
   readonly prepareReload = async (): Promise<void> => {
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
-    this.persistDrafts(true)
+    this.drafts.persist(true)
     await this.replica.uiState().flush?.()
     await this.outbox.flushLocalWrites?.()
     // Typing can continue while an IndexedDB enqueue commits.
     if (this.destroyed) throw new Error('The draft owner changed; please retry reloading.')
-    if (this.draftPersistTimer !== null) clearTimeout(this.draftPersistTimer)
-    this.draftPersistTimer = null
-    this.persistDrafts(true)
+    this.drafts.persist(true)
     await this.replica.uiState().flush?.()
     await this.replica.flush()
     await this.outbox.flushLocalWrites?.()
-    this.persistDrafts(true)
+    this.drafts.persist(true)
     await this.replica.uiState().flush?.()
-  }
-
-  private persistDrafts(strict = false): void {
-    if (this.destroyed) return
-    const snapshot = this.draftLedger.snapshot()
-    const entries = Object.entries(snapshot)
-    if (entries.length > DRAFT_KEEP_LIMIT) {
-      const doomed = entries.sort((a, b) => b[1].editedAt - a[1].editedAt).slice(DRAFT_KEEP_LIMIT)
-      for (const [sessionId] of doomed) {
-        this.draftLedger.remove(sessionId as SessionId)
-        delete snapshot[sessionId]
-      }
-    }
-    try {
-      this.ui.set(DRAFTS_UI_KEY, entries.length === 0 ? null : JSON.stringify(snapshot))
-    } catch (err) {
-      // A draft that cannot be cached is still on screen and still on its way to
-      // the server. Losing the reload guarantee is not worth breaking the app.
-      log.warn('could not cache this device drafts', { err })
-      if (strict) throw err
-    }
   }
 
   private getUserFocus(): UserFocus {
@@ -1782,15 +1613,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // what the caret is attached to. Everything else about this edit (when it
       // goes out, whether it went out, when it is written to disk) is a
       // consequence, and none of it can hold the typing up.
-      setSessionDraft: (sessionId, text) => {
-        this.draftLedger.localEdit(sessionId, text, Date.now())
-        this.applyDraftToStore(sessionId, text)
-        // A CLEAR is the tail of a send, and a send that leaves the draft
-        // standing on another device for a quarter of a second reads as the
-        // message having duplicated itself. It skips the debounce.
-        this.scheduleDraftSend(sessionId, { immediate: text === '' })
-        this.scheduleDraftPersist()
-      },
+      setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
       refreshSuperThreads: () => this.boot.refreshSuperThreads(),
     })
   }

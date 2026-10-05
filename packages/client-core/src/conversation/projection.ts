@@ -88,7 +88,7 @@ export interface ConversationProjectionInput {
   readonly records: readonly MessageRecordWire[]
   /** Membership maintained when the transcript changes; projecting bubbles
    * asks only about the history entries named by their records. */
-  readonly transcriptIds: ReadonlySet<string>
+  readonly transcriptIds: Pick<ReadonlySet<string>, 'has'>
   /** Records this view saw before they were confirmed: only those may show a
    *  bubble once confirmed (an older confirmed record is history). */
   readonly seenOpen: ReadonlySet<string>
@@ -154,7 +154,7 @@ function recordState(record: MessageRecordWire): ConversationBubbleState {
  */
 function recordShows(
   record: MessageRecordWire,
-  onScreen: ReadonlySet<string>,
+  onScreen: Pick<ReadonlySet<string>, 'has'>,
   seenOpen: ReadonlySet<string>,
   seenHistory?: ReadonlySet<string>,
 ): boolean {

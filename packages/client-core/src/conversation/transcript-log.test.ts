@@ -1,0 +1,853 @@
+import { reaction } from 'mobx'
+import { TranscriptLog, type TranscriptLogOptions } from './transcript-log'
+const createTranscriptLog = (options: TranscriptLogOptions) => new TranscriptLog(options)
+import { asSessionId, type TranscriptItem } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  mergeTranscriptFrame,
+  TRANSCRIPT_ACTIVITY_SETTLE_MS,
+  TRANSCRIPT_LIVE_HEARTBEAT_MS,
+  type TranscriptPage,
+  type TranscriptReadRequest,
+} from '../transcript/controller'
+
+function item(id: string, cursor: string, text = id): TranscriptItem {
+  return { id, cursor, role: 'assistant', text }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (cause: unknown) => void
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+function source() {
+  const reads: TranscriptReadRequest[] = []
+  const pending: Array<ReturnType<typeof deferred<TranscriptPage>>> = []
+  let subscriber: ((items: TranscriptItem[], meta: { reset: boolean }) => void) | undefined
+  const subscribe = vi.fn(
+    (
+      _sessionId: ReturnType<typeof asSessionId>,
+      _since: string | undefined,
+      listener: (items: TranscriptItem[], meta: { reset: boolean }) => void,
+    ) => {
+      subscriber = listener
+      return () => {
+        if (subscriber === listener) subscriber = undefined
+      }
+    },
+  )
+  return {
+    reads,
+    pending,
+    port: {
+      read(request: TranscriptReadRequest) {
+        reads.push(request)
+        const next = deferred<TranscriptPage>()
+        pending.push(next)
+        return next.promise
+      },
+      subscribe,
+    },
+    emit(items: TranscriptItem[], reset = false) {
+      subscriber?.(items, { reset })
+    },
+  }
+}
+
+const clients = [
+  { name: 'desktop', initialLimit: 200, pageLimit: 400 },
+  { name: 'ios', initialLimit: 80, pageLimit: 80 },
+] as const
+
+describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }) => {
+  it('looks up one heartbeat item without scanning retained history at 1x/4x', async () => {
+    async function measured(scale: 1 | 4) {
+      const io = source()
+      let idReads = 0
+      const rows = Array.from({ length: 128 * scale }, (_, index) => {
+        const value = item(`row-${index}`, `cursor-${String(index).padStart(4, '0')}`)
+        Object.defineProperty(value, 'id', {
+          configurable: true,
+          enumerable: true,
+          get: () => {
+            idReads++
+            return `row-${index}`
+          },
+        })
+        return value
+      })
+      const remote = item(
+        `row-${rows.length - 1}`,
+        `cursor-${String(rows.length - 1).padStart(4, '0')}`,
+      )
+      const controller = createTranscriptLog({
+        sessionId: asSessionId('s1'),
+        source: io.port,
+        initialLimit: 1024,
+        pageLimit,
+        retainHistory: () => true,
+      })
+      try {
+        const starting = controller.start()
+        io.pending
+          .at(-1)!
+          .resolve({ items: rows, head: 'head', tail: remote.cursor, hasMore: true })
+        await starting
+        const changed = vi.fn(),
+          stop = reaction(
+            () => ({
+              ids: controller.ids.slice(),
+              rows: [...controller.byId.values()],
+              freshness: controller.freshness,
+            }),
+            changed,
+          )
+        const probe = async () => {
+          const before = controller.items
+          idReads = 0
+          const checking = controller.probe()
+          expect(io.reads.at(-1)?.limit).toBe(1)
+          io.pending.at(-1)!.resolve({ items: [remote], hasMore: false })
+          expect(await checking).toBe(true)
+          const reads = idReads
+          expect(controller.items).toBe(before)
+          expect(changed).not.toHaveBeenCalled()
+          return reads
+        }
+        const first = await probe(),
+          repeated = await probe()
+        // A preceding page shifts the held positions; the same heartbeat must
+        // still compare exactly its addressed item after the index rebuild.
+        const older = controller.loadOlder()
+        io.pending
+          .at(-1)!
+          .resolve({ items: [item('older', 'cursor-before')], head: 'older-head', hasMore: false })
+        await older
+        changed.mockClear()
+        const afterPrepend = await probe()
+        stop()
+        // Prove the read counter would reject the original whole-window find.
+        idReads = 0
+        controller.items.find((row) => row.id === remote.id)
+        expect(idReads).toBe(128 * scale)
+        return { first, repeated, afterPrepend }
+      } finally {
+        controller.dispose()
+      }
+    }
+    const first = await measured(1),
+      second = await measured(4)
+    expect(first).toEqual({ first: 1, repeated: 1, afterPrepend: 1 })
+    expect(second).toEqual(first)
+  })
+
+  it('bounds a marathon live window, updates retained ids, and recovers trimmed history by its native anchor', async () => {
+    const io = source()
+    let reading = false
+    const write = vi.fn()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      initialLimit,
+      pageLimit,
+      retainHistory: () => reading,
+      cache: { read: () => undefined, write },
+    })
+    const all = Array.from({ length: 10_000 }, (_, index) =>
+      item(`row-${index}`, `cursor-${index}`),
+    )
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: all.slice(0, initialLimit),
+      head: 'authority-head',
+      hasMore: false,
+    })
+    await starting
+    io.emit(all.slice(initialLimit, initialLimit + 1))
+    expect(controller.head).toBe('authority-head')
+    for (let offset = initialLimit + 1; offset < all.length; offset += 11) {
+      io.emit(all.slice(offset, offset + 11))
+      expect(controller.items.length).toBeLessThanOrEqual(initialLimit * 2)
+    }
+    const first = 10_000 - initialLimit * 2
+    expect(controller.items).toEqual(all.slice(first))
+    expect(controller).toMatchObject({ head: `cursor-${first}`, hasMoreOlder: true })
+    expect(write.mock.lastCall?.[1]).toHaveLength(initialLimit * 2)
+    io.emit([item(`row-${first}`, `cursor-${first}`, 'updated retained row')])
+    expect(controller.items[0]?.text).toBe('updated retained row')
+    reading = true
+    const older = controller.loadOlder()
+    expect(io.reads[1]?.anchor).toBe(`cursor-${first}`)
+    io.pending[1]?.resolve({
+      items: all.slice(first - pageLimit, first),
+      head: `cursor-${first - pageLimit}`,
+      hasMore: true,
+    })
+    expect(await older).toBe(true)
+    const heldHead = controller.items[0]
+    io.emit([item('newest', 'cursor-10000')])
+    expect(controller.items[0]).toBe(heldHead)
+    reading = false
+    io.emit([item('newer', 'cursor-10001')])
+    expect(controller.items).toHaveLength(initialLimit * 2)
+    expect(controller.items.at(-1)?.id).toBe('newer')
+    controller.dispose()
+  })
+  it('hydrates cache, reads, pages, replaces a same-id record, and writes through', async () => {
+    const io = source()
+    const write = vi.fn()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      initialLimit,
+      pageLimit,
+      cache: {
+        read: () => ({ items: [item('cached', 'c1', 'saved')], savedAt: 10 }),
+        write,
+      },
+    })
+
+    const starting = controller.start()
+    expect(controller).toMatchObject({
+      items: [item('cached', 'c1', 'saved')],
+      subscriptionHealthy: false,
+      freshness: 'checking',
+      initialLoaded: false,
+    })
+    expect(io.reads[0]).toMatchObject({ limit: initialLimit })
+    io.pending[0]?.resolve({
+      items: [item('a', 'c1'), item('tail', 'c2', 'partial')],
+      head: 'c1',
+      tail: 'c2',
+      hasMore: true,
+    })
+    await starting
+    expect(controller.subscriptionHealthy).toBe(true)
+    expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'c2', expect.any(Function))
+
+    io.emit([item('tail', 'c2-updated', 'complete')])
+    expect(controller.items.map((entry) => entry.text)).toEqual(['a', 'complete'])
+
+    const paging = controller.loadOlder()
+    expect(io.reads[1]).toMatchObject({ anchor: 'c1', limit: pageLimit })
+    io.pending[1]?.resolve({
+      items: [item('older', 'c0'), item('a', 'c1-history')],
+      head: 'c0',
+      tail: 'c1',
+      hasMore: false,
+    })
+    await paging
+    expect(controller.items.map((entry) => entry.cursor)).toEqual(['c0', 'c1', 'c2-updated'])
+    expect(write).toHaveBeenCalled()
+    controller.dispose()
+  })
+
+  it('rejects an older page after a newest-window replacement', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      initialLimit,
+      pageLimit,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('a', 'c2')], head: 'c2', tail: 'c2', hasMore: true })
+    await starting
+
+    const older = controller.loadOlder()
+    const refresh = controller.refresh()
+    io.pending[2]?.resolve({ items: [item('new', 'c9')], head: 'c9', tail: 'c9', hasMore: false })
+    await refresh
+    io.pending[1]?.resolve({ items: [item('stale', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    expect(await older).toBe(false)
+    expect(controller.items).toEqual([item('new', 'c9')])
+    controller.dispose()
+  })
+})
+
+describe('transcript lifecycle boundaries', () => {
+  it('retains the reading prefix and paging cursor across refresh, then trims when released', async () => {
+    const io = source()
+    let reading = true
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => reading,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: [item('old', 'c1'), item('tail', 'c2')],
+      head: 'h1',
+      tail: 'h2',
+      hasMore: true,
+    })
+    await starting
+    const refresh = controller.refresh()
+    io.pending[1]?.resolve({
+      items: [item('tail', 'c2', 'updated'), item('new', 'c3')],
+      head: 'h2',
+      tail: 'h3',
+      hasMore: false,
+    })
+    await refresh
+    expect(controller).toMatchObject({
+      items: [item('old', 'c1'), item('tail', 'c2', 'updated'), item('new', 'c3')],
+      head: 'h1',
+      hasMoreOlder: true,
+    })
+    reading = false
+    const resumed = controller.refresh()
+    io.pending[2]?.resolve({ items: [item('new', 'c3')], head: 'h3', tail: 'h3', hasMore: true })
+    await resumed
+    expect(controller.items).toEqual([item('new', 'c3')])
+    controller.dispose()
+  })
+
+  it('lets a retained-prefix refresh coexist with an older page in flight', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => true,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('tail', 'c2')], head: 'h2', tail: 'h2', hasMore: true })
+    await starting
+    const older = controller.loadOlder()
+    const refreshed = controller.refresh()
+    io.pending[2]?.resolve({ items: [item('new', 'c3')], head: 'h3', tail: 'h3', hasMore: true })
+    await refreshed
+    expect(controller.loadingOlder).toBe(true)
+    io.pending[1]?.resolve({ items: [item('old', 'c1')], head: 'h1', tail: 'h1', hasMore: false })
+    expect(await older).toBe(true)
+    expect(controller.items.map((entry) => entry.id)).toEqual(['old', 'tail', 'new'])
+    controller.dispose()
+  })
+
+  it('honors an explicit source reset even while retaining history', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      retainHistory: () => true,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('old', 'c1')], head: 'h1', tail: 'h1', hasMore: true })
+    await starting
+    const reset = controller.refresh()
+    io.pending[1]?.resolve({
+      items: [item('replacement', 'c1')],
+      head: 'new-head',
+      tail: 'new-tail',
+      hasMore: false,
+      reset: true,
+    })
+    await reset
+    expect(controller).toMatchObject({
+      items: [item('replacement', 'c1')],
+      head: 'new-head',
+      hasMoreOlder: false,
+    })
+    controller.dispose()
+  })
+
+  it('restarts cleanly after an adapter effect releases its resources', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+
+    const rehearsed = controller.start()
+    controller.stop()
+    const mounted = controller.start()
+    expect(io.reads).toHaveLength(2)
+
+    io.pending[0]?.resolve({
+      items: [item('stale', 'c1')],
+      head: 'c1',
+      tail: 'c1',
+      hasMore: false,
+    })
+    io.pending[1]?.resolve({
+      items: [item('mounted', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: false,
+    })
+    await Promise.all([rehearsed, mounted])
+
+    expect(controller).toMatchObject({
+      items: [item('mounted', 'c2')],
+      initialLoaded: true,
+    })
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
+    controller.dispose()
+  })
+
+  it('refreshes on reconnect and drops the pre-reconnect result', async () => {
+    const io = source()
+    let connected = false
+    let connectionListener: ((next: boolean) => void) | undefined
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      connection: {
+        connected: () => connected,
+        subscribe(listener) {
+          connectionListener = listener
+          return () => {
+            connectionListener = undefined
+          }
+        },
+      },
+    })
+    const starting = controller.start()
+    connected = true
+    connectionListener?.(true)
+    io.pending[1]?.resolve({ items: [item('fresh', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    await Promise.resolve()
+    io.pending[0]?.resolve({ items: [item('stale', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    await starting
+    expect(controller.items).toEqual([item('fresh', 'c2')])
+    controller.dispose()
+  })
+
+  it('ignores a stale initial failure after reconnect succeeds', async () => {
+    const io = source()
+    let connected = false
+    let connectionListener: ((next: boolean) => void) | undefined
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => ({ items: [item('saved', 'c0')], savedAt: 42 }), write: vi.fn() },
+      connection: {
+        connected: () => connected,
+        subscribe(listener) {
+          connectionListener = listener
+          return () => {
+            connectionListener = undefined
+          }
+        },
+      },
+    })
+    const starting = controller.start()
+    connected = true
+    connectionListener?.(true)
+    io.pending[1]?.resolve({
+      items: [item('fresh', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: true,
+    })
+    await Promise.resolve()
+    io.pending[0]?.reject(new Error('stale offline failure'))
+    await starting
+    expect(controller).toMatchObject({
+      items: [item('fresh', 'c2')],
+      hasMoreOlder: true,
+      offlineAsOf: null,
+    })
+    expect(io.port.subscribe).toHaveBeenLastCalledWith(
+      asSessionId('s1'),
+      'c2',
+      expect.any(Function),
+    )
+    controller.dispose()
+  })
+
+  it('keeps a cached window and marks it saved when the read fails', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => ({ items: [item('a', 'c1')], savedAt: 42 }), write: vi.fn() },
+    })
+    const starting = controller.start()
+    io.pending[0]?.reject(new Error('offline'))
+    await starting
+    expect(controller).toMatchObject({
+      items: [item('a', 'c1')],
+      initialLoaded: true,
+      freshness: 'saved',
+      offlineAsOf: 42,
+    })
+    controller.dispose()
+  })
+
+  it('carries the server offline marker so an empty page does not read as done (POD-4808 half 1)', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
+    await starting
+    expect(controller).toMatchObject({
+      items: [],
+      initialLoaded: true,
+      offlineMachineName: 'desk',
+    })
+    controller.dispose()
+  })
+
+  it('keeps the offline marker alongside mirrored history for a live session (POD-4808 half 2)', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: [item('a', 'c1')],
+      head: 'c1',
+      tail: 'c1',
+      hasMore: false,
+      offline: { machineName: 'desk' },
+    })
+    await starting
+    expect(controller).toMatchObject({
+      items: [item('a', 'c1')],
+      offlineMachineName: 'desk',
+    })
+    controller.dispose()
+  })
+
+  it('keeps an equal tail probe cheap and escalates a changed tail to refresh', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    await starting
+
+    const equal = controller.probe()
+    io.pending[1]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    expect(await equal).toBe(true)
+    expect(io.reads).toHaveLength(2)
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
+
+    const changed = controller.probe({ disclose: true })
+    expect(controller.freshness).toBe('checking')
+    io.pending[2]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    await Promise.resolve()
+    expect(io.reads[3]).toMatchObject({ limit: 200 })
+    io.pending[3]?.resolve({ items: [item('b', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    expect(await changed).toBe(true)
+    expect(controller.items).toEqual([item('b', 'c2')])
+    expect(io.port.subscribe).toHaveBeenCalledTimes(1)
+    controller.dispose()
+  })
+
+  it('orders replayed cursors and replaces repeated ids', () => {
+    const held = [item('answer', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer')]
+    const merged = mergeTranscriptFrame(held, [
+      item('prompt', 'WyJmIiwxMDAsbnVsbCwwXQ', 'prompt'),
+      item('answer', 'WyJmIiw5MDAsbnVsbCwwXQ', 'answer complete'),
+    ])
+    expect(merged.map((entry) => entry.text)).toEqual(['prompt', 'answer complete'])
+  })
+
+  it('invalidates an in-flight read when a reset starts its replacement', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('a', 'c1')], head: 'c1', tail: 'c1', hasMore: false })
+    await starting
+
+    const stale = controller.refresh({ disclose: true })
+    io.emit([], true)
+    expect(controller.subscriptionHealthy).toBe(false)
+    io.pending[2]?.resolve({ items: [item('fresh', 'c3')], head: 'c3', tail: 'c3', hasMore: false })
+    await Promise.resolve()
+    io.pending[1]?.resolve({ items: [item('stale', 'c2')], head: 'c2', tail: 'c2', hasMore: false })
+    expect(await stale).toBe(false)
+    await Promise.resolve()
+    expect(controller.items).toEqual([item('fresh', 'c3')])
+    controller.dispose()
+  })
+
+  it('keeps cache freshness visible until the consumer marks the new graph rendered', async () => {
+    const io = source()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => ({ items: [item('saved', 'c1')], savedAt: 42 }), write: vi.fn() },
+    })
+    const starting = controller.start()
+    expect(controller.freshness).toBe('checking')
+    io.pending[0]?.resolve({
+      items: [item('fresh', 'c2')],
+      head: 'c2',
+      tail: 'c2',
+      hasMore: false,
+    })
+    await starting
+    expect(controller.freshness).toBe('rendering')
+    controller.markRendered()
+    expect(controller.freshness).toBeNull()
+    controller.dispose()
+  })
+})
+
+describe('history paging and reset boundaries', () => {
+  it('uses page cursors for paging and native item cursors for stream catch-up', async () => {
+    const io = source()
+    const controller = createTranscriptLog({ sessionId: asSessionId('s1'), source: io.port })
+    const starting = controller.start()
+    io.pending[0]?.resolve({
+      items: [item('new', 'native-new')],
+      head: 'history-new',
+      tail: 'history-tail',
+      hasMore: true,
+    })
+    await starting
+    expect(io.port.subscribe).toHaveBeenCalledWith(
+      asSessionId('s1'),
+      'native-new',
+      expect.any(Function),
+    )
+    const first = controller.loadOlder()
+    expect(io.reads[1]?.anchor).toBe('history-new')
+    io.pending[1]?.resolve({
+      items: [item('older', 'native-old')],
+      head: 'history-old',
+      tail: 'history-old',
+      hasMore: true,
+    })
+    await first
+    const second = controller.loadOlder()
+    expect(io.reads[2]?.anchor).toBe('history-old')
+    io.pending[2]?.resolve({ items: [], hasMore: false })
+    await second
+    controller.dispose()
+  })
+
+  it('an empty reset removes held rows and saved rows even when refresh fails', async () => {
+    const io = source()
+    const write = vi.fn()
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: io.port,
+      cache: { read: () => undefined, write },
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('stale', 'native-old')], hasMore: false })
+    await starting
+    io.emit([], true)
+    expect(controller.items).toEqual([])
+    expect(write).toHaveBeenLastCalledWith(asSessionId('s1'), [])
+    io.pending[1]?.reject(new Error('offline'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(controller.items).toEqual([])
+    controller.dispose()
+  })
+})
+
+it('replaces a live window when paging switches to archive history', async () => {
+  const io = source()
+  const controller = createTranscriptLog({ sessionId: asSessionId('s1'), source: io.port })
+  const starting = controller.start()
+  io.pending[0]?.resolve({
+    items: [item('live', 'native-live')],
+    head: 'runtime-history:head',
+    hasMore: true,
+  })
+  await starting
+  const older = controller.loadOlder()
+  io.pending[1]?.resolve({
+    reset: true,
+    items: [item('archived', 'archive-item')],
+    head: 'archive-head',
+    tail: 'archive-tail',
+    hasMore: true,
+  })
+  await older
+  expect(controller).toMatchObject({
+    items: [item('archived', 'archive-item')],
+    head: 'archive-head',
+    hasMoreOlder: true,
+  })
+  controller.dispose()
+})
+
+/**
+ * An authority that answers every read from what the agent has written so far,
+ * over a live stream that delivers NOTHING — the acceptance run's phone after a
+ * daemon restart, where the server never forwarded the turn's answer.
+ */
+function silentStreamAuthority(initial: TranscriptItem[]) {
+  const written = [...initial]
+  const reads: TranscriptReadRequest[] = []
+  return {
+    written,
+    reads,
+    port: {
+      async read(request: TranscriptReadRequest): Promise<TranscriptPage> {
+        reads.push(request)
+        const end = request.anchor
+          ? written.findIndex((entry) => entry.cursor === request.anchor)
+          : written.length
+        const start = Math.max(0, end - request.limit)
+        const items = written.slice(start, end)
+        return { items, head: items[0]?.cursor, tail: items.at(-1)?.cursor, hasMore: start > 0 }
+      },
+      subscribe: () => () => {},
+    },
+  }
+}
+
+describe('a live window that the stream stopped feeding heals itself (POD-4643)', () => {
+  const question = item('q', 'c2', 'What is 7 times 7?')
+  const answer = item('answer', 'c3', '49 LEMON')
+
+  async function started(options: { visible?: () => boolean; initial?: TranscriptItem[] } = {}) {
+    vi.useFakeTimers()
+    const authority = silentStreamAuthority(options.initial ?? [item('a', 'c1'), question])
+    const controller = createTranscriptLog({
+      sessionId: asSessionId('s1'),
+      source: authority.port,
+      initialLimit: 2,
+      pageLimit: 2,
+      ...(options.visible ? { visible: options.visible } : {}),
+    })
+    controller.observeActivity({ signal: 'row-1', live: true })
+    await controller.start()
+    return { authority, controller }
+  }
+
+  function ids(controller: ReturnType<typeof createTranscriptLog>) {
+    return controller.items.map((entry) => entry.id)
+  }
+
+  it('re-reads once the session row moves and the stream said nothing', async () => {
+    const { authority, controller } = await started({ visible: () => false })
+    try {
+      authority.written.push(answer)
+      controller.observeActivity({ signal: 'row-2', live: false })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_ACTIVITY_SETTLE_MS - 1)
+      expect(ids(controller)).not.toContain('answer')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(ids(controller)).toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a live session is probed on a heartbeat even when the row does not move', async () => {
+    const { authority, controller } = await started()
+    try {
+      authority.written.push(answer)
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS)
+      expect(ids(controller)).toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('an unchanged row and a current window cost nothing', async () => {
+    const { authority, controller } = await started()
+    try {
+      const readsAfterStart = authority.reads.length
+      controller.observeActivity({ signal: 'row-1', live: false })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 3)
+      expect(authority.reads).toHaveLength(readsAfterStart)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a heartbeat on an equal tail reads one item and keeps the window', async () => {
+    const { authority, controller } = await started()
+    try {
+      const before = controller.items
+      const readsAfterStart = authority.reads.length
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS)
+      expect(authority.reads.slice(readsAfterStart)).toEqual([
+        expect.objectContaining({ limit: 1 }),
+      ])
+      expect(controller.items).toBe(before)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a hidden reader is not probed', async () => {
+    const { authority, controller } = await started({ visible: () => false })
+    try {
+      authority.written.push(answer)
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(ids(controller)).not.toContain('answer')
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stands down while the reader has older pages loaded, and keeps them', async () => {
+    const { authority, controller } = await started({
+      initial: [item('old', 'c0'), item('a', 'c1'), question],
+    })
+    try {
+      expect(await controller.loadOlder()).toBe(true)
+      expect(ids(controller)).toEqual(['old', 'a', 'q'])
+      authority.written.push(answer)
+      controller.observeActivity({ signal: 'row-2', live: true })
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(ids(controller)).toEqual(['old', 'a', 'q'])
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it('a stopped controller schedules nothing', async () => {
+    const { authority, controller } = await started()
+    try {
+      // A settle pending and the heartbeat armed at the moment of stop.
+      controller.observeActivity({ signal: 'row-2', live: true })
+      controller.stop()
+      const readsAtStop = authority.reads.length
+      await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
+      expect(authority.reads).toHaveLength(readsAtStop)
+    } finally {
+      controller.dispose()
+      vi.useRealTimers()
+    }
+  })
+})
+
+it('a host that starts the controller before reporting the row pays no second read (POD-4643)', async () => {
+  vi.useFakeTimers()
+  const authority = silentStreamAuthority([item('a', 'c1')])
+  const controller = createTranscriptLog({
+    sessionId: asSessionId('s1'),
+    source: authority.port,
+  })
+  try {
+    const starting = controller.start()
+    controller.observeActivity({ signal: 'row-1', live: false })
+    await starting
+    await vi.advanceTimersByTimeAsync(TRANSCRIPT_ACTIVITY_SETTLE_MS * 5)
+    expect(authority.reads).toHaveLength(1)
+  } finally {
+    controller.dispose()
+    vi.useRealTimers()
+  }
+})

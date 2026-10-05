@@ -232,6 +232,7 @@
     "@tanstack/db-sqlite-persistence-core": "0.2.23",
     "@tanstack/react-db": "0.4.1",
     "highlight.js": "11.11.1",
+    "mobx": "7.0.3",
     "zod": "^3.24.0",
     "@trpc/client": "^11.0.0",
     "@trpc/server": "^11.0.0"
