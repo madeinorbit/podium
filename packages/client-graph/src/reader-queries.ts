@@ -1,4 +1,3 @@
-import { referenceKey } from './shared/session-reference'
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { parseSessionRef } from '@podium/protocol'
@@ -18,6 +17,7 @@ import {
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { SessionQuestions } from './shared/session-questions'
+import { referenceKey } from './shared/session-reference'
 import type { RowSourceEvent } from './shared/source'
 import { createWorktreeQuestions } from './shared/worktree-questions'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -117,9 +117,14 @@ export class ReaderQueries {
       )
     this.stopTables.push(
       observe(pool.tables.repo, (change) => {
-        const row = change.type === 'delete' ? undefined : pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined
-        this.changeRepoIdentity(change.name, typeof row?.prefix === 'string' ? row.prefix : undefined)
-
+        const row =
+          change.type === 'delete'
+            ? undefined
+            : (pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined)
+        this.changeRepoIdentity(
+          change.name,
+          typeof row?.prefix === 'string' ? row.prefix : undefined,
+        )
       }),
     )
     this.stopTables.push(
@@ -448,7 +453,11 @@ export class ReaderQueries {
   }
   private referenceKeys(ref: string): string[] {
     const prefix = parseSessionRef(ref)?.prefix
-    return prefix ? this.issueIdentities().repoIds(prefix).map(id => referenceKey(id, ref)!) : []
+    return prefix
+      ? this.issueIdentities()
+          .repoIds(prefix)
+          .map((id) => referenceKey(id, ref)!)
+      : []
   }
   private releaseReference(ref: string): void {
     for (const key of this.sessionReferenceAtoms.get(ref)?.keys ?? []) {
@@ -465,7 +474,12 @@ export class ReaderQueries {
     let first: string | undefined
     for (const repoId of ids) {
       const id = questions.referenceId(referenceKey(repoId, ref)!)
-      if (id && (first === undefined || this.index().sessionOrderKey(id) < this.index().sessionOrderKey(first))) first = id
+      if (
+        id &&
+        (first === undefined ||
+          this.index().sessionOrderKey(id) < this.index().sessionOrderKey(first))
+      )
+        first = id
     }
     return first
   }
@@ -485,7 +499,10 @@ export class ReaderQueries {
         this.sessionReferenceAtoms.set(ref, { atom, value, keys })
         for (const key of keys) {
           let tokens = this.referenceTokens.get(key)
-          if (!tokens) this.referenceTokens.set(key, tokens = new Set())
+          if (!tokens) {
+            tokens = new Set()
+            this.referenceTokens.set(key, tokens)
+          }
           tokens.add(ref)
         }
       }
@@ -503,7 +520,8 @@ export class ReaderQueries {
     if (!ref) return
     const state = this.sessionReferenceAtoms.get(ref)
     if (!state) {
-      for (const token of [...(this.referenceTokens.get(ref) ?? [])]) this.publishSessionReference(token)
+      for (const token of [...(this.referenceTokens.get(ref) ?? [])])
+        this.publishSessionReference(token)
       return
     }
     const keys = this.referenceKeys(ref)
@@ -516,7 +534,10 @@ export class ReaderQueries {
       state.keys = keys
       for (const key of keys) {
         let tokens = this.referenceTokens.get(key)
-        if (!tokens) this.referenceTokens.set(key, tokens = new Set())
+        if (!tokens) {
+          tokens = new Set()
+          this.referenceTokens.set(key, tokens)
+        }
         tokens.add(ref)
       }
     }
@@ -929,8 +950,13 @@ export class ReaderQueries {
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
       const result = this.identities.get(key)
-      const joinedQuestion = result?.question.kind === 'sessionReference' || (result?.question.kind === 'boardIssues' && !!result.question.projectPaths?.length)
-      const companionMoved = joinedQuestion && state.version !== version && event.rows.some(row => row.kind === 'repo' || row.kind === 'worktree')
+      const joinedQuestion =
+        result?.question.kind === 'sessionReference' ||
+        (result?.question.kind === 'boardIssues' && !!result.question.projectPaths?.length)
+      const companionMoved =
+        joinedQuestion &&
+        state.version !== version &&
+        event.rows.some((row) => row.kind === 'repo' || row.kind === 'worktree')
       if (result && (event.type === 'replace' || result.source !== index || companionMoved)) {
         this.identities.set(key, this.identityResult(result.question, index))
         state.version = version
