@@ -90,6 +90,7 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
     expect(repo.rows.filter(row => row.kind === 'session' || row.kind === 'issue' || row.kind === 'worktree')).toHaveLength(0)
     expect(f.source.stats.rowsVisited).toBe(1)
     expect(writes).toBe(0)
+    const visited = f.source.stats.rowsVisited
     expect(cold.displayRef).toBe('NEW-2-A')
     expect(ref).toBeUndefined()
     expect(f.pool.queries.linkedSessionId('NEW-2-A')).toBe('session-1')
@@ -100,7 +101,7 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
     for (const row of f.source.source.snapshot('session'))
       for (const field of ['machineName', 'condition', 'handoffTarget', 'displayRef']) expect(row.value).not.toHaveProperty(field)
     expect(f.source.source.row!('issue', 'history')).not.toHaveProperty('repoPath')
-    console.info(`companion ${scale}x`, JSON.stringify({ sessions: 32 * scale, records: 1, sessionWrites: writes, visited: f.source.stats.rowsVisited }))
+    console.info(`companion ${scale}x`, JSON.stringify({ sessions: 32 * scale, records: 1, sessionWrites: writes, visited }))
   } finally { stopRef(); stopHot(); stopCold(); stopWrites(); stopEvents(); f.dispose() }
 })
 

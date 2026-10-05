@@ -190,6 +190,7 @@ function fixture(scale = 1, bootOnly = false) {
         ...extra,
       },
     }) as RowRecord
+  const sessionSequences = new Map<string, number>()
   const session = (id: string, extra: object = {}) =>
     ({
       kind: 'session',
@@ -203,7 +204,9 @@ function fixture(scale = 1, bootOnly = false) {
         stoppedAt: old,
         lastActiveAt: old,
         createdAt: old,
-        displayRef: `Q-${id}`,
+        refRepoId: 'query-repo',
+        refSeq: id === 'z-twin' ? 1 : sessionSequences.get(id) ?? (sessionSequences.set(id, sessionSequences.size + 2), sessionSequences.size + 1),
+        refLetter: 'A',
         ...extra,
       },
     }) as RowRecord
@@ -238,7 +241,7 @@ function fixture(scale = 1, bootOnly = false) {
       repoId: 'query-repo',
       repoPath: '/query',
       repoName: 'Query',
-      prefix: 'Q',
+      prefix: 'QUERY',
     },
   })
   if (bootOnly) rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
@@ -348,7 +351,7 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
         return {
           inbox: view.inbox(),
           screening: view.screening(),
-          session: view.session('Q-z-twin'),
+          session: view.session('QUERY-1-A'),
         }
       } finally {
         view.dispose()
@@ -653,7 +656,7 @@ describe('readers behind declared cold questions', () => {
       ])
       expect(f.index.readerIds({ kind: 'headerOccupancy' })).toEqual(['host'])
       expect(f.index.readerIds({ kind: 'headerRecentSession' })).toEqual(['host'])
-      expect(f.index.readerIds({ kind: 'sessionReference', ref: 'Q-z-twin' })).toEqual(['z-twin'])
+      expect(f.index.readerIds({ kind: 'sessionReference', ref: 'QUERY-1-A' })).toEqual(['z-twin'])
       expect(f.index.issueRepoIds()).toEqual(['query-repo'])
       expect(f.index.sessionCollapsed('a-twin')).toBe(true)
       expect(f.index.sessionOrderKey('z-twin')).toBe('a-twin')
@@ -862,7 +865,7 @@ describe('readers behind declared cold questions', () => {
       { kind: 'headerSessions' },
       { kind: 'headerOccupancy' },
       { kind: 'boardCounts' },
-      { kind: 'sessionReference', ref: 'Q-z-twin' },
+      { kind: 'sessionReference', ref: 'QUERY-1-A' },
       { kind: 'commandIssueSessions', issueId: 'cold-issue-0', archived: false },
       { kind: 'containingIssues', cwd: '/query/hot/file' },
       { kind: 'boardIssues', priority: 2, stage: 'proposed', projectPaths: ['/query'] },
