@@ -7381,13 +7381,13 @@
       "file": "apps/web/src/features/chat/chat-context-check.ts",
       "holder": "checkChatContext",
       "rule": "reader-summary",
-      "tokens": "f0b7754862c142b841c42502e1e578e23b851c596cefa8622c05bc4ba361fcf1",
+      "tokens": "1217d6e0bf4708f31b90f71ebb645ca1a49127f022549fdfb7b6494c1df72d7b",
       "gate": [],
       "origin": [
         "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
-      "fingerprint": "4d6f6fc03d2de714f44fed554844d64f6c436d5070a4e0b7a6ddcb0fdc08621a",
+      "fingerprint": "3d1779149be9e0eb7d863d5ffaa54ead036dcfa64c89e9fc0fb843ff6704abd3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7471,20 +7471,55 @@
     {
       "file": "apps/web/src/features/chat/chat-context-check.ts",
       "holder": "checkChatContext",
-      "rule": "reader-summary",
-      "tokens": "ba471bb4bcedcbe54ccb9e7c275f11f61d5b9c6fd9b221f45fede5321892f514",
+      "rule": "consume:sort",
+      "tokens": "a2ea26252f3d340d5689ab20382dbaf7d3f563ee2d71d79ea0d5de2a8511339b",
       "gate": [],
       "origin": [
-        "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
-        "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
+        "c5b6455fa0c49a368f3bd8e200e6379a07e26d878f4ffcc9d48942fbf234f722"
       ],
-      "fingerprint": "c633c331a22def6edf9d3937b9efa000c3af6ccca1fd5ede35c3dc7e8d39f18c",
+      "fingerprint": "0a415825f8108ac3de0089c764bc31b2c434fef38b4a18953bcaea27a8e2438f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of checkChatContext",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "The diagnostic raw repository-path parity check expands the previous catalogue-consuming helper into explicit reads, flatMap and sort. It runs in chat fixtures and benchmark diagnostics; it is retained as REQUIRED REPAIR and is not a bounded product lookup.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/chat-context-check.ts",
+      "holder": "checkChatContext",
+      "rule": "consume:flatMap",
+      "tokens": "2578a4f4dd207c2f70f8bf545173f712561b403d60f440decb2275d5e77ae508",
+      "gate": [],
+      "origin": [
+        "c5b6455fa0c49a368f3bd8e200e6379a07e26d878f4ffcc9d48942fbf234f722"
+      ],
+      "fingerprint": "20117b661becacdffb382e139caa7d73ad55e26519c20b299c5c6c1083ba447f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of checkChatContext",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The diagnostic raw repository-path parity check expands the previous catalogue-consuming helper into explicit reads, flatMap and sort. It runs in chat fixtures and benchmark diagnostics; it is retained as REQUIRED REPAIR and is not a bounded product lookup.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/chat-context-check.ts",
+      "holder": "checkChatContext",
+      "rule": "dynamic-question",
+      "tokens": "0280be7fb84d1b93ff9b5d8d4026e259bbe259f6fad59b0785beac577f2c6db9",
+      "gate": [],
+      "origin": [
+        "c5b6455fa0c49a368f3bd8e200e6379a07e26d878f4ffcc9d48942fbf234f722"
+      ],
+      "fingerprint": "bcd8b31a040bc60bbcf32a40d11759ab1802fc6bbf6f5caf8a69a42e2bbbbb56",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of checkChatContext",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The diagnostic raw repository-path parity check expands the previous catalogue-consuming helper into explicit reads, flatMap and sort. It runs in chat fixtures and benchmark diagnostics; it is retained as REQUIRED REPAIR and is not a bounded product lookup.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -7699,13 +7734,13 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/check/callback",
       "rule": "helper-consumer",
-      "tokens": "ebfc05090cff627736a444cc76a933c35867f4a533a5b6d40751ee6791fdf361",
+      "tokens": "1cf0ce8372bde51bb33d8d8f08a7356bd65c6724484910973dff6a15d8a15690",
       "gate": [],
       "origin": [
         "08a96a87f2785e6ba9f4b3e474c3f180d6edbb7fa8d3b393b9a3fe5cb4634546",
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "c4720defc2dec9fdbe807179e10464b1cc2470d2f17be33ad1dd3af2757f41d5",
+      "fingerprint": "738df05303c053e471bce62fdf960e1a1612270bc02ca315609d7fa00aebd179",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37864,14 +37899,14 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "materialize:Set",
-      "tokens": "eb20b576d40bfa774af2aa71daf72f26e608f160d1ae3592c894f82450dbdfac",
+      "tokens": "d8e3ac183bf991308f93c1ccdfb3f0636f126b2211a5bf1e14c02060cdd9fcd6",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c"
       ],
-      "fingerprint": "56326bfb0656688a3dfc82d3dac25530aa0df1357588b6a1590291489d8637e4",
+      "fingerprint": "6520a99ac092c26e3a29568955cb1ba0c73d64e091f41e83929e101ede9abae5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37884,14 +37919,14 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "loop:for-of",
-      "tokens": "436dbab591267201cc43bc8e4b190c049ff44925dd702bbaaa5a2d65f622857a",
+      "tokens": "a07cf07256584a0eac94bcbbf0aa07508665b26369a7701b5913c7175f878155",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c"
       ],
-      "fingerprint": "78909ea6566615351d8d6639588af88ba1b3e3050b3d7344de2b9923b2d41e62",
+      "fingerprint": "77fd3492b410fd6ea1606ee47ced9b3d15378f1aa25944943e45f53ba98e97a6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38001,13 +38036,13 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatReferenceMachines",
       "rule": "consume:flatMap",
-      "tokens": "b1f87e6728e0b499b835c823d13a7bfd79aa69e782c0954ec04fe276eb227017",
+      "tokens": "eaab6cea501b62a91ba48512975c2ccf68d55937efffacbf3cb6ae8b0bb3dcc0",
       "gate": [],
       "origin": [
         "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
-      "fingerprint": "390891957557e8b2425411ec59066199e45cdce57da7ff0efe1062fa19a57580",
+      "fingerprint": "87ac767a8deca22ac0b67ebea0e94a652a9d9dddedc4f3c5f53e29fe20e562da",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38039,14 +38074,14 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatReferenceSessions",
       "rule": "loop:for-of",
-      "tokens": "e9040240b75b28156eba0f7e01827319916d36c3a3f4a0e624b638790afdb9aa",
+      "tokens": "5a9ca168f9aa7ee5d77d5a77580eace55eed53baca660da43ca0e00db56be4c3",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
       ],
-      "fingerprint": "4df4776e95e2fbdc4eea867247ab4ad0ed7a103f22c00071ee2cd613285a3a73",
+      "fingerprint": "5d8699929473c56992a221f1498c39410b27b568d0bd632c77bf93a0fb4cac06",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38079,14 +38114,14 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatReferenceSessions",
       "rule": "materialize:Set",
-      "tokens": "eb20b576d40bfa774af2aa71daf72f26e608f160d1ae3592c894f82450dbdfac",
+      "tokens": "d8e3ac183bf991308f93c1ccdfb3f0636f126b2211a5bf1e14c02060cdd9fcd6",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
       ],
-      "fingerprint": "7056360fd5758c22c0fad413b267273287121a4ebf4e7bd6fe319e738c4b4f80",
+      "fingerprint": "23ae146af34124e2424e627aea708e7ba60da2007164588011dc8ffab82d4c31",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38137,95 +38172,19 @@
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatRepositoryKey",
-      "rule": "reader-summary",
-      "tokens": "5c88929b1993444e6e494554b37a6795446e415e16921237ab16879a4a52f03c",
-      "gate": [],
-      "origin": [
-        "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
-        "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
-      ],
-      "fingerprint": "aa11a5580abebca27dc7de47c2c3ea5a35ac295e5faa36058f670ebd66c312b3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of chatRepositoryKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatRepositoryKey",
-      "rule": "consume:flatMap",
-      "tokens": "7933a83ffb852bf52a1226eedc53f8b215487aa0d7bae6adfe4c4e2375678a95",
-      "gate": [],
-      "origin": [
-        "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
-        "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
-      ],
-      "fingerprint": "e3a1722503b9d63fd3495b6bcd7312d3d93b616f7f3bdf65dcaf7335dfcbb74f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of chatRepositoryKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatRepositoryKey",
-      "rule": "consume:sort",
-      "tokens": "211a6cbc487cbebeab63a269da7ccd39571b3dabb5b38d86817e019935d4db42",
-      "gate": [],
-      "origin": [
-        "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
-        "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
-      ],
-      "fingerprint": "f0848cc6217058f6f8def0bf50df1dfbc5002bf67154a39e56e7dee5676355d1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of chatRepositoryKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/chat-context.ts",
       "holder": "createChatContextReader/machines/callback",
       "rule": "reader-summary",
-      "tokens": "f0b7754862c142b841c42502e1e578e23b851c596cefa8622c05bc4ba361fcf1",
+      "tokens": "1217d6e0bf4708f31b90f71ebb645ca1a49127f022549fdfb7b6494c1df72d7b",
       "gate": [],
       "origin": [
         "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
-      "fingerprint": "b3b8567e7280d4139984adc71c95d21f18d12cd2d29aa87f3f477bd2d19b9c5a",
+      "fingerprint": "de12464696d029e648fe84d5c219c229bb48ab11bae84c6678adb42569dcc1d8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createChatContextReader/machines/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "createChatContextReader/repositoryKey/callback",
-      "rule": "reader-summary",
-      "tokens": "ba471bb4bcedcbe54ccb9e7c275f11f61d5b9c6fd9b221f45fede5321892f514",
-      "gate": [],
-      "origin": [
-        "3ecd268f992c8599107393cf148a0c393e002e2cea9cf35226ec982a6824d5ae",
-        "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
-      ],
-      "fingerprint": "ed916290122405079e89d2fb0836b378007df6555067525aac8531adaef4d9aa",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createChatContextReader/repositoryKey/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -39424,18 +39383,18 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "createHeaderEntities/apply/runInAction:callback",
       "rule": "loop:for-of",
-      "tokens": "39bb49314d5acfb912ea60948f07437a3da21ac623a0c8bab28b1205acd60e93",
+      "tokens": "c89d59e117797a6251457fb05b21c3996238549802f8b1d3457ea4f0897cbead",
       "gate": [],
       "origin": [
         "69071382a5594fda4d2bde35ce2c843ecb216f33aa7d8ab62c368713dd9cbd5d"
       ],
-      "fingerprint": "61da404a8dad2f815aeaf2d251fa65f704e7b9586f9e2efca5f5a42532c20c6b",
+      "fingerprint": "87acbbb44688faec49cbc396e68ae695d4dd2b82ce9eae553c3fae99cc018b50",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderEntities/apply/runInAction:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "The existing apply loop consumes the same caller-supplied records. Its body now maintains shipping cardinalities and the idle-cap scalar; other unconstrained callers remain REQUIRED REPAIR and this entry does not license a full snapshot on an interaction.",
+      "reason": "The existing apply loop consumes the same caller-supplied records. Its body now maintains shipping cardinalities, the idle-cap scalar and the repository-path change token; other unconstrained callers remain REQUIRED REPAIR and this entry does not license a full snapshot on an interaction.",
       "guard": "Exact fingerprint and multiplicity; header-source.test.ts proves changed-key production deltas and header-shipping-inputs.test.ts proves scalar shipping demand, but unconstrained record callers still require repair."
     },
     {
