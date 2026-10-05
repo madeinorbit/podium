@@ -5,7 +5,6 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree, WorktreeView } from '@podium/client-core/values'
 import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
-import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
 import { missionView } from './mission-view'
@@ -32,7 +31,7 @@ const contains = (cwd: string, root: string) =>
 export function createShellViews(pool: MobxPool) {
   // Summaries build fresh arrays/records; equal answers must not wake consumers.
   const cache = keyedComputed(
-    (key: string) => debugName(() => `shell.${key}`),
+    () => undefined,
     (_key: string, read: () => unknown) => read(),
     { equals: compareStructural },
   )

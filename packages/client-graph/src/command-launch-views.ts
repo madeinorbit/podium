@@ -230,7 +230,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   // Addressed summary objects are fresh; compare their values explicitly.
-  const issueSummary = keyedComputed('command.issueSummary', (id: string): Loaded<IssueViewModel> => {
+  const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
           const value = pool.row('commandIssue', id)
           if (!value || value === LOADING) return value
           const row = Object.fromEntries(

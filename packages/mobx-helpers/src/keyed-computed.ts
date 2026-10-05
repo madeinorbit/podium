@@ -30,7 +30,7 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
     // diagnostic stay silent in a batch without creating a temporary computed.
     const state = _getGlobalState()
     if (!state.trackingDerivation) {
-      if (requiresReaction && state.inBatch === 0) {
+      if (requiresReaction && state.computedRequiresReaction && state.inBatch === 0) {
         console.warn(`[mobx] Computed value '${typeof name === 'function' ? name(key) ?? 'ComputedValue' : name}' is being read outside a reactive context. Doing a full recompute.`)
       }
       return derive()

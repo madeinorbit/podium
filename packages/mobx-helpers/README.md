@@ -16,7 +16,8 @@ key. `clear()` drops the registry, including during owner disposal.
 Result comparison defaults to `compareDefault` (identity, MobX 7’s name for `comparer.default`), never structural.
 Pass `equals` explicitly only where the caller needs a different comparison.
 Names may be lazy, and an optional `context` attributes a computed to its
-owning model. `requiresReaction` enables the development tracked-context warning
+owning model. With MobX's `computedRequiresReaction` enabled, `requiresReaction`
+opts into the development tracked-context warning
 for callers whose untracked reads are mistakes. The one private MobX tracking
 read lives inside `keyedComputed`; it checks tracking and batch state without a
 temporary computed. Callers must use public MobX APIs.

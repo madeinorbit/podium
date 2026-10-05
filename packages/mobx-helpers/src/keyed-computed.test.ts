@@ -1,4 +1,4 @@
-import { autorun, compareStructural, observable, onBecomeObserved, onBecomeUnobserved, runInAction, untracked } from 'mobx'
+import { autorun, compareStructural, configure, observable, onBecomeObserved, onBecomeUnobserved, runInAction, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { keyedComputed } from './keyed-computed'
 
@@ -98,6 +98,7 @@ describe('keyedComputed', () => {
 
   it('warns in development without retaining an untracked entry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    configure({ computedRequiresReaction: true })
     try {
       const read = vi.fn((_key: string) => 1)
       const memo = keyedComputed('guarded', read, { requiresReaction: true })
@@ -106,6 +107,6 @@ describe('keyedComputed', () => {
       const stop = autorun(() => memo('a'))
       expect(read).toHaveBeenCalledTimes(2)
       stop()
-    } finally { warn.mockRestore() }
+    } finally { warn.mockRestore(); configure({ computedRequiresReaction: false }) }
   })
 })

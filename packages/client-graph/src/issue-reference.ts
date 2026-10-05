@@ -41,7 +41,7 @@ export class IssueReferences implements IssueReferenceReader {
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
   private readonly requestStops = new Map<string, () => void>()
   // Reference projections construct a new record when their row changes.
-  private readonly values = keyedComputed('issueReference', (id: string): Loaded<IssueReferenceModel | null> => {
+  private readonly values = keyedComputed(() => undefined, (id: string): Loaded<IssueReferenceModel | null> => {
     const row = this.source(id)
     return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
   }, { equals: compareStructural })
