@@ -168,7 +168,7 @@ export function createBoardLayout(pool: MobxPool) {
         // untracked-read: query-membership-seed
         ids: () => untracked(() => new Set(questions.flatMap(question => pool.queries.ids(question)))),
         // untracked-read: query-membership-probe
-        has: id => untracked(() => questions.some(question => pool.queries.includes(question, id))),
+        has: id => untracked(() => questions.some(question => pool.queries.has(question, id))),
         read: id => {
           const all = members(queryKey)
           if (all === LOADING) return LOADING
