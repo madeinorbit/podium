@@ -2,7 +2,10 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createRef, type ReactElement, type Ref } from 'react'
 import { Keyboard } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import {
+  insideReader,
+  measureWork,
+} from '../../../../packages/worklist-proto/harness/src/work-meter'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 
@@ -106,6 +109,7 @@ afterEach(() => {
 function content(
   data = keys,
   options: {
+    identity?: string
     loadingOlder?: boolean
     onFollowChange?: (following: boolean) => void
     onLoadOlder?: () => void
@@ -115,14 +119,16 @@ function content(
     positionOfKey?: (key: string) => number | undefined
   } = {},
 ): ReactElement {
-  const positions = options.positionOfKey ? undefined : new Map(data.map((key, index) => [key, index]))
+  const positions = options.positionOfKey
+    ? undefined
+    : new Map(data.map((key, index) => [key, index]))
   return (
     <TranscriptViewport
-      identity="one"
+      identity={options.identity ?? 'one'}
       ref={options.viewportRef}
       data={data}
       keyExtractor={options.keyExtractor ?? ((key) => key)}
-      positionOfKey={options.positionOfKey ?? (key => positions!.get(key))}
+      positionOfKey={options.positionOfKey ?? ((key) => positions!.get(key))}
       renderItem={({ item }) => <span>{item}</span>}
       ListFooterComponent={<span>Working</span>}
       moreAbove
@@ -153,14 +159,17 @@ describe('phone web viewport', () => {
     for (const scale of [1, 4] as const) {
       const data = Array.from({ length: 512 * scale }, (_, index) => `row-${index}`)
       let rowReads = 0
-      const counted = (rows: string[]) => new Proxy(rows, {
-        get(target, key, receiver) {
-          if (typeof key === 'string' && /^\d+$/.test(key)) rowReads++
-          return Reflect.get(target, key, receiver)
-        },
-      })
+      const counted = (rows: string[]) =>
+        new Proxy(rows, {
+          get(target, key, receiver) {
+            if (typeof key === 'string' && /^\d+$/.test(key)) rowReads++
+            return Reflect.get(target, key, receiver)
+          },
+        })
       const positions = new Map(data.map((key, index) => [key, index]))
-      const positionOfKey = vi.fn((key: string) => insideReader('phone viewport anchor', () => positions.get(key)))
+      const positionOfKey = vi.fn((key: string) =>
+        insideReader('phone viewport anchor', () => positions.get(key)),
+      )
       const keyExtractor = vi.fn((key: string) => key)
       const viewportRef = createRef<TranscriptViewportHandle>()
       const opts = { positionOfKey, keyExtractor, viewportRef }
@@ -172,20 +181,34 @@ describe('phone web viewport', () => {
         rowReads = 0
         positionOfKey.mockClear()
         keyExtractor.mockClear()
-        const result = await measureWork(async () => { act(action) })
-        return { work: result.work, rowReads, keyReads: keyExtractor.mock.calls.length, lookups: positionOfKey.mock.calls.length }
+        const result = await measureWork(async () => {
+          act(action)
+        })
+        return {
+          work: result.work,
+          rowReads,
+          keyReads: keyExtractor.mock.calls.length,
+          lookups: positionOfKey.mock.calls.length,
+        }
       }
-      const readAbove = await measure(() => read(scroller, scroller.scrollHeight - scroller.clientHeight - 200))
+      const readAbove = await measure(() =>
+        read(scroller, scroller.scrollHeight - scroller.clientHeight - 200),
+      )
       const anchorKey = `row-${data.length - 5}`
       const anchor = container.querySelector(`[data-row-key="${anchorKey}"]`)!
       const anchorTop = anchor.getBoundingClientRect().top
       const updated = [...data, 'arrival']
       positions.set('arrival', data.length)
       const next = content(counted(updated), opts)
-      const arrival = await measure(() => { rerender(next); resized() })
+      const arrival = await measure(() => {
+        rerender(next)
+        resized()
+      })
       expect(container.querySelector(`[data-row-key="${anchorKey}"]`)).toBe(anchor)
       expect(anchor.getBoundingClientRect().top).toBeCloseTo(anchorTop)
-      const search = await measure(() => viewportRef.current?.scrollToIndex({ index: data.length - 85, animated: false }))
+      const search = await measure(() =>
+        viewportRef.current?.scrollToIndex({ index: data.length - 85, animated: false }),
+      )
       expect(container.querySelector(`[data-row-key="row-${data.length - 85}"]`)).not.toBeNull()
       for (const result of [readAbove, arrival, search]) {
         expect(result.rowReads).toBeLessThan(200)
@@ -193,7 +216,9 @@ describe('phone web viewport', () => {
         expect(result.lookups).toBeGreaterThan(0)
       }
       const target = data[data.length - 80]!
-      const control = await measure(() => { insideReader('scanned anchor control', () => watched.findIndex(key => key === target)) })
+      const control = await measure(() => {
+        insideReader('scanned anchor control', () => watched.findIndex((key) => key === target))
+      })
       expect(control.rowReads).toBe(data.length - 79)
       samples.push({ scale, actions: { readAbove, arrival, search }, control })
       unmount()
@@ -205,12 +230,13 @@ describe('phone web viewport', () => {
 
   it('dismisses the keyboard for reader gestures, preserving focus on viewport and scroll events', () => {
     const dismiss = vi.spyOn(Keyboard, 'dismiss')
-    const { getByTestId, container } = render(
+    const page = (identity: string, keyboardDismissMode: 'on-drag' | 'none' = 'on-drag') => (
       <>
-        {content(keys, { keyboardDismissMode: 'on-drag' })}
+        {content(keys, { identity, keyboardDismissMode })}
         <textarea />
-      </>,
+      </>
     )
+    const { getByTestId, container, rerender } = render(page('one'))
     resized()
     const scroller = getByTestId('transcript-scroller')
     const textarea = container.querySelector('textarea')!
@@ -227,6 +253,13 @@ describe('phone web viewport', () => {
     fireEvent.touchMove(scroller, { touches: [touch], changedTouches: [touch] })
     expect(dismiss).toHaveBeenCalledTimes(2)
     fireEvent.touchEnd(scroller, { touches: [], changedTouches: [touch] })
+    rerender(page('two'))
+    resized()
+    fireEvent.wheel(getByTestId('transcript-scroller'), { deltaY: 40 })
+    expect(dismiss).toHaveBeenCalledTimes(3)
+    rerender(page('two', 'none'))
+    fireEvent.wheel(getByTestId('transcript-scroller'), { deltaY: 40 })
+    expect(dismiss).toHaveBeenCalledTimes(3)
   })
 
   it('bounds mounted rows and observed elements during a marathon live feed', () => {

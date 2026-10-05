@@ -1046,7 +1046,11 @@ export function TranscriptList({
   const pending = useMemo(() => latestPendingQuestion(items), [items])
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const model = useMemo(
-    () => buildMobileTranscript(items, { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined }),
+    () =>
+      buildMobileTranscript(items, {
+        collapseContext,
+        hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined,
+      }),
     [collapseContext, hidePendingQuestion, items, pendingKey],
   )
   const liveRow = useMemo(

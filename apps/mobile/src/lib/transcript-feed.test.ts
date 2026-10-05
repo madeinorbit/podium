@@ -93,7 +93,10 @@ describe('mobile transcript feed', () => {
   })
 
   it('addresses emitted rows and folded aliases while omitting only the hidden question', () => {
-    const ask = item('ask', 'tool', '', { toolName: 'AskUserQuestion', toolInputJson: '{"questions":[]}' })
+    const ask = item('ask', 'tool', '', {
+      toolName: 'AskUserQuestion',
+      toolInputJson: '{"questions":[]}',
+    })
     const items = [
       item('t1', 'tool', '', { toolName: 'Read', toolInput: 'a' }),
       item('t2', 'tool', '', { toolName: 'Read', toolInput: 'b' }),
@@ -107,13 +110,18 @@ describe('mobile transcript feed', () => {
     expect(model.positionOfKey('a1')).toBe(2)
     expect(model.positionOfKey('missing')).toBeUndefined()
     const hidden = buildMobileTranscript(items, { hiddenQuestionId: 'ask' })
-    expect(hidden.rows.map(row => row.kind)).toEqual(['tools', 'answer'])
+    expect(hidden.rows.map((row) => row.kind)).toEqual(['tools', 'answer'])
     expect(hidden.positionOfKey('ask')).toBeUndefined()
     expect(hidden.positionOfKey('a1')).toBe(1)
-    const receipt = buildMobileTranscript([ { ...ask, toolResult: 'Done' } ], { hiddenQuestionId: 'ask' })
+    const receipt = buildMobileTranscript([{ ...ask, toolResult: 'Done' }], {
+      hiddenQuestionId: 'ask',
+    })
     expect(receipt.rows[0]?.kind).toBe('receipt')
     expect(receipt.positionOfKey('ask')).toBe(0)
-    const duplicate = buildMobileTranscript([item('same', 'assistant', 'First'), item('same', 'assistant', 'Second')])
+    const duplicate = buildMobileTranscript([
+      item('same', 'assistant', 'First'),
+      item('same', 'assistant', 'Second'),
+    ])
     expect(duplicate.positionOfKey('same')).toBe(0)
   })
 

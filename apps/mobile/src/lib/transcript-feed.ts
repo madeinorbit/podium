@@ -238,7 +238,7 @@ export function buildMobileTranscript(
     })
   }
 
-  return { blocks, rows, latestAssistantKey, positionOfKey: key => positions.get(key) }
+  return { blocks, rows, latestAssistantKey, positionOfKey: (key) => positions.get(key) }
 }
 
 /** Shape the one in-progress assistant row without touching settled history. */

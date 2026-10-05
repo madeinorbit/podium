@@ -104,7 +104,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
       element.removeEventListener('touchmove', dismiss)
       element.removeEventListener('wheel', dismiss)
     }
-  }, [identity, keyboardDismissMode])
+  }, [keyboardDismissMode])
   useLayoutEffect(() => {
     const target = pendingTarget.current
     if (!target) return

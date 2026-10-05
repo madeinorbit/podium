@@ -1,6 +1,6 @@
 import {
-  forwardRef,
   type ForwardedRef,
+  forwardRef,
   type ReactElement,
   type RefAttributes,
   useCallback,
@@ -11,7 +11,7 @@ import { FlatList } from 'react-native'
 import { useNativeTranscriptScroll } from '../hooks/useNativeTranscriptScroll'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
 
-function NativeViewport<Item>(
+export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
   {
     identity,
     anchorKeys: _anchorKeys,
@@ -62,8 +62,6 @@ function NativeViewport<Item>(
       }
     />
   )
-}
-
-export const TranscriptViewport = forwardRef(NativeViewport) as <Item>(
+}) as <Item>(
   props: TranscriptViewportProps<Item> & RefAttributes<TranscriptViewportHandle>,
 ) => ReactElement
