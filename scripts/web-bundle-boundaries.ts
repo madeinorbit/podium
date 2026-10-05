@@ -38,6 +38,8 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/host/pool-host.ts', 'src/host/screens.ts',
   'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
   'src/header-source.ts', 'src/header-views.ts',
+  // header-entities (startup) owns the repository path relations (POD-5530).
+  'src/header-repositories.ts',
   'src/chat-context-schema.ts', 'src/command-launch-schema.ts', 'src/issue-board-schema.ts',
   'src/issue-page-schema.ts', 'src/mission-schema.ts', 'src/mission-view-schema.ts',
   'src/navigation-schema.ts', 'src/notice-schema.ts', 'src/preference-schema.ts',
