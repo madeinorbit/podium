@@ -393,10 +393,19 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get liveAgentCount() { return requireLoaded(sum.live(this.canonical)) }
   get workingAgentCount() { return requireLoaded(sum.working(this.canonical)) }
   get waitingAgentCount() { return requireLoaded(sum.waiting(this.canonical)) }
-  get collapsedSummary() { return {
-    tasks: requireLoaded(this.tasks) - own.tasks(this.canonical), done: requireLoaded(this.done) - own.done(this.canonical),
-    run: requireLoaded(this.run) - own.run(this.canonical), kinds: kindsOf(this.canonical), crew: collapsedCrew(this.canonical), needsYou: this.actionableCount > 0,
-  } }
+  get collapsedSummary() {
+    const row = this.canonical
+    // A searchable placeholder asks only for the task count. Reading it must
+    // not observe the hidden row's crew, kinds and other presentation rollups.
+    return {
+      get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
+      get done() { return requireLoaded(row.done) - own.done(row) },
+      get run() { return requireLoaded(row.run) - own.run(row) },
+      get kinds() { return kindsOf(row) },
+      get crew() { return collapsedCrew(row) },
+      get needsYou() { return row.actionableCount > 0 },
+    }
+  }
   get presentation() { return presentation(this.canonical) }
   get updatedBelow() { return latestBelow(this.canonical) }
   get hasPayload() { return hasPayload(this.canonical) }

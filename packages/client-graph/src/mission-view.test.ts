@@ -76,6 +76,19 @@ it('passes an unloaded child through its own and every ancestor rollup', () => {
   } finally { stop() }
 })
 
+it('keeps crew presentation unobserved when a hidden row asks only for its collapsed task count', () => {
+  const { reader } = open([issue('root'), issue('child', { parentId: 'root' })], [
+    session('crew', 'child', { archived: false, status: 'live' }),
+  ])
+  const roster = vi.spyOn(reader, 'roster')
+  let count = -1
+  const stop = autorun(() => { count = reader.deck('root').model('root').collapsedSummary.tasks })
+  try {
+    expect(count).toBe(1)
+    expect(roster).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+
 it('requests cold mission ancestry together without changing the shared root answer', () => {
   const rows = Array.from({ length: 100 }, (_, index) => issue(`ancestor-${index}`, {
     ...coldRoot(), id: `ancestor-${index}`, parentId: index ? `ancestor-${index - 1}` : null,
