@@ -549,7 +549,7 @@ export class MissionViewReader {
       deck,
       get root() { return requireLoaded(view.issue(deck.id)) },
       get members() { return requireLoaded(deck.members) },
-      get rows() { return requireLoaded(deck.rowIds()).map(id => deck.model(id)) },
+      get rows() { return deck.rows() },
       get issueIds() { return view.addressedIds(deck) },
       get sessions() {
         const sessions = new Map<string, SessionView>()

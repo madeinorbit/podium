@@ -1432,7 +1432,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   }
   const deck = poolValues.deck
   const rowIds = deck ? requireLoaded(deck.rowIds(mode)) : []
-  const rows = useMemo(() => deck ? rowIds.map(id => deck.model(id)) : [], [deck, rowIds])
+  const rows = useMemo(() => deck ? deck.rows() : [], [deck, rowIds])
   const rowDisplayTitles = view === 'waterfall' ? new Map(rows.map(row => [row.id, row.title])) : new Map<string, string>()
   /**
    * The session the operator is ACTUALLY in.
@@ -1721,12 +1721,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         const nextRoot = owner ? source.rootFor(owner.id) : null
         if (nextRoot) setSelectedIssueId(asIssueId(nextRoot))
         setFocusedIssueId(target.issueId)
-        // Every row whose subtree contains the owner is an ancestor of it, plus
-        // the owner itself — one pass over the rows rather than walking parents,
-        // because `descendantIds` is already the closure the deck computed.
-        for (const row of rows) {
-          if (row.id === target.issueId || row.deck.ancestorPath(target.issueId).includes(row.id)) open.set(row.id, 'open')
-        }
+        // Both a graft and a formal occurrence can contain the same session.
+        // Reveal follows the mission's ID ancestry once, including both paths.
+        for (const id of deck?.ancestorIds(target.issueId) ?? []) open.set(id, 'open')
       }
       // A reveal must also escape a narrowed view and a folded owner in another
       // mission. Those ancestors are not necessarily in the current roster.

@@ -37,7 +37,7 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
       const stop = autorun(() => { result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths) })
       try {
         expect(result.pending, `${root} ${mode}: ${JSON.stringify(result)}`).toBe(0)
-        expect(result.differences, JSON.stringify(result.first)).toBe(0)
+        expect(result.differences, `${root} ${mode}: ${JSON.stringify(result.first)}`).toBe(0)
       } finally { stop() }
     }
   } finally { pool.dispose() }

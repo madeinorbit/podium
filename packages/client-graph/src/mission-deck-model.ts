@@ -56,6 +56,7 @@ interface DeckTopology {
   readonly scope: ReadonlySet<string>
   readonly children: ReadonlyMap<string, readonly string[]>
   readonly parent: ReadonlyMap<string, string>
+  readonly parents: ReadonlyMap<string, readonly string[]>
   readonly overlap: boolean
   readonly depths: ReadonlyMap<string, number>
 }
@@ -86,10 +87,12 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
     return a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) :
       a.seq - b.seq || (left < right ? -1 : left > right ? 1 : 0)
   })
-  const parent = new Map<string, string>(), seen = new Set<string>()
+  const parent = new Map<string, string>(), parents = new Map<string, string[]>(), seen = new Set<string>()
   let overlap = false
   const firstChild = (id: string) => [...view.pool.graph.many('issue', id, 'children')].sort()[0]
   for (const [id, kids] of children) for (const child of kids) {
+    const origins = parents.get(child) ?? []
+    origins.push(id); parents.set(child, origins)
     if (seen.has(child)) overlap = true
     seen.add(child)
     const previous = parent.get(child) ?? view.facts(child).parentId
@@ -113,7 +116,7 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
     for (const child of children.get(id) ?? []) depthOf(child, depth + 1)
   }
   depthOf(deck.id, 0)
-  return { scope, children, parent, overlap, depths }
+  return { scope, children, parent, parents, overlap, depths }
 }))
 
 type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting'
@@ -216,42 +219,43 @@ const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => s
  * Scope matters: a graft may have different children and paths in two roots.
  * The handle holds no row, geometry, retained computed or presentation map. */
 export class MissionDeckIssueModel implements FlightDeckRow {
-  constructor(readonly id: string, readonly deck: MissionDeckModel) {}
+  constructor(readonly id: string, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
+  private get canonical() { return this.path ? this.deck.model(this.id) : this }
   get view() { return this.deck.view }
   get facts() { return this.view.facts(this.id) }
   get issue() { return requireLoaded(this.view.issue(this.id))! }
   get rulesIssue() { return this.view.rulesIssue(this.id) }
   get stage() { return this.facts.stage }
   get title() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
-  get deckChildren() { return childrenOf(this) }
-  get descendantIds() { return descendants(this) }
-  get sessions() { return crewOf(this) }
-  get crewIds() { return crewIds(this) }
-  get hasLead() { return hasLead(this) }
+  get deckChildren() { return childrenOf(this.canonical) }
+  get descendantIds() { return descendants(this.canonical) }
+  get sessions() { return crewOf(this.canonical) }
+  get crewIds() { return crewIds(this.canonical) }
+  get hasLead() { return hasLead(this.canonical) }
   private readonly shownIds = keyedComputed('MissionIssue.sessionIds', (mode: FlightDeckMode) => {
     if (mode === 'full') return this.crewIds
     if (!this.matches(mode)) return []
     return this.crewIds.filter(id => mode === 'working' ? this.view.sessionAtWork(id) : !issueClosed(this.facts) && this.view.sessionAsking(id))
   })
-  sessionIds(mode: FlightDeckMode) { return this.shownIds(mode) }
-  get depth() { return this.deck.depth(this.id) }
+  sessionIds(mode: FlightDeckMode): readonly string[] { return this.path ? this.canonical.sessionIds(mode) : this.shownIds(mode) }
+  get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
   get matched() { return this.matches(this.deck.mode) }
-  matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? matchedWorking(this) : matchedNeedsYou(this)) }
-  get rollup() { return rollupValue(this) }
-  get tasks() { return sum.tasks(this) }
-  get done() { return sum.done(this) }
-  get run() { return sum.run(this) }
-  get actionableCount() { return requireLoaded(sum.needsYou(this)) }
-  get liveAgentCount() { return requireLoaded(sum.live(this)) }
-  get workingAgentCount() { return requireLoaded(sum.working(this)) }
-  get waitingAgentCount() { return requireLoaded(sum.waiting(this)) }
+  matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? matchedWorking(this.canonical) : matchedNeedsYou(this.canonical)) }
+  get rollup() { return rollupValue(this.canonical) }
+  get tasks() { return sum.tasks(this.canonical) }
+  get done() { return sum.done(this.canonical) }
+  get run() { return sum.run(this.canonical) }
+  get actionableCount() { return requireLoaded(sum.needsYou(this.canonical)) }
+  get liveAgentCount() { return requireLoaded(sum.live(this.canonical)) }
+  get workingAgentCount() { return requireLoaded(sum.working(this.canonical)) }
+  get waitingAgentCount() { return requireLoaded(sum.waiting(this.canonical)) }
   get collapsedSummary() { return {
-    tasks: requireLoaded(this.tasks) - own.tasks(this), done: requireLoaded(this.done) - own.done(this),
-    run: requireLoaded(this.run) - own.run(this), kinds: kindsOf(this), crew: collapsedCrew(this), needsYou: this.actionableCount > 0,
+    tasks: requireLoaded(this.tasks) - own.tasks(this.canonical), done: requireLoaded(this.done) - own.done(this.canonical),
+    run: requireLoaded(this.run) - own.run(this.canonical), kinds: kindsOf(this.canonical), crew: collapsedCrew(this.canonical), needsYou: this.actionableCount > 0,
   } }
-  get presentation() { return presentation(this) }
-  get updatedBelow() { return latestBelow(this) }
-  get hasPayload() { return hasPayload(this) }
+  get presentation() { return presentation(this.canonical) }
+  get updatedBelow() { return latestBelow(this.canonical) }
+  get hasPayload() { return hasPayload(this.canonical) }
   folded(folds: FlightDeckFoldMap) {
     const explicit = folds.get(this.id)
     return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1 : explicit === 'closed'
@@ -294,7 +298,8 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
  * lifetime; unobserved row/model questions keep no computed allocations. */
 export class MissionDeckModel {
   private readonly modelsById = new Map<string, MissionDeckIssueModel>()
-  private readonly placements = keyedComputed('MissionDeck.rowIds', (key: string) => settled(() => {
+  private readonly occurrences = new Map<string, MissionDeckIssueModel>()
+  private readonly paths = keyedComputed('MissionDeck.paths', (key: string) => settled(() => {
     const [mode, entries] = JSON.parse(key) as [FlightDeckMode, [string, string][] | null]
     const folds = entries === null ? null : new Map(entries) as FlightDeckFoldMap
     const shape = requireLoaded(this.topology), members = requireLoaded(this.members)
@@ -309,23 +314,33 @@ export class MissionDeckModel {
         current = shape.parent.get(current)
       }
     }
-    const ids: string[] = []
-    const walk = (id: string, path: ReadonlySet<string>) => {
-      if (path.has(id) || !included.has(id) || !this.view.facts(id).visible) return
-      ids.push(id)
+    const paths: string[][] = []
+    const walk = (id: string, path: readonly string[]) => {
+      if (path.includes(id) || !included.has(id) || !this.view.facts(id).visible) return
+      const next = [...path, id]
+      paths.push(next)
       if (folds && id !== this.id && this.model(id).folded(folds)) return
-      const next = new Set(path).add(id)
       for (const child of shape.children.get(id) ?? []) walk(child, next)
     }
-    walk(this.id, new Set())
-    return ids
+    walk(this.id, [])
+    return paths
   }))
+  private readonly placements = keyedComputed('MissionDeck.rowIds', (key: string) => settled(() =>
+    requireLoaded(this.paths(key)).map(path => path[path.length - 1]!)))
   constructor(readonly id: string, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
   get members() { return missions(this.view.pool).members(this.id) }
   get topology() { return topology(this) }
   get progress() { return progress(this) }
   rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null) {
     return this.placements(JSON.stringify([mode, collapsed === null ? null : [...collapsed]]))
+  }
+  rows() {
+    return requireLoaded(this.paths(JSON.stringify([this.mode, null]))).map(path => {
+      const key = JSON.stringify(path)
+      let row = this.occurrences.get(key)
+      if (!row) { row = new MissionDeckIssueModel(path[path.length - 1]!, this, path); this.occurrences.set(key, row) }
+      return row
+    })
   }
   model(id: string) {
     let model = this.modelsById.get(id)
@@ -341,5 +356,15 @@ export class MissionDeckModel {
     while (current && !seen.has(current)) { seen.add(current); ids.push(current); if (current === this.id) break; current = shape.parent.get(current) }
     return ids.reverse()
   }
-  dispose() { this.placements.clear(); this.modelsById.clear() }
+  ancestorIds(id: string) {
+    const shape = requireLoaded(this.topology), ids = new Set<string>(), stack = [id]
+    while (stack.length) {
+      const current = stack.pop()!
+      if (ids.has(current)) continue
+      ids.add(current)
+      if (current !== this.id) stack.push(...shape.parents.get(current) ?? [])
+    }
+    return ids
+  }
+  dispose() { this.paths.clear(); this.placements.clear(); this.modelsById.clear(); this.occurrences.clear() }
 }
