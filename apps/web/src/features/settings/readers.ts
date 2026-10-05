@@ -8,8 +8,9 @@ import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
-const EMPTY_SETUP = {
+const EMPTY_SETUP: { usage: ReadonlyMap<string, number>; defaultAgent: string; pending: number } = {
   usage: new Map<string, number>() as ReadonlyMap<string, number>,
+  // The product default harness, as an identifier (POD-5614).
   defaultAgent: DEFAULT_HARNESS_AGENT,
   pending: 0,
 }
