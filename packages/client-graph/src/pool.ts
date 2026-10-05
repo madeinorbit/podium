@@ -1,12 +1,10 @@
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import { sessionPaneView } from './session-pane'
 import {
-  isSettingsEntity,
-  SETTINGS_SCHEMA,
   SETUP_SESSION_SUMMARY_FIELDS,
   type SetupSession,
 } from './settings-schema'
-import { type SettingsOwner, SettingsSource } from './settings-source'
+import { attachSettingsSource, type SettingsOwner } from './settings-source'
 import { readSetupSession, settingsHasFirstTask, settingsView } from './settings-views'
 import {
   mergePoolSummaries,
@@ -589,10 +587,7 @@ export class MobxPool {
   }
 
   attachSettings(owner: SettingsOwner): void {
-    this.sources.register(
-      Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity),
-      new SettingsSource(owner),
-    )
+    attachSettingsSource(this, owner)
   }
 
   row<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]>

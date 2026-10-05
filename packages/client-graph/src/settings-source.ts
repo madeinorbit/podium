@@ -1,8 +1,9 @@
+import type { MobxPool } from './pool'
 import { defineSource } from './source-registry'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
-import type { SettingsEntity, SettingsRows } from './settings-schema'
+import { isSettingsEntity, SETTINGS_SCHEMA, type SettingsEntity, type SettingsRows } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type SettingsOwner = Pick<
@@ -183,4 +184,9 @@ export class SettingsSource {
       }),
     )
   }
+}
+
+/** Settings owns its source declaration and factory; the pool only registers it. */
+export function attachSettingsSource(pool: MobxPool, owner: SettingsOwner): void {
+  pool.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner))
 }
