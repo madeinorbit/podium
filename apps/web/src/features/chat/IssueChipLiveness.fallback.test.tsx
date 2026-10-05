@@ -38,7 +38,7 @@ describe('non-reference fallback labels', () => {
       rows: [
         { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'r', prefix: 'POD', repoPath: '/synthetic', repoName: 'Fixture' } as never },
         ...[fallback, addressed].map((row) => ({
-        kind: 'issue',
+        kind: 'issue' as const,
         id: row.id,
         value: { ...row, repoPath: '/synthetic', deps: [] } as never,
       })),

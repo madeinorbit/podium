@@ -37,7 +37,6 @@ export function poolRouteFixture(input: {
         kind: 'issue' as const,
         id: row.id,
         value: {
-          seq: 0,
           title: row.id,
           stage: 'backlog',
           archived: false,
