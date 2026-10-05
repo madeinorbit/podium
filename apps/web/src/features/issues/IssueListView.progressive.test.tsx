@@ -61,6 +61,7 @@ function rows(count: number): IssueRow[] {
 const fixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel>() }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
+    notSaved: () => false,
     row: (_entity: string, id: string) => fixture.issues.get(id),
   }),
 }))

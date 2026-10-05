@@ -117,13 +117,13 @@ it('keeps filtered-parent promotion, nested rows, cycles and terminal reasons in
   f.pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
   try {
     const board = f.source.board(options)
-    expect(board && board !== LOADING && board.rootIds).toEqual(['a', 'cancelled', 'parent', 'shipping'])
+    expect(board && board !== LOADING && board.rootIds).toEqual(['cancelled', 'parent', 'shipping', 'a'])
     expect(f.source.columnIds({ stage: 'done', ordering: 'priority', filter: { stage: 'cancelled' }, showAgentTasks: false }))
       .toEqual(['cancelled'])
     const list = f.source.board({ ...options, display: { ...options.display, layout: 'list' }, expanded: ['parent', 'a', 'b'] })
     expect(list && list !== LOADING && list.view.rowGroups.find(group => group.stage === 'backlog')).toMatchObject({
       count: 3, rows: [
-        { id: 'a', depth: 0 }, { id: 'b', depth: 1 }, { id: 'parent', depth: 0 }, { id: 'child', depth: 1 },
+        { id: 'parent', depth: 0 }, { id: 'child', depth: 1 }, { id: 'a', depth: 0 }, { id: 'b', depth: 1 },
       ],
     })
     const filtered = f.source.board({ ...options, filter: { priority: 1 } })

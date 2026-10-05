@@ -20,6 +20,7 @@ const screenFixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => null,
   useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
+    notSaved: () => false,
     row: (entity: string, key: string) => entity === 'issueBoardRow' ? screenFixture.issues.get(key)
       : entity === 'issueBoardCard' ? { issue: screenFixture.issues.get(JSON.parse(key).id), fleet: [] } : undefined,
   }),

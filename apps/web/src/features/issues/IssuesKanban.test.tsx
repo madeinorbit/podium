@@ -36,8 +36,8 @@ vi.mock('@/app/store-worklist-pool', () => {
     return undefined
   }
   return {
-    useWorklistPool: () => ({ row }),
-    useWorklistPoolProjection: (read: (pool: object) => unknown) => read({ row }),
+    useWorklistPool: () => ({ row, notSaved: () => false }),
+    useWorklistPoolProjection: (read: (pool: object) => unknown) => read({ row, notSaved: () => false }),
   }
 })
 function boardProps(over: Partial<IssuesKanbanProps> = {}): IssuesKanbanProps {

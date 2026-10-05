@@ -83,13 +83,13 @@ export function createBoardLayout(pool: MobxPool) {
     const ids = matching(key)
     return ids === LOADING ? LOADING : new Set(ids)
   })
-  const root = keyedComputed('IssueBoard.root', (key: string): Loaded<boolean> => {
+  const root = keyedComputed('IssueBoard.root', (key: string): Loaded<0 | 1 | 2> => {
     const [id, queryKey] = JSON.parse(key) as [string, string]
     const ids = members(queryKey)
     if (ids === LOADING) return LOADING
     const first = parent(id)
     if (first === LOADING) return LOADING
-    if (!first || first === id || !ids.has(first)) return true
+    if (!first || first === id || !ids.has(first)) return 1
     // Match the shared tree partition's deterministic cycle fallback. An
     // ordinary child stays nested; the first ID of a cycle becomes its root.
     const path = [id]
@@ -97,14 +97,14 @@ export function createBoardLayout(pool: MobxPool) {
     let next: string | undefined = first
     while (next && ids.has(next)) {
       const at = seen.get(next)
-      if (at !== undefined) return at === 0 && [...path].sort(byId)[0] === id
+      if (at !== undefined) return at === 0 && [...path].sort(byId)[0] === id ? 2 : 0
       seen.set(next, path.length)
       path.push(next)
       const value: Loaded<string> = parent(next)
       if (value === LOADING) return LOADING
       next = value
     }
-    return false
+    return 0
   })
   const sortKey = keyedComputed('IssueBoard.sortKey', (key: string): Loaded<readonly [number, number, string]> => {
     const [id, ordering] = JSON.parse(key) as [string, IssuesOrdering]
@@ -125,7 +125,7 @@ export function createBoardLayout(pool: MobxPool) {
     }
     return ids.sort((a, b) => {
       const left = keys.get(a)!, right = keys.get(b)!
-      return left[0] - right[0] || left[1] - right[1] || right[2].localeCompare(left[2]) || byId(a, b)
+      return left[0] - right[0] || left[1] - right[1] || right[2].localeCompare(left[2])
     }).map(asIssueId)
   }
   const columnIds = keyedComputed('IssueBoard.columnIds', (key: string): Loaded<ReturnType<typeof asIssueId>[]> => {
@@ -139,7 +139,7 @@ export function createBoardLayout(pool: MobxPool) {
     const statuses = options.filter.stage ? [options.filter.stage]
       : options.stage === 'done' ? ['done', 'cancelled', 'duplicate', 'superseded'] : [options.stage]
     const candidates = new Set(statuses.flatMap(stage => pool.queries.ids({ ...questionOf(query), stage })))
-    const ids: string[] = []
+    const ids: string[] = [], cycles: string[] = []
     for (const id of candidates) {
       if (!all.has(id)) continue
       const stage = column(id)
@@ -147,20 +147,22 @@ export function createBoardLayout(pool: MobxPool) {
       if (stage !== options.stage) continue
       const isRoot = root(JSON.stringify([id, queryKey]))
       if (isRoot === LOADING) return LOADING
-      if (isRoot) ids.push(id)
+      if (isRoot === 1) ids.push(id)
+      else if (isRoot === 2) cycles.push(id)
     }
-    return ordered(ids, options.ordering)
+    return ordered([...ids.sort(byId), ...cycles.sort(byId)], options.ordering)
   }, { equals: equalIds })
   const roots = keyedComputed('IssueBoard.rootIds', (key: string): Loaded<ReturnType<typeof asIssueId>[]> => {
     const ids = matching(key)
     if (ids === LOADING) return LOADING
-    const result: ReturnType<typeof asIssueId>[] = []
+    const result: ReturnType<typeof asIssueId>[] = [], cycles: ReturnType<typeof asIssueId>[] = []
     for (const id of ids ?? []) {
       const value = root(JSON.stringify([id, key]))
       if (value === LOADING) return LOADING
-      if (value) result.push(asIssueId(id))
+      if (value === 1) result.push(asIssueId(id))
+      else if (value === 2) cycles.push(asIssueId(id))
     }
-    return result
+    return [...result, ...cycles]
   }, { equals: equalIds })
   const position = keyedComputed('IssueBoard.listPosition', (key: string): Loaded<BoardRowIssue> => {
     const [id, ordering] = JSON.parse(key) as [string, IssuesOrdering]
