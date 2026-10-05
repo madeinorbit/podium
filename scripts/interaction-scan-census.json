@@ -2821,7 +2821,7 @@
       "file": "apps/web/src/app/ApprovalDialog.tsx",
       "holder": "ApprovalDialog/ApprovalDialog/approvals",
       "rule": "reader-summary",
-      "tokens": "1961499a91dc6dc2861fb9bbd5ab141af272158d2f94ed5387e56bfbbf071aa8",
+      "tokens": "ff01c87d1d56536e1489dac13d52398682179013126e704b1d417d30a1f1ea9f",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -2832,7 +2832,7 @@
         "afce9749be5fb199ed965f407a8bbd0591b7f5aa25f197f7a26a1291454385ba",
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77"
       ],
-      "fingerprint": "a970588808a8bd1c740724d8192b4693dd531d9104dfa353601e17f7e7fdbe8a",
+      "fingerprint": "c5a1bc204a5be018ec21b5a7db9d4ca18a695b2ea2239c511e7f8884587bd523",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2871,7 +2871,7 @@
       "file": "apps/web/src/app/AppShell.tsx",
       "holder": "AppBodyView",
       "rule": "reader-summary",
-      "tokens": "b7ce9eb41a68b8de73c7a7ee4bab2845512fe3475302d1c97e46f2f47fcea095",
+      "tokens": "1832d1b30f47904c4a6ba170f1bc90957e49848d2adf80b1d7b530300293b401",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -2882,7 +2882,7 @@
         "afce9749be5fb199ed965f407a8bbd0591b7f5aa25f197f7a26a1291454385ba",
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77"
       ],
-      "fingerprint": "5bd73de89b063b9d2633a2231b78f6329ae449c6d00565e3ac8de332253f3bd7",
+      "fingerprint": "65f7abab9ffaad37a0e6c72b531cb28ae4492ea59d23420ef4a82da6f7d74c93",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2895,7 +2895,7 @@
       "file": "apps/web/src/app/BrowserOpenOverlay.tsx",
       "holder": "BrowserOpenOverlay/BrowserOpenOverlay/resolveSession",
       "rule": "reader-summary",
-      "tokens": "a848d5a587e1e5483912f2f510ac2648ada8d0ca3f1101f33d8f0030d09b6197",
+      "tokens": "35c0d6132963ff5a9a5fdb7ce603f7d9e579523931462f663eccbf08d87b3c9c",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -2906,7 +2906,7 @@
         "afce9749be5fb199ed965f407a8bbd0591b7f5aa25f197f7a26a1291454385ba",
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77"
       ],
-      "fingerprint": "7c3d86162c34cb48a81926475d10385da53757d4041825385accf5e26eb7fb47",
+      "fingerprint": "7e0fe42137a3bf80112425ba6a06a847becab1583e40505377ae8a3cf2ad8a11",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5226,7 +5226,7 @@
       "file": "apps/web/src/app/MachinesPanel.tsx",
       "holder": "MachinesPanelView/machines",
       "rule": "reader-summary",
-      "tokens": "74abbc705bf5361d76a349467b5289cb9a34a8fe58265667ffc7b81c87f83e45",
+      "tokens": "3a9cfa3533bf111ac850103bce890b1c70c26ec9ff10d1ce0cbeb2eb8e121a48",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -5239,7 +5239,7 @@
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77",
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
-      "fingerprint": "ff63567250839630fd1ff4701a3d9b72937a830179eac73bd1b4fbb3be25bfdb",
+      "fingerprint": "f7491317088620b4da3de89a53b3dd5985272e8bd81f0d64d535be35a45e16da",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5680,7 +5680,7 @@
       "file": "apps/web/src/app/RightDock.tsx",
       "holder": "RightDock/RightDock",
       "rule": "reader-summary",
-      "tokens": "a4487a720e79cb547f39d6cf23afae97638bb01dcaa2e87b6f64a821bca31a98",
+      "tokens": "40473d36e86ea33652d7a9c2a1f4a0be773d30b57e4b70b093afce455d9d2dd9",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -5693,7 +5693,7 @@
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77",
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
-      "fingerprint": "0897b2b562538a8d712aa31bacb5660bdf4f7e303c41539046bf3ad2ecbe7567",
+      "fingerprint": "a46b64caf09dde96cce19bcd733e9f2bd9ebb2674b73d854992cbe1dc777136d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5706,7 +5706,7 @@
       "file": "apps/web/src/app/RightRail.tsx",
       "holder": "RightRail/RightRail/shipping",
       "rule": "reader-summary",
-      "tokens": "29a3e5afd1d2c1da3a7d7b48e04b1ed9bcf110a81037883ec6e75c8a4289179b",
+      "tokens": "e5d10c9c30382758fe1777d6510258eb6387acabd338a2d690207bc0e6304b22",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -5717,7 +5717,7 @@
         "afce9749be5fb199ed965f407a8bbd0591b7f5aa25f197f7a26a1291454385ba",
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77"
       ],
-      "fingerprint": "0a94692b8b6e770ed863e758e8c9c8bd90656208a0228e69c2dfc6452d4592e4",
+      "fingerprint": "b87458db2c32a78bdcb65e4da2a2e51898e57c54cd08f2c7d10b88caddca4143",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -5772,7 +5772,7 @@
       "file": "apps/web/src/app/use-desktop-close-tab.ts",
       "holder": "useDesktopCloseTab/data",
       "rule": "reader-summary",
-      "tokens": "2e611ad39aa02604b79711cb29465acfa3dc2bc2e03ecb3310f4084864c12970",
+      "tokens": "07a3264e1a6ddc84f3425fffd19da93ba7ec21498848dcebc8473ff047aeaba0",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
@@ -5783,7 +5783,7 @@
         "afce9749be5fb199ed965f407a8bbd0591b7f5aa25f197f7a26a1291454385ba",
         "d27a000bb6b2761dd0b531c9fae18f8f9670429d0c38d440e6ec3ed9cbdeff77"
       ],
-      "fingerprint": "e9a4916bda2dee5bbafd56a782a0de42cede5d6a54ca7e277327df40ce825336",
+      "fingerprint": "367969e810c081a9fde717fce5d85af46022a681583a3f86c55dc629dd1d9f2f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
