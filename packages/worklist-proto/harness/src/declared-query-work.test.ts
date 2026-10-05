@@ -278,7 +278,7 @@ async function measured(
                   .ids({ kind: 'pageIssues' })
                   .sort()
                   .map((id) => page.summary(id))
-    return { work: result.work, identical: compareStructural(expected, actual) }
+    return { work: result.work, identical: compareStructural(expected, actual), expected, actual }
   } finally {
     stop()
     vi.restoreAllMocks()
@@ -300,6 +300,8 @@ describe('pool screens work ratios: declared query incrementality', () => {
   ] as const)('%s stays flat and rejects a real full rebuild with identical output', async (mechanism) => {
     const one = await measured(1, mechanism),
       four = await measured(4, mechanism)
+    expect(one.actual).toEqual(one.expected)
+    expect(four.actual).toEqual(four.expected)
     expect(one.identical && four.identical).toBe(true)
     assertScreenWork(screenWorkVerdicts(cells(one.work), cells(four.work)))
     const plantedOne = await measured(1, mechanism, 'scan'),
@@ -379,7 +381,10 @@ describe('pool screens work ratios: declared query screen counters', () => {
       /IssueBoard@index:/,
       /^consumer:session-pane/,
     ])
-      expect(judged.some((value) => pattern.test(value.reader) && value.at1x > 0)).toBe(true)
+      expect(
+        judged.some((value) => pattern.test(value.reader) && value.at1x > 0),
+        `No measured work at 1x for ${pattern}`,
+      ).toBe(true)
     const dir = join(import.meta.dirname, '..', 'browser', 'results')
     mkdirSync(dir, { recursive: true })
     writeFileSync(
