@@ -1,6 +1,6 @@
 import type { IssueId, SessionId } from '@podium/model/browser'
-import { describe, expect, it } from 'vitest'
-import { findLinkedIssue, type LinkIssueLike, resolvePodiumTarget } from './podium-link-open'
+import { describe, expect, it, vi } from 'vitest'
+import { type LinkIssueLike, resolvePodiumTarget } from './podium-link-open'
 
 const issue = (over: Partial<LinkIssueLike> = {}): LinkIssueLike => ({
   id: 'iss_abc' as IssueId,
@@ -26,27 +26,28 @@ const issue = (over: Partial<LinkIssueLike> = {}): LinkIssueLike => ({
 
 const issues = [issue()]
 const sessions = [{ sessionId: 'sess_1' as SessionId, displayRef: 'POD-1606-A' }]
-const context = { issues, sessions }
-
-describe('findLinkedIssue', () => {
-  it('takes the internal id the app writes into its own URLs', () => {
-    expect(findLinkedIssue('iss_abc', issues)?.id).toBe('iss_abc')
-  })
-
-  it('takes the ref a person actually has in their hand', () => {
-    expect(findLinkedIssue('POD-1606', issues)?.id).toBe('iss_abc')
-  })
-
-  it('matches prefix + seq when the row predates displayRef', () => {
-    expect(findLinkedIssue('POD-1606', [issue({ displayRef: undefined })])?.id).toBe('iss_abc')
-  })
-
-  it('does not invent an issue this replica has not seen', () => {
-    expect(findLinkedIssue('POD-9999', issues)).toBeUndefined()
-  })
-})
+function namedContext(rows: readonly LinkIssueLike[] = issues) {
+  const namedIssues = new Map(rows.flatMap(row => [
+    [row.id, row], [row.displayRef ?? `${row.prefix}-${row.seq}`, row],
+  ] as const))
+  const namedSessions = new Map(sessions.flatMap(row => [[row.sessionId, row], [row.displayRef, row]] as const))
+  return {
+    issue: (identifier: string) => namedIssues.get(identifier) ?? namedIssues.get(identifier.trim()),
+    session: (identifier: string) => namedSessions.get(identifier) ?? namedSessions.get(identifier.trim()),
+  }
+}
+const context = namedContext()
 
 describe('resolvePodiumTarget', () => {
+  it('does not demand data for files, views or unsupported details', () => {
+    const named = { issue: vi.fn(), session: vi.fn() }
+    resolvePodiumTarget({ kind: 'file', path: 'a.ts', root: '/w' }, named)
+    resolvePodiumTarget({ kind: 'view', path: '/usage', search: '', hash: '' }, named)
+    resolvePodiumTarget({ kind: 'issue', issue: 'POD-1', hash: '#detail' }, named)
+    resolvePodiumTarget({ kind: 'session', session: 'POD-1-A', search: '?server=elsewhere' }, named)
+    expect(named.issue).not.toHaveBeenCalled()
+    expect(named.session).not.toHaveBeenCalled()
+  })
   it('opens an issue as a view', () => {
     expect(resolvePodiumTarget({ kind: 'issue', issue: 'POD-1606' }, context)).toEqual({
       kind: 'issue',
@@ -116,13 +117,13 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'index.html' },
-        { issues: legacy, sessions },
+        namedContext(legacy),
       ),
     ).toMatchObject({ path: 'index.html' })
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: 'source.md' },
-        { issues: legacy, sessions },
+        namedContext(legacy),
       ),
     ).toBeNull()
   })
@@ -134,7 +135,7 @@ describe('resolvePodiumTarget', () => {
     expect(
       resolvePodiumTarget(
         { kind: 'artifact', issue: 'POD-1606', artifactId: 'art1', entry: null },
-        { issues: rows, sessions },
+        namedContext(rows),
       ),
     ).toMatchObject({ path: 'proof.html' })
   })

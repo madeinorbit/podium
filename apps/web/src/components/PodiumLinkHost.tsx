@@ -16,14 +16,14 @@ import {
   systemBrowserPodiumHref,
 } from '@/lib/podium-link'
 import { handlePodiumLinkAuxClick, handlePodiumLinkContextMenu } from '@/lib/podium-link-click'
-import { findLinkedIssue, resolvePodiumTarget } from '@/lib/podium-link-open'
+import { resolvePodiumTarget } from '@/lib/podium-link-open'
 
 export const PODIUM_LINK_RESOLUTION_TIMEOUT_MS = 5_000
 export const PODIUM_LINK_QUEUE_CAPACITY = 32
-const EMPTY_LINK_ROWS: never[] = []
 
 interface PendingPodiumHref {
   href: string
+  target: PodiumTarget | null
   expiresAt: number | null
   acknowledge: () => void
   nativeOwned: boolean
@@ -34,7 +34,8 @@ function pendingPodiumHref(
   acknowledge = (): void => {},
   nativeOwned = false,
 ): PendingPodiumHref {
-  return { href, expiresAt: null, acknowledge, nativeOwned }
+  const link = classifyPodiumLink(href)
+  return { href, target: link?.kind === 'internal' ? link.target : null, expiresAt: null, acknowledge, nativeOwned }
 }
 
 /**
@@ -69,7 +70,7 @@ function PodiumLinkHostView({
     openArtifact,
     openFileInWorktree,
   } = useShellActions()
-  const { readIssues, readSessions, artifactIssue } = useShellLinks()
+  const { readIssue, readSession, artifactIssue } = useShellLinks()
   // Manifests use the existing batched loader. A click accepted while its row
   // is cold is retried locally; native URLs retain their acknowledgement queue.
   const [artifactDemands, setArtifactDemands] = useState<
@@ -82,15 +83,31 @@ function PodiumLinkHostView({
     initialHref ? [pendingPodiumHref(initialHref, () => onInitialHrefConsumed?.())] : [],
   )
   const [pendingRevision, setPendingRevision] = useState(0)
-  // Idle registration does not retain the global catalogues. Pending native
-  // URLs still observe arriving rows so hydration retries the queue.
-  const issues =
-    pendingHrefs.current.length || browserArtifacts.current.length ? readIssues() : EMPTY_LINK_ROWS
-  const sessions = pendingHrefs.current.length ? readSessions() : EMPTY_LINK_ROWS
+  // MobX subscriptions belong to render. Only the FIFO head and accepted
+  // browser artifact targets demand data; file/view/unsupported URLs do not.
+  const head = pendingHrefs.current[0]
+  const observeTarget = (target: PodiumTarget | null) => {
+    if (!target || hasUnsupportedTypedDetail(target)) return undefined
+    if (target.kind === 'session') return readSession(target.session)
+    if (target.kind === 'issue') return readIssue(target.issue)
+    if (target.kind !== 'artifact') return undefined
+    const issue = readIssue(target.issue)
+    return issue ? artifactIssue(issue.id) : undefined
+  }
+  const headRow = observeTarget(head?.target ?? null)
+  const browserRows = browserArtifacts.current.map(pending => observeTarget(pending.target))
 
   useEffect(() => {
     setKnownPodiumOrigins(httpOrigin ? [httpOrigin] : [])
     if (httpOrigin) canonicalizePodiumAnchors(document)
+    const pending = pendingHrefs.current[0]
+    if (pending && !pending.target) {
+      const link = classifyPodiumLink(pending.href)
+      if (link?.kind === 'internal') {
+        pending.target = link.target
+        setPendingRevision(value => value + 1)
+      }
+    }
   }, [httpOrigin])
 
   // Middle-click and context menus do not dispatch an ordinary click. The
@@ -113,10 +130,10 @@ function PodiumLinkHostView({
 
   useEffect(() => {
     setPodiumTargetActivator((target) => {
-      let targets =
-        target.kind === 'issue' || target.kind === 'artifact' ? readIssues() : EMPTY_LINK_ROWS
+      if (hasUnsupportedTypedDetail(target)) return false
+      let artifactTarget: ReturnType<typeof artifactIssue>
       if (target.kind === 'artifact') {
-        const linked = findLinkedIssue(target.issue, targets)
+        const linked = readIssue(target.issue)
         const full = linked ? artifactIssue(linked.id) : undefined
         if (linked && !full) {
           if (artifactDemands.length >= PODIUM_LINK_QUEUE_CAPACITY * 2) return false
@@ -139,11 +156,11 @@ function PodiumLinkHostView({
           })
           return true
         }
-        if (full) targets = [full]
+        artifactTarget = full
       }
       const open = resolvePodiumTarget(target, {
-        issues: targets,
-        sessions: target.kind === 'session' ? readSessions() : EMPTY_LINK_ROWS,
+        issue: target.kind === 'artifact' ? () => artifactTarget : readIssue,
+        session: readSession,
       })
       // FALSE, NOT SILENCE. Everything below reports whether it opened
       // something; the caller cancels the anchor only on true, so an address
@@ -195,10 +212,11 @@ function PodiumLinkHostView({
     const waiting = browserArtifacts.current
     if (!waiting.length) return
     let deadline = Infinity
+    let removed = false
     for (const pending of [...waiting]) {
       const issue =
         pending.target.kind === 'artifact'
-          ? findLinkedIssue(pending.target.issue, issues)
+          ? readIssue(pending.target.issue)
           : undefined
       const full = issue ? artifactIssue(issue.id) : undefined
       if (!full && pending.expiresAt > Date.now()) {
@@ -206,6 +224,7 @@ function PodiumLinkHostView({
         continue
       }
       waiting.splice(waiting.indexOf(pending), 1)
+      removed = true
       const href = podiumTargetPath(pending.target)
       // A missing manifest has the same browser fallback as a resident invalid
       // link, rather than disappearing after we accepted its initial click.
@@ -218,6 +237,7 @@ function PodiumLinkHostView({
       }
       if (!activated) window.location.assign(systemBrowserPodiumHref(href) ?? href)
     }
+    if (removed) setPendingRevision(value => value + 1)
     if (Number.isFinite(deadline)) {
       const retry = window.setTimeout(
         () => setPendingRevision((value) => value + 1),
@@ -225,7 +245,7 @@ function PodiumLinkHostView({
       )
       return () => window.clearTimeout(retry)
     }
-  }, [issues, demandedArtifacts, pendingRevision, artifactIssue])
+  }, [browserRows, demandedArtifacts, pendingRevision, artifactIssue])
 
   // Startup addresses are captured before createRouter can normalize its
   // unknown path to /workspace. Keep retrying while replica rows arrive: refs,
@@ -239,6 +259,7 @@ function PodiumLinkHostView({
   useEffect(() => {
     if (!replicaReady) return
     const now = Date.now()
+    let advanced = false
     for (const pending of pendingHrefs.current) {
       pending.expiresAt ??= now + PODIUM_LINK_RESOLUTION_TIMEOUT_MS
     }
@@ -255,19 +276,21 @@ function PodiumLinkHostView({
       if (activated || (pending.expiresAt !== null && pending.expiresAt <= now)) {
         pendingHrefs.current.shift()
         pending.acknowledge()
+        advanced = true
         continue
       }
       if (pending.expiresAt === null) return
+      // The next cold head needs its own render subscription, even when the
+      // effect stops before the queue becomes empty.
+      if (advanced) setPendingRevision(value => value + 1)
       const retry = window.setTimeout(
         () => setPendingRevision((value) => value + 1),
         pending.expiresAt - now,
       )
       return () => window.clearTimeout(retry)
     }
-    // Release pending catalogue observations after the final URL resolves.
-    if (issues !== EMPTY_LINK_ROWS || sessions !== EMPTY_LINK_ROWS)
-      setPendingRevision((value) => value + 1)
-  }, [issues, sessions, pendingRevision, replicaReady, demandedArtifacts])
+    if (advanced) setPendingRevision((value) => value + 1)
+  }, [headRow, pendingRevision, replicaReady, demandedArtifacts])
 
   useEffect(() => {
     const now = Date.now()

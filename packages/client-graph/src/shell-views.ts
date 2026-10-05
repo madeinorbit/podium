@@ -96,6 +96,14 @@ export function createShellViews(pool: MobxPool) {
       return values
     })
   }
+  function linkedIssue(identifier: string): Loaded<ShellIssue> {
+    const id = pool.queries.linkedIssueId(identifier)
+    return id === undefined ? undefined : issue(id)
+  }
+  function linkedSession(identifier: string): Loaded<SessionView> {
+    const id = pool.queries.linkedSessionId(identifier)
+    return id === undefined ? undefined : session(id)
+  }
   function session(id: string): Loaded<SessionView> {
     if (pool.queries.collapsed(id)) return undefined
     const row = pool.row('session', id, 'summary')
@@ -390,6 +398,8 @@ export function createShellViews(pool: MobxPool) {
     lanes,
     sessions,
     session,
+    linkedIssue,
+    linkedSession,
     issues,
     issue,
     machines,

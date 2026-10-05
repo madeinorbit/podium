@@ -72,19 +72,18 @@ export function useShellApprovals() {
 const EMPTY_APPROVALS: Store['approvals'] = []
 
 const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
-const EMPTY_ISSUES: IssueViewModel[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellViews(pool) : null
   return useMemo(
     () => ({
-      readSessions: () => {
-        const sessions = views?.sessions()
-        return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
+      readSession: (identifier: string) => {
+        const session = views?.linkedSession(identifier)
+        return session && session !== LOADING ? session : undefined
       },
-      readIssues: () => {
-        const issues = views?.issues()
-        return issues && issues !== LOADING ? issues : EMPTY_ISSUES
+      readIssue: (identifier: string) => {
+        const issue = views?.linkedIssue(identifier)
+        return issue && issue !== LOADING ? issue : undefined
       },
       artifactIssue: (id: string) => {
         const row = views?.issue(id, true)

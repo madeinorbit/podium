@@ -22,7 +22,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { parseRoute } from '@podium/client-core/ui-state'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
-import { isSessionIdPrefix, parseIssueRef, resolveSessionIdentifier } from '@podium/protocol'
+import { isSessionIdPrefix } from '@podium/protocol'
 import { hasUnsupportedTypedDetail } from './podium-link'
 
 /** The fields of an issue this module needs; the replica's rows satisfy it. */
@@ -68,28 +68,17 @@ function basename(path: string): string {
  * agent writes `POD-1606` because that is what it says everywhere else, and the
  * app's own URLs carry `iss_…`.
  */
-export function findLinkedIssue(
-  identifier: string,
-  issues: readonly LinkIssueLike[],
-): LinkIssueLike | undefined {
-  const direct = issues.find((issue) => issue.id === identifier)
-  if (direct) return direct
-  const trimmed = identifier.trim()
-  const byDisplay = issues.find((issue) => issue.displayRef === trimmed)
-  if (byDisplay) return byDisplay
-  const ref = parseIssueRef(trimmed)
-  if (!ref) return undefined
-  return issues.find((issue) => issue.prefix === ref.prefix && issue.seq === ref.seq)
-}
-
 export function resolvePodiumTarget(
   target: PodiumTarget,
-  context: { issues: readonly LinkIssueLike[]; sessions: readonly LinkSessionLike[] },
+  context: {
+    issue(identifier: string): LinkIssueLike | undefined
+    session(identifier: string): LinkSessionLike | undefined
+  },
 ): PodiumOpen | null {
   switch (target.kind) {
     case 'issue': {
       if (hasUnsupportedTypedDetail(target)) return null
-      const issue = findLinkedIssue(target.issue, context.issues)
+      const issue = context.issue(target.issue)
       return issue ? { kind: 'issue', issueId: issue.id } : null
     }
     case 'session': {
@@ -97,7 +86,7 @@ export function resolvePodiumTarget(
       // `navigateToSession` is deliberately inert for an unknown row. Resolve
       // with the same shared helper first so the activator reports false when
       // no navigation will happen and the anchor keeps its fallback behavior.
-      const session = resolveSessionIdentifier(target.session, context.sessions)
+      const session = context.session(target.session)
       if (session) return { kind: 'session', sessionIdOrRef: session.sessionId }
       // A short id this client cannot match is NOT inert: navigateToSession asks
       // the server (POD-4637), which opens it or says why it cannot.
@@ -107,7 +96,7 @@ export function resolvePodiumTarget(
     }
     case 'artifact': {
       if (hasUnsupportedTypedDetail(target)) return null
-      const issue = findLinkedIssue(target.issue, context.issues)
+      const issue = context.issue(target.issue)
       if (!issue) return null
       const artifact = issue.panel?.artifacts?.find(
         (entry) => entry.artifactId === target.artifactId,

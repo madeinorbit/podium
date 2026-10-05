@@ -12,6 +12,7 @@ interface TimedTriageSession extends TriageSession { deadline: number }
 interface RecentSession { id: string; at: string }
 interface Activity { id: string; at: number }
 interface CloseMember extends IssueCloseMemberCounts { issueId: string }
+interface ReferenceSession { id: string; order: string }
 const NO_CLOSE_MEMBERS: IssueCloseMemberCounts = Object.freeze({ offers: 0, working: 0 })
 export interface SessionQuestionFacts {
   id: string
@@ -28,6 +29,7 @@ export interface SessionQuestionFacts {
   issueId?: string
   closeOffers: boolean
   closeWorking: boolean
+  displayRef?: string
 }
 interface Bucket<T> { id: string; answer: KeyedAnswer<T> }
 interface Seed {
@@ -41,6 +43,7 @@ interface Seed {
   expired: KeyedAnswer<TimedTriageSession>
   closeMembers: KeyedAnswer<CloseMember>
   closeCounts: KeyedAnswer<IssueCloseMemberCounts>
+  references: KeyedAnswer<Bucket<ReferenceSession>>
   version: number
   replacement: number
 }
@@ -63,6 +66,7 @@ export interface SessionQuestions {
   activity(question: SessionActivityQuestion): number
   activityRevision(question: SessionActivityQuestion): number
   issueCloseCounts(issueId: string): IssueCloseMemberCounts
+  referenceId(ref: string): string | undefined
 }
 export const compareTriageSessions = (a: TriageSession, b: TriageSession) =>
   a.rank - b.rank || b.at.localeCompare(a.at) ||
@@ -73,6 +77,8 @@ export const compareMachineSessions = (a: MachineSession, b: MachineSession) =>
 const compareRecent = (a: RecentSession, b: RecentSession) =>
   a.at > b.at ? -1 : a.at < b.at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const compareActivity = (a: Activity, b: Activity) => b.at - a.at
+const compareReference = (a: ReferenceSession, b: ReferenceSession) =>
+  a.order < b.order ? -1 : a.order > b.order ? 1 : a.id.localeCompare(b.id)
 function paths(cwd: string): string[] {
   const out = new Set([`exact:${cwd}`, `within:${cwd}`])
   for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) out.add(`within:${cwd.slice(0, at)}`)
@@ -82,7 +88,7 @@ function same(a: SessionQuestionFacts | undefined, b: SessionQuestionFacts | und
   return a === b || (!!a && !!b && a.rank === b.rank && a.at === b.at &&
     a.activity === b.activity && a.createdAt === b.createdAt && a.machineId === b.machineId &&
     a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order &&
-    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking)
+    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.displayRef === b.displayRef)
 }
 
 /** Persistent declared scalar questions. Source and pool share immutable
@@ -103,6 +109,7 @@ export function createSessionQuestions(
   let expired = seed?.expired.fork() ?? createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
   let closeMembers = seed?.closeMembers.fork() ?? createKeyedAnswer<CloseMember>()
   let closeCounts = seed?.closeCounts.fork() ?? createKeyedAnswer<IssueCloseMemberCounts>()
+  let references = seed?.references.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
   let visits = 0, activityVisits = 0
   const touch = (key: string) => revisions.set(key, key, ++version)
@@ -137,6 +144,8 @@ export function createSessionQuestions(
   function file(value: SessionQuestionFacts) {
     fileClose(value.id, value)
     const visible = !collapsed(value.id)
+    if (value.displayRef) bucket(references, `ref:${value.displayRef}`, value.id,
+      visible ? { id: value.id, order: value.order } : undefined, compareReference)
     const next = value.rank === null || !visible ? undefined : {
       id: value.id, rank: value.rank, createdAt: value.createdAt, at: value.at,
     }
@@ -167,6 +176,8 @@ export function createSessionQuestions(
   function setFacts(id: string, next: SessionQuestionFacts | undefined) {
     const before = facts.get(id)
     if (same(before, next)) return
+    if (before?.displayRef && before.displayRef !== next?.displayRef)
+      bucket(references, `ref:${before.displayRef}`, id, undefined, compareReference)
     if (before?.machineId && before.machineId !== next?.machineId)
       bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
     const nextPaths = next ? new Set(paths(next.cwd)) : undefined
@@ -188,7 +199,7 @@ export function createSessionQuestions(
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
-      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, version, replacement }),
+      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, version, replacement }),
     clear() {
       facts = createKeyedAnswer<SessionQuestionFacts>()
       triage = createKeyedAnswer<TriageSession>(compareTriageSessions)
@@ -200,6 +211,7 @@ export function createSessionQuestions(
       expired = createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
       closeMembers = createKeyedAnswer<CloseMember>()
       closeCounts = createKeyedAnswer<IssueCloseMemberCounts>()
+      references = createKeyedAnswer<Bucket<ReferenceSession>>()
       replacement = ++version
     },
     set(id, row) {
@@ -216,11 +228,13 @@ export function createSessionQuestions(
         issueId: typeof row.issueId === 'string' ? row.issueId : undefined,
         closeOffers: !row.archived && row.agentKind !== 'shell' && !!row.offer,
         closeWorking: !row.archived && row.agentKind !== 'shell' && isSessionWorking(row as unknown as SessionView),
+        displayRef: typeof row.displayRef === 'string' ? row.displayRef : undefined,
       })
     },
     setFacts,
     fact: id => facts.get(id),
     issueCloseCounts: id => closeCounts.get(id) ?? NO_CLOSE_MEMBERS,
+    referenceId(ref) { visits++; return references.get(`ref:${ref}`)?.answer.first()?.id },
     visibilityChanged(id) {
       const value = facts.get(id)
       if (!value) return

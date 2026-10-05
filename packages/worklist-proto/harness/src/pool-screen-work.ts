@@ -389,11 +389,12 @@ async function measureScreenCells(
       occupancy: pool.headerViews.occupancyKey(),
     }))
     add('shell.chrome', ['AppBody', 'AppShell'], () => shell.chrome())
-    add('shell.dock', ['AppShell', 'BrowserOpenOverlay'], () => shell.dock())
-    add('shell.links', ['PodiumLinkHost', 'RefMiniview', 'BrowserOpenOverlay'], () => ({
-      sessions: shell.sessions(),
-      issues: shell.issues(),
-    }))
+    add('shell.dock', ['AppShell'], () => shell.dock())
+    // These actions do not deliver URLs or open a browser target. The real
+    // always-mounted hosts retain no catalog/row demand in that state. Their
+    // addressed activation and pending-target guards run against the apps.
+    add('shell.links', ['PodiumLinkHost'], () => undefined)
+    add('shell.browserOpen', ['BrowserOpenOverlay'], () => undefined)
     add('shell.close', ['AppShell'], () => shell.close())
     add('shell.catalogs', ['AppShell'], () => ({
       machines: shell.machines(),

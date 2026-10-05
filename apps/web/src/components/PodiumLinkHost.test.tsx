@@ -11,6 +11,7 @@ const hostStore = vi.hoisted(() => {
     { id: 'iss_two', prefix: 'POD', seq: 1711, displayRef: 'POD-1711' },
   ]
   let issues = [...allIssues]
+  let namedIssues = new Map(issues.flatMap(row => [[row.id, row], [row.displayRef, row]] as const))
   let revision = 0
   const listeners = new Set<() => void>()
   return {
@@ -20,6 +21,7 @@ const hostStore = vi.hoisted(() => {
     },
     set issues(rows: typeof issues) {
       issues = rows
+      namedIssues = new Map(rows.flatMap(row => [[row.id, row], [row.displayRef, row]] as const))
       revision++
       for (const listener of listeners) listener()
     },
@@ -35,6 +37,9 @@ const hostStore = vi.hoisted(() => {
     openFileInWorktree: vi.fn(),
     readIssues: vi.fn(),
     readSessions: vi.fn(),
+    readIssue: vi.fn(),
+    readSession: vi.fn(),
+    namedIssue: (identifier: string) => namedIssues.get(identifier) ?? namedIssues.get(identifier.trim()),
   }
 })
 
@@ -52,8 +57,8 @@ vi.mock('@/app/shell-data', async () => {
     useShellLinks: () => {
       useSyncExternalStore(hostStore.subscribe, hostStore.snapshot)
       return {
-        readIssues: hostStore.readIssues,
-        readSessions: hostStore.readSessions,
+        readIssue: hostStore.readIssue,
+        readSession: hostStore.readSession,
         artifactIssue: () => undefined,
       }
     },
@@ -65,6 +70,7 @@ import {
   PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
   PodiumLinkHost,
 } from './PodiumLinkHost'
+import { setKnownPodiumOrigins } from '@/lib/podium-link'
 
 interface NativeOpenWindow extends Window {
   __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
@@ -89,6 +95,8 @@ describe('PodiumLinkHost native delivery', () => {
     vi.clearAllMocks()
     hostStore.readIssues.mockImplementation(() => hostStore.issues)
     hostStore.readSessions.mockReturnValue([])
+    hostStore.readIssue.mockImplementation(hostStore.namedIssue)
+    hostStore.readSession.mockReturnValue(undefined)
     hostStore.issues = [hostStore.allIssues[1]!]
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -139,6 +147,17 @@ describe('PodiumLinkHost native delivery', () => {
     hostStore.issues = [...hostStore.allIssues]
     act(() => root.render(<PodiumLinkHost />))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(2)
+  })
+
+  it('observes an absolute initial target after the active origin is registered', () => {
+    setKnownPodiumOrigins([])
+    hostStore.issues = []
+    act(() => root.render(<PodiumLinkHost initialHref="http://127.0.0.1:18787/issues/POD-1710" />))
+    expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
+    const before = hostStore.readIssue.mock.calls.length
+    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    expect(hostStore.readIssue.mock.calls.length).toBeGreaterThan(before)
+    expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
   })
 
   it('expires an unavailable head and delivers the next URL once', () => {
