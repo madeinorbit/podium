@@ -28,7 +28,17 @@ function fixture(scale: number) {
   return { pool, sessions }
 }
 function click(pool: MobxPool, selectedIssueId: string) {
-  return readMissionPane(pool, { selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full', handoff: false })
+  const value = readMissionPane(pool, { selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full', handoff: false })
+  if (value !== LOADING && value.mission.deck) {
+    const deck = value.mission.deck, ids = deck.rowIds()
+    if (ids === LOADING) return LOADING
+    // The actual spine consumes rich values only for mounted task bands.
+    for (const id of ids.slice(0, VISIBLE)) {
+      const row = deck.model(id)
+      void row.issue; void row.title; void row.presentation; void row.sessions; void row.rollup
+    }
+  }
+  return value
 }
 
 it('records first click and revisit once at 1x and 4x', () => {
@@ -75,4 +85,26 @@ it('a heartbeat leaves mission shape and unchanged counts observed without reder
       value: { ...sessions[1]!, lastActiveAt: '2026-10-01T12:00:01Z' } }] }))
     expect(reader.stats.values - before).toBe(0)
   } finally { stop(); pool.dispose() }
+})
+
+
+it('recomputes only the changed issue and its ancestors, and stops unchanged scalar counts', () => {
+  const { pool, sessions } = fixture(4)
+  const reader = missionView(pool), deck = reader.deck('root')
+  const publications: unknown[] = []
+  const stop = autorun(() => { publications.push({ ids: deck.rowIds(), rollup: deck.model('root').rollup }) })
+  const ran: string[] = []
+  reader.stats.onRollup = id => ran.push(id)
+  try {
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId,
+      value: { ...sessions[1]!, lastActiveAt: '2026-10-01T12:00:01Z' } }] })
+    expect(new Set(ran)).toEqual(new Set(['child-0001']))
+    expect(publications).toHaveLength(1)
+    ran.length = 0
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId,
+      value: { ...sessions[1]!, agentState: { phase: 'idle' } } }] })
+    expect(new Set(ran)).toEqual(new Set(['child-0001', 'root']))
+    expect(publications).toHaveLength(2)
+    expect(deck.model('root').workingAgentCount).toBe(512)
+  } finally { reader.stats.onRollup = undefined; stop(); pool.dispose() }
 })

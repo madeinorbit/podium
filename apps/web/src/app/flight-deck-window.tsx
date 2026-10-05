@@ -1,3 +1,4 @@
+import { observer } from '@podium/client-graph/react'
 import type { JSX, RefCallback, RefObject } from 'react'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -410,7 +411,7 @@ function rowAt(ends: readonly number[], offset: number): number {
 /** Searchable text costs one inert element per unmounted row, not a component
  * tree/menu per row. Native find reveals it through beforematch or its scroll. The focus
  * sentinel keeps ordinary Tab traversal reaching rows outside the window. */
-export function DeckRowPlaceholder({
+export const DeckRowPlaceholder = observer(function DeckRowPlaceholder({
   row,
   window: deckWindow,
 }: {
@@ -459,4 +460,4 @@ export function DeckRowPlaceholder({
       )}
     </div>
   )
-}
+})

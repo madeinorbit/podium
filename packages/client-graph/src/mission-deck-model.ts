@@ -56,6 +56,7 @@ interface DeckTopology {
   readonly children: ReadonlyMap<string, readonly string[]>
   readonly parent: ReadonlyMap<string, string>
   readonly overlap: boolean
+  readonly depths: ReadonlyMap<string, number>
 }
 const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopology | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
@@ -104,7 +105,14 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
     visiting.delete(id); visited.add(id)
   }
   for (const id of scope) visit(id)
-  return { scope, children, parent, overlap }
+  const depths = new Map<string, number>()
+  const depthOf = (id: string, depth: number) => {
+    if (depths.has(id)) return
+    depths.set(id, depth)
+    for (const child of children.get(id) ?? []) depthOf(child, depth + 1)
+  }
+  depthOf(deck.id, 0)
+  return { scope, children, parent, overlap, depths }
 }))
 
 type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting'
@@ -115,6 +123,7 @@ const ownCount = (name: Count) => cachedGroup(`deck.own.${name}`, (row: MissionD
   if (name === 'tasks') return 1
   if (name === 'done') return Number(issueClosed(facts) && !issueAbandoned(facts))
   if (name === 'run') return Number(!isFinished(facts) && (underway(facts.stage) || facts.stage === 'review'))
+  row.view.stats.onRollup?.(row.id)
   const crew = row.sessions
   if (name === 'live') return crew.filter(sessionPresentOnTask).length
   if (name === 'working') return crew.filter(session => sessionPresentOnTask(session) && motionPhase(session) === 'working').length
@@ -144,22 +153,32 @@ const childrenOf = cachedGroup('deck.children', (row: MissionDeckIssueModel) => 
   const shape = row.deck.topology
   return shape === LOADING ? LOADING : shape.children.get(row.id) ?? []
 })
+const crewIds = cachedGroup('deck.crewIds', (row: MissionDeckIssueModel) => {
+  const { view, facts } = row
+  return [...view.pool.graph.many('issue', row.id, 'missionSessions')].filter(id => view.sessionRoster(id)).sort((a, b) =>
+    Number(b === facts.coordinatorSessionId) - Number(a === facts.coordinatorSessionId) ||
+    view.sessionCreatedAt(a).localeCompare(view.sessionCreatedAt(b)) || a.localeCompare(b))
+})
+const hasPayload = cachedGroup('deck.hasPayload', (row: MissionDeckIssueModel) => requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0)
+const hasLead = cachedGroup('deck.hasLead', (row: MissionDeckIssueModel) => Boolean(row.facts.coordinatorSessionId &&
+  row.crewIds.includes(row.facts.coordinatorSessionId) && row.view.sessionOpen(row.facts.coordinatorSessionId)))
+const presentation = cachedGroup('deck.presentation', (row: MissionDeckIssueModel) => row.view.presentation(row.issue, row.sessions))
 const crewOf = cachedGroup('deck.crew', (row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
 const matchedWorking = cachedGroup('deck.matches.working', (row: MissionDeckIssueModel) => row.sessions.some(sessionAtWork))
 const matchedNeedsYou = cachedGroup('deck.matches.needsYou', (row: MissionDeckIssueModel) => own.needsYou(row) > 0)
-const collapsedCrew = cachedGroup('deck.collapsedCrew', (row: MissionDeckIssueModel) => {
+const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = cachedGroup('deck.collapsedCrew', (row: MissionDeckIssueModel): SessionView[] => {
   const seen = new Set<string>(), candidates: SessionView[] = []
   const rank = (session: SessionView) => sessionPresentOnTask(session) && motionPhase(session) === 'working' ? 0 : sessionSettled(session) ? 2 : 1
-  for (const id of [row.id, ...row.descendantIds]) {
-    for (const session of row.deck.model(id).sessions) {
+  const shape = requireLoaded(row.deck.topology)
+  const groups = shape.overlap ? [row.sessions, ...row.descendantIds.map(id => row.deck.model(id).sessions)] :
+    [row.sessions, ...requireLoaded(row.deckChildren).map(id => collapsedCrew(row.deck.model(id)))]
+  for (const crew of groups) {
+    for (const session of crew) {
       if (seen.has(session.sessionId)) continue
       seen.add(session.sessionId); candidates.push(session)
     }
-    // Every child's candidates occur later on ties. Retaining the best twelve
-    // after each child preserves the original stable rank ordering.
-    candidates.sort((a, b) => rank(a) - rank(b))
-    candidates.length = Math.min(12, candidates.length)
+    candidates.sort((a, b) => rank(a) - rank(b)); candidates.length = Math.min(12, candidates.length)
   }
   return candidates
 })
@@ -179,6 +198,10 @@ const latestBelow = cachedGroup('deck.updatedBelow', (row: MissionDeckIssueModel
   return at
 })
 
+const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => settled(() => ({
+  tasks: requireLoaded(sum.tasks(row)), done: requireLoaded(sum.done(row)), run: requireLoaded(sum.run(row)),
+  live: requireLoaded(sum.live(row)), working: requireLoaded(sum.working(row)), needsYou: requireLoaded(sum.needsYou(row)), waiting: requireLoaded(sum.waiting(row)),
+})))
 /** A mission-scoped handle on the pool's issue, with lazy computed getters.
  * Scope matters: a graft may have different children and paths in two roots.
  * The handle holds no row, geometry, retained computed or presentation map. */
@@ -189,14 +212,22 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get issue() { return requireLoaded(this.view.issue(this.id))! }
   get rulesIssue() { return this.view.rulesIssue(this.id) }
   get stage() { return this.facts.stage }
-  get title() { return requireLoaded(this.view.title(this.issue)) }
+  get title() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
   get deckChildren() { return childrenOf(this) }
   get descendantIds() { return descendants(this) }
   get sessions() { return crewOf(this) }
+  get crewIds() { return crewIds(this) }
+  get hasLead() { return hasLead(this) }
+  private readonly shownIds = keyedComputed('MissionIssue.sessionIds', (mode: FlightDeckMode) => {
+    if (mode === 'full') return this.crewIds
+    if (!this.matches(mode)) return []
+    return this.crewIds.filter(id => mode === 'working' ? this.view.sessionAtWork(id) : !issueClosed(this.facts) && this.view.sessionAsking(id))
+  })
+  sessionIds(mode: FlightDeckMode) { return this.shownIds(mode) }
   get depth() { return this.deck.depth(this.id) }
   get matched() { return this.matches(this.deck.mode) }
   matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? matchedWorking(this) : matchedNeedsYou(this)) }
-  get rollup() { return this }
+  get rollup() { return rollupValue(this) }
   get tasks() { return sum.tasks(this) }
   get done() { return sum.done(this) }
   get run() { return sum.run(this) }
@@ -208,12 +239,12 @@ export class MissionDeckIssueModel implements FlightDeckRow {
     tasks: requireLoaded(this.tasks) - own.tasks(this), done: requireLoaded(this.done) - own.done(this),
     run: requireLoaded(this.run) - own.run(this), kinds: kindsOf(this), crew: collapsedCrew(this), needsYou: this.actionableCount > 0,
   } }
-  get presentation() { return this.view.presentation(this.issue, this.sessions) }
+  get presentation() { return presentation(this) }
   get updatedBelow() { return latestBelow(this) }
-  get hasPayload() { return requireLoaded(this.deckChildren).length > 0 || this.sessions.length > 0 }
+  get hasPayload() { return hasPayload(this) }
   folded(folds: FlightDeckFoldMap) {
     const explicit = folds.get(this.id)
-    return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.sessions.length === 1 : explicit === 'closed'
+    return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1 : explicit === 'closed'
   }
 }
 
@@ -292,16 +323,7 @@ export class MissionDeckModel {
     return model
   }
   depth(id: string) {
-    const shape = requireLoaded(this.topology), path = new Set<string>()
-    const walk = (current: string, depth: number): number | undefined => {
-      if (path.has(current)) return undefined
-      if (current === id) return depth
-      path.add(current)
-      for (const child of shape.children.get(current) ?? []) { const found = walk(child, depth + 1); if (found !== undefined) return found }
-      path.delete(current)
-      return undefined
-    }
-    return walk(this.id, 0) ?? 0
+    return requireLoaded(this.topology).depths.get(id) ?? 0
   }
   ancestorPath(id: string) {
     const shape = requireLoaded(this.topology), ids: string[] = [], seen = new Set<string>()

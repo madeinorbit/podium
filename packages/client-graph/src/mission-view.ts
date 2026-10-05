@@ -5,8 +5,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-graph/diagnostics/reference/issue-views'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
-  motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
-  sessionSettled, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
+  motionPhase, nativeSubagentRows, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
+  sessionSettled, sessionNeedsHuman, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
 } from '@podium/client-core/values'
@@ -154,6 +154,7 @@ const paneValues = Object.fromEntries(MODES.map(mode => [mode,
     return node.view.deckValues(node.view.deck(node.id, mode))
   }),
 ])) as PaneGroups<MissionViewValues>
+const archiveCountValue = cachedGroup('missionArchiveCount', (deck: MissionDeckModel) => deck.view.readArchiveCount(deck))
 const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
@@ -255,6 +256,24 @@ export class MissionViewReader {
     return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
   }
   sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
+  rawSession(id: string): Loaded<SessionView> { return this.pool.row('session', id) as Loaded<SessionView> }
+  readonly sessionRoster = keyedComputed('MissionSession.roster', (id: string) => {
+    const session = requireLoaded(this.rawSession(id))
+    return Boolean(session && !session.archived && !session.headless && session.agentKind !== 'shell')
+  })
+  readonly sessionCreatedAt = keyedComputed('MissionSession.createdAt', (id: string) => requireLoaded(this.rawSession(id))?.createdAt ?? '')
+  readonly sessionAtWork = keyedComputed('MissionSession.atWork', (id: string) => {
+    const session = requireLoaded(this.rawSession(id)); return Boolean(session && sessionAtWork(session))
+  })
+  readonly sessionAsking = keyedComputed('MissionSession.asking', (id: string) => {
+    const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && sessionNeedsHuman(session))
+  })
+  readonly sessionHeight = keyedComputed('MissionSession.height', (id: string) => {
+    const session = requireLoaded(this.rawSession(id)); return 46 + (session ? nativeSubagentRows(session).length * 22 : 0)
+  })
+  readonly sessionOpen = keyedComputed('MissionSession.open', (id: string) => {
+    const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && session.status !== 'exited')
+  })
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
     const row = this.pool.row('session', id)
@@ -283,7 +302,7 @@ export class MissionViewReader {
     let pending = false
     for (const sessionId of ids) {
       this.stats.attachmentEdges++
-      const session = this.session(sessionId)
+      const session = this.rawSession(sessionId)
       if (session === LOADING) pending = true
       else if (session && Boolean(session.archived) === archived) found.push(session)
     }
@@ -386,12 +405,7 @@ export class MissionViewReader {
     const members = this.issueMembers(id)
     let pending = members === LOADING
     const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
-    let childDoneCount = 0
-    for (const childId of childIds) {
-      const child = this.pool.row('issue', childId, 'summary') as Loaded<{ stage: string }>
-      if (child === LOADING) pending = true
-      else if (child && isFinished(child)) childDoneCount++
-    }
+    const { childDoneCount } = this.pool.queries.issueChildCounts(id)
     // One declared inverse yields source IDs. Reading each source's declared
     // edge list preserves custom types, duplicate edges and per-source order.
     const dependents: IssueNavigationModel['dependents'] = []
@@ -502,7 +516,8 @@ export class MissionViewReader {
     }
     return !pending
   }
-  archiveCount(deck: MissionDeckModel): number | typeof LOADING {
+  archiveCount(deck: MissionDeckModel): number | typeof LOADING { return archiveCountValue(deck) }
+  readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
       let count = 0
       for (const id of requireLoaded(deck.rowIds())) count += requireLoaded(this.history(id)).roster
@@ -550,6 +565,7 @@ export class MissionViewReader {
     const members = requireLoaded(deck.members), found: MissionDeparture[] = [], seen = new Set<string>()
     for (const id of [...members].sort()) {
       if (!this.facts(id).visible) continue
+      if (this.pool.graph.size('issue', id, 'spinOffs') === 0) continue
       const empty = !requireLoaded(this.roster(id)).some(openSession)
       for (const tip of this.tips(id)) {
         if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
@@ -600,9 +616,7 @@ export class MissionViewReader {
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
-        const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-        if (facts === LOADING) throw LOADING
-        if (!facts || !visible(facts)) continue
+        if (!this.facts(id).visible) continue
         const issue = this.rulesIssue(id)
         // Legacy's first discovered-from edge is the origin, not every edge.
         if (!issue || originId(issue) !== parentId) continue
@@ -711,7 +725,7 @@ export class MissionViewReader {
   }
   dispose = () => {
     for (const deck of this.decks.values()) deck.dispose()
-    this.nodes.clear(); this.factsById.clear(); this.decks.clear(); this.archivedSession.clear()
+    this.nodes.clear(); this.factsById.clear(); this.decks.clear(); this.archivedSession.clear(); this.sessionRoster.clear(); this.sessionCreatedAt.clear(); this.sessionAtWork.clear(); this.sessionAsking.clear(); this.sessionOpen.clear(); this.sessionHeight.clear()
   }
 }
 
