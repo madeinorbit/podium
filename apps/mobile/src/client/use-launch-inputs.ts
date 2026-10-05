@@ -7,9 +7,9 @@ const EMPTY = { repos: [] as GitRepositoryWire[], machines: [] as MachineWire[] 
 /** Existing resident header membership; entity values come only through pool.row. */
 function readRepositories(pool: MobxPool) {
   return pool.headerViews.ids('repository').flatMap((id) => {
-      const row = pool.row('repository', id) as GitRepositoryWire | undefined
-      return row && typeof row !== 'symbol' ? [row] : []
-    })
+    const row = pool.row('repository', id) as GitRepositoryWire | undefined
+    return row && typeof row !== 'symbol' ? [row] : []
+  })
 }
 function readInputs(pool: MobxPool) {
   return {

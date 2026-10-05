@@ -1,11 +1,10 @@
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
+import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asUserId, type GitRepositoryWire, type MachineWire } from '@podium/model'
@@ -51,7 +50,13 @@ afterEach(() => {
 })
 
 it('keeps new-task repository order and open, keystroke and machine-update work flat at 1x and 4x', async () => {
-  const cells: { scale: number; action: string; rowReads: number; derivations: number; neighbours: number }[] = []
+  const cells: {
+    scale: number
+    action: string
+    rowReads: number
+    derivations: number
+    neighbours: number
+  }[] = []
   const now = Date.parse('2026-10-03T08:00:00Z')
   for (const scale of [1, 4]) {
     let rowReads = 0,
@@ -87,9 +92,14 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
       'repository',
       repositories.map((value) => value.path),
     )
-    const machines = Array.from({ length: 128 * scale }, (_, index) => ({
-      id: `unrelated-machine-${index}`, name: `Unrelated ${index}`,
-    }) as MachineWire)
+    const machines = Array.from(
+      { length: 128 * scale },
+      (_, index) =>
+        ({
+          id: `unrelated-machine-${index}`,
+          name: `Unrelated ${index}`,
+        }) as MachineWire,
+    )
     fixture.pool.header.apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
     fixture.sessions = sessions.map(
       (session) =>
@@ -106,7 +116,7 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
     ) => {
       if (measuring) {
         rowReads++
-        if (args[0] === 'machine') machineReads++
+        if (String(args[0]) === 'machine') machineReads++
       }
       return row(...args)
     }) as MobxPool['row'])
@@ -124,6 +134,7 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
         undefined,
         owner,
       ),
+      { access: { trpc } },
     )
     const census = startCensus({ sample: () => ({ rowReads }) })
     census.enter('open new task')
@@ -165,10 +176,17 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
         census.enter(action)
         act(() => {
           if (action === 'keystroke') {
-            fireEvent.change(view.getByPlaceholderText('What needs doing?'), { target: { value: 'A task' } })
+            fireEvent.change(view.getByPlaceholderText('What needs doing?'), {
+              target: { value: 'A task' },
+            })
           } else {
-            fixture.pool!.header.apply([{ kind: 'machine', id: machines[0]!.id,
-              value: { ...machines[0]!, name: 'Renamed while creating' } }])
+            fixture.pool!.header.apply([
+              {
+                kind: 'machine',
+                id: machines[0]!.id,
+                value: { ...machines[0]!, name: 'Renamed while creating' },
+              },
+            ])
           }
         })
         await act(async () => {})
@@ -176,8 +194,13 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
         const work = census.snapshot().phases[action]!
         expect(machineReads).toBe(0)
         expect(rowReads).toBe(0)
-        cells.push({ scale, action, rowReads, derivations: work.computedRuns + work.reactionRuns,
-          neighbours: choices.length })
+        cells.push({
+          scale,
+          action,
+          rowReads,
+          derivations: work.computedRuns + work.reactionRuns,
+          neighbours: choices.length,
+        })
       }
     } finally {
       measuring = false
@@ -189,8 +212,8 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
   }
   console.info('[new task open work]', JSON.stringify(cells))
   for (const action of ['open', 'keystroke', 'machine update']) {
-    const base = cells.find(cell => cell.scale === 1 && cell.action === action)!
-    const larger = cells.find(cell => cell.scale === 4 && cell.action === action)!
+    const base = cells.find((cell) => cell.scale === 1 && cell.action === action)!
+    const larger = cells.find((cell) => cell.scale === 4 && cell.action === action)!
     for (const metric of ['rowReads', 'derivations'] as const)
       expect(larger[metric], `new task ${action}: 4x/1x ${metric}`).toBe(base[metric])
   }
@@ -217,7 +240,7 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
       undefined,
       owner,
     )
-    fixture.handle = Object.assign(owner, store)
+    fixture.handle = Object.assign(owner, store, { access: { trpc } })
     const view = render(
       <StoreProvider
         principal={asClientPrincipal(asUserId('test'))}
