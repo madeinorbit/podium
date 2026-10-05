@@ -588,14 +588,15 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['terminal-port'],
   },
 
-  // L3 — features / adapters / engine.
   'packages/mobx-helpers': { layer: 1, platform: 'browser-safe', features: ['mobx-helpers'] },
+
+  // L3 — features / adapters / engine.
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['values'] },
   'packages/client-graph': {
     layer: 3,
     platform: 'browser-safe',
     features: ['client-graph'],
-    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/protocol'],
+    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/mobx-helpers', 'packages/protocol'],
   },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
