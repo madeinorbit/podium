@@ -1,0 +1,12 @@
+{
+  "oldSha": "b60c38e29e",
+  "candidateSha": "05ad4673b5129480aa51433b5d8fcb05d9198ab1",
+  "oldExit": 1,
+  "candidateExit": 0,
+  "files": [
+    "packages/client-graph/src/query-result.test.ts",
+    "packages/client-graph/src/reader-question-bounds.test.ts"
+  ],
+  "oldLog": "old-guard.log",
+  "candidateLog": "candidate-tests.log"
+}
