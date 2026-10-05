@@ -83,6 +83,15 @@ describe('keyedComputed', () => {
     other(); observed(); unobserved()
   })
 
+  it('keeps nested reads untracked even with a development assertion inside an action', () => {
+    const nested = keyedComputed('nested', (_key: string, read: () => number) => read())
+    const outer = keyedComputed('outer', (_key: string) => nested('a', () => 1), { requiresReaction: true })
+    runInAction(() => {
+      expect(outer('a')).toBe(1)
+      expect(nested('a', () => 2)).toBe(2)
+    })
+  })
+
   it('provides a public development assertion without retaining an untracked entry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {

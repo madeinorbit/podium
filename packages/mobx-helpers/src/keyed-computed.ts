@@ -21,8 +21,10 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
     const derive = () => fn(key, ...args)
     if (!_isComputingDerivation()) {
       // No cache entry without a reader. The public computed assertion also
-      // stays silent inside actions/batches, as a declared computed would.
-      return requiresReaction ? computed(derive, { requiresReaction, name: typeof name === 'function' ? name(key) : name }).get() : derive()
+      // stays silent inside actions/batches. Assert with an empty body so
+      // the actual read cannot create nested tracking/cache entries in a batch.
+      if (requiresReaction) computed(() => undefined, { requiresReaction, name: typeof name === 'function' ? name(key) : name }).get()
+      return derive()
     }
     const value = computed(derive, {
       equals, name: typeof name === 'function' ? name(key) : name, context: context?.(key),
