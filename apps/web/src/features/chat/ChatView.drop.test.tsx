@@ -9,7 +9,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
-import './test-support/pool-fixture'
+import './test-support/client-core-mock'
+import { resetFakeStore } from './test-support/fake-store-handle'
 
 /**
  * DRAGGING A FILE AT THE CONVERSATION (POD-1595).
@@ -135,17 +136,6 @@ vi.mock('@/lib/markdown', () => ({
   isKnownRefPrefix: () => true,
 }))
 
-vi.mock('@podium/client-core/react', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>()
-  const { fakeStoreHandle } = await import('./test-support/fake-store-handle')
-  return {
-    ...actual,
-    // See the note above: the only member this view takes off the module
-    // directly, and the one the app-store mock therefore cannot cover.
-    useStoreHandle: () => fakeStoreHandle,
-  }
-})
-
 const { ChatView } = await import('./ChatView')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
@@ -173,6 +163,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  resetFakeStore()
   reads.length = 0
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]

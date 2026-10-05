@@ -1,6 +1,6 @@
 import type { TranscriptChange, TranscriptLog } from '@podium/client-core/conversation'
 import { type ChatBlock, type ChatRow, type TranscriptSearchState } from '@podium/client-core/values'
-import { action, actionBound, comparer, computed, makeObservable, observable, runInAction, type IComputedValue } from 'mobx'
+import { action, actionBound, compareStructural, computed, makeObservable, observable, runInAction, type IComputedValue } from 'mobx'
 import { transcriptComputeClient, type WebTranscriptComputeResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 
@@ -16,7 +16,7 @@ function blockShape(block: ChatBlock) {
   return [item.id, item.cursor, item.role, item.answer, item.systemKind, item.ts, item.toolName]
 }
 function sameRows(left: ChatRow[], right: ChatRow[]): boolean {
-  return comparer.structural(left.map(row => row.kind === 'tools'
+  return compareStructural(left.map(row => row.kind === 'tools'
     ? [rowIdentity(row), row.blockIndices, row.blocks.map(blockShape)]
     : [rowIdentity(row), row.blockIndex, blockShape(row.block)]), right.map(row => row.kind === 'tools'
     ? [rowIdentity(row), row.blockIndices, row.blocks.map(blockShape)]
@@ -50,12 +50,12 @@ export class ConversationPresentation {
       heldHead: observable,
       deepeningSearch: observable,
       changed: action,
-      blocks: computed({ equals: (a, b) => comparer.structural(a.map(blockShape), b.map(blockShape)) }),
+      blocks: computed({ equals: (a, b) => compareStructural(a.map(blockShape), b.map(blockShape)) }),
       rows: computed({ equals: sameRows }),
       blocksById: computed,
       computeReady: computed,
       markdownHtml: computed,
-      search: computed({ equals: comparer.structural }),
+      search: computed({ equals: compareStructural }),
       renderStart: computed,
       visibleRows: computed({ equals: sameRows }),
       setQuery: actionBound,
@@ -102,7 +102,7 @@ export class ConversationPresentation {
             ...(indexed.item.toolEffects ? { toolEffects: indexed.item.toolEffects } : {}),
           },
         }
-      }, { equals: comparer.structural })
+      }, { equals: compareStructural })
       this.blockValues.set(id, value)
     }
     return value.get()

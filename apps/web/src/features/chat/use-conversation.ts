@@ -8,7 +8,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, HarnessAgent, type SessionId } from '@podium/model/browser'
-import { action, actionBound, comparer, computed, makeObservable, observable, reaction, runInAction } from 'mobx'
+import { action, actionBound, compareShallow, computed, makeObservable, observable, reaction, runInAction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -87,8 +87,8 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const presentation = new ConversationPresentation()
   const readSession = () => pool.sessionPanes.session(sessionId)
   const readReader = () => loaded(pool.row('chatContextReader', 'reader'))
-  const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: comparer.shallow })
-  const heldValues = computed(() => loaded(pool.row('chatHeld', sessionId))?.sends ?? [], { equals: comparer.shallow })
+  const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
+  const heldValues = computed(() => loaded(pool.row('chatHeld', sessionId))?.sends ?? [], { equals: compareShallow })
   const headless = mount.superThread !== undefined || readSession()?.headless === true
   let conversation: WebConversation
   const held: ConversationPendingTurn[] = headless ? [] : heldValues.get().map((send, index) => ({

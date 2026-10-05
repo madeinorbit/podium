@@ -68,7 +68,7 @@ export async function createChatContextFixture(resumeTwins = false) {
     drafts: { [sessions[0]!.sessionId]: 'Saved draft' }, attachedSessionId: sessions[1]!.sessionId, transcriptReveal: null,
     superThreads: [{ id: 'own-thread', kind: 'global', title: 'Synthetic thread', podiumSessionId: sessions[0]!.sessionId }],
     superThreadId: 'own-thread', paneA: null, selectedWorktree: null, machines: [{ id: 'chat-machine', name: 'Synthetic host', online: true }],
-    repos: [{ path: '/synthetic/project' }], chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id), replica: owner.replica,
+    repos: [{ path: '/synthetic/project', worktrees: [] }], chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id), replica: owner.replica,
     setSessionDraft: (id: string, text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
       drafts.set(id as SessionId, text)

@@ -4,7 +4,7 @@ import type { ChatBlock, ComposerState, SuperThreadRef } from '@podium/client-co
 import { OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import { asMutationId, type SessionId, type SessionOffer } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import { computed, comparer, observable, reaction, runInAction } from 'mobx'
+import { computed, compareStructural, observable, reaction, runInAction } from 'mobx'
 import { useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
 import type { Store } from '@/app/store'
@@ -154,7 +154,7 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
     interruptMessageId: sends.interruptMessageId, dismissedOfferAt: sends.dismissedOfferAt,
     offer: sends.offer, canInterrupt: sends.canInterrupt,
     draft: options.observeDraft === false ? '' : conversation.draft,
-  }), { equals: comparer.structural }), [conversation, options.observeDraft])
+  }), { equals: compareStructural }), [conversation, options.observeDraft])
   const source = useMemo(() => ({
     subscribe: (listener: () => void) => reaction(() => snapshot.get(), listener),
     getSnapshot: () => snapshot.get(),
