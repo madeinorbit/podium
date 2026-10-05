@@ -102,6 +102,9 @@ export function createHeaderViews(pool: MobxPool) {
   function workingRoster() {
     return memo('workingRoster', () => sessionIndex().working())
   }
+  function workingCount() {
+    return memo('workingCount', () => sessionIndex().workingCount())
+  }
   function aggregate(machineId: MachineId | undefined): HeaderAggregate {
     return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex().aggregate(machineId))
   }
@@ -349,18 +352,7 @@ export function createHeaderViews(pool: MobxPool) {
           repoId = best?.repoId ?? null
         }
       }
-      const orders = repoId
-        ? pool.header.members('repo', repoId, 'shipOrders').flatMap((id) => {
-            const order = row('shipOrder', id)
-            return order ? [order] : []
-          })
-        : []
-      return {
-        unfinishedCount: orders.filter((order) =>
-          ['needs_you', 'in_progress', 'waiting'].includes(order.humanState),
-        ).length,
-        decisionCount: orders.filter((order) => order.humanState === 'needs_you').length,
-      }
+      return pool.header.shippingCounts(repoId)
     })
   }
   function scannedRepos() {
@@ -509,7 +501,7 @@ export function createHeaderViews(pool: MobxPool) {
       memo('history', () => {
         const reading = row('history', 'fleet')
         if (!reading) return null
-        const working = workingRoster().length
+        const working = workingCount()
         const buckets = reading.buckets.map((bucket, index) =>
           index === reading.buckets.length - 1
             ? { ...bucket, count: Math.max(bucket.count, working) }
@@ -519,6 +511,7 @@ export function createHeaderViews(pool: MobxPool) {
       }),
     connection: () => row('connection', 'server'),
     working: workingRoster,
+    workingCount,
     session: (id: string) => pool.row('session', id) as SessionView | typeof LOADING | undefined,
     clear: () => {
       sessions?.dispose()

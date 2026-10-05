@@ -18,6 +18,10 @@ export interface HeaderRows {
   window: Pick<Store, 'view' | 'paneA' | 'fileTabs' | 'outboxSize'>
 }
 export type HeaderEntity = keyof HeaderRows
+export interface ShippingCounts {
+  readonly unfinishedCount: number
+  readonly decisionCount: number
+}
 export interface HeaderRecord<E extends HeaderEntity = HeaderEntity> {
   kind: E
   id: string
@@ -29,7 +33,7 @@ export const HEADER_SCHEMA = {
   repository: { key: 'machineId,path', source: 'engine:repos', model: 'GitRepositoryWire', cold: 'never' },
   hostMetric: { key: 'machineId ?? hostname', source: 'runtime:hostMetrics', model: 'HostMetricsWire', cold: 'never' },
   quota: { key: 'machineId', source: 'api:quota.summary', model: 'MachineQuotaWire', cold: 'never' },
-  shipOrder: { key: 'id', source: 'replica:shipOrders', model: 'ShipOrderProjection', cold: 'never' },
+  shipOrder: { key: 'id', source: 'replica:shipOrders', model: 'ShipOrderProjection', cold: 'never', counts: { by: 'repoId', unfinished: ['needs_you', 'in_progress', 'waiting'], decision: 'needs_you' } },
   history: { key: 'fleet', source: 'api:sessions.concurrencyHistory', cold: 'never' },
   lifecycle: { key: 'hosts', source: 'api:settings.get', cold: 'never' },
   connection: { key: 'server', source: 'hub:connectionHealth', model: 'ConnectionHealth', cold: 'never' },
@@ -41,7 +45,6 @@ export const HEADER_SCHEMA = {
 export const HEADER_RELATIONS = [
   { from: 'session', name: 'machine', key: 'machineId', to: 'machine', inverse: 'sessions' },
   { from: 'hostMetric', name: 'machine', key: 'machineId', to: 'machine', inverse: 'metrics' },
-  { from: 'shipOrder', name: 'repo', key: 'repoId', to: 'repo', inverse: 'shipOrders' },
   { from: 'quota', name: 'machine', key: 'machineId', to: 'machine', inverse: 'quotas' },
   { from: 'repository', name: 'repo', key: 'repoId', to: 'repo', inverse: 'scans' },
 ] as const

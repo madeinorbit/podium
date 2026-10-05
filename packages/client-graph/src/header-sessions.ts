@@ -137,6 +137,10 @@ export class HeaderSessions {
     return [...this.roster.keys()].sort().map(id => this.roster.get(id)!)
   }
 
+  workingCount(): number {
+    return this.roster.size
+  }
+
   aggregate(machineId: MachineId | undefined): HeaderAggregate {
     return (machineId && this.aggregates.get(machineId)) || EMPTY_HOST_AGGREGATE
   }

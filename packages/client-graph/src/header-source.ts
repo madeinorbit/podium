@@ -41,17 +41,16 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     change?: KeyedListChange,
   ): void {
     if (disposed) return
-    const ids = runtime.listIds(name)
-    const changed = change === undefined ? ids : [...change.ids]
+    const ids = change === undefined || change.order ? runtime.listIds(name) : undefined
+    const changed = change === undefined ? ids! : [...change.ids]
     const records = changed.map((id) => ({
       kind: entity,
       id,
       value: runtime.listRow(name, id),
     })) as HeaderRecord[]
-    known.set(entity, new Set(ids))
     runInAction(() => {
       pool.header.apply(records)
-      pool.header.order(entity, ids)
+      if (ids) pool.header.order(entity, ids)
     })
   }
   const windowKeys = HEADER_SCHEMA.window.fields
@@ -117,8 +116,20 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   const stops = [
     offSessions,
     runtime.replica.subscribeAddressedBatch!((batch) => {
-      if (batch.type === 'replace' || batch.rows.some((record) => record.kind === 'shipOrders'))
+      if (batch.type === 'replace') {
         shipping()
+        return
+      }
+      const records: HeaderRecord<'shipOrder'>[] = []
+      const ids = known.get('shipOrder')!
+      for (const record of batch.rows) {
+        if (record.kind !== 'shipOrders') continue
+        const value = runtime.replica.row('shipOrders', record.id)
+        if (value) ids.add(record.id)
+        else ids.delete(record.id)
+        records.push({ kind: 'shipOrder', id: record.id, value })
+      }
+      pool.header.apply(records)
     }),
     runtime.onLocals(windowKeys, locals),
     runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
@@ -173,7 +184,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   }
   stops.push(
     reaction(
-      () => pool.headerViews.working().length,
+      () => pool.headerViews.workingCount(),
       () => {
         void history()
       },

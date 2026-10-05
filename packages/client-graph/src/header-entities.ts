@@ -1,6 +1,8 @@
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
-import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows } from './header-schema'
+import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows, type ShippingCounts } from './header-schema'
+
+const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
@@ -12,12 +14,34 @@ export function createHeaderEntities() {
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })
   const refs = observable.map<string, string>(undefined, { deep: false })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
+  const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
   // Kernel facade rows use ascending canonical IDs. Membership changes alone
   // invalidate this order; per-session activity never sorts the whole fleet.
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
   // Borrow the last successful API response for opt-in differential checks.
   // Same objects as the rows, no second fetch, replica or mutation owner.
   const received: { quotas: HeaderRows['quota'][]; history?: HeaderRows['history']; lifecycle?: HeaderRows['lifecycle'] } = { quotas: [] }
+
+  function shippingContribution(value: object | undefined) {
+    const order = value as HeaderRows['shipOrder'] | undefined
+    if (!order?.repoId) return undefined
+    const counts = HEADER_SCHEMA.shipOrder.counts
+    return {
+      repoId: order.repoId,
+      unfinishedCount: (counts.unfinished as readonly string[]).includes(order.humanState) ? 1 : 0,
+      decisionCount: order.humanState === counts.decision ? 1 : 0,
+    }
+  }
+  function adjustShipping(value: ReturnType<typeof shippingContribution>, delta: 1 | -1): void {
+    if (!value || (!value.unfinishedCount && !value.decisionCount)) return
+    const previous = shipping.get(value.repoId) ?? EMPTY_SHIPPING
+    const next = {
+      unfinishedCount: previous.unfinishedCount + delta * value.unfinishedCount,
+      decisionCount: previous.decisionCount + delta * value.decisionCount,
+    }
+    if (next.unfinishedCount || next.decisionCount) shipping.set(value.repoId, next)
+    else shipping.delete(value.repoId)
+  }
 
   function change(entity: string, id: string, next: object | undefined): void {
     if (entity === 'session') {
@@ -57,12 +81,21 @@ export function createHeaderEntities() {
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
     one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
     members: (entity: string, id: string, relation: string) => members.get(`${entity}:${id}:${relation}`) ?? [],
+    shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
         for (const record of records) {
           const table = tables[record.kind]
-          if (compareStructural(table.get(record.id), record.value)) continue
+          const previous = table.get(record.id)
+          if (compareStructural(previous, record.value)) continue
+          if (record.kind === 'shipOrder') {
+            const before = shippingContribution(previous), after = shippingContribution(record.value)
+            if (!compareStructural(before, after)) {
+              adjustShipping(before, -1)
+              adjustShipping(after, 1)
+            }
+          }
           if (record.value === undefined) table.delete(record.id)
           else table.set(record.id, record.value)
           change(record.kind, record.id, record.value)
@@ -75,6 +108,7 @@ export function createHeaderEntities() {
       orders.clear()
       refs.clear()
       sessionIds.clear()
+      shipping.clear()
     },
   }
 }
