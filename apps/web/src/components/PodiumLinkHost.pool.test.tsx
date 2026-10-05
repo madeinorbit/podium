@@ -8,7 +8,7 @@ import { podiumTargetPath } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 
 const owner = vi.hoisted(() => ({
   pool: null as MobxPool | null,
