@@ -1755,20 +1755,18 @@
     },
     {
       "file": "apps/mobile/src/components/SessionConversation.tsx",
-      "holder": "SessionConversation/callback",
+      "holder": "SessionConversation/retractPending/useCallback:callback",
       "rule": "reader-summary",
       "tokens": "b56fa189b615e57a22443308c67e418d22317dbe511c026a10a5a41495479e08",
-      "gate": [
-        "else:a06b37f6644809b89412fd22ff5a8e091ee007cfe9893353fab7372c011b4e83"
-      ],
+      "gate": [],
       "origin": [
         "01f44a71586e03586d448b3fd5346108ddf6f1b6f836864ed92b1d869f101608"
       ],
-      "fingerprint": "1d060cc2dc254264b78ee542c689aac14861176edd663e92931026a24104f416",
+      "fingerprint": "b9d504c6c9612e240496513947160a2aa27151475a0e787a718c001e77bb695b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SessionConversation/callback",
+      "trigger": "Invocation of SessionConversation/retractPending/useCallback:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
