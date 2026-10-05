@@ -92,10 +92,13 @@ it('releases a subscribed class owner once when shared by a source and a screen 
 })
 
 it('does not create a subscribed screen view after registry disposal', () => {
-  const registry = new PoolSources(), create = vi.fn(() => ({ dispose() {} }))
+  const registry = new PoolSources(), owner = { dispose: vi.fn() }, create = vi.fn(() => owner)
+  expect(registry.view('known screen', create)).toBe(owner)
   registry.dispose()
+  expect(registry.view('known screen', create)).toBe(owner)
   expect(() => registry.view('late screen', create)).toThrow('disposed before view creation')
-  expect(create).not.toHaveBeenCalled()
+  expect(create).toHaveBeenCalledTimes(1)
+  expect(owner.dispose).toHaveBeenCalledTimes(1)
 })
 
 it('independent row declarations preserve a typed public reader', () => {

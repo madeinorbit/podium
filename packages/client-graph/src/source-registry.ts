@@ -125,8 +125,8 @@ export class PoolSources {
   }
 
   view<T extends object>(key: string, create: () => T): T {
-    if (this.disposed) throw new Error('Pool source registry disposed before view creation')
     let value = this.views.get(key)
+    if (!value && this.disposed) throw new Error('Pool source registry disposed before view creation')
     if (!value) { value = create(); this.views.set(key, value) }
     return value as T
   }
@@ -143,7 +143,8 @@ export class PoolSources {
         const dispose = Reflect.get(owner, 'dispose')
         if (typeof dispose === 'function') dispose.call(owner)
       }
-      this.views.clear()
+      // Borrowed facades keep their identity after closing, as pool fields did.
+      // Their owners are released; a late read can never create a new observer.
       this.ensured.clear()
       this.owners.clear()
     })
