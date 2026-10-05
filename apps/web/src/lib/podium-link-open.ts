@@ -20,7 +20,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { parseRoute } from '@podium/client-core/ui-state'
-import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
+import type { IssueId, MachineId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
 import { isSessionIdPrefix } from '@podium/protocol'
 import { hasUnsupportedTypedDetail } from './podium-link'
