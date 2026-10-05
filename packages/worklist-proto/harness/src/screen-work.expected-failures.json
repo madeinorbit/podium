@@ -1,5 +1,19 @@
 [
   {
+    "issue": "POD-5618",
+    "reason": "Confirmed unchanged-pilot IssuePage growth: collecting references from all archived related sessions adds 96 elements when closed history grows from 32 to 128. Coordinator authorized these two exact entries; the detail-view owner removes them with its repair.",
+    "readers": [
+      {
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
+        "actions": { "select": ["elements"] }
+      },
+      {
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
+        "actions": { "navigate-by-ref": ["elements"] }
+      }
+    ]
+  },
+  {
     "issue": "POD-5421",
     "reason": "Review findings 2, 3 and 4. The mission pane, navigation and folded-header readers no longer walk mission history per click or per change (focused gate: mission-screen-work.test.ts). What remains is recorded exactly: the two context menus (readMissionActionInputs: the issue catalog and the whole seat roster), the sidebar row model the folded header reads for progress, the engine's navigate-by-ref work (legacy optimism repaint of every session view, tab pruning) and its republication at 4x, and a second publication per single-row delta at 4x that runs each reader twice.",
     "readers": [

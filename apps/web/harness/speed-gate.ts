@@ -1,6 +1,6 @@
 /** Fixed production-browser continuation of selection-runtime / POD-5077. */
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { arch, cpus, hostname, loadavg, platform } from 'node:os'
 import { extname, resolve } from 'node:path'
@@ -114,6 +114,7 @@ async function main() {
         '--mission-clicks-only: diagnostic first click and revisit once at 1×/4×; no structural or five-action gate and no promotion.\n' +
         '--mission-click-baseline=<json>: add those cold captures to the normal gate and compare with the saved pre-change capture.\n' +
         '--switch=<urlKey>=<0|1>: repeatable startup URL overrides; other settings stay fixed.\n' +
+        '--external-lease: signal CAPTURE_READY after preparation, then await the caller lease.json; signal CAPTURE_FINISHED after cleanup.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
     process.exit(0)
@@ -121,7 +122,7 @@ async function main() {
   for (const arg of args)
     if (
       ![
-        '--calibrate', '--promote', '--lease-confirmed', '--structural-only', '--mission-clicks-only',
+        '--calibrate', '--promote', '--lease-confirmed', '--external-lease', '--structural-only', '--mission-clicks-only',
       ].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--switch=') &&
@@ -130,6 +131,8 @@ async function main() {
     )
       throw new Error(`Unknown argument ${arg}`)
   const switches = parseSpeedSwitches(args)
+  if (args.includes('--external-lease') && args.includes('--lease-confirmed'))
+    throw new Error('Choose one caller-owned lease mode')
   if (hostname() !== 'flatblock')
     throw new Error('speed:gate runs on flatblock; no cross-machine comparisons')
   if (
@@ -225,6 +228,7 @@ async function main() {
   await mkdir(root, { recursive: true })
   const began = performance.now()
   let leased = false
+  let externalGranted = false
   let browser: Browser | undefined
   let server: ReturnType<typeof createServer> | undefined
   const podium = async (argv: string[]) => {
@@ -262,6 +266,7 @@ async function main() {
         await podium(['lock', 'release', 'bench:flatblock'])
       }
       for (const item of result) if (item.status === 'rejected') throw item.reason
+      if (externalGranted) console.log('CAPTURE_FINISHED')
     })()
     await cleaning
   }
@@ -723,7 +728,29 @@ async function main() {
           clicks.firstClickMs > 0 && clicks.revisitMs > 0)))
     )
       throw new Error('Mission comparison needs both scales on the same machine/browser and seed')
-    if (!args.includes('--lease-confirmed')) {
+    if (args.includes('--external-lease')) {
+      // flatblock has no operator CLI. Its caller takes the existing benchmark
+      // lock only after this production build/browser are ready, and releases
+      // it immediately after CAPTURE_FINISHED, including a failed capture.
+      const leasePath = resolve(root, 'lease.json')
+      await rm(leasePath, { force: true })
+      const token = crypto.randomUUID()
+      console.log(`CAPTURE_READY ${token}`)
+      const leaseDeadline = performance.now() + 60_000
+      for (;;) {
+        try {
+          const lease = JSON.parse(await readFile(leasePath, 'utf8'))
+          if (lease.token !== token || lease.name !== 'bench:flatblock' || !lease.grant?.data?.granted)
+            throw new Error('Invalid caller benchmark lease')
+          externalGranted = true
+          break
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          if (performance.now() >= leaseDeadline) throw new Error('Caller benchmark lease timed out')
+          await new Promise((done) => setTimeout(done, 100))
+        }
+      }
+    } else if (!args.includes('--lease-confirmed')) {
       const grant = await podium([
         'lock',
         'acquire',
