@@ -141,19 +141,24 @@ export function requireLoaded<T>(value: T | typeof LOADING): T {
 const field = <K extends keyof IssueNavigationModel>(name: K) =>
   cachedGroup(`deck.${String(name)}`, (node: MissionIssueFacts) => node.row?.[name])
 const fields = {
-  stage: field('stage'), archived: field('archived'), deletedAt: field('deletedAt'),
+  stage: field('stage'),
   parentId: field('parentId'), startedBySession: field('startedBySession'),
   sortKey: field('sortKey'), seq: field('seq'), updatedAt: field('updatedAt'),
   needsHuman: field('needsHuman'), closedReason: field('closedReason'), blocked: field('blocked'),
   coordinatorSessionId: field('coordinatorSessionId'),
 }
-const exists = cachedGroup('deck.exists', (node: MissionIssueFacts) => Boolean(node.row))
+const visibleFact = cachedGroup('deck.visible', (node: MissionIssueFacts) => {
+  const row = node.row
+  return Boolean(row && !row.archived && !row.deletedAt)
+})
 
 /** The issue's scalar mission facts. No rich navigation record is read here.
  * Each scalar computed is allocated only while something observes it. */
 export class MissionIssueFacts {
   constructor(readonly id: string, readonly view: MissionViewReader) {}
-  get row(): IssueNavigationModel | undefined { return requireLoaded(this.view.catalogIssue(this.id)) }
+  // Scalar facts borrow the pool row directly. Joining a display reference for
+  // every field would repeat catalog work throughout the root rollups.
+  get row(): IssueNavigationModel | undefined { return requireLoaded(this.view.pool.row('issue', this.id)) as IssueNavigationModel | undefined }
   get stage() { return fields.stage(this) ?? 'backlog' }
   get parentId() { return fields.parentId(this) ?? null }
   get startedBySession() { return fields.startedBySession(this) }
@@ -164,7 +169,7 @@ export class MissionIssueFacts {
   get blocked() { return fields.blocked(this) }
   get needsHuman() { return fields.needsHuman(this) }
   get coordinatorSessionId() { return fields.coordinatorSessionId(this) }
-  get visible() { return exists(this) && !fields.archived(this) && !fields.deletedAt(this) }
+  get visible() { return visibleFact(this) }
   private static readonly live = cachedGroup('deck.live', (node: MissionIssueFacts) =>
     requireLoaded(node.view.present(node.id)).some(sessionPresentOnTask))
   get live() { return MissionIssueFacts.live(this) }
@@ -255,7 +260,9 @@ const ownCount = (name: Count) => cachedGroup(`deck.own.${name}`, (row: MissionD
   if (name === 'done') return Number(issueClosed(facts) && !issueAbandoned(facts))
   if (name === 'run') return Number(!isFinished(facts) && (underway(facts.stage) || facts.stage === 'review'))
   row.view.stats.onRollup?.(row.id)
-  const crew = row.sessions
+  // Counts do not need the presentation roster's coordinator-first ordering.
+  // Keep that additional computed lazy until a row actually draws its crew.
+  const crew = requireLoaded(row.view.roster(row.id))
   if (name === 'live') return crew.filter(sessionPresentOnTask).length
   if (name === 'working') return crew.filter(session => sessionPresentOnTask(session) && motionPhase(session) === 'working').length
   if (name === 'waiting') return crew.filter(session => sessionAsksOnIssue(facts, session)).length
@@ -451,13 +458,20 @@ const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => 
   const row = deck.model(deck.id)
   const reads: readonly (() => unknown)[] = [
     () => row.liveAgentCount, () => row.workingAgentCount,
-    () => deck.view.continuation(root), () => deck.view.note(root),
-    () => deck.view.presence(root, row.sessions), () => deck.view.departures(deck),
+    () => deck.continuation, () => deck.note,
+    () => deck.presence, () => deck.departures,
   ]
   let pending = false
   for (const read of reads) if (settled(read) === LOADING) pending = true
   return pending ? LOADING : true
 }))
+const rootContinuation = cachedGroup('deck.continuation', (deck: MissionDeckModel) =>
+  deck.view.continuation(requireLoaded(deck.view.issue(deck.id))!))
+const rootNote = cachedGroup('deck.note', (deck: MissionDeckModel) =>
+  deck.view.note(requireLoaded(deck.view.issue(deck.id))!))
+const rootPresence = cachedGroup('deck.presence', (deck: MissionDeckModel) =>
+  deck.view.presence(requireLoaded(deck.view.issue(deck.id))!, deck.model(deck.id).sessions))
+const rootDepartures = cachedGroup('deck.departures', (deck: MissionDeckModel) => deck.view.departures(deck))
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
  * lifetime; unobserved row/model questions keep no computed allocations. */
@@ -497,6 +511,10 @@ export class MissionDeckModel {
   get topology() { return topology(this) }
   get progress() { return progress(this) }
   get headerReady() { return headerReady(this) }
+  get continuation() { return rootContinuation(this) }
+  get note() { return rootNote(this) }
+  get presence() { return rootPresence(this) }
+  get departures() { return rootDepartures(this) }
   rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null) {
     return this.placements(JSON.stringify([mode, collapsed === null ? null : [...collapsed]]))
   }
@@ -541,6 +559,8 @@ class MissionNode {
   constructor(readonly id: string, readonly view: MissionViewReader) {}
 }
 const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
+const catalogValue = cachedGroup('missionCatalog', (node: MissionNode) => node.view.readCatalogIssue(node.id))
+const rulesValue = cachedGroup('missionRules', (node: MissionNode) => node.view.readRulesIssue(node.id))
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
 const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
 const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
@@ -611,6 +631,9 @@ export class MissionViewReader {
   issueMembers(id: string): IssueMemberFacts | typeof LOADING { return this.readIssueMembers(id) }
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
+    return catalogValue(this.node(id))
+  }
+  readCatalogIssue(id: string): Loaded<IssueNavigationModel> {
     const raw = this.pool.row('issue', id)
     if (!raw || raw === LOADING) return raw
     const row = raw as IssueNavigationModel
@@ -1003,10 +1026,10 @@ export class MissionViewReader {
       get titles() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).title])) },
       get rowPresentation() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).presentation])) },
       get progress() { return requireLoaded(deck.progress) },
-      get continuation() { return view.continuation(requireLoaded(view.issue(deck.id))!) },
-      get note() { return view.note(requireLoaded(view.issue(deck.id))!) },
-      get presence() { return view.presence(requireLoaded(view.issue(deck.id))!, deck.model(deck.id).sessions) },
-      get departures() { return view.departures(deck) },
+      get continuation() { return deck.continuation },
+      get note() { return deck.note },
+      get presence() { return deck.presence },
+      get departures() { return deck.departures },
     }
   }
   departures(deck: MissionDeckModel): MissionDeparture[] {
@@ -1036,6 +1059,9 @@ export class MissionViewReader {
   private presentStrict(id: string) { return requireLoaded(this.present(id)) }
   private rosterStrict(id: string, archived = false) { return [...requireLoaded(this.roster(id, archived))] }
   rulesIssue(id: string): IssueNavigationModel | undefined {
+    return rulesValue(this.node(id))
+  }
+  readRulesIssue(id: string): IssueNavigationModel | undefined {
     const raw = this.catalogIssue(id)
     if (!raw) return undefined
     let pending = raw === LOADING
