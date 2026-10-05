@@ -184,7 +184,11 @@ const coldDeaf: CheckableArm = {
           listener({
             ...event,
             rows: event.rows.filter(
-              (row) => row.kind === 'worktree' || !residency.isCold(row.kind, row.id),
+              (row) =>
+                row.kind === 'worktree' ||
+                row.kind === 'machine' ||
+                row.kind === 'repo' ||
+                !residency.isCold(row.kind, row.id),
             ),
           })
         }),

@@ -158,6 +158,9 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
 /** Apply one feed record. */
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
   const value = record.value as StoredRow | undefined
+  // Machine and repo companion records (POD-5485) are read-time joins in the
+  // product pool; this prototype arm does not keep them.
+  if (record.kind === 'machine' || record.kind === 'repo') return
   if (record.kind === 'worktree') {
     // Repo-from-lane is the shared feed-layer composition (POD-4695): the
     // pool only adapts its slot writes. The staging targets of a `replace`

@@ -61,7 +61,7 @@ function probeArm(mode: ProbeMode): Arm {
     create(source, _locals, reads = DISABLED_READ_FENCE): ArmHandle {
       const raw = { issue: new Map<string, unknown>(), session: new Map<string, unknown>() }
       const put = (record: RowRecord): void => {
-        if (record.kind === 'worktree') return
+        if (record.kind === 'worktree' || record.kind === 'machine' || record.kind === 'repo') return
         const table = raw[record.kind]
         if (record.value === undefined) table.delete(record.id)
         // Storing reads nothing; the copy reads the row once, at the copy.

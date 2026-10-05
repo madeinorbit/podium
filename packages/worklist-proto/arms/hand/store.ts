@@ -142,6 +142,10 @@ export class HandStore {
         return this.sessions.apply(record)
       case 'worktree':
         return this.worktrees.apply(record)
+      case 'machine':
+      case 'repo':
+        // Companion records (POD-5485) are not part of the hand arm.
+        return null
       default:
         return assertNever(record.kind)
     }
