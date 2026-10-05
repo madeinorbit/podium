@@ -100,7 +100,7 @@ describe('declared command and launch targets', () => {
     try {
       const before = { ...runs }
       const beforeIds = views.sessionIds()
-      const row = f.pool.row('session', target, 'summary-fields')
+      const row = views.session(target)
       if (!row || row === LOADING) throw new Error('Target session did not settle')
       runInAction(() => {
         f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Addressed title' } }] })

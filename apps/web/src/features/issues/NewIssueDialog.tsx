@@ -15,7 +15,7 @@ import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { useCommandLaunchActions, useCommandLaunchData } from '@/app/command-launch-data'
+import { useCommandLaunchActions, useCommandLaunchData, useCommandSessions } from '@/app/command-launch-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -234,7 +234,9 @@ function NewIssueDialogBody({
    *  patch. */
   initialStage?: IssueStage
 }): JSX.Element {
-  const { sessions, machines } = data
+  const { machines } = data
+  const choices = useCommandSessions()
+  const sessions = choices && choices !== LOADING ? choices : []
   const { trpc } = useCommandLaunchActions()
   const repoViews = data.repoViews
   const isMobile = useIsMobile()
