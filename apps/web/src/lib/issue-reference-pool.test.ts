@@ -27,20 +27,24 @@ function issue(i: number, patch: Record<string, unknown> = {}) {
     updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
     repoPath: '/r',
+    repoId: 'r',
     deps: [],
     ...patch,
   }
 }
+const repo = { kind: 'worktree' as const, id: '/r', value: {
+  path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture',
+} as never }
 function setup(count = 2000) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
   const rows = Array.from({ length: count }, (_, i) => issue(i + 1))
   pool.apply({
     type: 'replace',
-    rows: rows.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),
+    rows: [repo, ...rows.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never }))],
   })
   const queue = vi.fn()
   const row = vi.fn(pool.row.bind(pool))
-  const refs = new IssueReferences({ row, tables: pool.tables, relations: pool.relations }, queue)
+  const refs = new IssueReferences({ row, queries: pool.queries, relations: pool.relations }, queue)
   return {
     pool,
     refs,
@@ -155,16 +159,15 @@ describe('per-issue pool references', () => {
         return () => {}
       },
     })
-    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: cold.id, value: cold as never }] })
+    pool.apply({ type: 'replace', rows: [repo, { kind: 'issue', id: cold.id, value: cold as never }] })
     const queue = vi.fn(),
       refs = new IssueReferences(pool, queue),
       paint = vi.fn()
     expect(pool.tables.issue.has(cold.id)).toBe(false)
     const stop = reaction(() => refs.read('POD-01'), paint, { fireImmediately: true })
     expect(refs.read('POD-1')).toBe(LOADING)
-    expect(queue).toHaveBeenCalledTimes(1)
+    expect(queue).not.toHaveBeenCalled()
     expect(load).not.toHaveBeenCalled()
-    refs.resolved('POD-1', cold.id)
     expect(refs.read('POD-1')).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
     run?.()
@@ -194,7 +197,7 @@ describe('per-issue pool references', () => {
     })
     pool.apply({
       type: 'replace',
-      rows: cold.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),
+      rows: [repo, ...cold.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never }))],
     })
     const paints = cold.map(() => vi.fn())
     const stops = cold.map((row, i) =>
@@ -208,7 +211,7 @@ describe('per-issue pool references', () => {
     expect(load).not.toHaveBeenCalled()
     expect(due).toHaveLength(1)
     due.shift()!()
-    expect(issueIdByRef).toHaveBeenCalledTimes(51)
+    expect(issueIdByRef).toHaveBeenCalledTimes(1)
     expect(pool.references.read('POD-999')).toBeNull()
     expect(due).toHaveLength(0)
     expect(load).toHaveBeenCalledTimes(50)
@@ -234,9 +237,7 @@ describe('per-issue pool references', () => {
     })
     pool.apply({
       type: 'replace',
-      rows: [
-        { kind: 'worktree', id: 'r', value: { id: 'r', prefix: 'POD', repoPath: '/r' } as never },
-      ],
+      rows: [repo],
     })
     const paint = vi.fn()
     const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
@@ -277,7 +278,7 @@ describe('per-issue pool references', () => {
     localRow = cold
     const scope = {
       type: 'replace' as const,
-      rows: [{ kind: 'issue' as const, id: cold.id, value: cold as never }],
+      rows: [repo, { kind: 'issue' as const, id: cold.id, value: cold as never }],
     }
     pool.apply({ ...scope, type: 'update' })
     expect(paint.mock.calls.at(-1)?.[0]).toBe(LOADING)

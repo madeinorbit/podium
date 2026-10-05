@@ -134,8 +134,7 @@ export function createMobileInboxViews(pool: MobxPool) {
     return { issues, loading }
   }
   function chip(token: string, refKind: 'issue' | 'session', prefix: string) {
-    const prefixes = pool.row('mobileReferencePrefixes', 'prefixes')
-    const known = !!prefixes && prefixes !== LOADING && prefixes.prefixes.includes(prefix)
+    const known = pool.queries.hasIssuePrefix(prefix, true)
     const model = known && refKind === 'issue' ? pool.references.read(token) : null
     const unavailable: IssueReferenceModel | null = known && refKind === 'issue' ? {
       ref: token.trim(), issueId: null, title: null, stage: null,
@@ -144,7 +143,7 @@ export function createMobileInboxViews(pool: MobxPool) {
     return {
       known,
       model: model === LOADING ? unavailable : (model ?? unavailable),
-      pending: prefixes === LOADING || model === LOADING,
+      pending: model === LOADING,
     }
   }
   function session(identifier: string): Loaded<SessionView> {

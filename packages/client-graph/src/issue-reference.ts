@@ -9,16 +9,11 @@ import {
   compareStructural,
   computed,
   type IComputedValue,
-  type ObservableMap,
   observable,
-  observe,
   onBecomeUnobserved,
-  reaction,
   runInAction,
 } from 'mobx'
-import { seedIssueReferences } from './enumerate'
 import type { RelationReader } from './shared/relation-reader'
-import type { StoredRow } from './tables'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export function issueRefKey(token: string): string {
@@ -30,8 +25,8 @@ export function issueRefKey(token: string): string {
 /** Only the existing pool supplies rows and relations. No viewmodel list,
  * replica, old-record read or mutation owner is accepted by this seam. */
 export interface IssueReferenceHost {
-  row(entity: 'issue' | 'repo', id: string): Loaded<object>
-  readonly tables: { readonly issue: ObservableMap<string, StoredRow> }
+  row(entity: 'issue' | 'repo', id: string, mode?: 'summary-fields' | 'load'): Loaded<object>
+  readonly queries: { issueReferenceId(token: string): string | undefined }
   readonly relations: Pick<RelationReader, 'one'>
 }
 
@@ -40,27 +35,14 @@ export interface IssueReferenceReader {
   id(token: string): Loaded<string | null>
 }
 
-/** One resident-only key index per pool. Each resident row tracks only its
- * own identity and declared repo relation. Cold rows never enter this index.
- * Unresolved keys use the pool's load window, not a list scan or a peek. */
+/** The source owns canonical identity and cold/resident alias precedence.
+ * Each displayed token observes that keyed answer and one named model. No
+ * resident table is enumerated or watched when this reader is constructed. */
 export class IssueReferences implements IssueReferenceReader {
-  private readonly resident = observable.map<string, readonly string[]>(undefined, { deep: false })
-  // Demand responses exist only for keys asked for by readers. This is not an
-  // index over cold rows or their summaries. A loaded key wins immediately.
-  private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, {
-    deep: false,
-  })
-  private readonly stops = new Map<string, () => void>()
+  private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
+  private readonly requestStops = new Map<string, () => void>()
   private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
-  private readonly stopTable: () => void
-  private orderedBareAliases = false
 
-  /** Enabled once by the phone source before its readers mount. A resident
-   * claimant can have an earlier cold twin, so bare aliases demand the same
-   * batched authority lookup instead of borrowing the warmed row's position. */
-  requireOrderedBareAliases(): void {
-    this.orderedBareAliases = true
-  }
   /** A replacement changes the visible scope. Only unresolved demand keys
    * need a fresh replica answer; resident subscriptions stay untouched. */
   resetUnresolved(): void {
@@ -80,6 +62,7 @@ export class IssueReferences implements IssueReferenceReader {
   arrived(
     row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'> & { repoId?: string | null },
   ): void {
+    if (this.requests.size === 0) return
     // Normalized projections carry repoId and seq, not a derived prefix.
     // Use the same resident repo join as source(), without warming this issue.
     const repo = row.repoId ? this.host.row('repo', row.repoId) : undefined
@@ -100,18 +83,16 @@ export class IssueReferences implements IssueReferenceReader {
     private readonly host: IssueReferenceHost,
     private readonly queue: (ref: string) => void,
   ) {
-    this.stopTable = observe(host.tables.issue, (change) => {
-      if (change.type === 'add') this.track(change.name)
-      if (change.type === 'delete') this.untrack(change.name)
-    })
-    // The only enumeration, when attaching to an already seeded pool. All
-    // subsequent maintenance follows one changed resident table slot.
-    seedIssueReferences(host.tables, (id) => this.track(id))
+    // Identity maintenance already belongs to the source's addressed index.
   }
 
   private source(id: string): Loaded<IssueReferenceSource> {
-    const row = this.host.row('issue', id)
-    if (row === LOADING || row === undefined) return row
+    const row = this.host.row('issue', id, 'summary-fields')
+    if (row === LOADING) {
+      void this.host.row('issue', id, 'load')
+      return LOADING
+    }
+    if (row === undefined) return undefined
     const issue = row as IssueReferenceSource
     const repoId = this.host.relations.one('issue', id, 'repo')
     const repo = repoId === null ? undefined : this.host.row('repo', repoId)
@@ -132,74 +113,26 @@ export class IssueReferences implements IssueReferenceReader {
     }
   }
 
-  private track(id: string): void {
-    if (this.stops.has(id)) return
-    let previous: string | undefined
-    const stop = reaction(
-      () => {
-        const row = this.source(id)
-        return row === LOADING || row === undefined
-          ? undefined
-          : issueRefKey(canonicalIssueRef(row))
-      },
-      (key) =>
-        runInAction(() => {
-          if (previous !== undefined) this.release(previous, id)
-          previous = key
-          if (key !== undefined) {
-            // Replica.rows() orders by row ID. Keep all resident claimants in
-            // the same index so a load arriving late cannot steal an earlier
-            // alias, and eviction hands it to the next owner without a scan.
-            const owners = [...(this.resident.get(key) ?? []), id].sort((a, b) =>
-              a < b ? -1 : a > b ? 1 : 0,
-            )
-            this.resident.set(key, owners)
-            this.requests.delete(key)
-          }
-        }),
-      { fireImmediately: true },
-    )
-    this.stops.set(id, () => {
-      stop()
-      if (previous !== undefined) this.release(previous, id)
-    })
-  }
-
-  private release(key: string, id: string): void {
-    const owners = (this.resident.get(key) ?? []).filter((owner) => owner !== id)
-    if (owners.length) this.resident.set(key, owners)
-    else this.resident.delete(key)
-    if (this.orderedBareAliases && key.startsWith('#')) this.requests.delete(key)
-  }
-
-  private untrack(id: string): void {
-    this.stops.get(id)?.()
-    this.stops.delete(id)
-    this.values.delete(id)
-  }
-
   id(token: string): Loaded<string | null> {
     if (parseAnyRef(token.trim())?.kind !== 'issue' && !/^#\d+$/.test(token.trim())) return null
     const key = issueRefKey(token)
-    const resident = this.resident.get(key)?.[0]
-    const orderedBare = this.orderedBareAliases && key.startsWith('#')
-    if (resident !== undefined && !orderedBare) return resident
+    const known = this.host.queries.issueReferenceId(key)
+    if (known !== undefined) return known
     const pending = this.requests.get(key)
     if (pending !== undefined) {
-      if (typeof pending !== 'string')
-        return pending === null && orderedBare ? (resident ?? null) : pending
+      if (typeof pending !== 'string') return pending
       const model = this.readById(pending)
-      // A prefix change cannot bind an old token to the row's new identity.
       if (model === LOADING) return LOADING
-      if (model && issueRefKey(model.ref) === key)
-        return orderedBare && resident !== undefined && resident < pending ? resident : pending
-      return orderedBare ? (resident ?? null) : null
+      return model && issueRefKey(model.ref) === key ? pending : null
     }
-    // A read never blocks. Repeated chips of the same token enqueue it once.
     runInAction(() => this.requests.set(key, LOADING))
+    this.requestStops.set(key, onBecomeUnobserved(this.requests, key, () => {
+      const stop = this.requestStops.get(key)
+      this.requestStops.delete(key)
+      stop?.()
+      runInAction(() => this.requests.delete(key))
+    }))
     this.queue(key)
-    // Track the value atom created above too. A reference that becomes
-    // unresolved during a reaction must observe its later batch response.
     return this.requests.get(key)
   }
 
@@ -228,15 +161,20 @@ export class IssueReferences implements IssueReferenceReader {
   /** The local replica supplies opaque ids. Displayed fields still come
    * through the ONE pool row reader and its cold-row load window. */
   resolved(ref: string, id: string | null): void {
-    runInAction(() => this.requests.set(issueRefKey(ref), id))
+    const key = issueRefKey(ref)
+    // A queued window may finish after its chip disappeared. Its response
+    // must not recreate offscreen demand that the last observer released.
+    if (this.requests.has(key)) runInAction(() => this.requests.set(key, id))
+  }
+
+  hasRequest(ref: string): boolean {
+    return this.requests.has(issueRefKey(ref))
   }
 
   dispose(): void {
-    this.stopTable()
     runInAction(() => {
-      for (const stop of this.stops.values()) stop()
-      this.stops.clear()
-      this.resident.clear()
+      for (const stop of this.requestStops.values()) stop()
+      this.requestStops.clear()
       this.requests.clear()
       this.values.clear()
     })

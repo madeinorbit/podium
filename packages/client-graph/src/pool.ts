@@ -318,8 +318,8 @@ export class MobxPool {
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private disposed = false
 
-  /** Built only for a screen that uses references. Its identity index covers
-   * resident rows; cold identities are resolved through the same load window. */
+  /** A reference borrows the source's keyed identity answer and one named
+   * model. Constructing this facade retains no resident-table observers. */
   get references(): IssueReferences {
     this.referenceReader ??= new IssueReferences(this, (ref) => {
       if (!this.disposed) this.residency?.requestReference(ref)
@@ -984,7 +984,7 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
-    const refs = residency.takeReferences()
+    const refs = residency.takeReferences().filter((ref) => this.referenceReader?.hasRequest(ref))
     const identities = refs.map((ref) => [ref, this.issueIdByRef?.(ref) ?? null] as const)
     const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
     for (const [, id] of identities) {

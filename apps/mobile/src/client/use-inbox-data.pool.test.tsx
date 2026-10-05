@@ -5,10 +5,6 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
-import {
-  MOBILE_INBOX_ENTITIES,
-  MOBILE_INBOX_SOURCE_KEY,
-} from '@podium/client-graph/mobile-inbox-schema'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -348,34 +344,27 @@ it('keeps decided deck order and retry lookup when proposals are promoted or arr
   })
 })
 
-it('reads cold refs through one batched reader and shares prefix work across retained chips', async () => {
+it('reads cold refs and prefix presence by key across retained chips', async () => {
   const app = await mount(
     <>
       <RefChip token="SYN-1018" refKind="issue" prefix="SYN" />
       <RefChip token="UTF-8" refKind="issue" prefix="UTF" />
     </>,
   )
-  const source = await app.pool.sources.ensure(
-    MOBILE_INBOX_SOURCE_KEY,
-    MOBILE_INBOX_ENTITIES,
-    () => {
-      throw new Error('Second source')
-    },
-  )
+  const repoIds = vi.spyOn(app.pool.queries, 'repoIds')
+  const ids = vi.spyOn(app.pool.queries, 'ids')
   const views = mobileInboxViews(app.pool)!
   const one = createPoolProjection(app.pool, () => views.chip('SYN-1018', 'issue', 'SYN'))
   const wakes = vi.fn(),
     stop = one.subscribe(wakes)
   await waitFor(() => expect(one.getSnapshot().model?.availability).toBe('archived'))
-  const batches = (source as unknown as { counts: { prefixReads: number } }).counts.prefixReads
   const many = Array.from({ length: 40 }, () =>
     createPoolProjection(app.pool, () => views.chip('SYN-1018', 'issue', 'SYN')),
   )
   const stops = many.map((view) => view.subscribe(() => {}))
   for (const view of many) expect(view.getSnapshot()).toEqual(one.getSnapshot())
-  expect((source as unknown as { counts: { prefixReads: number } }).counts.prefixReads).toBe(
-    batches,
-  )
+  expect(repoIds).not.toHaveBeenCalled()
+  expect(ids).not.toHaveBeenCalled()
   wakes.mockClear()
   await act(async () =>
     app.data.patch('issueProjection', 'synthetic-7', { title: 'Unrelated task' }),
@@ -388,6 +377,8 @@ it('reads cold refs through one batched reader and shares prefix work across ret
   expect(views.chip('UTF-8', 'issue', 'UTF').known).toBe(false)
   stop()
   for (const stop of stops) stop()
+  repoIds.mockRestore()
+  ids.mockRestore()
 })
 
 it('routes issue and permanent session references and preserves scoped handoff decisions', async () => {
@@ -544,7 +535,7 @@ it('holds an early reference tap through null-to-pool attachment without opening
   expect(open).not.toHaveBeenCalled()
 })
 
-it('keeps the first replica owner in the resident alias index and hands it to the next owner on eviction', () => {
+it('keeps the first source alias owner and hands it to the next owner on eviction', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
   const row = (id: string) => ({
     kind: 'issue' as const,
@@ -592,7 +583,8 @@ it('resolves an earlier cold alias owner before a later resident claimant and fo
   expect(views.route(padded)).toBeNull()
   expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
   expect(app.pool.residency!.isCold('issue', 'synthetic-7')).toBe(false)
-  expect(views.route(target)).toBe(LOADING)
+  expect(views.route(target)).toBe('/issue/synthetic-18')
+  expect(app.pool.residency!.isCold('issue', 'synthetic-18')).toBe(true)
   await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-18'))
   await act(async () => {
     app.data.records.delete('issueProjection:synthetic-18')

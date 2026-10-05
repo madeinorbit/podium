@@ -20,6 +20,11 @@ export function poolRouteFixture(input: {
   pool.apply({
     type: 'replace',
     rows: [
+      ...[...new Set(input.issues.flatMap((row) => row.prefix ? [row.prefix] : []))].map((prefix) => ({
+        kind: 'worktree' as const, id: `/synthetic/${prefix}`, value: {
+          path: `/synthetic/${prefix}`, repoId: prefix, prefix, repoPath: `/synthetic/${prefix}`, repoName: prefix,
+        } as never,
+      })),
       ...input.issues.map((row) => ({
         kind: 'issue' as const,
         id: row.id,
@@ -33,6 +38,7 @@ export function poolRouteFixture(input: {
           createdAt: '',
           updatedAt: '',
           ...row,
+          repoId: row.prefix,
         } as never,
       })),
       ...input.sessions.map((row) => ({
@@ -44,13 +50,8 @@ export function poolRouteFixture(input: {
       })),
     ],
   })
-  pool.sources.register(['mobileInboxState', 'mobileReferencePrefixes'], {
-    read: (entity) =>
-      entity === 'mobileInboxState'
-        ? { hasCursor: true }
-        : {
-            prefixes: [...new Set(input.issues.flatMap((row) => (row.prefix ? [row.prefix] : [])))],
-          },
+  pool.sources.register(['mobileInboxState'], {
+    read: () => ({ hasCursor: true }),
     dispose() {},
   })
   const views = createMobileInboxViews(pool)

@@ -51,6 +51,7 @@ export function seedPoolFixture(issues: readonly unknown[]) {
 /** Complete the fake authority's batched answer for an absent reference. */
 export function resolvePoolFixtureReference(ref: string, id: string | null) {
   if (!pool) throw new Error('Fixture pool has not mounted')
+  pool.references.id(ref)
   pool.references.resolved(ref, id)
 }
 

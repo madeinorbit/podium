@@ -21,7 +21,9 @@ describe('pool chip DOM boundary', () => {
       const count = 4887 * scale
       pool.apply({
         type: 'replace',
-        rows: Array.from({ length: count }, (_, index) => ({
+        rows: [
+          { kind: 'worktree' as const, id: '/synthetic', value: { path: '/synthetic', repoId: 'r', prefix: 'POD', repoPath: '/synthetic', repoName: 'Fixture' } as never },
+          ...Array.from({ length: count }, (_, index) => ({
           kind: 'issue' as const,
           id: `iss_${index}`,
           value: {
@@ -31,15 +33,14 @@ describe('pool chip DOM boundary', () => {
             title: `Task ${index + 1}`,
             stage: 'review',
             repoPath: '/synthetic',
+            repoId: 'r',
             createdAt: '2026-01-01',
             updatedAt: '2026-01-01',
             deps: [],
           } as never,
         })),
+        ],
       })
-      // Attachment seeds the resident identity index once. This census measures
-      // a chip render after that startup work, matching the migration baseline.
-      void pool.references
       fixture.pool = pool
       chipPerf.enable()
       chipPerf.reset()
@@ -70,7 +71,7 @@ describe('pool chip DOM boundary', () => {
           issues: count,
           chips: 1,
           reads: 1,
-          rowCalls: 1,
+          rowCalls: 2,
           enumerations: 0,
           redraws: 1,
         })
@@ -100,12 +101,16 @@ describe('pool chip DOM boundary', () => {
       stage: 'review',
       deps: [],
       repoPath: '/r',
+      repoId: 'r',
       createdAt: '2026-01-01',
       updatedAt: '2026-01-01',
     })
     pool.apply({
       type: 'replace',
-      rows: [1, 2, 3].map((id) => ({ kind: 'issue', id: `iss_${id}`, value: row(id) as never })),
+      rows: [
+        { kind: 'worktree', id: '/r', value: { path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture' } as never },
+        ...[1, 2, 3].map((id) => ({ kind: 'issue' as const, id: `iss_${id}`, value: row(id) as never })),
+      ],
     })
     fixture.pool = pool
     chipPerf.enable()

@@ -179,7 +179,7 @@ it('re-arms after the last unsubscribe and preserves equal snapshot identity', (
   expect(f.read).toHaveBeenCalledTimes(2)
 })
 
-it('publishes lazy reference initialization when subscribing before the first snapshot', () => {
+it('reads a lazy addressed reference once when subscribing before the first snapshot', () => {
   const f = fixture()
   const issue = {
     id: 'one',
@@ -191,24 +191,27 @@ it('publishes lazy reference initialization when subscribing before the first sn
     updatedAt: '2026-01-01',
     archived: false,
     repoPath: '/r',
+    repoId: 'r',
     deps: [],
   }
-  f.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'one', value: issue as never }] })
+  f.pool.apply({ type: 'replace', rows: [
+    { kind: 'worktree', id: '/r', value: { path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture' } as never },
+    { kind: 'issue', id: 'one', value: issue as never },
+  ] })
   const read = vi.fn((current: MobxPool) => current.references.read('POD-1'))
   const view = createPoolProjection(f.pool, read)
   const wake = vi.fn()
   cleanups.push(view.subscribe(wake))
   expect(view.getSnapshot()).toMatchObject({ title: 'Task one' })
-  expect(wake).toHaveBeenCalledTimes(1)
-  // The first read builds the reference index, which publishes its readiness.
-  expect(read).toHaveBeenCalledTimes(2)
+  expect(wake).not.toHaveBeenCalled()
+  expect(read).toHaveBeenCalledTimes(1)
   f.pool.apply({
     type: 'update',
     rows: [{ kind: 'issue', id: 'one', value: { ...issue, title: 'Changed' } as never }],
   })
   expect(view.getSnapshot()).toMatchObject({ title: 'Changed' })
-  expect(read).toHaveBeenCalledTimes(3)
-  expect(wake).toHaveBeenCalledTimes(2)
+  expect(read).toHaveBeenCalledTimes(2)
+  expect(wake).toHaveBeenCalledTimes(1)
 })
 
 it('gives abandoned renders to the observer finalizer and re-arms a finalized view', () => {

@@ -254,7 +254,7 @@ function fixture(scale = 1, bootOnly = false) {
     { replica: { getCursor: () => 1, subscribeCursor: () => () => {} } } as never,
     pool,
   )
-  pool.sources.register(['mobileInboxState', 'mobileReferencePrefixes'], mobile)
+  pool.sources.register(['mobileInboxState'], mobile)
   pool.sources.register(['chatIssueOrder', 'chatSessionOrder'], {
     read: (entity: string) => ({
       ids: (bootOnly ? [] : rows)
@@ -329,7 +329,7 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
       }
     },
   },
-  { name: 'phone prefixes', read: (pool) => pool.row('mobileReferencePrefixes', 'prefixes') },
+  { name: 'phone prefix', read: (pool) => pool.queries.hasIssuePrefix('Q', true) },
   {
     name: 'settings',
     read: (pool) => ({

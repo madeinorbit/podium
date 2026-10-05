@@ -1,5 +1,5 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { compareStructural, computed, observable, runInAction } from 'mobx'
+import { observable, runInAction } from 'mobx'
 import type { MobileInboxRows } from './mobile-inbox-schema'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -15,44 +15,24 @@ export class MobileInboxSource {
   private scheduled = false
   private disposed = false
   private readonly stop: () => void
-  readonly counts = { batches: 0, prefixReads: 0 }
-  private readonly prefixes
+  readonly counts = { batches: 0 }
 
   constructor(
     private readonly runtime: Pick<ClientRuntime, 'replica'>,
-    pool: MobxPool,
+    _pool: MobxPool,
   ) {
-    pool.references.requireOrderedBareAliases()
     // Keyed (POD-5433): only a cursor move can change `hasCursor`.
     if (!runtime.replica.subscribeCursor) throw new Error('Mobile inbox requires the replica cursor signal')
     this.stop = runtime.replica.subscribeCursor(() => {
       if (this.demanded) this.schedule()
     })
-    this.prefixes = computed(
-      (): Loaded<MobileInboxRows['mobileReferencePrefixes']> => {
-        this.counts.prefixReads++
-        const used = new Set(pool.queries.repoIds())
-        // The query combines source and resident repo contributions at ingest.
-        let loading = false
-        const prefixes = new Set<string>()
-        for (const id of used) {
-          const row = pool.row('repo', id) as Loaded<{ prefix?: string }>
-          if (row === LOADING) loading = true
-          else if (row?.prefix) prefixes.add(row.prefix)
-        }
-        return loading ? LOADING : { prefixes: [...prefixes].sort() }
-      },
-      { equals: compareStructural },
-    )
   }
 
-  read<E extends keyof MobileInboxRows>(entity: E, _id: string): Loaded<MobileInboxRows[E]> {
+  read<E extends keyof MobileInboxRows>(_entity: E, _id: string): Loaded<MobileInboxRows[E]> {
     if (this.disposed) return LOADING
     this.demanded = true
     if (this.state.get() === LOADING) this.schedule()
-    return (
-      entity === 'mobileReferencePrefixes' ? this.prefixes.get() : this.state.get()
-    ) as Loaded<MobileInboxRows[E]>
+    return this.state.get() as Loaded<MobileInboxRows[E]>
   }
 
   private schedule(): void {

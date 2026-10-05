@@ -29,7 +29,7 @@ export interface IssueIdentities {
   setRepo(id: string, prefix: string | undefined): ReadonlySet<string>
   resolve(identifier: string): string | undefined
   referenceId(token: string): string | undefined
-  hasPrefix(prefix: string): boolean
+  hasPrefix(prefix: string, includeDeleted?: boolean): boolean
   aliasKeys(identifier: string): readonly string[]
   factAlias(fact: IssueIdentityFact | undefined): string | undefined
 }
@@ -156,14 +156,16 @@ export function createIssueIdentities(
       return ref ? prefixed(ref.prefix, String(ref.seq)) : undefined
     },
     referenceId(token) {
-      const ref = parseIssueRef(token.trim())
+      const value = token.trim()
+      if (/^#\d+$/.test(value)) return bare.get(value.slice(1))?.answer.first()
+      const ref = parseIssueRef(value)
       return ref ? prefixed(ref.prefix, String(ref.seq)) : undefined
     },
-    hasPrefix(prefix) {
+    hasPrefix(prefix, includeDeleted = false) {
       // A prefix can have multiple holders during a rename/collision. This
       // reads only that prefix's repos and their maintained live membership.
       for (const repoId of prefixes.get(prefix)?.answer.snapshot() ?? [])
-        if (liveByRepo.get(repoId)?.answer.first() !== undefined) return true
+        if ((includeDeleted ? byRepo : liveByRepo).get(repoId)?.answer.first() !== undefined) return true
       return false
     },
     aliasKeys(identifier) {

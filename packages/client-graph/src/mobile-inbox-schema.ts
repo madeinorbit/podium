@@ -4,26 +4,19 @@ import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
  * relations and header window/health source. No second row or mutation owner. */
 export interface MobileInboxRows {
   mobileInboxState: { hasCursor: boolean }
-  mobileReferencePrefixes: { prefixes: readonly string[] }
 }
 declare module './source-registry' {
   interface PoolSourceRows extends MobileInboxRows {}
 }
 export const MOBILE_INBOX_SOURCE_KEY = 'mobile-inbox'
 export const MOBILE_INBOX_VIEW_KEY = 'mobile-inbox-views'
-export const MOBILE_INBOX_ENTITIES = ['mobileInboxState', 'mobileReferencePrefixes'] as const
+export const MOBILE_INBOX_ENTITIES = ['mobileInboxState'] as const
 export const MOBILE_INBOX_SCHEMA = {
   mobileInboxState: {
     key: 'state',
     source: 'replica:cursor',
     fields: ['hasCursor'],
     residency: 'on-demand',
-  },
-  mobileReferencePrefixes: {
-    key: 'prefixes',
-    source: 'pool:repo.issues',
-    fields: ['prefixes'],
-    residency: 'summary',
   },
   session: {
     source: 'pool:session',
