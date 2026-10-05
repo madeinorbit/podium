@@ -57,9 +57,8 @@ export function useCommandLaunchData(): Loaded<CommandLaunchData> {
   return useWorklistPoolProjection(readLaunch, LOADING)
 }
 export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
-  // The shell owns the visited palette's lazy graph. Closing its dialog pauses
-  // reads without discarding every issue summary; opening catches up once.
-  return useWorklistPoolProjection(readPalette, LOADING, active, true)
+  // The open dialog owns catalog demand and releases it on unmount.
+  return useWorklistPoolProjection(readPalette, LOADING, active)
 }
 export function useCommandPaletteOpen() {
   return useWorklistPoolProjection(readOpen, false)
