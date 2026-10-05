@@ -1259,6 +1259,8 @@ export interface FlightDeckSource {
   handoff?: MissionHandoffValues
   agentHosts: ReturnType<typeof machineViewsFromWire>
   issue: (id: string) => IssueNavigationModel | undefined
+  /** Open menus need metadata and counts, without the full navigation roster. */
+  menuIssue?: (id: string) => IssueNavigationModel | undefined
   session: (id: string) => SessionView | undefined
   rootFor: (id: string) => string | null
   attached: (id: string) => readonly SessionView[]
@@ -1845,7 +1847,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     },
     [openIssueMenuAt],
   )
-  const menuIssue = issueMenu ? source.issue(issueMenu.id) : undefined
+  const menuIssue = issueMenu ? (source.menuIssue ?? source.issue)(issueMenu.id) : undefined
   /**
    * WHICH STRIP IS RENAMING (POD-1077) — deck state, for the same reason the
    * menu is: the menu is mounted once for the column, so the row it names has to

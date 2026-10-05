@@ -92,6 +92,10 @@ export default observer(function PoolFlightDeck(
         const issue = reader.issue(id)
         return issue === LOADING ? undefined : issue
       },
+      menuIssue: (id) => {
+        const issue = reader.menuIssue(id)
+        return issue === LOADING ? undefined : issue
+      },
       session: (id) => {
         const session = reader.session(id)
         return session === LOADING ? undefined : session
