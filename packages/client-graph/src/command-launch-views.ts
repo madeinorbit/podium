@@ -9,6 +9,8 @@ import {
   computed,
   type IComputedValue,
   observable,
+  onBecomeObserved,
+  onBecomeUnobserved,
   runInAction,
   untracked,
 } from 'mobx'
@@ -57,6 +59,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
   // catalog or repository activity. Keep the ordered projection current from
   // addressed publications, and still obtain every value through pool.row.
   type SessionRows = { sessions: SessionView[]; pending: number; sessionIds: ReadonlySet<string> }
+  let sessionsObserved = false
   let sessionOrder: readonly string[] | undefined
   let sessionSlots: Loaded<SessionView>[] = []
   const sessionPositions = new Map<string, number>()
@@ -84,7 +87,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
       sessionVersion.get()
       const catalog = read('commandCatalog', 'catalog')
       if (!catalog || catalog === LOADING) return catalog
-      if (!sessionOrder || !compareStructural(sessionOrder, catalog.sessions)) {
+      if (!sessionsObserved || !sessionOrder || !compareStructural(sessionOrder, catalog.sessions)) {
         sessionOrder = catalog.sessions
         sessionPositions.clear()
         sessionSlots = untracked(() =>
@@ -100,8 +103,17 @@ export function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
+  const stopSessionObservation = onBecomeObserved(sessionRows, () => { sessionsObserved = true })
+  const stopSessionRelease = onBecomeUnobserved(sessionRows, () => {
+    sessionsObserved = false
+    sessionOrder = undefined
+    sessionSlots = []
+    sessionPositions.clear()
+    sessionValuePositions.clear()
+    sessionSnapshot = { sessions: [], pending: 0, sessionIds: new Set() }
+  })
   const stopSessions = pool.queries.onChange((event) => {
-    if (!sessionOrder) return
+    if (!sessionsObserved || !sessionOrder) return
     if (event.type === 'replace') {
       sessionOrder = undefined
       runInAction(() => sessionVersion.set(sessionVersion.get() + 1))
@@ -408,7 +420,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
       return data && data !== LOADING ? data.sessions : data
     },
     counts,
-    dispose: stopSessions,
+    dispose() { stopSessions(); stopSessionObservation(); stopSessionRelease() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {
