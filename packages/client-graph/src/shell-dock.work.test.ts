@@ -49,6 +49,29 @@ function fixture(scale: 1 | 4) {
   return { ...f, count, order }
 }
 
+it('keeps cold dock lookup work constant across 1x/4x collections', async () => {
+  const samples = []
+  for (const scale of [1, 4] as const) {
+    const f = fixture(scale)
+    try {
+      const { value, work } = await measureWork(
+        async () => insideReader('cold shell dock', () => shellViews(f.pool).dock()),
+        { pool: f.pool },
+      )
+      expect(value).toMatchObject({ shipping: {
+        unfinishedCount: f.count + 3, decisionCount: f.count + 1,
+      } })
+      samples.push({ scale, rows: work.rows, elements: work.elements, derivations: work.derivations })
+    } finally {
+      f.pool.dispose()
+    }
+  }
+  console.info('[shell dock cold work 1x/4x]', JSON.stringify(samples))
+  expect(samples[1]!.rows).toBe(samples[0]!.rows)
+  expect(samples[1]!.elements).toBeLessThanOrEqual(samples[0]!.elements + 4)
+  expect(samples[1]!.derivations).toBe(samples[0]!.derivations)
+})
+
 it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order counts', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
