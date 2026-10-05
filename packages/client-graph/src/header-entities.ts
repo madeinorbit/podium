@@ -95,6 +95,9 @@ export function createHeaderEntities() {
     },
     sessionIds,
     sessionOrder,
+    count: (entity: HeaderEntity) => tables[entity].size,
+    firstId: (entity: HeaderEntity): string | undefined =>
+      orders.get(entity)?.[0] ?? tables[entity].keys().next().value,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
     one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
     members: (entity: string, id: string, relation: string) =>

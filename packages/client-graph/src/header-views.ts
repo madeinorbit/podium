@@ -461,6 +461,11 @@ export function createHeaderViews(pool: MobxPool) {
     folded,
     shipping,
     reclaimCounts,
+    repositoryCount: () => pool.header.count('repository'),
+    panelMetric: (machineId: MachineId | undefined) => {
+      const id = machineId ?? pool.header.firstId('hostMetric')
+      return id ? row('hostMetric', id) : undefined
+    },
     ids: (entity: HeaderEntity) => headerIds(pool, entity),
     metrics: () =>
       headerIds(pool, 'hostMetric').flatMap((id) => {

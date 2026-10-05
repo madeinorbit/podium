@@ -60,10 +60,7 @@ export function usePoolMetric(id: string) {
 }
 export function usePoolPanelMetric(machineId: MachineId | undefined) {
   const read = useMemo(
-    () => (pool: MobxPool) => {
-      const id = machineId ?? pool.headerViews.ids('hostMetric')[0]
-      return id ? pool.headerViews.row('hostMetric', id) : undefined
-    },
+    () => (pool: MobxPool) => pool.headerViews.panelMetric(machineId),
     [machineId],
   )
   return useWorklistPoolProjection(read, undefined)

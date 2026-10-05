@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
-import { useLaunchInputs, useLaunchRepositoryPaths } from '../client/use-launch-inputs'
+import { useLaunchRepositoryCount, useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -40,10 +40,10 @@ export function NewIssueScreen() {
   // inset here).
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
-  const store = useLaunchInputs()
+  const repositoryCount = useLaunchRepositoryCount()
   const repositoryPaths = useLaunchRepositoryPaths()
   const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
-  const repos = store.repos.length === 0 ? fallbackRepos : repositoryPaths
+  const repos = repositoryCount === 0 ? fallbackRepos : repositoryPaths
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -56,12 +56,12 @@ export function NewIssueScreen() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (store.repos.length > 0) return
+    if (repositoryCount > 0) return
     trpc.repos.list
       .query()
       .then(setFallbackRepos)
       .catch(() => setFallbackRepos([]))
-  }, [store.repos.length, trpc])
+  }, [repositoryCount, trpc])
 
   useEffect(() => {
     let cancelled = false
