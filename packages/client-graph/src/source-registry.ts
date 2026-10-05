@@ -38,12 +38,12 @@ export function defineSource<Args extends [unknown?, unknown?], Row>(definition:
   // allocating or iterating a rest-argument array on every row read.
   const read = (key: Args[0], id: Args[1]): Loaded<Row> => {
     if (disposed) return Object.hasOwn(definition, 'disposedValue') ? definition.disposedValue : LOADING
-    const readById = definition.readById as (key: Args[0], id: Args[1]) => Loaded<Row>
+    const readById = definition.readById as unknown as (key: Args[0], id: Args[1]) => Loaded<Row>
     return readById(key, id)
   }
   return {
     get disposed(): boolean { return disposed },
-    read: read as (...args: Args) => Loaded<Row>,
+    read: read as unknown as (...args: Args) => Loaded<Row>,
     schedule(): void {
       if (scheduled || disposed || !definition.refresh) return
       scheduled = true
