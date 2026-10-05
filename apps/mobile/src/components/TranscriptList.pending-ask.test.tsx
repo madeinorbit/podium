@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
 const transcriptBuilds = vi.hoisted(() => vi.fn())
 const viewportData = vi.hoisted(() => [] as unknown[])
+const tailWork = vi.hoisted(() => ({ enabled: false, rowIterations: 0 }))
 const searchWork = vi.hoisted(() => ({
   enabled: false,
   rowReads: 0,
@@ -28,6 +29,8 @@ afterEach(() => {
   markdownRenders.clear()
   transcriptBuilds.mockClear()
   viewportData.length = 0
+  tailWork.enabled = false
+  tailWork.rowIterations = 0
   searchWork.enabled = false
   searchWork.rowReads = 0
   searchWork.blockReads = 0
@@ -69,7 +72,21 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
     ...actual,
     buildMobileTranscript: (...args: Parameters<typeof actual.buildMobileTranscript>) => {
       transcriptBuilds(args[0])
-      const model = actual.buildMobileTranscript(...args)
+      const built = actual.buildMobileTranscript(...args)
+      const model = tailWork.enabled ? {
+        ...built,
+        rows: new Proxy(built.rows, {
+          get(target, key, receiver) {
+            if (key === Symbol.iterator) return function* () {
+              for (let index = 0; index < target.length; index++) {
+                tailWork.rowIterations++
+                yield target[index]!
+              }
+            }
+            return Reflect.get(target, key, receiver)
+          },
+        }),
+      } : built
       if (!searchWork.enabled) return model
       return {
         ...model,
@@ -150,6 +167,31 @@ const fromState = (): TranscriptItem => {
 }
 
 describe('TranscriptList pendingAsk', () => {
+  it('reads the published assistant key without copying retained rows at 1x/4x', () => {
+    const samples = []
+    const onAnswer = async () => {}
+    for (const scale of [1, 4] as const) {
+      tailWork.enabled = true
+      tailWork.rowIterations = 0
+      const items: TranscriptItem[] = [
+        { id: 'old', role: 'assistant', text: 'Earlier prose' },
+        ...Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({ id: `user:${index}`, role: 'user', text: `Operator ${index}` })),
+        { id: 'latest', role: 'assistant', text: 'Latest answer', answer: true },
+        { id: 'tail', role: 'user', text: 'After the answer' },
+      ]
+      const { rerender, unmount } = render(<TranscriptList items={items} live streaming onAnswer={onAnswer} />)
+      expect(screen.getByText('▋').parentElement?.textContent).toContain('Latest answer')
+      expect(tailWork.rowIterations).toBe(0)
+      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'Newest prose' }]} live streaming onAnswer={onAnswer} />)
+      expect(screen.getAllByText('▋')).toHaveLength(1)
+      expect(tailWork.rowIterations).toBe(0)
+      samples.push({ scale, retainedRowIterations: tailWork.rowIterations })
+      unmount()
+    }
+    expect(samples[1]).toEqual({ ...samples[0], scale: 4 })
+    console.log('[actual phone assistant tail work1x4x]', JSON.stringify(samples))
+  })
+
   it('does no closed Find work and moves between matches without rereading history at 1x/4x', () => {
     const samples = []
     const onAnswer = async () => {}

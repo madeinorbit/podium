@@ -52,6 +52,23 @@ describe('mobile transcript feed', () => {
       ['answer', 'beat'],
     ])
     expect(model.rows[2]?.blocks).toHaveLength(2)
+    expect(model.latestAssistantKey).toBe('a2')
+  })
+
+  it('publishes the last rendered assistant key while skipping blank and interrupt rows', () => {
+    const items = [
+      item('a1', 'assistant', 'Prose'),
+      item('a2', 'assistant', 'Answer', { answer: true }),
+      item('blank', 'assistant', '   '),
+      item('stop', 'assistant', 'Stopped', { event: 'interrupt' }),
+      item('u1', 'user', 'Operator'),
+      item('t1', 'tool', '', { toolName: 'Read', toolInput: 'file', toolResult: 'ok' }),
+      item('system', 'system', 'Quiet'),
+    ]
+    expect(buildMobileTranscript(items).latestAssistantKey).toBe('a2')
+    expect(buildMobileTranscript(items.filter(row => row.id !== 'a2')).latestAssistantKey).toBe('a1')
+    expect(buildMobileTranscript(items.filter(row => row.id !== 'a1' && row.id !== 'a2')).latestAssistantKey).toBeUndefined()
+    expect(buildMobileTranscript([]).latestAssistantKey).toBeUndefined()
   })
 
   it('finds text inside a folded result and maps it back to the work row', () => {

@@ -2,6 +2,7 @@ import {
   type ChatBlock,
   failLine,
   formatChurn,
+  latestPendingQuestion,
   type ParsedEnvelope,
   resultPreview,
   toolBatchTitle,
@@ -1050,7 +1051,7 @@ export function TranscriptList({
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],
   )
-  const pending = model.pendingQuestion
+  const pending = useMemo(() => latestPendingQuestion(items), [items])
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
   const visibleModel = useMemo(

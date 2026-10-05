@@ -48,7 +48,6 @@ export interface MobileTranscriptModel {
   blocks: ChatBlock[]
   rows: MobileTranscriptRow[]
   latestAssistantKey: string | undefined
-  pendingQuestion: TranscriptItem | null
 }
 
 interface MobileTranscriptIndex {
@@ -85,7 +84,6 @@ export function buildMobileTranscript(
   const index = indexedTranscript(items)
   const { blocks, rows: chatRows } = index
   let latestAssistantKey: string | undefined
-  let pendingQuestion: TranscriptItem | null = null
 
   for (const chatRow of chatRows) {
     const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
@@ -106,7 +104,6 @@ export function buildMobileTranscript(
 
     const { item } = chatRow.block
     if (isAskUserQuestion(item)) {
-      pendingQuestion = item.toolResult ? null : item
       rows.push({
         key: transcriptItemKey(item),
         kind: item.toolResult ? 'receipt' : 'question',
@@ -229,7 +226,7 @@ export function buildMobileTranscript(
     })
   }
 
-  return { blocks, rows, latestAssistantKey, pendingQuestion }
+  return { blocks, rows, latestAssistantKey }
 }
 
 /** Shape the one in-progress assistant row without touching settled history. */
