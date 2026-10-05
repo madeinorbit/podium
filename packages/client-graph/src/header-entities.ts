@@ -1,5 +1,6 @@
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
+import { createHeaderRepositoryRelations } from './header-repositories'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,
@@ -14,6 +15,7 @@ const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
 export function createHeaderEntities() {
+  const repositories = createHeaderRepositoryRelations()
   const tables = Object.fromEntries(
     Object.keys(HEADER_SCHEMA).map((entity) => [
       entity,
@@ -93,7 +95,10 @@ export function createHeaderEntities() {
     received,
     orders,
     order(entity: HeaderEntity, ids: readonly string[]): void {
-      if (!compareStructural(orders.get(entity), ids)) orders.set(entity, ids)
+      if (!compareStructural(orders.get(entity), ids)) {
+        if (entity === 'repository') repositories.order(ids)
+        orders.set(entity, ids)
+      }
     },
     sessionIds,
     sessionOrder,
@@ -107,6 +112,7 @@ export function createHeaderEntities() {
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
+    repositoryGroup: (path: string) => repositories.group(path),
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
@@ -135,6 +141,7 @@ export function createHeaderEntities() {
             if (before !== after) idleCapUnmet.set(idleCapUnmet.get() + after - before)
           }
           if (record.kind === 'repository') {
+            repositories.set(record.id, record.value as HeaderRows['repository'] | undefined)
             const key = HEADER_SCHEMA.repository.revisionFields.paths
             const before = (previous as HeaderRows['repository'] | undefined)?.[key]
             const after = (record.value as HeaderRows['repository'] | undefined)?.[key]
@@ -163,6 +170,7 @@ export function createHeaderEntities() {
       sessionIds.clear()
       shipping.clear()
       idleCapUnmet.set(0)
+      repositories.clear()
     },
   }
 }

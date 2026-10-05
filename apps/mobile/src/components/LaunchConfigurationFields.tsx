@@ -1,6 +1,5 @@
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/store'
-import { reposToViews } from '@podium/client-core/values'
 import {
   agentCapabilityRejection,
   isMachineOfflineForLiveTerminal,
@@ -55,12 +54,9 @@ export function LaunchConfigurationFields({
   onPlan?: (plan: LaunchPlan) => void
   allowInheritedAgent?: boolean
 }) {
-  const store = useLaunchInputs()
+  const store = useLaunchInputs(repoPath)
   const [fallback, setFallback] = useState<Picker>(null)
-  const repo = useMemo(
-    () => reposToViews(store.repos).find((candidate) => candidate.path === repoPath),
-    [repoPath, store.repos],
-  )
+  const repo = store.repo
   const machines = useMemo(
     () => (repo ? machinesForRepoOrClone(repo, store.machines) : []),
     [repo, store.machines],

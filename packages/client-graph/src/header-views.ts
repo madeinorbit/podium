@@ -1,4 +1,5 @@
 import { isFinished } from './shared/predicates'
+import { reposToViews } from '@podium/client-core/values'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
@@ -462,6 +463,13 @@ export function createHeaderViews(pool: MobxPool) {
     shipping,
     reclaimCounts,
     repositoryCount: () => pool.header.count('repository'),
+    repository: (path: string) => memo(`repository:${path}`, () => {
+      const scans = pool.header.repositoryGroup(path).flatMap((id) => {
+        const scan = row('repository', id)
+        return scan ? [scan] : []
+      })
+      return reposToViews(scans)[0]
+    }),
     idleCapUnmetCount: () => pool.header.idleCapUnmetCount(),
     panelMetric: (machineId: MachineId | undefined) => {
       const id = machineId ?? pool.header.firstId('hostMetric')

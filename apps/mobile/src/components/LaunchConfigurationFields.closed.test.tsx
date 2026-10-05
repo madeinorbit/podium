@@ -1,4 +1,5 @@
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import { reposToViews } from '@podium/client-core/values'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
@@ -12,7 +13,9 @@ const state = vi.hoisted(() => ({
   repos: [] as GitRepositoryWire[],
   machines: [] as MachineWire[],
 }))
-vi.mock('../client/use-launch-inputs', () => ({ useLaunchInputs: () => state }))
+vi.mock('../client/use-launch-inputs', () => ({
+  useLaunchInputs: () => ({ repo: reposToViews(state.repos)[0], machines: state.machines }),
+}))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   useModelCatalogState: () => ({ catalog: {}, status: 'offline' }),

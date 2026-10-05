@@ -76,12 +76,12 @@ function WorklistProbe() {
   const rows = useMobilePoolProjection(readRows, '')
   const now = useMobilePoolProjection(readNow, 0)
   const store = useStoreHandle().access
-  const { repos } = useLaunchInputs()
+  const { repo } = useLaunchInputs(REPO.path)
   const sessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
   const paths = [
-    ...new Set(repos.flatMap((repo) => [repo.path, ...repo.worktrees.map((tree) => tree.path)])),
+    ...new Set(repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : []),
   ]
   return (
     <div>
