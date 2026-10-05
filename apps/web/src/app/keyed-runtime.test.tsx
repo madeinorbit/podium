@@ -4,6 +4,7 @@ import {
   type EngineState,
   type KeyedInputsChannel,
 } from '@podium/client-core/engine'
+import { DraftStore } from '@podium/client-core/conversation'
 import { MobxPool } from '@podium/client-graph'
 import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -16,8 +17,7 @@ import { useAgentFleetOptions } from '@/features/issues/use-agent-fleet-options'
 import { useFocusedHandoffSessionId } from '@/features/mobile-handoff/mobile-handoff'
 import {
   usePendingSpawnPrompt,
-  useRuntimeDraft,
-  useRuntimeDraftRef,
+  useDraftValue,
   useRuntimeList,
 } from './keyed-runtime'
 
@@ -30,6 +30,7 @@ vi.mock('./store-worklist-pool', () => ({
   },
 }))
 let state: EngineState
+let drafts: DraftStore
 let inputs: KeyedInputsChannel
 let transactions: ReturnType<typeof createPoolTransactions>
 const prompt = (id: string, text: string | null | undefined) =>
@@ -39,7 +40,6 @@ const sid = asSessionId('first'),
 
 beforeEach(() => {
   state = {
-    drafts: { [sid]: 'Saved draft' },
     fileTabs: [],
     repos: [],
     machines: [],
@@ -61,7 +61,10 @@ beforeEach(() => {
   prompt(sid, 'First prompt')
   f.pool = pool
   inputs = createKeyedInputs(() => state)
+  drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  drafts.values.set(sid, 'Saved draft')
   f.owner = {
+    drafts,
     ...inputs,
     getSnapshot: () => {
       throw new Error('Keyed reader used the old snapshot')
@@ -74,6 +77,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   inputs.dispose()
+  drafts.dispose()
   transactions.dispose()
   ;(f.pool as MobxPool).dispose()
 })
@@ -107,24 +111,21 @@ it('wakes the native draft bridge only for its own document, including clears', 
   let renders = 0
   function Draft() {
     renders++
-    return <output data-testid="draft">{useRuntimeDraft(sid)}</output>
+    return <output data-testid="draft">{useDraftValue(sid)}</output>
   }
   render(<Draft />)
   expect(screen.getByTestId('draft').textContent).toBe('Saved draft')
   const before = renders
   act(() => {
-    state.drafts = { ...state.drafts, [other]: 'Unrelated draft' }
-    inputs.emit(new Set(['drafts']), new Set([other]))
+    drafts.set(other, 'Unrelated draft')
   })
   expect(renders).toBe(before)
   act(() => {
-    state.drafts = { ...state.drafts, [sid]: 'Revised draft' }
-    inputs.emit(new Set(['drafts']), new Set([sid]))
+    drafts.set(sid, 'Revised draft')
   })
   expect(screen.getByTestId('draft').textContent).toBe('Revised draft')
   act(() => {
-    state.drafts = { [other]: 'Unrelated draft' }
-    inputs.emit(new Set(['drafts']), new Set([sid]))
+    drafts.set(sid, '')
   })
   expect(screen.getByTestId('draft').textContent).toBe('')
 })
@@ -248,7 +249,10 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
   state.split = true
   state.focusedPane = 'A'
   inputs.emit(new Set(['workspaces', 'paneA', 'paneB', 'split', 'focusedPane']), new Set())
+  drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  drafts.values.set(sid, 'Saved draft')
   f.owner = {
+    drafts,
     ...inputs,
     access: new Proxy(
       { workspaceKey: () => 'none' },
@@ -284,42 +288,4 @@ it('preserves third-pane focus, hidden-pane fallback and restored scalar handoff
     inputs.emit(new Set(['split']), new Set())
   })
   expect(screen.getByTestId('focus').textContent).toBe(sid)
-})
-
-it('updates the native draft ref without renders, follows switches and releases its subscription', () => {
-  const valueRef = { current: '' }
-  let renders = 0
-  function Bridge({ id }: { id: typeof sid }) {
-    renders++
-    useRuntimeDraftRef(id, valueRef)
-    return null
-  }
-  const view = render(<Bridge id={sid} />)
-  expect(valueRef.current).toBe('Saved draft')
-  const before = renders
-  for (let i = 1; i <= 60; i++)
-    act(() => {
-      state.drafts = { ...state.drafts, [sid]: 'x'.repeat(i) }
-      inputs.emit(new Set(['drafts']), new Set([sid]))
-    })
-  expect(renders).toBe(before)
-  expect(valueRef.current).toBe('x'.repeat(60))
-  act(() => {
-    state.drafts = { ...state.drafts, [other]: 'Other draft' }
-    inputs.emit(new Set(['drafts']), new Set([other]))
-  })
-  expect(valueRef.current).toBe('x'.repeat(60))
-  view.rerender(<Bridge id={other} />)
-  expect(valueRef.current).toBe('Other draft')
-  act(() => {
-    state.drafts = { ...state.drafts, [other]: '' }
-    inputs.emit(new Set(['drafts']), new Set([other]))
-  })
-  expect(valueRef.current).toBe('')
-  view.unmount()
-  act(() => {
-    state.drafts = { ...state.drafts, [other]: 'After unmount' }
-    inputs.emit(new Set(['drafts']), new Set([other]))
-  })
-  expect(valueRef.current).toBe('')
 })

@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
@@ -18,7 +19,7 @@ import { OfferBar } from './OfferBar'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
 import { chordLabel, useComposerChord } from './use-composer-chord'
-import type { TranscriptFreshness } from './useTranscriptWindow'
+import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import { VoiceButton } from './VoiceButton'
 
 /**
@@ -142,7 +143,7 @@ function SyncComposerDraft({
  * away from being read. There is no shared "mode" flag inside a single effect
  * or class string: a change to one path cannot reach the other.
  */
-export function ChatComposer({
+export const ChatComposer = observer(function ChatComposer({
   taRef,
   draft,
   onDraftChange,
@@ -795,7 +796,7 @@ export function ChatComposer({
       )}
     </div>
   )
-}
+})
 
 /**
  * THE PROMPT BOX'S BACKEND RAIL (POD-782) — which model this thread thinks with,

@@ -16,6 +16,7 @@ export interface WebTranscriptComputeResult extends TranscriptComputeResult {
 }
 
 interface TranscriptPending {
+  delta?: TranscriptComputeOptions['delta']
   kind: 'transcript'
   input: TranscriptComputeInput
   resolve: (result: WebTranscriptComputeResult) => void
@@ -24,6 +25,8 @@ interface TranscriptPending {
 }
 
 export interface TranscriptComputeOptions {
+  /** The model's atomic changed-items/order seam; use it only against its base. */
+  delta?: { baseItems: TranscriptComputeInput['items']; changed: TranscriptComputeInput['items']; order: string[] }
   /** Each mounted pane owns its latest job, including panes of one session. */
   owner?: object
   signal?: AbortSignal
@@ -226,7 +229,7 @@ export class TranscriptComputeClient {
         previous.release?.()
         previous.reject(new DOMException('Superseded', 'AbortError'))
       }
-      const job: TranscriptPending = { kind: 'transcript', input, resolve, reject }
+      const job: TranscriptPending = { kind: 'transcript', input, delta: options.delta, resolve, reject }
       const abort = () => {
         if (this.queued.get(owner) === job) this.queued.delete(owner)
         for (const [id, pending] of this.pending) if (pending === job) this.pending.delete(id)
@@ -269,8 +272,8 @@ export class TranscriptComputeClient {
           kind: 'delta',
           baseIndexKey: previous.key,
           indexKey: index.key,
-          changed: items.filter((item) => held.get(item.id) !== item),
-          order: items.map((item) => item.id),
+          changed: job.delta?.baseItems === previous.items ? [...job.delta.changed] : items.filter((item) => held.get(item.id) !== item),
+          order: job.delta?.baseItems === previous.items ? job.delta.order : items.map((item) => item.id),
           input,
         }
       } else request = { id, kind: 'index', indexKey: index.key, input: job.input }

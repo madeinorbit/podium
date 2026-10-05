@@ -6,7 +6,8 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useRuntimeDraft } from '@/app/keyed-runtime'
+import { observer } from 'mobx-react-lite'
+import { useConversation, type WebConversation } from './use-conversation'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { ChatComposer } from './ChatComposer'
@@ -18,7 +19,7 @@ import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { useChatInteractions } from './use-chat-context'
-import { type ChatSurface, useChatSurface } from './use-chat-surface'
+import { type ChatSurface, useChatLayout } from './use-chat-layout'
 
 /**
  * THE BLOCKED-SESSION BAR (POD-2414), LAZY — because it draws nothing almost
@@ -31,72 +32,14 @@ const PendingInteractionBar = lazy(() =>
   import('./PendingInteractionBar').then((module) => ({ default: module.PendingInteractionBar })),
 )
 
-/**
- * CHAT (POD-405) — the SHELL, and nothing else.
- *
- * What used to be 1,442 lines of subscribing, deriving, scrolling, uploading,
- * routing and rendering is now parts with one job each:
- *
- *  - `packages/client-core/src/viewmodels/slices/chat.ts` — every view-model
- *    question, as pure functions, platform-neutral and testable without a DOM;
- *  - `use-chat-surface.ts` — the source: store + transcript window + slice,
- *    assembled once;
- *  - `use-transcript-scroll.ts` — scroll anchoring and the sticky prompt hand-off;
- *  - `use-chat-send.ts` — sending, optimistic bubbles and their reconciliation;
- *  - `use-headless-turn.ts` — headless superagent-thread routing;
- *  - `use-attachments.ts` — image paste / drop / attach and upload;
- *  - `ChatRail` (with `Minimap` + the todo chip) /
- *    `TranscriptSearchBar` / `TranscriptFeed` / `ChatComposer` (with
- *    `VoiceButton` + `AttachmentStrip`) / `ImageLightbox` — the pieces.
- *
- * This file holds the LAYOUT: feed, rail, find, jump-to-bottom, composer.
- * Narrow-dock mode (`compact`) is expressed by which of those it mounts rather
- * than by conditions scattered through a thousand lines — the rail and find are
- * simply absent there (engraved-column.md §2.5: bar → feed → composer).
- *
- * ---------------------------------------------------------------------------
- * THERE IS NO HEADER (POD-413)
- * ---------------------------------------------------------------------------
- *
- * There used to be one, and it was a full-width row carrying a search field the
- * majority of sessions never touched. It is gone rather than shrunk: a permanent
- * horizontal band is subtracted from the transcript on every session forever,
- * and a thinner one is the same trade at a discount. What was in it went to the
- * two places that were already permanent —
- *
- *   the RAIL   the minimap's gutter, widened from 14px to 24px, now carrying
- *              find, density and tl;dr above the map (ChatRail);
- *   its FIND   search itself, which is a mode you enter, not furniture
- *              (TranscriptSearchBar, floating over the feed). The rail's button
- *              is the whole way in — ⌘F went to the sidebar's task filter in
- *              POD-1093, so find is a click, not a chord.
- *
- * Net: one row of vertical space returned to the conversation, 7px of width
- * spent, and nothing lost — the match cursor, the provisional n/m and the map
- * integration all survive, the last of them stronger than before, because the
- * map now marks every hit and keeps marking them once the bar is closed.
- *
- * ---------------------------------------------------------------------------
- * WHEN THE SESSION LEAVES YOUR VIEW
- * ---------------------------------------------------------------------------
- *
- * Under the scoped feed (POD-1077) an open chat's session can be EVICTED — a
- * share revoked, the row gone from your replica, its revision untouched. That is
- * a visibility change, not a deletion, so this view leaves QUIETLY: no toast, no
- * tombstone, no removal animation, and no re-request of the vanished id (which
- * would be a heal loop against a row that is not coming back). A genuinely
- * deleted session takes the same exit, deliberately: per doc §3.1.5 acting on an
- * invisible entity must be indistinguishable from acting on one that never
- * existed, and a UI that animated one and not the other would answer "does this
- * exist?" for free.
- */
+/** Layout is local; live chat state is read by narrow observer leaves. */
 export type { SuperThreadRef }
 
 type QuoteDraftRef = MutableRefObject<((markdown: string) => void) | null>
 
 /** Keep draft keystrokes in the composer leaf rather than re-running the whole
  * transcript/rail shell for every character. */
-function ScopedChatComposer({
+const ScopedChatComposer = observer(function ScopedChatComposer({
   sessionId,
   superThread,
   compact,
@@ -109,10 +52,7 @@ function ScopedChatComposer({
   chat: ChatSurface
   quoteDraftRef: QuoteDraftRef
 }): JSX.Element {
-  // The runtime publishes this keyed value synchronously. The pool's deferred
-  // mirror made React restore the previous controlled value after every input,
-  // then write the new value again when its microtask ran.
-  const draft = useRuntimeDraft(sessionId)
+  const draft = chat.conversation.draft
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   quoteDraftRef.current = (markdown) => {
@@ -157,9 +97,32 @@ function ScopedChatComposer({
         : {})}
     />
   )
+})
+
+type ChatViewProps = {
+  sessionId: SessionId
+  active?: boolean
+  superThread?: SuperThreadRef
+  compact?: boolean
+  initialTurnRunning?: boolean
+  initialPendingText?: string
+  onInitialPendingSettled?: () => void
+  deferInitialTranscript?: boolean
+  onLeave?: (sessionId: SessionId) => void
 }
 
-export function ChatView({
+export function ChatView(props: ChatViewProps): JSX.Element {
+  const conversation = useConversation(props.sessionId, props)
+  if (!conversation) return (
+    <div className="flex min-h-0 flex-1 flex-col" data-chat-loading>
+      {props.initialPendingText && <div className="transcript-pending">{props.initialPendingText}</div>}
+    </div>
+  )
+  return <ConversationChatView {...props} conversation={conversation} />
+}
+
+const ConversationChatView = observer(function ConversationChatView({
+  conversation,
   sessionId,
   active = true,
   superThread,
@@ -170,6 +133,7 @@ export function ChatView({
   deferInitialTranscript = false,
   onLeave,
 }: {
+  conversation: WebConversation
   sessionId: SessionId
   /** False when this panel is mounted but hidden (keep-mounted deck). On
    *  becoming active (true) the view snaps to the bottom if still pinned. */
@@ -196,7 +160,8 @@ export function ChatView({
    *  deletion affordance. */
   onLeave?: (sessionId: SessionId) => void
 }): JSX.Element {
-  const chat = useChatSurface({
+  const chat = useChatLayout({
+    conversation,
     sessionId,
     active,
     superThread,
@@ -375,54 +340,7 @@ export function ChatView({
           />
         )}
         <Suspense fallback={null}>
-          <TranscriptFeedBoundary
-            setScrollerRef={chat.scroll.setScrollerRef}
-            setContentRef={chat.scroll.setContentRef}
-            onScroll={chat.scroll.onScroll}
-            onPointerUp={chat.scroll.onPointerUp}
-            compact={compact}
-            superagent={superThread !== undefined}
-            phase={chat.phase}
-            rows={chat.rowsToRender}
-            blocks={chat.blocks}
-            markdownHtml={chat.markdownHtml}
-            search={chat.search}
-            revealedRow={chat.revealedRow}
-            moreAbove={chat.moreAbove}
-            loadingOlder={chat.loadingOlder}
-            loadOlder={chat.loadOlder}
-            sessionId={sessionId}
-            cwd={chat.cwd}
-            session={chat.session}
-            httpOrigin={chat.httpOrigin}
-            openFile={chat.openFile}
-            onOpenImage={chat.setLightbox}
-            onAnswerAsk={chat.answerAsk}
-            answerInteractionId={chat.answerInteractionId}
-            livePendingAskIndex={chat.livePendingAskIndex}
-            pendingAskBlock={chat.pendingAskBlock}
-            lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
-            ctxSeq={chat.ctxSeq}
-            collapseContext={chat.headless}
-            stickyEnabled={chat.stickyEnabled}
-            isOperatorPromptRow={chat.isOperatorPromptRow}
-            pending={chat.pending}
-            onRetryPending={chat.retryPending}
-            onDiscardPending={chat.discardPending}
-            onSendAgain={chat.sendAgain}
-            onRetractQueued={chat.retractQueuedMessage}
-            overlay={chat.headless ? chat.headlessTurn.overlay : null}
-            turnPreview={chat.turnPreview}
-            activity={chat.activity}
-            offlineMachineName={chat.offlineMachineName}
-            presenceOfflineMachineName={chat.presenceOfflineMachineName}
-            attribution={chat.attribution}
-            expandRuns={chat.expandRuns}
-            // Per-message Quote (POD-376): the feed builds the blockquote, the
-            // shell owns the draft. Appended rather than replacing, so quoting
-            // twice — or quoting into a half-written reply — never eats text.
-            onQuote={quoteIntoDraft}
-          />
+          <ConversationTranscript chat={chat} sessionId={sessionId} onQuote={quoteIntoDraft} />
         </Suspense>
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
             its bands line up with the scrollable content. For a very long
@@ -492,4 +410,53 @@ export function ChatView({
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>
   )
-}
+})
+
+const ConversationTranscript = observer(function ConversationTranscript({ chat, sessionId, onQuote }: { chat: ChatSurface; sessionId: SessionId; onQuote: (markdown: string) => void }) {
+  return (
+          <TranscriptFeedBoundary
+            chat={chat}
+            setScrollerRef={chat.scroll.setScrollerRef}
+            setContentRef={chat.scroll.setContentRef}
+            onScroll={chat.scroll.onScroll}
+            onPointerUp={chat.scroll.onPointerUp}
+            compact={chat.compact}
+            superagent={chat.conversation.mount.superThread !== undefined}
+            phase={chat.phase}
+            rows={chat.rowsToRender}
+            blocks={chat.blocks}
+            markdownHtml={chat.markdownHtml}
+            search={chat.search}
+            revealedRow={chat.revealedRow}
+            moreAbove={chat.moreAbove}
+            loadingOlder={chat.loadingOlder}
+            loadOlder={chat.loadOlder}
+            sessionId={sessionId}
+            cwd={chat.cwd}
+            session={chat.session}
+            httpOrigin={chat.httpOrigin}
+            openFile={chat.openFile}
+            onOpenImage={chat.setLightbox}
+            onAnswerAsk={chat.answerAsk}
+            answerInteractionId={chat.answerInteractionId}
+            livePendingAskIndex={chat.livePendingAskIndex}
+            pendingAskBlock={chat.pendingAskBlock}
+            lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
+            collapseContext={chat.headless}
+            stickyEnabled={chat.stickyEnabled}
+            isOperatorPromptRow={chat.isOperatorPromptRow}
+            onRetryPending={chat.retryPending}
+            onDiscardPending={chat.discardPending}
+            onSendAgain={chat.sendAgain}
+            onRetractQueued={chat.retractQueuedMessage}
+            offlineMachineName={chat.offlineMachineName}
+            presenceOfflineMachineName={chat.presenceOfflineMachineName}
+            attribution={chat.attribution}
+            expandRuns={chat.expandRuns}
+            // Per-message Quote (POD-376): the feed builds the blockquote, the
+            // shell owns the draft. Appended rather than replacing, so quoting
+            // twice — or quoting into a half-written reply — never eats text.
+            onQuote={onQuote}
+          />
+  )
+})

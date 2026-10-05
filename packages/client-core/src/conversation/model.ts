@@ -57,6 +57,8 @@ export interface ConversationOptions {
   headless?: boolean
   initialTurnRunning?: boolean
   latestTurnFailure?: () => Promise<SuperagentTurnFailure | null>
+  /** Platform presentation workers consume the same atomic transcript change. */
+  onTranscriptChange?: (change: TranscriptChange) => void
 }
 
 /** One session or superagent thread, shared across screens for one principal. */
@@ -241,6 +243,7 @@ export class Conversation {
   private transcriptChanged(change: TranscriptChange): void {
     // Cache hydration occurs before Sends is constructed. start() sets its baseline.
     this.sends?.reconcile(change)
+    this.options.onTranscriptChange?.(change)
     if (change.added.length > 0 && this.headless?.text !== undefined) {
       this.headless = this.headless.status ? freezePlain({ status: this.headless.status }) : null
     }

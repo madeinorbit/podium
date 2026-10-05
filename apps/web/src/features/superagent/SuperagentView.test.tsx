@@ -428,7 +428,7 @@ describe('Open in terminal', () => {
 })
 
 describe('legacy chrome stays gone (#66 preview correction)', () => {
-  // The focus payload still rides every turn — that lives in `use-chat-send`
+  // The focus payload still rides every turn — that lives in `conversation sends`
   // and is asserted in `ChatView.headless.test.tsx`, which owns the send path.
   // What this pane must never grow back is the BADGE that reported it.
   it('renders NO CTX badge above the composer even with an issue selected', async () => {

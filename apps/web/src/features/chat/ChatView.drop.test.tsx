@@ -22,7 +22,7 @@ import './test-support/pool-fixture'
  * accepted exactly ONCE (mounting the handlers in two places would have
  * attached every file twice, which no screen would have shown).
  *
- * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `use-chat-surface` takes
+ * NOTE ON THE EXTRA MOCK, AND WHEN TO DELETE IT. `conversation layout` takes
  * `useStoreHandle` straight from `@podium/client-core/react` rather than through
  * the `@/app/store` seam this file mocks, so the real provider is required and
  * throws. The sibling ChatView suites no longer need a stub for it — whatever
@@ -30,8 +30,8 @@ import './test-support/pool-fixture'
  * mock below and all three tests fail at first render. Checked, not assumed.
  *
  * POD-1614 is repairing the seam properly (`store.tsx` re-exports a Trpc-typed
- * `useStoreHandle`; `use-chat-surface` imports it from `@/app/store`). That has
- * NOT landed here yet — `use-chat-surface.ts:1` still imports from the package.
+ * `useStoreHandle`; `conversation layout` imports it from `@/app/store`). That has
+ * NOT landed here yet — `conversation layout.ts:1` still imports from the package.
  * The moment it does, delete the mock: a stub held over a seam that no longer
  * leaks is how a suite starts testing its own scaffolding.
  */

@@ -1,3 +1,4 @@
+import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -49,8 +50,11 @@ export async function createChatContextFixture(resumeTwins = false) {
   const exits = new Map<string, 'removed' | 'evicted'>()
   const raw = (kind: string): readonly object[] => kind === 'sessions' ? rawSessions : kind === 'issueProjections' ? issues
     : kind === 'messageRecords' ? messages : kind === 'pendingInteractions' ? interactions : []
+  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  drafts.values.set(sessions[0]!.sessionId, 'Saved draft')
   let state: Store
   const owner = withKeyedInputs({
+    drafts,
     getSnapshot: () => state,
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
     readPosition: { get: () => ({ lastEventId: 0, seenAt: null }), subscribe: () => () => {} },
@@ -67,6 +71,7 @@ export async function createChatContextFixture(resumeTwins = false) {
     repos: [{ path: '/synthetic/project' }], chatSendsFor: (id: SessionId) => outboxChatSends(owner.outbox, id), replica: owner.replica,
     setSessionDraft: (id: string, text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
+      drafts.set(id as SessionId, text)
       for (const fn of listeners) fn()
     },
   } as unknown as Store
