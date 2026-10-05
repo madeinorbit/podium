@@ -1,9 +1,9 @@
 {
-  "runs": 70,
-  "completeRuns": 21,
+  "runs": 73,
+  "completeRuns": 23,
   "partialActionRuns": 1,
   "failedRuns": 5,
-  "calibrationOrDiagnosticRuns": 44,
+  "calibrationOrDiagnosticRuns": 45,
   "comparisons": [
     {
       "newArm": "new-current",
@@ -287,12 +287,12 @@
         "median": 338.19,
         "p95": 464.752,
         "max": 464.752,
-        "cpuN": 3,
-        "cpuLowerBoundN": 0,
-        "cpuMedian": 374.895,
+        "cpuN": 16,
+        "cpuLowerBoundN": 13,
+        "cpuMedian": 324.063,
         "cpuP95": 422.281,
         "cpuMax": 422.281,
-        "layoutCpuMedian": 4.263,
+        "layoutCpuMedian": 0.3505,
         "boundary": [
           "DrawFrame (compositor, no new raster Paint)",
           "Paint"
@@ -336,20 +336,20 @@
       "action": "app-cold-start",
       "old": null,
       "new": {
-        "n": 4,
-        "median": 10668.944,
-        "p95": 11887.927,
-        "max": 11887.927,
-        "cpuN": 4,
+        "n": 8,
+        "median": 11393.6955,
+        "p95": 16012.062,
+        "max": 16012.062,
+        "cpuN": 8,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 9496.636,
-        "cpuP95": 10291.076,
-        "cpuMax": 10291.076,
-        "layoutCpuMedian": 47.2505,
+        "cpuMedian": 9516.776000000002,
+        "cpuP95": 10958.088,
+        "cpuMax": 10958.088,
+        "layoutCpuMedian": 49.542500000000004,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 10551.417000000001
+        "taskWindowMedian": 10698.586
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -362,16 +362,16 @@
       "action": "app-warm-start",
       "old": null,
       "new": {
-        "n": 4,
-        "median": 8249.6055,
-        "p95": 8367.148,
-        "max": 8367.148,
-        "cpuN": 4,
+        "n": 8,
+        "median": 8341.539499999999,
+        "p95": 13210.443,
+        "max": 13210.443,
+        "cpuN": 8,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 7067.307000000001,
-        "cpuP95": 7237.699,
-        "cpuMax": 7237.699,
-        "layoutCpuMedian": 47.8785,
+        "cpuMedian": 7007.3975,
+        "cpuP95": 8161.361,
+        "cpuMax": 8161.361,
+        "layoutCpuMedian": 49.438,
         "boundary": [
           "Paint"
         ],
@@ -388,20 +388,20 @@
       "action": "phone-composer-typing",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 12.228,
-        "p95": 18.573,
-        "max": 18.573,
-        "cpuN": 8,
+        "n": 16,
+        "median": 14.413,
+        "p95": 22.611,
+        "max": 22.611,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 11.886,
+        "cpuMedian": 13.284500000000001,
         "cpuP95": 17.955,
         "cpuMax": 17.955,
-        "layoutCpuMedian": 1.2995,
+        "layoutCpuMedian": 1.3175,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 22.95349999999985
+        "taskWindowMedian": 25.660500000000752
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -425,20 +425,20 @@
       "action": "phone-issue-open",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 66.29650000000001,
-        "p95": 123.759,
-        "max": 123.759,
-        "cpuN": 8,
+        "n": 16,
+        "median": 87.511,
+        "p95": 150.47,
+        "max": 150.47,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 62.684,
-        "cpuP95": 109.389,
-        "cpuMax": 109.389,
-        "layoutCpuMedian": 6.6815,
+        "cpuMedian": 73.3815,
+        "cpuP95": 126.709,
+        "cpuMax": 126.709,
+        "layoutCpuMedian": 7.374,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 131.3455000000019
+        "taskWindowMedian": 182.92800000000398
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -451,20 +451,20 @@
       "action": "phone-issue-picker-search",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 34.785,
+        "n": 16,
+        "median": 32.783,
         "p95": 82.416,
         "max": 82.416,
-        "cpuN": 8,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 27.299,
+        "cpuMedian": 25.967,
         "cpuP95": 30.114,
         "cpuMax": 30.114,
-        "layoutCpuMedian": 1.2465000000000002,
+        "layoutCpuMedian": 1.1715,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 44.35999999999751
+        "taskWindowMedian": 43.540000000000134
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -477,20 +477,20 @@
       "action": "phone-issue-rename",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 23.4195,
-        "p95": 32.847,
-        "max": 32.847,
-        "cpuN": 8,
+        "n": 16,
+        "median": 25.197499999999998,
+        "p95": 38.394,
+        "max": 38.394,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 19.5795,
+        "cpuMedian": 20.2345,
         "cpuP95": 26.882,
         "cpuMax": 26.882,
-        "layoutCpuMedian": 1.3865,
+        "layoutCpuMedian": 1.4005,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 103.70999999999952
+        "taskWindowMedian": 100.36149999999822
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -503,16 +503,16 @@
       "action": "phone-issue-screen",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 1601.9234999999999,
-        "p95": 2017.744,
-        "max": 2017.744,
-        "cpuN": 8,
+        "n": 16,
+        "median": 1625.1515,
+        "p95": 2214.055,
+        "max": 2214.055,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 1516.5749999999998,
-        "cpuP95": 1955.241,
-        "cpuMax": 1955.241,
-        "layoutCpuMedian": 0.3375,
+        "cpuMedian": 1523.423,
+        "cpuP95": 1975.589,
+        "cpuMax": 1975.589,
+        "layoutCpuMedian": 0.34,
         "boundary": [
           "Paint"
         ],
@@ -529,20 +529,20 @@
       "action": "phone-long-press",
       "old": null,
       "new": {
-        "n": 8,
+        "n": 16,
         "median": 444.757,
         "p95": 741.914,
         "max": 741.914,
-        "cpuN": 8,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 217.5365,
+        "cpuMedian": 221.7835,
         "cpuP95": 430.514,
         "cpuMax": 430.514,
-        "layoutCpuMedian": 6.343500000000001,
+        "layoutCpuMedian": 6.798,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 277.83099999999905
+        "taskWindowMedian": 296.94700000000296
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -555,20 +555,20 @@
       "action": "phone-mission-details",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 108.371,
-        "p95": 124.002,
-        "max": 124.002,
-        "cpuN": 8,
+        "n": 16,
+        "median": 119.2875,
+        "p95": 374.748,
+        "max": 374.748,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 105.765,
-        "cpuP95": 121.672,
-        "cpuMax": 121.672,
-        "layoutCpuMedian": 46.3475,
+        "cpuMedian": 112.0455,
+        "cpuP95": 191.034,
+        "cpuMax": 191.034,
+        "layoutCpuMedian": 48.863,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 473.7360000000024
+        "taskWindowMedian": 507.5310000000002
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -581,20 +581,20 @@
       "action": "phone-mission-open",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 145.38150000000002,
-        "p95": 209.058,
-        "max": 209.058,
-        "cpuN": 8,
+        "n": 16,
+        "median": 149.727,
+        "p95": 293.713,
+        "max": 293.713,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 138.508,
-        "cpuP95": 199.939,
-        "cpuMax": 199.939,
-        "layoutCpuMedian": 7.8555,
+        "cpuMedian": 141.37,
+        "cpuP95": 261.268,
+        "cpuMax": 261.268,
+        "layoutCpuMedian": 8.154,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 550.2579999999995
+        "taskWindowMedian": 579.9510000000012
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -607,21 +607,21 @@
       "action": "phone-work-screen",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 782.289,
-        "p95": 843.369,
-        "max": 843.369,
-        "cpuN": 1,
-        "cpuLowerBoundN": 0,
-        "cpuMedian": 757.077,
-        "cpuP95": 757.077,
-        "cpuMax": 757.077,
-        "layoutCpuMedian": 4.074,
+        "n": 16,
+        "median": 791.7545,
+        "p95": 1063.484,
+        "max": 1063.484,
+        "cpuN": 16,
+        "cpuLowerBoundN": 14,
+        "cpuMedian": 771.9670000000001,
+        "cpuP95": 941.618,
+        "cpuMax": 941.618,
+        "layoutCpuMedian": 0.34099999999999997,
         "boundary": [
           "DrawFrame (compositor, no new raster Paint)",
           "Paint"
         ],
-        "taskWindowMedian": 811.002000000002
+        "taskWindowMedian": 839.7040000000029
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -634,20 +634,20 @@
       "action": "phone-work-search",
       "old": null,
       "new": {
-        "n": 8,
-        "median": 15.5815,
-        "p95": 17.117,
-        "max": 17.117,
-        "cpuN": 8,
+        "n": 16,
+        "median": 16.2205,
+        "p95": 21.839,
+        "max": 21.839,
+        "cpuN": 16,
         "cpuLowerBoundN": 0,
-        "cpuMedian": 15.0335,
-        "cpuP95": 16.808,
-        "cpuMax": 16.808,
-        "layoutCpuMedian": 1.533,
+        "cpuMedian": 15.2165,
+        "cpuP95": 17.457,
+        "cpuMax": 17.457,
+        "layoutCpuMedian": 1.5185,
         "boundary": [
           "Paint"
         ],
-        "taskWindowMedian": 23.415500000005807
+        "taskWindowMedian": 23.941000000000656
       },
       "changePercent": null,
       "p95ChangePercent": null,
@@ -1061,7 +1061,7 @@
       },
       "changePercent": -2.214952031477957,
       "p95ChangePercent": -40.72122509468138,
-      "verdict": "no clear improvement"
+      "verdict": "similar median, better tail"
     },
     {
       "newArm": "new-current",
@@ -1523,7 +1523,7 @@
       },
       "changePercent": 15.861370751848991,
       "p95ChangePercent": -17.058691116538938,
-      "verdict": "slower"
+      "verdict": "slower median, better tail"
     },
     {
       "newArm": "new-current",
@@ -1810,7 +1810,7 @@
       },
       "changePercent": 32.544750226771036,
       "p95ChangePercent": -76.64836158144026,
-      "verdict": "slower"
+      "verdict": "slower median, better tail"
     },
     {
       "newArm": "new-current",
@@ -2097,7 +2097,7 @@
       },
       "changePercent": -1.1666736410428147,
       "p95ChangePercent": -33.58967745438749,
-      "verdict": "no clear improvement"
+      "verdict": "similar median, better tail"
     },
     {
       "newArm": "new-current",
@@ -3863,7 +3863,7 @@
       },
       "changePercent": 22.788137681754716,
       "p95ChangePercent": -14.020402459474568,
-      "verdict": "slower"
+      "verdict": "slower median, better tail"
     },
     {
       "newArm": "new",
@@ -4407,7 +4407,7 @@
       },
       "changePercent": 5.974750440399301,
       "p95ChangePercent": -35.27381191768886,
-      "verdict": "no clear improvement"
+      "verdict": "similar median, better tail"
     },
     {
       "newArm": "new",
@@ -4530,7 +4530,7 @@
       },
       "changePercent": 69.66220055211427,
       "p95ChangePercent": -45.49168788603185,
-      "verdict": "slower"
+      "verdict": "slower median, better tail"
     },
     {
       "newArm": "new",
@@ -4694,7 +4694,7 @@
       },
       "changePercent": 145.13381931470695,
       "p95ChangePercent": -51.80452500067676,
-      "verdict": "slower"
+      "verdict": "slower median, better tail"
     },
     {
       "newArm": "new",
@@ -4817,7 +4817,7 @@
       },
       "changePercent": -7.60284422949592,
       "p95ChangePercent": -22.553956586733538,
-      "verdict": "no clear improvement"
+      "verdict": "similar median, better tail"
     },
     {
       "newArm": "new",
@@ -5475,9 +5475,9 @@
       "scale": 4,
       "profile": "observed",
       "oldN": 0,
-      "newN": 1,
+      "newN": 2,
       "oldPercentOneCore": null,
-      "newPercentOneCore": 5.61562755195574,
+      "newPercentOneCore": 5.773006349682519,
       "changePercent": null
     },
     {
@@ -5486,9 +5486,9 @@
       "scale": 4,
       "profile": "busy",
       "oldN": 0,
-      "newN": 1,
+      "newN": 2,
       "oldPercentOneCore": null,
-      "newPercentOneCore": 13.688951104889512,
+      "newPercentOneCore": 14.605344755397647,
       "changePercent": null
     },
     {
@@ -5518,22 +5518,22 @@
       "surface": "web",
       "scale": 4,
       "profile": "observed",
-      "oldN": 2,
-      "newN": 2,
-      "oldPercentOneCore": 43.47447800394295,
-      "newPercentOneCore": 17.85351140438145,
-      "changePercent": -58.933350728760416
+      "oldN": 1,
+      "newN": 1,
+      "oldPercentOneCore": 43.85629718514075,
+      "newPercentOneCore": 18.70181990900455,
+      "changePercent": -57.356591620003336
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "profile": "busy",
-      "oldN": 2,
-      "newN": 2,
-      "oldPercentOneCore": 92.41288711318087,
-      "newPercentOneCore": 23.383504282428436,
-      "changePercent": -74.6967062572237
+      "oldN": 1,
+      "newN": 1,
+      "oldPercentOneCore": 94.68245283647758,
+      "newPercentOneCore": 24.278985700476643,
+      "changePercent": -74.3574601490226
     },
     {
       "newArm": "new",
@@ -5650,14 +5650,14 @@
       "surface": "web",
       "scale": 4,
       "oldN": 0,
-      "newN": 0,
+      "newN": 1,
       "oldStartupMiB": null,
-      "newStartupMiB": null,
+      "newStartupMiB": 410.5010528564453,
       "startupChangePercent": null,
       "oldFiveMinuteMiB": null,
-      "newFiveMinuteMiB": null,
+      "newFiveMinuteMiB": 426.25777435302734,
       "fiveMinuteChangePercent": null,
-      "verdict": "not measured"
+      "verdict": "not comparable"
     },
     {
       "newArm": "new",
@@ -5783,14 +5783,14 @@
       "scale": 4,
       "kind": "quiet",
       "oldN": 0,
-      "newN": 8,
+      "newN": 16,
       "oldMedianMs": null,
-      "newMedianMs": 2.4820000000005393,
+      "newMedianMs": 2.7159999999994966,
       "changePercent": null,
       "oldP95Ms": null,
-      "newP95Ms": 2.9199999999995896,
+      "newP95Ms": 16.299000000000063,
       "oldWindowMedianMs": null,
-      "newWindowMedianMs": 236.0694999806583
+      "newWindowMedianMs": 234.84400007873774
     },
     {
       "newArm": "new-current",
@@ -5798,14 +5798,14 @@
       "scale": 4,
       "kind": "heartbeat",
       "oldN": 0,
-      "newN": 10,
+      "newN": 20,
       "oldMedianMs": null,
-      "newMedianMs": 164.75499999999954,
+      "newMedianMs": 170.31749999999946,
       "changePercent": null,
       "oldP95Ms": null,
-      "newP95Ms": 194.42199999999943,
+      "newP95Ms": 198.01999999999964,
       "oldWindowMedianMs": null,
-      "newWindowMedianMs": 228.24349999427795
+      "newWindowMedianMs": 234.5654999371618
     },
     {
       "newArm": "new-current",
@@ -5813,14 +5813,14 @@
       "scale": 4,
       "kind": "session-output",
       "oldN": 0,
-      "newN": 10,
+      "newN": 20,
       "oldMedianMs": null,
-      "newMedianMs": 11.631999999998754,
+      "newMedianMs": 11.772499999999297,
       "changePercent": null,
       "oldP95Ms": null,
-      "newP95Ms": 22.361000000000075,
+      "newP95Ms": 19.422999999999746,
       "oldWindowMedianMs": null,
-      "newWindowMedianMs": 227.5620000436902
+      "newWindowMedianMs": 226.9515001680702
     },
     {
       "newArm": "new-current",
@@ -5828,14 +5828,14 @@
       "scale": 4,
       "kind": "issue-change",
       "oldN": 0,
-      "newN": 10,
+      "newN": 20,
       "oldMedianMs": null,
-      "newMedianMs": 146.8544999999999,
+      "newMedianMs": 155.19450000000035,
       "changePercent": null,
       "oldP95Ms": null,
       "newP95Ms": 172.70200000000102,
       "oldWindowMedianMs": null,
-      "newWindowMedianMs": 236.51600000448525
+      "newWindowMedianMs": 237.9060003440827
     },
     {
       "newArm": "new-current",
@@ -5902,12 +5902,12 @@
       "surface": "web",
       "scale": 4,
       "kind": "quiet",
-      "oldN": 16,
-      "newN": 16,
+      "oldN": 8,
+      "newN": 8,
       "oldMedianMs": 820.1805000000002,
-      "newMedianMs": 19.65299999999992,
-      "changePercent": -97.60382013471425,
-      "oldP95Ms": 2363.4710000000005,
+      "newMedianMs": 13.771499999999826,
+      "changePercent": -98.32091838320957,
+      "oldP95Ms": 1479.4620000000016,
       "newP95Ms": 143.5669999999991,
       "oldWindowMedianMs": 833.858999889344,
       "newWindowMedianMs": 226.0724997613579
@@ -5917,45 +5917,45 @@
       "surface": "web",
       "scale": 4,
       "kind": "heartbeat",
-      "oldN": 20,
-      "newN": 20,
-      "oldMedianMs": 1295.1520000000016,
-      "newMedianMs": 128.760999999999,
-      "changePercent": -90.05823254722235,
-      "oldP95Ms": 1569.3720000000012,
+      "oldN": 10,
+      "newN": 10,
+      "oldMedianMs": 1316.0460000000019,
+      "newMedianMs": 116.39500000000069,
+      "changePercent": -91.15570428389277,
+      "oldP95Ms": 3022.9009999999976,
       "newP95Ms": 207.48799999999966,
-      "oldWindowMedianMs": 1371.04000011459,
-      "newWindowMedianMs": 234.4034998677671
+      "oldWindowMedianMs": 1353.6229999735951,
+      "newWindowMedianMs": 233.16950001753867
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "kind": "session-output",
-      "oldN": 20,
-      "newN": 20,
-      "oldMedianMs": 37.806500000002075,
-      "newMedianMs": 41.18749999999771,
-      "changePercent": 8.94290664302555,
-      "oldP95Ms": 98.23899999999952,
-      "newP95Ms": 118.80700000000033,
-      "oldWindowMedianMs": 227.28700004518032,
-      "newWindowMedianMs": 227.50800009816885
+      "oldN": 10,
+      "newN": 10,
+      "oldMedianMs": 42.816000000001964,
+      "newMedianMs": 40.77450000000127,
+      "changePercent": -4.768077354261491,
+      "oldP95Ms": 73.98300000000546,
+      "newP95Ms": 129.44299999999842,
+      "oldWindowMedianMs": 226.46800009533763,
+      "newWindowMedianMs": 223.46650017425418
     },
     {
       "newArm": "new-current",
       "surface": "web",
       "scale": 4,
       "kind": "issue-change",
-      "oldN": 20,
-      "newN": 20,
+      "oldN": 10,
+      "newN": 10,
       "oldMedianMs": 1322.267,
-      "newMedianMs": 55.777000000000854,
-      "changePercent": -95.78171428312127,
-      "oldP95Ms": 1412.345000000002,
-      "newP95Ms": 155.91500000000025,
-      "oldWindowMedianMs": 1371.1949998978525,
-      "newWindowMedianMs": 231.90100002102554
+      "newMedianMs": 47.406999999999755,
+      "changePercent": -96.41471805618686,
+      "oldP95Ms": 1430.5570000000002,
+      "newP95Ms": 160.54199999999952,
+      "oldWindowMedianMs": 1361.2905000336468,
+      "newWindowMedianMs": 231.10450012609363
     },
     {
       "newArm": "new",
@@ -6136,6 +6136,16 @@
       "newP95Ms": 296.02000000000214,
       "oldWindowMedianMs": 1550.353999948129,
       "newWindowMedianMs": 310.1200002711266
+    }
+  ],
+  "backgroundRunExclusions": [
+    {
+      "run": "timing-new-current-web-4x-r31",
+      "reason": "Potential diagnostic-build overlap: POD-5513 notice msg_238eed62-1e4f-485b-b72f-f51224fb155c was created at 21:21:51.894 UTC and describes a ~21:23 UTC 30-second build. This run ended at 21:23:21.247; final actions ended before 21:20:50. Exclude the entire following background/idle phase conservatively because the exact build interval is unknown."
+    },
+    {
+      "run": "timing-old-web-4x-r31",
+      "reason": "Exclude the matched OLD background/idle phase with the potentially build-contaminated CURRENT r31 phase to retain a matched cohort. Click samples are unaffected and retained."
     }
   ]
 }

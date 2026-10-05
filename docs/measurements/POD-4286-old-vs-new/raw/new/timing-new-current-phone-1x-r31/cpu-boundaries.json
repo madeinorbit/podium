@@ -1,0 +1,45 @@
+{
+  "method": "For composited transitions without a raster Paint, thread clock from input handler to last completed main-thread event before qualifying DrawFrame. A conservative lower bound if a task overlaps the frame; no wall time is relabelled CPU.",
+  "actions": {
+    "0015-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 292.972,
+      "layoutCpuMs": 0.333,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0017-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 340.713,
+      "layoutCpuMs": 0.35,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0019-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 321.639,
+      "layoutCpuMs": 0.402,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0021-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 396.868,
+      "layoutCpuMs": 0.327,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0023-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 325.94,
+      "layoutCpuMs": 0.354,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0025-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 312.38,
+      "layoutCpuMs": 0.338,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0027-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 343.468,
+      "layoutCpuMs": 0.333,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0029-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 391.633,
+      "layoutCpuMs": 0.368,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    }
+  }
+}

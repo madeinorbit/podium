@@ -1,8 +1,8 @@
 {
-  "summary": "CURRENT at 96f705cd4e makes frequent session work far cheaper. At 4x, session switching drops 6.08\u21920.63 s, mark-read 9.77\u21920.24 s, and busy live-update CPU 92%\u219223% of one renderer core. Startup costs more: cold 7.65\u219211.88 s and retained-data reload 4.43\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales. Header opening shows no clear median gain; 4x sidebar expansion has a similar median and a worse tail. This is a mixed web result with two matched pairs per scale. The first CURRENT phone 1x capture is complete; OLD has no matched phone result. The whole-app verdict still awaits the remaining phone captures, heaps and sampled CPU attribution. OLD phone cannot start through Work with the shared corpus.",
+  "summary": "Worth it for frequent session work on web at operator scale, with substantial regressions elsewhere. At 1x, session switching falls 0.81\u21920.40 s and mark-read 0.88\u21920.14 s. At 4x, session switching falls 6.08\u21920.63 s, mark-read 9.77\u21920.24 s, and busy live-update CPU 95%\u219224% of one renderer core. Cold startup rises 7.65\u219211.88 s and retained-data reload 4.43\u21928.44 s. Project expansion, palette opening and Tasks board/search are slower at both scales; some actions show no clear median gain. CURRENT phone is measured at both scales, but OLD fails to start through Work with the shared corpus, so no relative phone win is claimed. The original full matrix remains incomplete under the coordinator\u2019s reduced finish scope.",
   "currentArm": {
     "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
-    "status": "Two matched web pairs at both scales complete; first CURRENT phone 1x complete; remaining phone matrix, heap and sampled CPU attribution pending",
+    "status": "Measured capture scope complete, raw archives attached, bounded evidence audit passed. Original full matrix remains incomplete.",
     "priority": "Fresh OLD/CURRENT 1x pair and immediate table, then 4x; morning follow-up deferred.",
     "workspaceBuildSeconds": 181.073
   },
@@ -286,6 +286,11 @@
       },
       "timingValuesChanged": false,
       "originalLedgersPreserved": true
+    },
+    {
+      "type": "build-overlap-exclusion",
+      "message": "Late POD-5513 build notice may overlap the final CURRENT web 4x background/idle phase. Entire final matched OLD/CURRENT background/idle pair is excluded; unaffected action measurements and all original raw observations are retained. Only the first matched pair enters 4x background and 60-second CPU comparisons. Exact build interval was not provided.",
+      "sourceMessage": "msg_238eed62-1e4f-485b-b72f-f51224fb155c"
     }
   ],
   "finishScope": {
@@ -309,5 +314,20 @@
       "Remaining pre-deletion baseline phone/background repeats"
     ],
     "comparisonLimit": "CURRENT phone repeats after r30 have no interleaved OLD attempt, following the coordinator scope reduction. OLD phone failures remain evidence of the corpus/Work startup boundary, not relative latency wins."
-  }
+  },
+  "heapRetry": {
+    "excludedRun": "memory-new-current-web-4x-r30",
+    "completedRun": "memory-new-current-web-4x-r31",
+    "reason": "The workload toggled the default-open Superagent pane closed. Retry checks aria-pressed before opening, matching the measured composer case. No product code change."
+  },
+  "backgroundRunExclusions": [
+    {
+      "run": "timing-new-current-web-4x-r31",
+      "reason": "Potential diagnostic-build overlap: POD-5513 notice msg_238eed62-1e4f-485b-b72f-f51224fb155c was created at 21:21:51.894 UTC and describes a ~21:23 UTC 30-second build. This run ended at 21:23:21.247; final actions ended before 21:20:50. Exclude the entire following background/idle phase conservatively because the exact build interval is unknown."
+    },
+    {
+      "run": "timing-old-web-4x-r31",
+      "reason": "Exclude the matched OLD background/idle phase with the potentially build-contaminated CURRENT r31 phase to retain a matched cohort. Click samples are unaffected and retained."
+    }
+  ]
 }

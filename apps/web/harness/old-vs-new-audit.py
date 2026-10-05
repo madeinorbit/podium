@@ -4,6 +4,7 @@ import collections
 import hashlib
 import json
 import pathlib
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--new-sha', required=True)
@@ -30,6 +31,8 @@ captures = []
 evidence_count = 0
 unattributed_profiles = []
 corpus_hashes = {}
+def react_depth_failure(message):
+    return bool(re.search(r'Minified React error #185\b|react\.dev/errors/185\b|invariant=185\b|Maximum update depth exceeded', message))
 for checkout_arm, checkout in checkouts.items():
     root = checkout / '.artifacts/old-vs-new'
     for file in sorted(root.glob('*/run.json')):
@@ -66,7 +69,7 @@ for checkout_arm, checkout in checkouts.items():
         if run['status']!='complete' and run.get('actionPhaseComplete'):
             require(name=='timing-old-web-4x-r10' and run['harnessSha256']=='e0d8a84eb2258bd15f31022a7a78b33e700e119aed4de6faa61a24ef25f9a0c3' and 'Comparison target A' in run.get('failure',''), 'unexpected partial action phase')
         require(run['status'] == 'complete' or run.get('actionPhaseComplete'), 'unfinished capture')
-        require(not any('185' in error for error in run['errors']), 'hidden React startup failure')
+        require(not any(react_depth_failure(error) for error in run['errors']), 'hidden React startup failure')
         if run['mode'] == 'memory':
             require(run['heapStartup']['usedSize'] > 0 and run['heapFiveMinutes']['usedSize'] > 0, 'heap observation missing')
             require(run['heapUse']['durationSeconds'] >= 300, 'five-minute observation too early')
@@ -100,6 +103,8 @@ for checkout_arm, checkout in checkouts.items():
             expected_actions = set()
         actual_actions = {row['action'] for row in run['actions']}
         require(actual_actions == expected_actions, f'action coverage mismatch: {sorted(expected_actions ^ actual_actions)}')
+        supplement_file = file.parent / 'cpu-boundaries.json'
+        supplements = json.loads(supplement_file.read_text())['actions'] if supplement_file.exists() else {}
         attribution_file = file.parent / 'cpu-attribution.json'
         if attribution_file.exists():
             attribution = json.loads(attribution_file.read_text())
@@ -110,8 +115,14 @@ for checkout_arm, checkout in checkouts.items():
             require(False, 'sampled source attribution missing')
         for row in run['actions']:
             require(row['inputToPaintMs'] > 0 and 0 <= row['selectedDomMs'] <= row['inputToPaintMs'], f'{row["action"]}: paint precedes input/DOM')
-            if row.get('mainThreadCpuMs') is not None:
-                require(0 <= row['mainThreadCpuMs'] <= row['inputToPaintMs'] + 2, f'{row["action"]}: CPU exceeds elapsed time')
+            cpu = row.get('mainThreadCpuMs')
+            if cpu is None and row['trace'] in supplements:
+                bound = supplements[row['trace']]
+                require('lower bound' in bound['cpuBoundary'], 'compositor CPU bound not labelled')
+                cpu = bound['mainThreadCpuMs']
+                require(0 <= bound['layoutCpuMs'] <= cpu + 2, 'layout bound exceeds total CPU')
+            if cpu is not None:
+                require(0 <= cpu <= row['inputToPaintMs'] + 2, f'{row["action"]}: CPU exceeds elapsed time')
             for field in ['trace', 'cpu']:
                 if row.get(field):
                     require((file.parent / row[field]).is_file(), f'{row["action"]}: raw {field} missing')

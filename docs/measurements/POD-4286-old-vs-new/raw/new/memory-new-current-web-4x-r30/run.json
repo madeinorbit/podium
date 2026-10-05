@@ -1,0 +1,402 @@
+{
+  "version": 1,
+  "mode": "memory",
+  "arm": "new-current",
+  "comparisonArm": "new-current",
+  "round": 30,
+  "surface": "web",
+  "scale": 4,
+  "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
+  "productTreeSha256": "c51a313e338b40f092d9286309f52e0121822499d2aba076bab368aef9b3276d",
+  "purpose": "harness-failure",
+  "harnessSha256": "c16e64f61a1b0355d45aeaeb99898b739469cd3f08f544f3344e480b2c8b071b",
+  "durationTimeDomain": "threadTicks",
+  "httpCache": "disabled by bootstrap request routing",
+  "warmStartup": "Reload with retained durable data and preferences; snapshot responses augmented, delta/cursor-resume responses passed through",
+  "sameOriginTracePriming": true,
+  "semanticSha256": "b6ad3a359fa48bd74c113577bd43484507e2acc0ce08cb81843a8296a94cf82a",
+  "controlOnly": false,
+  "backgroundOnly": false,
+  "terminalProbe": false,
+  "tasksProbe": false,
+  "corpus": {
+    "syntheticIssues": 19468,
+    "syntheticSessions": 17216,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "largeMissionTargets": [
+    {
+      "id": "i13916",
+      "repoId": "r0",
+      "assignedDescendantSessions": 306
+    },
+    {
+      "id": "i8355",
+      "repoId": "r3",
+      "assignedDescendantSessions": 283
+    }
+  ],
+  "startedAt": "2026-10-04T23:19:07.079Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    8.15,
+    8.29,
+    7.44
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:29:51.816 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:29:51.819 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: [.WebGL-0x13940e4cee00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x13940e4cee00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x13940e4cee00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x13940e4cee00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+  ],
+  "pids": [
+    {
+      "role": "collector",
+      "pid": 1061988
+    },
+    {
+      "role": "harness",
+      "pid": 1062080
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 87597,
+      "rows": 87584,
+      "originalRows": 13,
+      "fromSeq": 906,
+      "at": "2026-10-04T23:29:52.307Z"
+    }
+  ],
+  "status": "failed",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_38ccedb2-07c3-4c59-a47c-6d5146751d5b",
+        "repoId": "repo_91425b1126403176",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19551-5aee205d/zz-podium-e2e-repo-19551/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "fd0789de-4771-4694-acc9-241fd329bb1c",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T23:19:14.456Z",
+        "updatedAt": "2026-10-04T23:19:14.516Z",
+        "agentId": "db4d751d-d18e-47e0-862b-55ed0e8f3e1f",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19551-5aee205d/zz-podium-e2e-repo-19551",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "c6f01360-bef7-4b55-a2f2-7fcdcee5abd6",
+        "agentId": "c6f01360-bef7-4b55-a2f2-7fcdcee5abd6",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fd0789de-4771-4694-acc9-241fd329bb1c",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "9ac107b4-c6cc-464d-8f61-c272bcfbd7b5",
+        "agentId": "9ac107b4-c6cc-464d-8f61-c272bcfbd7b5",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fd0789de-4771-4694-acc9-241fd329bb1c",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_abec889a-50ae-4201-a2c1-494dfca3e360",
+        "repoId": "repo_91425b1126403176",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "9",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19551-5aee205d/zz-podium-e2e-repo-19551/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "fd0789de-4771-4694-acc9-241fd329bb1c",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T23:19:14.678Z",
+        "updatedAt": "2026-10-04T23:19:14.721Z",
+        "agentId": "7c8b4613-f2a0-4219-a7d1-b1393d897321",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19551-5aee205d/zz-podium-e2e-repo-19551",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "577b3d94-b42d-431b-95f8-dbb6bf576f37",
+        "agentId": "577b3d94-b42d-431b-95f8-dbb6bf576f37",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "fd0789de-4771-4694-acc9-241fd329bb1c",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 796,
+      "sessions": 5,
+      "statuses": [
+        "starting",
+        "live",
+        "starting",
+        "starting",
+        "live"
+      ]
+    },
+    {
+      "seq": 799,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "db4d751d-d18e-47e0-862b-55ed0e8f3e1f",
+      "sessionId": "db4d751d-d18e-47e0-862b-55ed0e8f3e1f",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "c6f01360-bef7-4b55-a2f2-7fcdcee5abd6",
+      "sessionId": "c6f01360-bef7-4b55-a2f2-7fcdcee5abd6",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "7c8b4613-f2a0-4219-a7d1-b1393d897321",
+      "sessionId": "7c8b4613-f2a0-4219-a7d1-b1393d897321",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "577b3d94-b42d-431b-95f8-dbb6bf576f37",
+      "sessionId": "577b3d94-b42d-431b-95f8-dbb6bf576f37",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "9ac107b4-c6cc-464d-8f61-c272bcfbd7b5",
+      "sessionId": "9ac107b4-c6cc-464d-8f61-c272bcfbd7b5",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 87597,
+  "browser": "153.0.8010.12",
+  "diskCaptureStart": {
+    "availableBytes": 26520096768
+  },
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T23:29:46.923776+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T23:29:46.759Z",
+          "expiresAt": "2026-10-05T00:14:46.759Z",
+          "secondsLeft": 2700,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 45m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T23:29:47.523Z",
+  "captureLoadStart": [
+    14.07,
+    9.16,
+    7.88
+  ],
+  "hostCpuStart": [
+    420973087,
+    7349093,
+    192028675,
+    1861448155,
+    13041724,
+    0,
+    19308593,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19551/client?v=4&vmin=4&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 2,
+    "machinesChanged": 9,
+    "approvalsChanged": 1,
+    "hostMetricsChanged": 23,
+    "pong": 39,
+    "feedResume": 1,
+    "feedDelta": 25,
+    "sessionAgentStateChanged": 1,
+    "presenceRoomState": 4,
+    "presenceRoomDelta": 4,
+    "attached": 2,
+    "geometry": 3
+  },
+  "bootstrapResponses": [
+    {
+      "at": "2026-10-04T23:29:52.307Z",
+      "mode": "snapshot",
+      "augmented": true
+    }
+  ],
+  "population": {
+    "issueDep": 14181,
+    "issueEvent": 4,
+    "issueGitState": 20,
+    "issueProjection": 19470,
+    "issueUserState": 19468,
+    "machine": 8,
+    "repo": 9,
+    "session": 17222,
+    "sessionUserState": 17216,
+    "userLayout": 1
+  },
+  "heapStartup": {
+    "usedSize": 429207288,
+    "totalSize": 450797568,
+    "embedderHeapUsedSize": 37733888,
+    "backingStorageSize": 3223933
+  },
+  "failure": "TimeoutError: fill: Timeout 60000ms exceeded.\nCall log:\n  - waiting for getByPlaceholder('Ask across all tasks\u2026')\n",
+  "endedAt": "2026-10-04T23:31:44.542Z",
+  "loadEnd": [
+    18.06,
+    13.2,
+    9.56
+  ],
+  "hostCpuEnd": [
+    421035561,
+    7349093,
+    192041098,
+    1861461768,
+    13043796,
+    0,
+    19309811,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 24,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  },
+  "originalPurpose": "measurement",
+  "excludedReason": "Heap workload blindly toggled the default-open Superagent pane closed; composer unavailable. No five-minute point. Retry r31 ensures aria-pressed is open, as the measured typing case already does."
+}

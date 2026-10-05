@@ -960,7 +960,7 @@ try {
         await page.keyboard.press('Escape');await page.keyboard.press('Escape')
         await page.getByTestId('topbar-nav-workspace').click()
         const trigger=page.getByTestId('right-rail').getByRole('button',{name:'Superagent',exact:true})
-        await trigger.click()
+        if(await trigger.getAttribute('aria-pressed')!=='true')await trigger.click()
         const input=page.getByPlaceholder('Ask across all tasks…')
         await input.fill('five minute comparison draft');await input.fill('')
         await trigger.click()

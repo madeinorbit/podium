@@ -1,0 +1,50 @@
+{
+  "method": "For composited transitions without a raster Paint, thread clock from input handler to last completed main-thread event before qualifying DrawFrame. A conservative lower bound if a task overlaps the frame; no wall time is relabelled CPU.",
+  "actions": {
+    "0013-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 403.178,
+      "layoutCpuMs": 0.368,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0015-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 323.287,
+      "layoutCpuMs": 0.326,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0017-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 324.839,
+      "layoutCpuMs": 0.361,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0019-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 300.821,
+      "layoutCpuMs": 0.32,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0021-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 299.089,
+      "layoutCpuMs": 0.335,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0023-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 295.763,
+      "layoutCpuMs": 0.341,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0025-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 283.631,
+      "layoutCpuMs": 0.351,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0027-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 306.803,
+      "layoutCpuMs": 0.344,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    },
+    "0029-phone-work-screen.trace.json.gz": {
+      "mainThreadCpuMs": 276.619,
+      "layoutCpuMs": 0.368,
+      "cpuBoundary": "last completed main-thread event before compositor frame (lower bound)"
+    }
+  }
+}

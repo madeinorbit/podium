@@ -1,0 +1,1021 @@
+{
+  "version": 1,
+  "mode": "memory",
+  "arm": "new-current",
+  "comparisonArm": "new-current",
+  "round": 31,
+  "surface": "web",
+  "scale": 4,
+  "sha": "96f705cd4ee836646d1d4539f411c307b5d6eab5",
+  "productTreeSha256": "c51a313e338b40f092d9286309f52e0121822499d2aba076bab368aef9b3276d",
+  "purpose": "measurement",
+  "harnessSha256": "dbf1dd731989780af447b613ecabbd39feccff14503635922a93bf75252a42ab",
+  "durationTimeDomain": "threadTicks",
+  "httpCache": "disabled by bootstrap request routing",
+  "warmStartup": "Reload with retained durable data and preferences; snapshot responses augmented, delta/cursor-resume responses passed through",
+  "sameOriginTracePriming": true,
+  "semanticSha256": "b6ad3a359fa48bd74c113577bd43484507e2acc0ce08cb81843a8296a94cf82a",
+  "controlOnly": false,
+  "backgroundOnly": false,
+  "terminalProbe": false,
+  "tasksProbe": false,
+  "corpus": {
+    "syntheticIssues": 19468,
+    "syntheticSessions": 17216,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "largeMissionTargets": [
+    {
+      "id": "i13916",
+      "repoId": "r0",
+      "assignedDescendantSessions": 306
+    },
+    {
+      "id": "i8355",
+      "repoId": "r3",
+      "assignedDescendantSessions": 283
+    }
+  ],
+  "startedAt": "2026-10-04T23:33:48.191Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    14.69,
+    13.12,
+    9.97
+  ],
+  "actions": [],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:36:09.078 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:36:09.079 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:36:09.120 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:36:09.238 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 23:36:09.273 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19551/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: [.WebGL-0x1e9c02d7ca00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1e9c02d7ca00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1e9c02d7ca00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x1e9c02d7ca00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+  ],
+  "pids": [
+    {
+      "role": "collector",
+      "pid": 1124142
+    },
+    {
+      "role": "harness",
+      "pid": 1124259
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 87598,
+      "rows": 87584,
+      "originalRows": 14,
+      "fromSeq": 821,
+      "at": "2026-10-04T23:36:09.313Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_0010fdd4-035f-4648-aa7b-200b85995f7f",
+        "repoId": "repo_bb06d2a6fa84dd13",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19551-b1b6103f/zz-podium-e2e-repo-19551/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "898973df-0fba-46cb-80c6-3afbc815a565",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T23:33:53.994Z",
+        "updatedAt": "2026-10-04T23:33:54.047Z",
+        "agentId": "6ea5207e-5808-4f0d-a01b-173c800855c7",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19551-b1b6103f/zz-podium-e2e-repo-19551",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "ded0e9ef-1fc5-4211-bba7-cc9d5b099406",
+        "agentId": "ded0e9ef-1fc5-4211-bba7-cc9d5b099406",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "898973df-0fba-46cb-80c6-3afbc815a565",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "f99a2121-a95f-4d69-924e-bbf1029c2c45",
+        "agentId": "f99a2121-a95f-4d69-924e-bbf1029c2c45",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "898973df-0fba-46cb-80c6-3afbc815a565",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_0276ebdc-1bbb-48fa-9a70-14dccbfcdbc3",
+        "repoId": "repo_bb06d2a6fa84dd13",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "9",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19551-b1b6103f/zz-podium-e2e-repo-19551/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "898973df-0fba-46cb-80c6-3afbc815a565",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-04T23:33:54.214Z",
+        "updatedAt": "2026-10-04T23:33:54.269Z",
+        "agentId": "44d543dd-a16e-469b-a889-7640e2ba2efb",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19551-b1b6103f/zz-podium-e2e-repo-19551",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "119202e7-98ba-491e-80a2-f549f828a572",
+        "agentId": "119202e7-98ba-491e-80a2-f549f828a572",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "898973df-0fba-46cb-80c6-3afbc815a565",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 796,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "starting",
+        "starting",
+        "starting",
+        "live"
+      ]
+    },
+    {
+      "seq": 799,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "6ea5207e-5808-4f0d-a01b-173c800855c7",
+      "sessionId": "6ea5207e-5808-4f0d-a01b-173c800855c7",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "ded0e9ef-1fc5-4211-bba7-cc9d5b099406",
+      "sessionId": "ded0e9ef-1fc5-4211-bba7-cc9d5b099406",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "44d543dd-a16e-469b-a889-7640e2ba2efb",
+      "sessionId": "44d543dd-a16e-469b-a889-7640e2ba2efb",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "119202e7-98ba-491e-80a2-f549f828a572",
+      "sessionId": "119202e7-98ba-491e-80a2-f549f828a572",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "f99a2121-a95f-4d69-924e-bbf1029c2c45",
+      "sessionId": "f99a2121-a95f-4d69-924e-bbf1029c2c45",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 87597,
+  "browser": "153.0.8010.12",
+  "diskCaptureStart": {
+    "availableBytes": 12739891200
+  },
+  "lease": {
+    "name": "meter:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-04T23:36:07.144813+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "meter:flatblock",
+          "holder": {
+            "sessionId": "90bd8736-9176-4017-8e31-63f88c2c0d56",
+            "issueId": "iss_19eb0b67-6858-487a-acfa-fdc89720ea64",
+            "label": "issue:#5501",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5501-old-vs-new-app-speed"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-04T23:36:03.057Z",
+          "expiresAt": "2026-10-05T00:21:07.125Z",
+          "secondsLeft": 2700,
+          "queue": []
+        }
+      },
+      "text": "acquired 'meter:flatblock' (expires in 45m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-04T23:36:07.591Z",
+  "captureLoadStart": [
+    11.37,
+    12.15,
+    10.03
+  ],
+  "hostCpuStart": [
+    421148751,
+    7349093,
+    192064692,
+    1861519764,
+    13051772,
+    0,
+    19312230,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19551/client?v=4&vmin=4&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 2,
+    "machinesChanged": 37,
+    "approvalsChanged": 1,
+    "hostMetricsChanged": 66,
+    "pong": 125,
+    "feedResume": 1,
+    "feedDelta": 278,
+    "sessionAgentStateChanged": 1,
+    "presenceRoomState": 80,
+    "presenceRoomDelta": 80,
+    "attached": 40,
+    "geometry": 41
+  },
+  "bootstrapResponses": [
+    {
+      "at": "2026-10-04T23:36:09.313Z",
+      "mode": "snapshot",
+      "augmented": true
+    }
+  ],
+  "population": {
+    "issueDep": 14181,
+    "issueEvent": 4,
+    "issueGitState": 20,
+    "issueProjection": 19470,
+    "issueUserState": 19468,
+    "machine": 8,
+    "repo": 9,
+    "session": 17222,
+    "sessionUserState": 17216,
+    "userLayout": 2
+  },
+  "heapStartup": {
+    "usedSize": 430441552,
+    "totalSize": 452530176,
+    "embedderHeapUsedSize": 37677560,
+    "backingStorageSize": 3223885
+  },
+  "heapFiveMinutes": {
+    "usedSize": 446963672,
+    "totalSize": 470749184,
+    "embedderHeapUsedSize": 38975976,
+    "backingStorageSize": 4336289
+  },
+  "heapUse": {
+    "durationSeconds": 300.991,
+    "steps": 60,
+    "actions": 60,
+    "workload": "Five-minute wall-clock workload, at most 60 action groups at five-second cadence; an in-flight group can overrun the deadline. See actual duration and steps.",
+    "loads": [
+      [
+        12.5,
+        12.38,
+        10.15
+      ],
+      [
+        12.38,
+        12.35,
+        10.16
+      ],
+      [
+        11.87,
+        12.25,
+        10.14
+      ],
+      [
+        12.6,
+        12.39,
+        10.19
+      ],
+      [
+        11.91,
+        12.25,
+        10.16
+      ],
+      [
+        12.64,
+        12.4,
+        10.22
+      ],
+      [
+        12.67,
+        12.41,
+        10.23
+      ],
+      [
+        12.06,
+        12.29,
+        10.21
+      ],
+      [
+        11.89,
+        12.25,
+        10.2
+      ],
+      [
+        11.34,
+        12.13,
+        10.18
+      ],
+      [
+        10.59,
+        11.96,
+        10.13
+      ],
+      [
+        9.98,
+        11.81,
+        10.09
+      ],
+      [
+        10.23,
+        11.83,
+        10.11
+      ],
+      [
+        10.37,
+        11.83,
+        10.12
+      ],
+      [
+        10.02,
+        11.74,
+        10.1
+      ],
+      [
+        9.54,
+        11.61,
+        10.06
+      ],
+      [
+        9.49,
+        11.56,
+        10.06
+      ],
+      [
+        8.97,
+        11.42,
+        10.02
+      ],
+      [
+        9.14,
+        11.41,
+        10.03
+      ],
+      [
+        9.93,
+        11.54,
+        10.07
+      ],
+      [
+        10.01,
+        11.53,
+        10.08
+      ],
+      [
+        9.93,
+        11.49,
+        10.07
+      ],
+      [
+        10.98,
+        11.68,
+        10.14
+      ],
+      [
+        10.34,
+        11.54,
+        10.1
+      ],
+      [
+        10.47,
+        11.55,
+        10.11
+      ],
+      [
+        10.2,
+        11.47,
+        10.1
+      ],
+      [
+        9.54,
+        11.31,
+        10.05
+      ],
+      [
+        9.26,
+        11.22,
+        10.03
+      ],
+      [
+        9.16,
+        11.17,
+        10.02
+      ],
+      [
+        8.58,
+        11.02,
+        9.98
+      ],
+      [
+        8.3,
+        10.92,
+        9.95
+      ],
+      [
+        8.99,
+        11.02,
+        9.99
+      ],
+      [
+        9.24,
+        11.04,
+        10
+      ],
+      [
+        8.82,
+        10.92,
+        9.97
+      ],
+      [
+        8.35,
+        10.79,
+        9.93
+      ],
+      [
+        8.64,
+        10.81,
+        9.94
+      ],
+      [
+        8.03,
+        10.64,
+        9.89
+      ],
+      [
+        7.39,
+        10.47,
+        9.84
+      ],
+      [
+        7.28,
+        10.39,
+        9.82
+      ],
+      [
+        7.34,
+        10.35,
+        9.81
+      ],
+      [
+        6.83,
+        10.2,
+        9.76
+      ],
+      [
+        7.08,
+        10.19,
+        9.76
+      ],
+      [
+        7,
+        10.12,
+        9.74
+      ],
+      [
+        9.96,
+        10.69,
+        9.93
+      ],
+      [
+        10.37,
+        10.76,
+        9.95
+      ],
+      [
+        9.94,
+        10.66,
+        9.93
+      ],
+      [
+        9.54,
+        10.57,
+        9.9
+      ],
+      [
+        9.02,
+        10.44,
+        9.86
+      ],
+      [
+        9.02,
+        10.42,
+        9.86
+      ],
+      [
+        8.93,
+        10.38,
+        9.85
+      ],
+      [
+        8.78,
+        10.32,
+        9.83
+      ],
+      [
+        8.32,
+        10.2,
+        9.8
+      ],
+      [
+        8.29,
+        10.16,
+        9.79
+      ],
+      [
+        7.79,
+        10.03,
+        9.74
+      ],
+      [
+        7.64,
+        9.96,
+        9.72
+      ],
+      [
+        7.67,
+        9.93,
+        9.71
+      ],
+      [
+        7.14,
+        9.78,
+        9.67
+      ],
+      [
+        6.81,
+        9.67,
+        9.63
+      ],
+      [
+        7.14,
+        9.69,
+        9.64
+      ],
+      [
+        7.45,
+        9.71,
+        9.65
+      ]
+    ],
+    "stepsCompleted": [
+      {
+        "step": 0,
+        "kind": "mission and session switch",
+        "durationMs": 3823
+      },
+      {
+        "step": 1,
+        "kind": "board search and issue page",
+        "durationMs": 3380
+      },
+      {
+        "step": 2,
+        "kind": "palette search and composer draft",
+        "durationMs": 2848
+      },
+      {
+        "step": 3,
+        "kind": "mission and session switch",
+        "durationMs": 934
+      },
+      {
+        "step": 4,
+        "kind": "board search and issue page",
+        "durationMs": 2422
+      },
+      {
+        "step": 5,
+        "kind": "palette search and composer draft",
+        "durationMs": 2134
+      },
+      {
+        "step": 6,
+        "kind": "mission and session switch",
+        "durationMs": 1173
+      },
+      {
+        "step": 7,
+        "kind": "board search and issue page",
+        "durationMs": 2267
+      },
+      {
+        "step": 8,
+        "kind": "palette search and composer draft",
+        "durationMs": 2248
+      },
+      {
+        "step": 9,
+        "kind": "mission and session switch",
+        "durationMs": 1045
+      },
+      {
+        "step": 10,
+        "kind": "board search and issue page",
+        "durationMs": 2289
+      },
+      {
+        "step": 11,
+        "kind": "palette search and composer draft",
+        "durationMs": 2226
+      },
+      {
+        "step": 12,
+        "kind": "mission and session switch",
+        "durationMs": 1078
+      },
+      {
+        "step": 13,
+        "kind": "board search and issue page",
+        "durationMs": 2137
+      },
+      {
+        "step": 14,
+        "kind": "palette search and composer draft",
+        "durationMs": 2062
+      },
+      {
+        "step": 15,
+        "kind": "mission and session switch",
+        "durationMs": 1120
+      },
+      {
+        "step": 16,
+        "kind": "board search and issue page",
+        "durationMs": 2186
+      },
+      {
+        "step": 17,
+        "kind": "palette search and composer draft",
+        "durationMs": 2022
+      },
+      {
+        "step": 18,
+        "kind": "mission and session switch",
+        "durationMs": 1042
+      },
+      {
+        "step": 19,
+        "kind": "board search and issue page",
+        "durationMs": 2154
+      },
+      {
+        "step": 20,
+        "kind": "palette search and composer draft",
+        "durationMs": 2172
+      },
+      {
+        "step": 21,
+        "kind": "mission and session switch",
+        "durationMs": 943
+      },
+      {
+        "step": 22,
+        "kind": "board search and issue page",
+        "durationMs": 2983
+      },
+      {
+        "step": 23,
+        "kind": "palette search and composer draft",
+        "durationMs": 2563
+      },
+      {
+        "step": 24,
+        "kind": "mission and session switch",
+        "durationMs": 954
+      },
+      {
+        "step": 25,
+        "kind": "board search and issue page",
+        "durationMs": 2240
+      },
+      {
+        "step": 26,
+        "kind": "palette search and composer draft",
+        "durationMs": 2365
+      },
+      {
+        "step": 27,
+        "kind": "mission and session switch",
+        "durationMs": 935
+      },
+      {
+        "step": 28,
+        "kind": "board search and issue page",
+        "durationMs": 2372
+      },
+      {
+        "step": 29,
+        "kind": "palette search and composer draft",
+        "durationMs": 2391
+      },
+      {
+        "step": 30,
+        "kind": "mission and session switch",
+        "durationMs": 1014
+      },
+      {
+        "step": 31,
+        "kind": "board search and issue page",
+        "durationMs": 2350
+      },
+      {
+        "step": 32,
+        "kind": "palette search and composer draft",
+        "durationMs": 2442
+      },
+      {
+        "step": 33,
+        "kind": "mission and session switch",
+        "durationMs": 990
+      },
+      {
+        "step": 34,
+        "kind": "board search and issue page",
+        "durationMs": 2316
+      },
+      {
+        "step": 35,
+        "kind": "palette search and composer draft",
+        "durationMs": 2480
+      },
+      {
+        "step": 36,
+        "kind": "mission and session switch",
+        "durationMs": 873
+      },
+      {
+        "step": 37,
+        "kind": "board search and issue page",
+        "durationMs": 2152
+      },
+      {
+        "step": 38,
+        "kind": "palette search and composer draft",
+        "durationMs": 2364
+      },
+      {
+        "step": 39,
+        "kind": "mission and session switch",
+        "durationMs": 921
+      },
+      {
+        "step": 40,
+        "kind": "board search and issue page",
+        "durationMs": 2066
+      },
+      {
+        "step": 41,
+        "kind": "palette search and composer draft",
+        "durationMs": 2228
+      },
+      {
+        "step": 42,
+        "kind": "mission and session switch",
+        "durationMs": 1091
+      },
+      {
+        "step": 43,
+        "kind": "board search and issue page",
+        "durationMs": 3286
+      },
+      {
+        "step": 44,
+        "kind": "palette search and composer draft",
+        "durationMs": 3011
+      },
+      {
+        "step": 45,
+        "kind": "mission and session switch",
+        "durationMs": 975
+      },
+      {
+        "step": 46,
+        "kind": "board search and issue page",
+        "durationMs": 2536
+      },
+      {
+        "step": 47,
+        "kind": "palette search and composer draft",
+        "durationMs": 2504
+      },
+      {
+        "step": 48,
+        "kind": "mission and session switch",
+        "durationMs": 906
+      },
+      {
+        "step": 49,
+        "kind": "board search and issue page",
+        "durationMs": 2578
+      },
+      {
+        "step": 50,
+        "kind": "palette search and composer draft",
+        "durationMs": 2323
+      },
+      {
+        "step": 51,
+        "kind": "mission and session switch",
+        "durationMs": 1088
+      },
+      {
+        "step": 52,
+        "kind": "board search and issue page",
+        "durationMs": 2254
+      },
+      {
+        "step": 53,
+        "kind": "palette search and composer draft",
+        "durationMs": 2299
+      },
+      {
+        "step": 54,
+        "kind": "mission and session switch",
+        "durationMs": 1161
+      },
+      {
+        "step": 55,
+        "kind": "board search and issue page",
+        "durationMs": 2426
+      },
+      {
+        "step": 56,
+        "kind": "palette search and composer draft",
+        "durationMs": 2837
+      },
+      {
+        "step": 57,
+        "kind": "mission and session switch",
+        "durationMs": 959
+      },
+      {
+        "step": 58,
+        "kind": "board search and issue page",
+        "durationMs": 2162
+      },
+      {
+        "step": 59,
+        "kind": "palette search and composer draft",
+        "durationMs": 2469
+      }
+    ]
+  },
+  "endedAt": "2026-10-04T23:41:30.757Z",
+  "loadEnd": [
+    7.1,
+    9.6,
+    9.61
+  ],
+  "hostCpuEnd": [
+    421251419,
+    7349093,
+    192090844,
+    1861633497,
+    13057257,
+    0,
+    19315705,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 278,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "ok": false,
+  "scope": "coordinator-finish",
+  "originalRequestComplete": false,
+  "unmeasuredOriginalRequests": [
+    "Exact post-deletion e22a8b6bd93fb813ae63059e91e45169cb855bbb snapshot",
+    "Matched OLD/NEW startup and five-minute heap at all requested scales and surfaces",
+    "Sampled store/derive and React attribution",
+    "Remaining pre-deletion baseline phone/background repeats"
+  ],
+  "runsWithoutSampledAttribution": [
+    "timing-old-web-1x-r10",
+    "timing-old-web-1x-r11",
+    "timing-old-web-1x-r30",
+    "timing-old-web-1x-r31",
+    "timing-old-web-4x-r10",
+    "timing-old-web-4x-r11",
+    "timing-old-web-4x-r30",
+    "timing-old-web-4x-r31",
+    "timing-new-current-phone-1x-r30",
+    "timing-new-current-phone-1x-r31",
+    "timing-new-current-phone-4x-r30",
+    "timing-new-current-phone-4x-r31",
+    "timing-new-current-web-1x-r30",
+    "timing-new-current-web-1x-r31",
+    "timing-new-current-web-4x-r30",
+    "timing-new-current-web-4x-r31",
+    "timing-new-phone-1x-r14",
+    "timing-new-phone-1x-r15",
+    "timing-new-phone-4x-r14",
+    "timing-new-web-1x-r10",
+    "timing-new-web-1x-r11",
+    "timing-new-web-4x-r10",
+    "timing-new-web-4x-r11"
+  ],
+  "captures": 28,
+  "rawTraceAndProfileFiles": 6130,
+  "sampleCells": 248,
+  "errors": [
+    "timing-old-web-1x-r11: hidden React startup failure",
+    "timing-old-web-4x-r30: hidden React startup failure"
+  ],
+  "sourceShas": {
+    "old": "5e3ece5cd68c5fbd7dbd8b1dcfa6d92a35f42cbb",
+    "new": "1aa0ec71f68c5c6569560798db00a82a1db9f82d",
+    "new-deleted": "e22a8b6bd93fb813ae63059e91e45169cb855bbb",
+    "new-current": "96f705cd4ee836646d1d4539f411c307b5d6eab5"
+  }
+}

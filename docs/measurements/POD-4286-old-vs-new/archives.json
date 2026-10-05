@@ -290,5 +290,599 @@
     "removedRemoteFiles": 1950,
     "removedRemoteBytes": 1007726973,
     "removedAt": "2026-10-04T18:21:50.064195+00:00"
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz",
+    "arm": "old",
+    "kind": "new",
+    "bytes": 343498351,
+    "sha256": "7470ed6156eeb6b4fdd70bdd23ceda2983191d7dd742e59ae73f9ef10aa1eac4",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "177892100c530a32691a46a524e4ee162dc02343dedac6832f65899554e8c59d",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part001",
+          "title": "Raw old new evidence \u2014 part 1/4",
+          "addedAt": "2026-10-04T23:57:29.775Z",
+          "artifactId": "fd22ee1aef2a",
+          "entry": "old-new.tar.gz.part001",
+          "files": [
+            {
+              "path": "old-new.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/fd22ee1aef2a/old-new.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "f5b8b03408dba093b45947536f02e6b3b666519bfb0c60a177823c5f2b2f62f7",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part002",
+          "title": "Raw old new evidence \u2014 part 2/4",
+          "addedAt": "2026-10-04T23:57:34.860Z",
+          "artifactId": "508122fefb92",
+          "entry": "old-new.tar.gz.part002",
+          "files": [
+            {
+              "path": "old-new.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/508122fefb92/old-new.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "fa8198e4a548b43b4aa39810083e2fc8953736aab93748975029d8647d539a24",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part003",
+          "title": "Raw old new evidence \u2014 part 3/4",
+          "addedAt": "2026-10-04T23:57:40.282Z",
+          "artifactId": "dc271ffcd37a",
+          "entry": "old-new.tar.gz.part003",
+          "files": [
+            {
+              "path": "old-new.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/dc271ffcd37a/old-new.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part004",
+        "bytes": 60382831,
+        "sha256": "6d050d09d460e227f5942d227f1480b12b504914394ba03c344725cf67a75fe5",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part004",
+          "title": "Raw old new evidence \u2014 part 4/4",
+          "addedAt": "2026-10-04T23:57:44.271Z",
+          "artifactId": "e668bfd0d269",
+          "entry": "old-new.tar.gz.part004",
+          "files": [
+            {
+              "path": "old-new.tar.gz.part004",
+              "size": 60382831
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/e668bfd0d269/old-new.tar.gz.part004"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz",
+    "arm": "new",
+    "kind": "new",
+    "bytes": 595443267,
+    "sha256": "dd5ab32cdfb44389e0b02133313d9350c2bdff104f39f357242f32380cdbb937",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "adacd4c9caaa7c694b9f868b48df3fbc0196fd64a5f485e78ac4bcac40c5989b",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part001",
+          "title": "Raw new new evidence \u2014 part 1/7",
+          "addedAt": "2026-10-04T23:57:51.382Z",
+          "artifactId": "b0436f8da7fc",
+          "entry": "new-new.tar.gz.part001",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/b0436f8da7fc/new-new.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "ceb52b8f51fcea075e8c57ccc792612d86177d7aa8e6fdb4d6be7f4d0c3d649a",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part002",
+          "title": "Raw new new evidence \u2014 part 2/7",
+          "addedAt": "2026-10-04T23:57:59.059Z",
+          "artifactId": "e97c3872c7e4",
+          "entry": "new-new.tar.gz.part002",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/e97c3872c7e4/new-new.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "d689813cd4166b22bbf6db66af1eac1d8e65f954b5d622106a9743686cc3db7c",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part003",
+          "title": "Raw new new evidence \u2014 part 3/7",
+          "addedAt": "2026-10-04T23:58:06.744Z",
+          "artifactId": "2cab746ddf81",
+          "entry": "new-new.tar.gz.part003",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/2cab746ddf81/new-new.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part004",
+        "bytes": 94371840,
+        "sha256": "abc7787ebaa73a4bc641252bd653f783f7a6b7be080e5d5cad1f7db29db7b123",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part004",
+          "title": "Raw new new evidence \u2014 part 4/7",
+          "addedAt": "2026-10-04T23:58:14.063Z",
+          "artifactId": "1c270cf91f28",
+          "entry": "new-new.tar.gz.part004",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part004",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/1c270cf91f28/new-new.tar.gz.part004"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part005",
+        "bytes": 94371840,
+        "sha256": "4b7198b00b4ef250c64d914ff710147c1eb6922af0809e709ea6b5b697c5818b",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part005",
+          "title": "Raw new new evidence \u2014 part 5/7",
+          "addedAt": "2026-10-04T23:58:22.172Z",
+          "artifactId": "a57b0f504a2c",
+          "entry": "new-new.tar.gz.part005",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part005",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part005"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/a57b0f504a2c/new-new.tar.gz.part005"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part006",
+        "bytes": 94371840,
+        "sha256": "383fb3fc5e0b17e704cb7b45f6a82528735a911e6167c40a87d19dd07d9025a6",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part006",
+          "title": "Raw new new evidence \u2014 part 6/7",
+          "addedAt": "2026-10-04T23:58:28.745Z",
+          "artifactId": "8b4205967d2e",
+          "entry": "new-new.tar.gz.part006",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part006",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part006"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8b4205967d2e/new-new.tar.gz.part006"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part007",
+        "bytes": 29212227,
+        "sha256": "b68fe30c67680af10d3dd0701379ec1ee374aede86a0c1161fda089083edbea1",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part007",
+          "title": "Raw new new evidence \u2014 part 7/7",
+          "addedAt": "2026-10-04T23:58:31.789Z",
+          "artifactId": "cbea82bc1bdb",
+          "entry": "new-new.tar.gz.part007",
+          "files": [
+            {
+              "path": "new-new.tar.gz.part007",
+              "size": 29212227
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new.tar.gz.part007"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/cbea82bc1bdb/new-new.tar.gz.part007"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz",
+    "arm": "old",
+    "kind": "new-current",
+    "bytes": 372573584,
+    "sha256": "dfd7acb2207b513bf40aa297331f416af2950e248caef2c38aa4332e7a5fdae5",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "e5b8a014dfe5b4db8e9d6d6b627f0f944b2fef1a92a96ffad437a72651567687",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part001",
+          "title": "Raw old new-current evidence \u2014 part 1/4",
+          "addedAt": "2026-10-04T23:58:39.144Z",
+          "artifactId": "06b99524ee40",
+          "entry": "old-new-current.tar.gz.part001",
+          "files": [
+            {
+              "path": "old-new-current.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/06b99524ee40/old-new-current.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "7beef4e4fd478f327e9b22c988a878d266e6c8dd96c7e170d92597d1fa0d4cfe",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part002",
+          "title": "Raw old new-current evidence \u2014 part 2/4",
+          "addedAt": "2026-10-04T23:58:45.916Z",
+          "artifactId": "8790de33fe03",
+          "entry": "old-new-current.tar.gz.part002",
+          "files": [
+            {
+              "path": "old-new-current.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/8790de33fe03/old-new-current.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "506a2b9a07630a63c252afad604b28f2d16df987e5442a117daee09d526afc06",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part003",
+          "title": "Raw old new-current evidence \u2014 part 3/4",
+          "addedAt": "2026-10-04T23:58:55.273Z",
+          "artifactId": "f44aea642462",
+          "entry": "old-new-current.tar.gz.part003",
+          "files": [
+            {
+              "path": "old-new-current.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/f44aea642462/old-new-current.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part004",
+        "bytes": 89458064,
+        "sha256": "0b456ba7f2915e1423a7215bb8bc56e708850e75041ad27e934838254f812823",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part004",
+          "title": "Raw old new-current evidence \u2014 part 4/4",
+          "addedAt": "2026-10-04T23:59:11.541Z",
+          "artifactId": "0dd2bcad77fd",
+          "entry": "old-new-current.tar.gz.part004",
+          "files": [
+            {
+              "path": "old-new-current.tar.gz.part004",
+              "size": 89458064
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-new-current.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/0dd2bcad77fd/old-new-current.tar.gz.part004"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz",
+    "arm": "new",
+    "kind": "new-current",
+    "bytes": 612818570,
+    "sha256": "f1c4c4922f871dbf215dfa9ba079ca9b7bfb57beba20468c002190a4a97f67fd",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part001",
+        "bytes": 94371840,
+        "sha256": "c406568ee374c0f804ef450e9a258b3679f87366b511b2bbd177d5daf6fec10a",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part001",
+          "title": "Raw new new-current evidence \u2014 part 1/7",
+          "addedAt": "2026-10-04T23:59:20.216Z",
+          "artifactId": "76950210c0bd",
+          "entry": "new-new-current.tar.gz.part001",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part001",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part001"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/76950210c0bd/new-new-current.tar.gz.part001"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part002",
+        "bytes": 94371840,
+        "sha256": "1b35133ed272787eeca62177ffa7834a05e418834c9c69a6faf51f190f5d264c",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part002",
+          "title": "Raw new new-current evidence \u2014 part 2/7",
+          "addedAt": "2026-10-04T23:59:26.819Z",
+          "artifactId": "35bb8a98c57e",
+          "entry": "new-new-current.tar.gz.part002",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part002",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part002"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/35bb8a98c57e/new-new-current.tar.gz.part002"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part003",
+        "bytes": 94371840,
+        "sha256": "9c3064809eb045396da16f1267dfd08db7149e1428e315de1716a92981bad85e",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part003",
+          "title": "Raw new new-current evidence \u2014 part 3/7",
+          "addedAt": "2026-10-04T23:59:32.791Z",
+          "artifactId": "403cdfa886ed",
+          "entry": "new-new-current.tar.gz.part003",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part003",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part003"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/403cdfa886ed/new-new-current.tar.gz.part003"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part004",
+        "bytes": 94371840,
+        "sha256": "07c43f57c7cd3a83ef722c10c8546406367610400dff093c45733a6edb5cce5d",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part004",
+          "title": "Raw new new-current evidence \u2014 part 4/7",
+          "addedAt": "2026-10-04T23:59:37.680Z",
+          "artifactId": "a04574b22484",
+          "entry": "new-new-current.tar.gz.part004",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part004",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part004"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/a04574b22484/new-new-current.tar.gz.part004"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part005",
+        "bytes": 94371840,
+        "sha256": "1829c803d102f7741d029f681495d3011b393f8f5f202642df1cc7531b19926d",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part005",
+          "title": "Raw new new-current evidence \u2014 part 5/7",
+          "addedAt": "2026-10-04T23:59:44.173Z",
+          "artifactId": "696be94accc5",
+          "entry": "new-new-current.tar.gz.part005",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part005",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part005"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/696be94accc5/new-new-current.tar.gz.part005"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part006",
+        "bytes": 94371840,
+        "sha256": "ec92d64e50fdd53736cdd6d2ce338511bed321244af6342518434b4eb650205c",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part006",
+          "title": "Raw new new-current evidence \u2014 part 6/7",
+          "addedAt": "2026-10-04T23:59:50.031Z",
+          "artifactId": "80c8d1529afc",
+          "entry": "new-new-current.tar.gz.part006",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part006",
+              "size": 94371840
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part006"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/80c8d1529afc/new-new-current.tar.gz.part006"
+      },
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part007",
+        "bytes": 46587530,
+        "sha256": "f6055cc0685e2925cbbd538a53a470c23f71cc159f35fbdeb6b2cc1b38b3ae7d",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part007",
+          "title": "Raw new new-current evidence \u2014 part 7/7",
+          "addedAt": "2026-10-04T23:59:53.777Z",
+          "artifactId": "eaadf0fb7cf1",
+          "entry": "new-new-current.tar.gz.part007",
+          "files": [
+            {
+              "path": "new-new-current.tar.gz.part007",
+              "size": 46587530
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-new-current.tar.gz.part007"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/eaadf0fb7cf1/new-new-current.tar.gz.part007"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/old-builds.tar.gz",
+    "arm": "old",
+    "kind": "builds",
+    "bytes": 31399293,
+    "sha256": "68cfd2577a623629148c0c55f9f99a51ed0b7741a4ba2f517e01b734dd1de106",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/old-builds.tar.gz",
+        "bytes": 31399293,
+        "sha256": "68cfd2577a623629148c0c55f9f99a51ed0b7741a4ba2f517e01b734dd1de106",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/old-builds.tar.gz",
+          "title": "Raw old builds evidence \u2014 part 1/1",
+          "addedAt": "2026-10-04T23:59:56.876Z",
+          "artifactId": "5439d3f1ce36",
+          "entry": "old-builds.tar.gz",
+          "files": [
+            {
+              "path": "old-builds.tar.gz",
+              "size": 31399293
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/old-builds.tar.gz"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/5439d3f1ce36/old-builds.tar.gz"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
+  },
+  {
+    "path": "docs/measurements/POD-4286-old-vs-new/archives/new-builds.tar.gz",
+    "arm": "new",
+    "kind": "builds",
+    "bytes": 60033661,
+    "sha256": "25cf539f4cd496e5b7c4e132a7830ef9e4bddbef33e4d0f005a97eac24088e96",
+    "parts": [
+      {
+        "path": "docs/measurements/POD-4286-old-vs-new/archives/new-builds.tar.gz",
+        "bytes": 60033661,
+        "sha256": "25cf539f4cd496e5b7c4e132a7830ef9e4bddbef33e4d0f005a97eac24088e96",
+        "attachment": {
+          "path": "docs/measurements/POD-4286-old-vs-new/archives/new-builds.tar.gz",
+          "title": "Raw new builds evidence \u2014 part 1/1",
+          "addedAt": "2026-10-05T00:00:00.109Z",
+          "artifactId": "1ad46860b7ca",
+          "entry": "new-builds.tar.gz",
+          "files": [
+            {
+              "path": "new-builds.tar.gz",
+              "size": 60033661
+            }
+          ],
+          "sourcePaths": [
+            "docs/measurements/POD-4286-old-vs-new/archives/new-builds.tar.gz"
+          ]
+        },
+        "downloadPath": "/files/artifact/iss_19eb0b67-6858-487a-acfa-fdc89720ea64/1ad46860b7ca/new-builds.tar.gz"
+      }
+    ],
+    "attached": true,
+    "reassembly": "Concatenate numbered parts in order, verify archive SHA-256, then extract tar.gz."
   }
 ]
