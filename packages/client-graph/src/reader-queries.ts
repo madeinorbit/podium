@@ -40,7 +40,10 @@ export class ReaderQueries {
     { atom: IAtom; value: IssueCloseMemberCounts }
   >()
   private readonly issueChildAtoms = new Map<string, { atom: IAtom; value: IssueChildCounts }>()
-  private readonly containingIssueAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
+  private readonly containingIssueAtoms = new Map<
+    string,
+    { atom: IAtom; value: string | undefined }
+  >()
   private readonly containingIssuePaths = new Map<string, Set<string>>()
   private effectiveIssues: IssueQuestions | undefined
   private effectiveIssueSource: ColdQueries | undefined

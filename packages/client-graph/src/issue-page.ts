@@ -1,12 +1,11 @@
-import { isFinished } from './shared/predicates'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
-  isEmptyDraftVessel,
   type IssueCloseMemberCounts,
   type IssueCloseScalarSubject,
   type IssueCloseSubject,
+  isEmptyDraftVessel,
   issueDisplayTitle,
   type MissionSessionIndex,
   presenceNote,
@@ -26,6 +25,7 @@ import { missions } from './mission'
 import { missionView } from './mission-view'
 import type { MobxPool } from './pool'
 import { createQueryResult, joinQueryResults } from './query-result'
+import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface IssuePageData {
@@ -82,9 +82,13 @@ export function createIssuePageViews(pool: MobxPool) {
     if (disposed) return LOADING
     return roster(id, 'pageSessions').get()
   }
-  function closeFacts(id: string): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
+  function closeFacts(
+    id: string,
+  ): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
     return memo(`close:${id}`, () => {
-      const raw = pool.row('issue', id, 'summary-fields') as Loaded<Readonly<Record<string, unknown>>>
+      const raw = pool.row('issue', id, 'summary-fields') as Loaded<
+        Readonly<Record<string, unknown>>
+      >
       if (!raw || raw === LOADING) return raw
       const git = raw.gitState as IssueCloseSubject['gitState']
       const question = (raw.asked as IssueCloseSubject['asked'])?.question
@@ -92,12 +96,14 @@ export function createIssuePageViews(pool: MobxPool) {
         subject: {
           needsHuman: !!raw.needsHuman,
           asked: question === undefined ? undefined : { question },
-          git: git ? {
-            dirty: git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0),
-            delivery: git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0),
-            shared: !!git.shared,
-            merged: git.merged,
-          } : undefined,
+          git: git
+            ? {
+                dirty: git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0),
+                delivery: git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0),
+                shared: !!git.shared,
+                merged: git.merged,
+              }
+            : undefined,
           parentBranch: String(raw.parentBranch ?? 'main'),
           ...pool.queries.issueChildCounts(id),
         },
@@ -294,7 +300,10 @@ export function createIssuePageViews(pool: MobxPool) {
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const child = pool.row('issue', childId, 'summary') as Loaded<{ stage?: string; closedReason?: string | null }>
+        const child = pool.row('issue', childId, 'summary') as Loaded<{
+          stage?: string
+          closedReason?: string | null
+        }>
         if (child === LOADING) pending = true
         else if (child && isFinished(child)) childDoneCount++
       }
@@ -351,7 +360,10 @@ export function createIssuePageViews(pool: MobxPool) {
         childIds: childIds.map(asIssueId),
         childCount: childIds.length,
         childDoneCount: childIds.filter((id) => {
-          const child = pool.row('issue', id, 'summary') as Loaded<{ stage?: string; closedReason?: string | null }>
+          const child = pool.row('issue', id, 'summary') as Loaded<{
+            stage?: string
+            closedReason?: string | null
+          }>
           return child && child !== LOADING && isFinished(child)
         }).length,
       }

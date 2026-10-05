@@ -90,7 +90,7 @@ it('publishes only affected owners across moves, optimism, rollback, deletion an
   } finally { stop(); f.pool.dispose() }
 })
 
-it('counts raw direct children and only stage=done across parent moves and local edits', () => {
+it('counts raw direct children and canonical finished outcomes across parent moves and local edits', () => {
   const f = fixture([issue('target'), issue('other'),
     issue('open', { parentId: 'target' }),
     issue('done', { parentId: 'target', stage: 'done', archived: true }),
@@ -99,17 +99,17 @@ it('counts raw direct children and only stage=done across parent moves and local
   let seen: unknown, runs = 0
   const stop = autorun(() => { runs++; seen = f.pool.queries.issueChildCounts('target') })
   try {
-    expect(seen).toEqual({ childCount: 3, childDoneCount: 1 })
+    expect(seen).toEqual({ childCount: 3, childDoneCount: 2 })
     f.publish({ type: 'update', rows: [issue('open', { parentId: 'target', title: 'Renamed' })] })
     expect(runs).toBe(1)
     runInAction(() => f.pool.tables.issue.set('open', issue('open', { parentId: 'other', stage: 'done' }).value as never))
-    expect(seen).toEqual({ childCount: 2, childDoneCount: 1 })
+    expect(seen).toEqual({ childCount: 2, childDoneCount: 2 })
     runInAction(() => f.pool.tables.issue.delete('open'))
-    expect(seen).toEqual({ childCount: 3, childDoneCount: 1 })
-    f.publish({ type: 'update', rows: [issue('open', { parentId: 'target', stage: 'done' })] })
     expect(seen).toEqual({ childCount: 3, childDoneCount: 2 })
+    f.publish({ type: 'update', rows: [issue('open', { parentId: 'target', stage: 'done' })] })
+    expect(seen).toEqual({ childCount: 3, childDoneCount: 3 })
     f.publish({ type: 'update', rows: [{ kind: 'issue', id: 'open', value: undefined }] })
-    expect(seen).toEqual({ childCount: 2, childDoneCount: 1 })
+    expect(seen).toEqual({ childCount: 2, childDoneCount: 2 })
     f.fresh([issue('target')])
     expect(seen).toEqual({ childCount: 0, childDoneCount: 0 })
   } finally { stop(); f.pool.dispose() }
