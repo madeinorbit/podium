@@ -39,6 +39,8 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: async () => {},
 }))
+// Clipboard is an OS action of the recovery panel, outside these pool reads.
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }))
 vi.mock('../client/ServerProfileGate', () => ({
   useServerProfile: () => ({ profile: { name: 'Synthetic server' } }),
 }))

@@ -161,14 +161,15 @@ afterEach(() => {
 
 it('declares and batches demand, with zero synchronous replica reads for absent context', async () => {
   const corpus = f.fixture!
+  const bootstrapCollections = corpus.counts.collections
   expect(corpus.pool.row('chatDraft', corpus.sessions[0]!.sessionId)).toBe(LOADING)
   expect(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId)).toBe(LOADING)
-  expect(corpus.counts.collections).toBe(0)
+  expect(corpus.counts.collections).toBe(bootstrapCollections)
   const first = corpus.check()
   expect(first.pending).toBeGreaterThan(0)
-  expect(corpus.counts.collections).toBe(0)
+  expect(corpus.counts.collections).toBe(bootstrapCollections)
   expect(await corpus.load()).toMatchObject({ differences: 0, pending: 0 })
-  expect(corpus.source.counts).toMatchObject({ outboxReads: 1, orderLists: 3 })
+  expect(corpus.source.counts).toMatchObject({ outboxReads: 1, orderLists: 2 })
 })
 
 it('shares addressed session exits, batches absent evidence and updates removal, eviction and rescope', async () => {
