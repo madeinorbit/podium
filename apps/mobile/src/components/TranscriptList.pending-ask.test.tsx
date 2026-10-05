@@ -15,12 +15,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
 const transcriptBuilds = vi.hoisted(() => vi.fn())
 const viewportData = vi.hoisted(() => [] as unknown[])
+const searchWork = vi.hoisted(() => ({ enabled: false, rowReads: 0, blockReads: 0, matches: vi.fn(), positions: vi.fn() }))
 
 afterEach(() => {
   cleanup()
   markdownRenders.clear()
   transcriptBuilds.mockClear()
   viewportData.length = 0
+  searchWork.enabled = false
+  searchWork.rowReads = 0
+  searchWork.blockReads = 0
+  searchWork.matches.mockClear()
+  searchWork.positions.mockClear()
 })
 
 vi.mock('expo-haptics', () => ({
@@ -57,7 +63,20 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
     ...actual,
     buildMobileTranscript: (...args: Parameters<typeof actual.buildMobileTranscript>) => {
       transcriptBuilds(args[0])
-      return actual.buildMobileTranscript(...args)
+      const model = actual.buildMobileTranscript(...args)
+      if (!searchWork.enabled) return model
+      return {
+        blocks: model.blocks.map(block => ({ ...block, item: { ...block.item, get text() { searchWork.blockReads++; return block.item.text } } })),
+        rows: model.rows.map(row => ({ ...row, get blockIndices() { searchWork.rowReads++; return row.blockIndices } })),
+      }
+    },
+    matchMobileTranscript: (...args: Parameters<typeof actual.matchMobileTranscript>) => {
+      searchWork.matches(args[1])
+      return actual.matchMobileTranscript(...args)
+    },
+    positionMobileTranscriptSearch: (...args: Parameters<typeof actual.positionMobileTranscriptSearch>) => {
+      searchWork.positions(args[1])
+      return actual.positionMobileTranscriptSearch(...args)
     },
   }
 })
@@ -107,6 +126,59 @@ const fromState = (): TranscriptItem => {
 }
 
 describe('TranscriptList pendingAsk', () => {
+  it('does no closed Find work and moves between matches without rereading history at 1x/4x', () => {
+    const samples = []
+    for (const scale of [1, 4] as const) {
+      searchWork.enabled = true
+      const items = Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({
+        id: `find:${index}`,
+        role: 'assistant',
+        text: [2, 5, 10].includes(index) ? `needle ${index}` : `Settled ${index}`,
+      }))
+      const reset = () => {
+        searchWork.rowReads = 0
+        searchWork.blockReads = 0
+        searchWork.matches.mockClear()
+        searchWork.positions.mockClear()
+      }
+      reset()
+      const { rerender, unmount } = render(<TranscriptList items={items} live={false} />)
+      expect(searchWork.rowReads).toBe(0)
+      expect(searchWork.blockReads).toBe(0)
+      reset()
+      rerender(<TranscriptList items={[...items]} live={false} />)
+      expect(searchWork.rowReads).toBe(0)
+      expect(searchWork.blockReads).toBe(0)
+      rerender(<TranscriptList items={items} live={false} findRequest={1} />)
+      expect(searchWork.rowReads).toBe(0)
+      fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
+      expect(screen.getByText('1/3')).toBeTruthy()
+      expect(searchWork.rowReads).toBe(128 * scale)
+      expect(searchWork.blockReads).toBe(128 * scale)
+      reset()
+      for (let index = 0; index < 6; index++) fireEvent.click(screen.getByLabelText('Next match'))
+      fireEvent.click(screen.getByLabelText('Previous match'))
+      expect(screen.getByText('3/3')).toBeTruthy()
+      expect(searchWork.matches).not.toHaveBeenCalled()
+      expect(searchWork.positions).toHaveBeenCalledTimes(7)
+      expect(searchWork.rowReads).toBe(0)
+      expect(searchWork.blockReads).toBe(0)
+      samples.push({ scale, rowReads: searchWork.rowReads, blockReads: searchWork.blockReads, matchQueries: searchWork.matches.mock.calls.length, cursorQueries: searchWork.positions.mock.calls.length })
+      fireEvent.click(screen.getByLabelText('Close transcript search'))
+      reset()
+      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={1} />)
+      expect(searchWork.rowReads).toBe(0)
+      expect(searchWork.blockReads).toBe(0)
+      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={2} />)
+      fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
+      expect(screen.getByText('1/4')).toBeTruthy()
+      unmount()
+      reset()
+    }
+    expect(samples[1]).toEqual({ ...samples[0], scale: 4 })
+    console.log('[actual phone Find cursor work1x4x]', JSON.stringify(samples))
+  })
+
   it('draws the state-carried question and answers it', async () => {
     const onAnswer = vi.fn(async () => {})
     render(<TranscriptList items={[]} live pendingAsk={fromState()} onAnswer={onAnswer} />)
