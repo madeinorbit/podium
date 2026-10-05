@@ -7074,43 +7074,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/components/RefMiniview.tsx",
-      "holder": "PoolRefPrefixSync/read/useCallback:callback",
-      "rule": "loop:for-of",
-      "tokens": "ff608b0e5b2477a27746dd2d091262cd02895f46cd7cd9bcafa8f14883e1701c",
-      "gate": [],
-      "origin": [
-        "595d9a73e14533974b40f913bfa61f9d0a86ab574edf6b5ef6d74a727ce5974d",
-        "c0e05b4b5e5f5bc18fb8ee71370662f18282ae7e350fbc0743368161530bc1f7"
-      ],
-      "fingerprint": "0f196a7ed0eda2b6a7af8e8ddcbaa3ea9c9d03fd8ee973902665acad48f1bb15",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolRefPrefixSync/read/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/components/RefMiniview.tsx",
-      "holder": "PoolRefPrefixSync/read/useCallback:callback",
-      "rule": "enumerate:keys",
-      "tokens": "45ce47d0599d9649f9342fc252fba09791aad6c469d54290ede2e0c4899f6b28",
-      "gate": [],
-      "origin": [
-        "595d9a73e14533974b40f913bfa61f9d0a86ab574edf6b5ef6d74a727ce5974d"
-      ],
-      "fingerprint": "21007ddfb0681e905bffc7f7aa7b6cce05c5e50988246e26a9176d5b6c47f50d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolRefPrefixSync/read/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "enumerate:keys carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/automations/automation-form.ts",
       "holder": "automationTargetChoices/sort:callback",
       "rule": "helper-consumer",

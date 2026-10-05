@@ -528,8 +528,8 @@ export function RefCard({
 /**
  * Keep the markdown + terminal ref linkifiers' known-prefix set in sync (#474,
  * task 1). The canonical source is `repos.listDetailed` — a registered repo with
- * zero issues must still linkify — unioned with the prefixes visible on the live
- * issues list (cheap, and covers the window before the fetch lands). Refetches
+ * zero issues must still linkify — unioned with the pool's maintained repository
+ * prefix scalar, which covers the window before the fetch lands. Refetches
  * when the store's repo list changes and on REF_PREFIXES_CHANGED_EVENT (the
  * settings prefix editor). Mounted once at app root; renders nothing.
  * Linkification is inert until this runs (an empty prefix set disables it).
