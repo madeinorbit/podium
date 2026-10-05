@@ -2,7 +2,6 @@ import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
-import { createKeyedAnswer } from './query-result'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,
@@ -11,6 +10,7 @@ import {
   type HeaderRows,
   type ShippingCounts,
 } from './header-schema'
+import { createKeyedAnswer } from './query-result'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
 interface OfflineMachine {
@@ -42,7 +42,7 @@ export function createHeaderEntities() {
   // Scalar source membership, including expired candidates. Window reads skip
   // history through subtree deadline bounds and never open historical rows.
   const offline = observable.map<string, OfflineMachine>(undefined, { deep: false })
-  let offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, value => -value.expires)
+  let offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, (value) => -value.expires)
   let offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
   const offlineRevision = observable.box(0)
   const offlineListeners = new Set<(id: string | undefined) => void>()
@@ -53,14 +53,19 @@ export function createHeaderEntities() {
   function refreshOffline(id: string): boolean {
     const machine = tables.machine.get(id) as HeaderRows['machine'] | undefined
     const seen = machine && Date.parse(machine.lastSeenAt)
-    const eligible = machine && isMachineOfflineForLiveTerminal(machine) &&
-      !machine.revokedAt && !machine.supersededBy &&
+    const eligible =
+      machine &&
+      isMachineOfflineForLiveTerminal(machine) &&
+      !machine.revokedAt &&
+      !machine.supersededBy &&
       machine.serviceAssignment?.agentExecution !== false &&
-      !members.get(`machine:${id}:metrics`)?.length && Number.isFinite(seen)
+      !members.get(`machine:${id}:metrics`)?.length &&
+      Number.isFinite(seen)
     const explicit = machineOrder.get(id)
-    const order = explicit === undefined
-      ? `1:${String(machineArrival.get(id)).padStart(16, '0')}`
-      : `0:${String(explicit).padStart(16, '0')}`
+    const order =
+      explicit === undefined
+        ? `1:${String(machineArrival.get(id)).padStart(16, '0')}`
+        : `0:${String(explicit).padStart(16, '0')}`
     const next = eligible ? { id, order, expires: seen! + 7 * 86_400_000 } : undefined
     if (compareStructural(offline.get(id), next)) return false
     if (next) {
@@ -184,11 +189,14 @@ export function createHeaderEntities() {
     offlineMachineBoundaries(now: number) {
       offlineRevision.get()
       const pivot: OfflineMachine = { id: '', order: '', expires: now }
-      return { previous: offlineTime.before(pivot, '')?.expires,
-        next: offlineTime.after(pivot, '')?.expires }
+      return {
+        previous: offlineTime.before(pivot, '')?.expires,
+        next: offlineTime.after(pivot, '')?.expires,
+      }
     },
     crossedOfflineMachineIds: function* (from: number, to: number): Generator<string> {
-      const low = Math.min(from, to), high = Math.max(from, to)
+      const low = Math.min(from, to),
+        high = Math.max(from, to)
       const pivot: OfflineMachine = { id: '', order: '', expires: low }
       let value = offlineTime.after(pivot, '')
       while (value && value.expires < high) {
@@ -198,7 +206,9 @@ export function createHeaderEntities() {
     },
     subscribeOfflineMachines(listener: (id: string | undefined) => void): () => void {
       offlineListeners.add(listener)
-      return () => { offlineListeners.delete(listener) }
+      return () => {
+        offlineListeners.delete(listener)
+      }
     },
     change,
     apply(records: readonly HeaderRecord[]): void {
@@ -215,7 +225,8 @@ export function createHeaderEntities() {
           const previous = table.get(record.id)
           if (compareStructural(previous, record.value)) continue
           if (record.kind === 'machine') {
-            if (record.value && !machineArrival.has(record.id)) machineArrival.set(record.id, machineSequence++)
+            if (record.value && !machineArrival.has(record.id))
+              machineArrival.set(record.id, machineSequence++)
             else if (!record.value) machineArrival.delete(record.id)
             offlineChanges.add(record.id)
           }
@@ -271,7 +282,7 @@ export function createHeaderEntities() {
       idleCapUnmet.set(0)
       repositories.clear()
       offline.clear()
-      offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, value => -value.expires)
+      offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, (value) => -value.expires)
       offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
       machineArrival.clear()
       machineOrder.clear()

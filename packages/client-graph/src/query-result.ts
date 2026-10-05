@@ -27,8 +27,16 @@ function node<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
     right,
     height: Math.max(height(left), height(right)) + 1,
     size: size(left) + size(right) + 1,
-    minPoint: Math.min(item.point ?? Infinity, left?.minPoint ?? Infinity, right?.minPoint ?? Infinity),
-    maxPoint: Math.max(item.point ?? -Infinity, left?.maxPoint ?? -Infinity, right?.maxPoint ?? -Infinity),
+    minPoint: Math.min(
+      item.point ?? Infinity,
+      left?.minPoint ?? Infinity,
+      right?.minPoint ?? Infinity,
+    ),
+    maxPoint: Math.max(
+      item.point ?? -Infinity,
+      left?.maxPoint ?? -Infinity,
+      right?.maxPoint ?? -Infinity,
+    ),
   }
 }
 function balance<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
@@ -58,7 +66,11 @@ function balance<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
   }
   return node(item, left, right)
 }
-function put<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> {
+function put<T>(
+  root: Node<T> | undefined,
+  item: Item<T>,
+  compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>,
+): Node<T> {
   if (!root) return node(item)
   const order = compareItems(item, root.item)
   return order < 0
@@ -67,7 +79,11 @@ function put<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: Item
       ? balance(root.item, root.left, put(root.right, item, compareItems))
       : node(item, root.left, root.right)
 }
-function remove<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
+function remove<T>(
+  root: Node<T> | undefined,
+  item: Item<T>,
+  compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>,
+): Node<T> | undefined {
   if (!root) return undefined
   const order = compareItems(item, root.item)
   if (order < 0) return balance(root.item, remove(root.left, item, compareItems), root.right)
@@ -80,14 +96,22 @@ function remove<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: I
 }
 /** A value change at the same ordering key replaces one persistent path.
  * Removing it first would copy that path twice and rebalance an unchanged tree. */
-function replace<T>(root: Node<T> | undefined, before: Item<T> | undefined,
-  after: Item<T> | undefined, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
-  if (before && (!after || compareItems(before, after) !== 0)) root = remove(root, before, compareItems)
+function replace<T>(
+  root: Node<T> | undefined,
+  before: Item<T> | undefined,
+  after: Item<T> | undefined,
+  compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>,
+): Node<T> | undefined {
+  if (before && (!after || compareItems(before, after) !== 0))
+    root = remove(root, before, compareItems)
   return after ? put(root, after, compareItems) : root
 }
 /** Initial demand has no published root to preserve. Sort its entries once
  * and construct each immutable node once; subsequent edits use persistent paths. */
-function build<T>(items: Item<T>[], compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
+function build<T>(
+  items: Item<T>[],
+  compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>,
+): Node<T> | undefined {
   items.sort(compareItems)
   function range(start: number, end: number): Node<T> | undefined {
     if (start === end) return undefined
@@ -131,21 +155,21 @@ function* valuesFrom<T>(root: Node<T> | undefined, index: number): Generator<T> 
  * A caller's array mutation detaches its snapshot from the shared tree. */
 const SNAPSHOT_ROOT = Symbol('orderedQuerySnapshot')
 function snapshot<T>(root?: Node<T>): T[] {
-  return arraySnapshot(size(root), index => valuesFrom(root, index), { root })
+  return arraySnapshot(size(root), (index) => valuesFrom(root, index), { root })
 }
 
 /** Join disjoint, ordered query snapshots without materializing their rows.
  * Each input's persistent root keeps the joined snapshot stable after updates. */
 export function joinQueryResults<T>(results: readonly T[][]): T[] {
-  const roots = results.map(result => {
+  const roots = results.map((result) => {
     const metadata = (result as T[] & { [SNAPSHOT_ROOT]?: { root?: Node<T> } })[SNAPSHOT_ROOT]
     if (!metadata) throw new Error('Expected an ordered query snapshot')
     return metadata.root
   })
   const length = roots.reduce((count, root) => count + size(root), 0)
   function* joined(start: number): Generator<T> {
-    const cursors = roots.map(root => orderedItems(root))
-    const heads = cursors.map(cursor => cursor.next().value)
+    const cursors = roots.map((root) => orderedItems(root))
+    const heads = cursors.map((cursor) => cursor.next().value)
     let position = 0
     while (true) {
       let next = -1
@@ -162,7 +186,11 @@ export function joinQueryResults<T>(results: readonly T[][]): T[] {
   return arraySnapshot(length, joined)
 }
 
-function arraySnapshot<T>(length: number, iterate: (start: number) => Generator<T>, metadata?: { root?: Node<T> }): T[] {
+function arraySnapshot<T>(
+  length: number,
+  iterate: (start: number) => Generator<T>,
+  metadata?: { root?: Node<T> },
+): T[] {
   let detached: T[] | undefined
   let cursor = iterate(0),
     lastIndex = -1,
@@ -245,7 +273,8 @@ export function createKeyedAnswer<T>(
   point?: (value: T) => number,
   seed?: { root?: Node<T>; keys?: Node<Item<T>> },
 ): KeyedAnswer<T> {
-  let root = seed?.root, keys = seed?.keys
+  let root = seed?.root,
+    keys = seed?.keys
   const item = (id: string): Item<T> | undefined => {
     let cursor = keys
     while (cursor) {
@@ -255,8 +284,8 @@ export function createKeyedAnswer<T>(
     return undefined
   }
   const compareItems = compareValues
-    ? (a: Item<T>, b: Item<T>) => compareValues(a.value, b.value) ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    ? (a: Item<T>, b: Item<T>) =>
+        compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     : compare<T>
   return {
     has: (id: string) => item(id) !== undefined,
@@ -264,7 +293,8 @@ export function createKeyedAnswer<T>(
     first: () => at(root, 0),
     after(value: T, id: string): T | undefined {
       const wanted = { id, order: item(id)?.order ?? '', value }
-      let cursor = root, candidate: Item<T> | undefined
+      let cursor = root,
+        candidate: Item<T> | undefined
       while (cursor) {
         if (compareItems(wanted, cursor.item) < 0) {
           candidate = cursor.item
@@ -275,7 +305,8 @@ export function createKeyedAnswer<T>(
     },
     before(value: T, id: string): T | undefined {
       const wanted = { id, order: item(id)?.order ?? '', value }
-      let cursor = root, candidate: Item<T> | undefined
+      let cursor = root,
+        candidate: Item<T> | undefined
       while (cursor) {
         if (compareItems(wanted, cursor.item) > 0) {
           candidate = cursor.item
@@ -285,10 +316,12 @@ export function createKeyedAnswer<T>(
       return candidate?.value
     },
     firstBounded(bound, side, after, id = '') {
-      const pivot = after === undefined ? undefined : { id, order: item(id)?.order ?? '', value: after }
-      const eligible = (value: number) => side === 'atMost' ? value <= bound : value > bound
+      const pivot =
+        after === undefined ? undefined : { id, order: item(id)?.order ?? '', value: after }
+      const eligible = (value: number) => (side === 'atMost' ? value <= bound : value > bound)
       function search(cursor: Node<T> | undefined, lower?: Item<T>): T | undefined {
-        if (!cursor || !eligible(side === 'atMost' ? cursor.minPoint : cursor.maxPoint)) return undefined
+        if (!cursor || !eligible(side === 'atMost' ? cursor.minPoint : cursor.maxPoint))
+          return undefined
         if (lower && compareItems(cursor.item, lower) <= 0) return search(cursor.right, lower)
         const left = search(cursor.left, lower)
         if (left !== undefined) return left
@@ -327,12 +360,12 @@ export function createKeyedAnswerBuilder<T>(
     if (pending) {
       const items = [...pending.values()]
       const compareItems = compareValues
-        ? (a: Item<T>, b: Item<T>) => compareValues(a.value, b.value) ||
-          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        ? (a: Item<T>, b: Item<T>) =>
+            compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
         : compare<T>
       complete = createKeyedAnswer(compareValues, point, {
         root: build(items, compareItems),
-        keys: build(items.map(value => ({ id: value.id, order: value.id, value }))),
+        keys: build(items.map((value) => ({ id: value.id, order: value.id, value }))),
       })
       pending = undefined
     }
@@ -341,15 +374,21 @@ export function createKeyedAnswerBuilder<T>(
   return {
     finish,
     answer: {
-      has: id => pending ? pending.has(id) : finish().has(id),
-      get: id => pending ? pending.get(id)?.value : finish().get(id),
+      has: (id) => (pending ? pending.has(id) : finish().has(id)),
+      get: (id) => (pending ? pending.get(id)?.value : finish().get(id)),
       set(id, order, value) {
-        if (!pending) { finish().set(id, order, value); return }
+        if (!pending) {
+          finish().set(id, order, value)
+          return
+        }
         const before = pending.get(id)
         if (before?.order === order && before.value === value) return
         pending.set(id, { id, order, value, ...(point ? { point: point(value) } : {}) })
       },
-      delete(id) { if (pending) pending.delete(id); else finish().delete(id) },
+      delete(id) {
+        if (pending) pending.delete(id)
+        else finish().delete(id)
+      },
       first: () => finish().first(),
       after: (value, id) => finish().after(value, id),
       before: (value, id) => finish().before(value, id),
@@ -409,9 +448,11 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     for (const match of matches) {
       const previous = at(match.root, 0)
       const beforeSize = size(match.root)
-      match.root = replace(match.root,
+      match.root = replace(
+        match.root,
         before && match.test(before.value) ? before : undefined,
-        after && match.test(after.value) ? after : undefined)
+        after && match.test(after.value) ? after : undefined,
+      )
       if (at(match.root, 0) !== previous) match.atom.reportChanged()
       if (size(match.root) !== beforeSize) match.countAtom.reportChanged()
     }
@@ -427,10 +468,11 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     entries.delete(id)
     if (entry.pending) pending--
     replaceItem(entry.item, undefined)
-    if (entry.pending) for (const match of matches) {
-      match.atom.reportChanged()
-      match.countAtom.reportChanged()
-    }
+    if (entry.pending)
+      for (const match of matches) {
+        match.atom.reportChanged()
+        match.countAtom.reportChanged()
+      }
     changed()
   }
   function sync(id: string) {
@@ -458,10 +500,11 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const oldItem = entry.item
       entry.item = value === undefined || value === LOADING ? undefined : { id, order, value }
       replaceItem(oldItem, entry.item)
-      if (wasPending !== entry.pending) for (const match of matches) {
-        match.atom.reportChanged()
-        match.countAtom.reportChanged()
-      }
+      if (wasPending !== entry.pending)
+        for (const match of matches) {
+          match.atom.reportChanged()
+          match.countAtom.reportChanged()
+        }
       changed()
     }
     entry.stop = () => row.dispose()
@@ -488,11 +531,14 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       seeding = true
       try {
         for (const id of spec.ids()) sync(id)
-      } finally { seeding = false }
+      } finally {
+        seeding = false
+      }
       const items: Item<T>[] = []
       for (const entry of entries.values()) if (entry.item) items.push(entry.item)
       root = build(items)
-      for (const match of matches) match.root = build(items.filter(item => match.test(item.value)))
+      for (const match of matches)
+        match.root = build(items.filter((item) => match.test(item.value)))
     })
     stopMembership = spec.subscribe((id) => {
       if (id !== undefined) sync(id)

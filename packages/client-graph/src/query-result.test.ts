@@ -1,6 +1,11 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { createKeyedAnswer, createKeyedAnswerBuilder, createQueryResult, joinQueryResults } from './query-result'
+import {
+  createKeyedAnswer,
+  createKeyedAnswerBuilder,
+  createQueryResult,
+  joinQueryResults,
+} from './query-result'
 import { LOADING } from './worklist/rollup'
 
 function fixture(prefix = '') {
@@ -63,40 +68,59 @@ describe('maintained query answers', () => {
     expect(builder.answer.after(pivot, '')?.id).toBe('a')
     expect(builder.answer.before(pivot, 'b')?.id).toBe('a')
     expect(builder.answer.after(pivot, 'b')?.id).toBe('c')
-    const answer = builder.finish(), fork = answer.fork()
+    const answer = builder.finish(),
+      fork = answer.fork()
     answer.delete('older')
     expect(answer.before(pivot, '')).toBeUndefined()
     expect(fork.before(pivot, '')?.id).toBe('older')
     expect(answer.after({ id: '', time: 20 }, '')).toBeUndefined()
   })
-  it.each([256, 1024])('builds initial ordered demand without replaying insertion paths (%i entries)', (count) => {
+  it.each([
+    256, 1024,
+  ])('builds initial ordered demand without replaying insertion paths (%i entries)', (count) => {
     let comparisons = 0
     const ids = Array.from({ length: count }, (_, rank) => String(rank).padStart(5, '0'))
     const result = createQueryResult({
-      name: 'startup ordered demand', ids: () => ids, has: () => true,
-      read: id => ({ id }),
+      name: 'startup ordered demand',
+      ids: () => ids,
+      has: () => true,
+      read: (id) => ({ id }),
       // Count comparisons through the ordering scalar, without instrumenting
       // the tree implementation. Sorted bootstrap input should take linear work.
-      order: id => ({ [Symbol.toPrimitive]() { comparisons++; return id } }) as unknown as string,
+      order: (id) =>
+        ({
+          [Symbol.toPrimitive]() {
+            comparisons++
+            return id
+          },
+        }) as unknown as string,
       subscribe: () => () => {},
     })
     try {
       const values = result.get()
-      expect(values && values !== LOADING ? values.map(value => value.id) : values).toEqual(ids)
+      expect(values && values !== LOADING ? values.map((value) => value.id) : values).toEqual(ids)
       expect(comparisons).toBeGreaterThan(0)
       expect(comparisons).toBeLessThanOrEqual(count * 6)
       console.info('startup initial-order comparisons', JSON.stringify({ count, comparisons }))
-    } finally { result.dispose() }
+    } finally {
+      result.dispose()
+    }
   })
 
   it('bulk initial answers equal insertion-built trees including ties and match counts', () => {
-    for (const ranks of [[], [0], Array.from({ length: 37 }, (_, rank) => rank),
+    for (const ranks of [
+      [],
+      [0],
+      Array.from({ length: 37 }, (_, rank) => rank),
       Array.from({ length: 37 }, (_, rank) => 36 - rank),
-      Array.from({ length: 37 }, (_, rank) => (rank * 17) % 37)]) {
-      const rows = new Map(ranks.map(rank => {
-        const id = String(rank).padStart(3, '0')
-        return [id, { id, rank, order: String(rank % 5) }]
-      }))
+      Array.from({ length: 37 }, (_, rank) => (rank * 17) % 37),
+    ]) {
+      const rows = new Map(
+        ranks.map((rank) => {
+          const id = String(rank).padStart(3, '0')
+          return [id, { id, rank, order: String(rank % 5) }]
+        }),
+      )
       const inserted = createKeyedAnswer<{ id: string; rank: number; order: string }>()
       const matched = createKeyedAnswer<{ id: string; rank: number; order: string }>()
       for (const [id, row] of rows) {
@@ -104,28 +128,42 @@ describe('maintained query answers', () => {
         if (row.rank % 2 === 0) matched.set(id, row.order, row)
       }
       const result = createQueryResult({
-        name: 'bulk equivalence', ids: () => rows.keys(), has: id => rows.has(id),
-        read: id => rows.get(id), order: id => rows.get(id)!.order,
-        matches: [row => row.rank % 2 === 0], subscribe: () => () => {},
+        name: 'bulk equivalence',
+        ids: () => rows.keys(),
+        has: (id) => rows.has(id),
+        read: (id) => rows.get(id),
+        order: (id) => rows.get(id)!.order,
+        matches: [(row) => row.rank % 2 === 0],
+        subscribe: () => () => {},
       })
-      const stop = autorun(() => { result.get(); result.firstMatch(0); result.countMatch(0) })
+      const stop = autorun(() => {
+        result.get()
+        result.firstMatch(0)
+        result.countMatch(0)
+      })
       try {
         expect(result.get()).toEqual(inserted.snapshot())
         expect(result.firstMatch(0)).toEqual(matched.first())
         expect(result.countMatch(0)).toBe(matched.snapshot().length)
-      } finally { stop(); result.dispose() }
+      } finally {
+        stop()
+        result.dispose()
+      }
     }
   })
 
-  it.each([1024, 4096])('replaces startup index revisions in one ordered path (%i entries)', (count) => {
+  it.each([
+    1024, 4096,
+  ])('replaces startup index revisions in one ordered path (%i entries)', (count) => {
     type Value = { id: string; rank: number; revision: number; deadline: number }
     const compare = vi.fn((a: Value, b: Value) => a.rank - b.rank)
-    const answer = createKeyedAnswer(compare, value => value.deadline)
+    const answer = createKeyedAnswer(compare, (value) => value.deadline)
     for (let rank = 0; rank < count; rank++) {
       const id = String(rank).padStart(5, '0')
       answer.set(id, '', { id, rank, revision: 0, deadline: 0 })
     }
-    const captured = answer.snapshot(), fork = answer.fork()
+    const captured = answer.snapshot(),
+      fork = answer.fork()
     const id = String(count - 1).padStart(5, '0')
     compare.mockClear()
     answer.set(id, '', { id, rank: count - 1, revision: 1, deadline: 99 })
@@ -139,35 +177,47 @@ describe('maintained query answers', () => {
     expect(fork.get(id)?.revision).toBe(0)
     expect(fork.firstBounded(98, 'above')).toBeUndefined()
     expect(captured.at(-1)?.revision).toBe(0)
-    expect(answer.snapshot().map(value => value.rank)).toEqual(Array.from({ length: count }, (_, rank) => rank))
+    expect(answer.snapshot().map((value) => value.rank)).toEqual(
+      Array.from({ length: count }, (_, rank) => rank),
+    )
     console.info('startup stable-key comparisons', JSON.stringify({ count, comparisons }))
   })
 
   it('reorders changed scalar keys and preserves snapshots when a matching value changes', () => {
     const f = fixture()
-    const lists: { id: string; title: string }[][] = [], witnesses: unknown[] = [], counts: unknown[] = []
-    const stops = [autorun(() => {
-      const value = f.result.get()
-      if (value && value !== LOADING) lists.push(value)
-    }), autorun(() => witnesses.push(f.result.firstMatch(0))), autorun(() => counts.push(f.result.countMatch(0)))]
+    const lists: { id: string; title: string }[][] = [],
+      witnesses: unknown[] = [],
+      counts: unknown[] = []
+    const stops = [
+      autorun(() => {
+        const value = f.result.get()
+        if (value && value !== LOADING) lists.push(value)
+      }),
+      autorun(() => witnesses.push(f.result.firstMatch(0))),
+      autorun(() => counts.push(f.result.countMatch(0))),
+    ]
     try {
       f.set('a', { title: 'Another title', order: '2' })
-      expect(lists.at(-1)?.map(value => value.title)).toEqual(['B', 'Another title'])
-      expect(lists[0]?.map(value => value.title)).toEqual(['B', 'A'])
+      expect(lists.at(-1)?.map((value) => value.title)).toEqual(['B', 'Another title'])
+      expect(lists[0]?.map((value) => value.title)).toEqual(['B', 'A'])
       expect(witnesses.at(-1)).toEqual({ id: 'a', title: 'Another title' })
       expect(counts).toEqual([1])
       f.set('a', { title: 'Changed membership', order: '2' })
       expect(witnesses.at(-1)).toBeUndefined()
       expect(counts).toEqual([1, 0])
       f.set('a', { title: 'Again first', order: '0' })
-      expect(lists.at(-1)?.map(value => value.id)).toEqual(['a', 'b'])
+      expect(lists.at(-1)?.map((value) => value.id)).toEqual(['a', 'b'])
       expect(witnesses.at(-1)).toEqual({ id: 'a', title: 'Again first' })
       expect(counts).toEqual([1, 0, 1])
-    } finally { for (const stop of stops) stop() }
+    } finally {
+      for (const stop of stops) stop()
+    }
   })
 
   it('publishes incremental counts when a non-witness changes and releases closed demand', () => {
-    const f = fixture(), counts: unknown[] = [], witnesses: unknown[] = []
+    const f = fixture(),
+      counts: unknown[] = [],
+      witnesses: unknown[] = []
     const count = autorun(() => counts.push(f.result.countMatch(0)))
     const witness = autorun(() => witnesses.push(f.result.firstMatch(0)))
     try {
@@ -182,19 +232,25 @@ describe('maintained query answers', () => {
       expect(witnesses).toHaveLength(1)
       f.reset()
       expect(counts.at(-1)).toBe(1)
-      count(); witness()
+      count()
+      witness()
       f.read.mockClear()
       f.set('a', { title: 'Changed while closed', order: '2' })
       expect(f.read).not.toHaveBeenCalled()
       expect(f.released).toHaveBeenCalledOnce()
-    } finally { count(); witness() }
+    } finally {
+      count()
+      witness()
+    }
   })
   it('joins disjoint rosters in global order and preserves captured answers and native array behavior', () => {
-    const left = fixture(), right = fixture('x')
+    const left = fixture(),
+      right = fixture('x')
     const seen: { id: string; title: string }[][] = []
     let inputs: { id: string; title: string }[][] = []
     const stop = autorun(() => {
-      const a = left.result.get(), b = right.result.get()
+      const a = left.result.get(),
+        b = right.result.get()
       if (!a || a === LOADING || !b || b === LOADING) return
       inputs = [a, b]
       seen.push(joinQueryResults(inputs))
@@ -206,13 +262,14 @@ describe('maintained query answers', () => {
       expect(seen.at(-1)).toEqual(expected)
     }
     try {
-      expect(seen[0]?.map(row => row.id)).toEqual(['b', 'xb', 'a', 'xa'])
+      expect(seen[0]?.map((row) => row.id)).toEqual(['b', 'xb', 'a', 'xa'])
       expect(Array.isArray(seen[0])).toBe(true)
       expect(Object.keys(seen[0]!)).toEqual(['0', '1', '2', '3'])
       expect(seen[0]?.at(-1)?.id).toBe('xa')
-      expect(seen[0]?.findIndex(row => row.id === 'a')).toBe(2)
+      expect(seen[0]?.findIndex((row) => row.id === 'a')).toBe(2)
       expect(JSON.parse(JSON.stringify(seen[0]))).toEqual([...seen[0]!])
-      left.read.mockClear(); right.read.mockClear()
+      left.read.mockClear()
+      right.read.mockClear()
       joinQueryResults(inputs)
       expect(left.read).not.toHaveBeenCalled()
       expect(right.read).not.toHaveBeenCalled()
@@ -220,23 +277,28 @@ describe('maintained query answers', () => {
       right.set('xb', undefined)
       right.set('xc', { title: 'New', order: '1' })
       parity()
-      expect(seen[0]?.map(row => [row.id, row.title])).toEqual([
-        ['b', 'B'], ['xb', 'B'], ['a', 'A'], ['xa', 'A'],
+      expect(seen[0]?.map((row) => [row.id, row.title])).toEqual([
+        ['b', 'B'],
+        ['xb', 'B'],
+        ['a', 'A'],
+        ['xa', 'A'],
       ])
       left.set('b', undefined)
       right.set('xa', undefined)
       parity()
-      const before = inputs.map(input => [...input])
+      const before = inputs.map((input) => [...input])
       const current = seen.at(-1)!
       current.sort((a, b) => b.id.localeCompare(a.id))
       current.splice(0, 1, { id: 'local', title: 'Detached edit' })
-      expect(current.map(row => row.id)).toEqual(['local', 'a'])
-      expect(inputs.map(input => [...input])).toEqual(before)
+      expect(current.map((row) => row.id)).toEqual(['local', 'a'])
+      expect(inputs.map((input) => [...input])).toEqual(before)
       expect(seen[0]).toHaveLength(4)
       // A caller-mutated array is no longer an ordered tree snapshot.
       inputs[0]!.push({ id: 'local', title: 'Detached edit' })
       expect(() => joinQueryResults(inputs)).toThrow('Expected an ordered query snapshot')
-    } finally { stop() }
+    } finally {
+      stop()
+    }
     expect(left.released).toHaveBeenCalledTimes(1)
     expect(right.released).toHaveBeenCalledTimes(1)
   })
@@ -342,15 +404,20 @@ describe('maintained query answers', () => {
       matches: [(value) => value.asking],
       subscribe: (changed) => {
         reset = changed
-        return () => { reset = undefined }
+        return () => {
+          reset = undefined
+        }
       },
     })
     let current: unknown
-    const stop = autorun(() => { current = result.firstMatch(0) })
-    const replace = (next: string[]) => runInAction(() => {
-      ids = next
-      reset?.(undefined)
+    const stop = autorun(() => {
+      current = result.firstMatch(0)
     })
+    const replace = (next: string[]) =>
+      runInAction(() => {
+        ids = next
+        reset?.(undefined)
+      })
     try {
       expect(current).toEqual({ id: 'a', asking: true })
       replace([])
@@ -394,40 +461,54 @@ describe('maintained query answers', () => {
   })
 })
 
-
 describe('unpublished keyed answer construction', () => {
   it('matches incremental ordering, ties, duplicates and scalar bounds before persistent edits', () => {
     type Value = { id: string; rank: number; deadline: number }
-    for (const custom of [false, true]) for (const ranks of [[], [1], [0, 1, 2, 3], [3, 2, 1, 0],
-      Array.from({ length: 37 }, (_, n) => n * 17 % 5)]) {
-      const compare = custom ? (a: Value, b: Value) => a.rank - b.rank : undefined
-      const point = (value: Value) => value.deadline
-      const builder = createKeyedAnswerBuilder(compare, point), inserted = createKeyedAnswer(compare, point)
-      const put = (id: string, rank: number) => {
-        const value = { id, rank, deadline: rank % 3 }
-        builder.answer.set(id, String(rank), value); inserted.set(id, String(rank), value)
+    for (const custom of [false, true])
+      for (const ranks of [
+        [],
+        [1],
+        [0, 1, 2, 3],
+        [3, 2, 1, 0],
+        Array.from({ length: 37 }, (_, n) => (n * 17) % 5),
+      ]) {
+        const compare = custom ? (a: Value, b: Value) => a.rank - b.rank : undefined
+        const point = (value: Value) => value.deadline
+        const builder = createKeyedAnswerBuilder(compare, point),
+          inserted = createKeyedAnswer(compare, point)
+        const put = (id: string, rank: number) => {
+          const value = { id, rank, deadline: rank % 3 }
+          builder.answer.set(id, String(rank), value)
+          inserted.set(id, String(rank), value)
+        }
+        ranks.forEach((rank, n) => { put(`s${n}`, rank) })
+        put('duplicate', 9)
+        put('duplicate', 1)
+        builder.answer.delete('s1')
+        inserted.delete('s1')
+        expect(builder.answer.has('duplicate')).toBe(true)
+        expect(builder.answer.get('duplicate')).toEqual(inserted.get('duplicate'))
+        const answer = builder.finish(),
+          snapshot = answer.snapshot(),
+          fork = answer.fork()
+        expect(snapshot).toEqual(inserted.snapshot())
+        for (const value of snapshot) {
+          expect(answer.after(value, value.id)).toEqual(inserted.after(value, value.id))
+          for (const side of ['atMost', 'above'] as const)
+            expect(answer.firstBounded(1, side, value, value.id)).toEqual(
+              inserted.firstBounded(1, side, value, value.id),
+            )
+        }
+        const changed = { id: 'duplicate', rank: -1, deadline: 100 }
+        builder.answer.set('duplicate', '-1', changed)
+        inserted.set('duplicate', '-1', changed)
+        expect(answer.snapshot()).toEqual(inserted.snapshot())
+        expect(fork.snapshot()).toEqual(snapshot)
+        fork.delete('duplicate')
+        expect(answer.has('duplicate')).toBe(true)
+        expect(snapshot).toContainEqual({ id: 'duplicate', rank: 1, deadline: 1 })
+        expect(builder.finish()).toBe(answer)
       }
-      ranks.forEach((rank, n) => put(`s${n}`, rank))
-      put('duplicate', 9); put('duplicate', 1)
-      builder.answer.delete('s1'); inserted.delete('s1')
-      expect(builder.answer.has('duplicate')).toBe(true)
-      expect(builder.answer.get('duplicate')).toEqual(inserted.get('duplicate'))
-      const answer = builder.finish(), snapshot = answer.snapshot(), fork = answer.fork()
-      expect(snapshot).toEqual(inserted.snapshot())
-      for (const value of snapshot) {
-        expect(answer.after(value, value.id)).toEqual(inserted.after(value, value.id))
-        for (const side of ['atMost', 'above'] as const)
-          expect(answer.firstBounded(1, side, value, value.id)).toEqual(inserted.firstBounded(1, side, value, value.id))
-      }
-      const changed = { id: 'duplicate', rank: -1, deadline: 100 }
-      builder.answer.set('duplicate', '-1', changed); inserted.set('duplicate', '-1', changed)
-      expect(answer.snapshot()).toEqual(inserted.snapshot())
-      expect(fork.snapshot()).toEqual(snapshot)
-      fork.delete('duplicate')
-      expect(answer.has('duplicate')).toBe(true)
-      expect(snapshot).toContainEqual({ id: 'duplicate', rank: 1, deadline: 1 })
-      expect(builder.finish()).toBe(answer)
-    }
   })
 
   it('finishes at the first ordered read and preserves previously returned snapshots', () => {

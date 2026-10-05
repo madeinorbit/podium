@@ -57,26 +57,34 @@ export function createHeaderViews(pool: MobxPool) {
     offline ??= createQueryResult<HeaderRows['machine']>({
       name: 'header.offlineMachines',
       ids: () => pool.header.offlineMachineIds(pool.clock.current),
-      has: id => pool.header.hasOfflineMachine(id, pool.clock.current),
-      read: id => row('machine', id),
-      order: id => pool.header.offlineMachineOrder(id),
+      has: (id) => pool.header.hasOfflineMachine(id, pool.clock.current),
+      read: (id) => row('machine', id),
+      order: (id) => pool.header.offlineMachineOrder(id),
       subscribe(changed) {
         const stopSource = pool.header.subscribeOfflineMachines(changed)
-        const stopClock = reaction(() => {
-          const now = pool.clock.current
-          const { previous, next } = pool.header.offlineMachineBoundaries(now)
-          if (previous !== undefined) pool.clock.passed(previous)
-          if (next !== undefined) pool.clock.passed(next)
-          return now
-        }, (now, before) => {
-          for (const id of pool.header.crossedOfflineMachineIds(before, now)) changed(id)
-        })
-        return () => { stopSource(); stopClock() }
+        const stopClock = reaction(
+          () => {
+            const now = pool.clock.current
+            const { previous, next } = pool.header.offlineMachineBoundaries(now)
+            if (previous !== undefined) pool.clock.passed(previous)
+            if (next !== undefined) pool.clock.passed(next)
+            return now
+          },
+          (now, before) => {
+            for (const id of pool.header.crossedOfflineMachineIds(before, now)) changed(id)
+          },
+        )
+        return () => {
+          stopSource()
+          stopClock()
+        }
       },
-      released: () => { offline = undefined },
+      released: () => {
+        offline = undefined
+      },
     })
     const value = offline.get()
-    return value === LOADING ? [] : value ?? []
+    return value === LOADING ? [] : (value ?? [])
   }
   function sessionIndex() {
     sessions ??= new HeaderSessions(pool)
