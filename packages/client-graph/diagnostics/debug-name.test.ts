@@ -44,7 +44,7 @@ describe('pool diagnostic names', () => {
   it('reads diagnostic flags once at startup', async () => {
     const { debugName } = await names()
     vi.stubGlobal('location', { search: '?mobxSidebarCheck=1' })
-    expect(debugName(() => 'pool.file.I1')).toBe('pool.file.I1')
+    expect(debugName(() => 'pool.file.I1')).toBeUndefined()
   })
 
   it('lets memory tools opt in before constructing the pool', async () => {

@@ -1987,8 +1987,8 @@ type Output_accounts_login = Pick<{
     createdAt: string;
     controllerId: string | null;
     geometry: {
-        rows: number;
         cols: number;
+        rows: number;
     };
     epoch: number;
     clientCount: number;
@@ -2157,8 +2157,8 @@ type Output_accounts_login = Pick<{
     createdAt: string;
     controllerId: string | null;
     geometry: {
-        rows: number;
         cols: number;
+        rows: number;
     };
     epoch: number;
     clientCount: number;
@@ -3338,8 +3338,8 @@ type Output_issues_get = (null) | ({
         createdAt: string;
         controllerId: string | null;
         geometry: {
-            rows: number;
             cols: number;
+            rows: number;
         };
         epoch: number;
         clientCount: number;
@@ -5249,7 +5249,7 @@ type Output_issues_ship = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
         stateChangedAt: string;
         approvedBaseSha: string;
         approvedHeadSha: string;
@@ -5309,7 +5309,7 @@ type Output_issues_ship = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
         humanState: "in_progress" | "shipped" | "waiting" | "needs_you";
         activity: "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "waiting" | "checking";
         queuedAt: string;
@@ -5347,7 +5347,7 @@ type Output_issues_cancelShip = {
     repoId: string & z.BRAND<"RepoId">;
     targetBranch: string;
     destination: string;
-    state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+    state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
     stateChangedAt: string;
     approvedBaseSha: string;
     approvedHeadSha: string;
@@ -5408,7 +5408,7 @@ type Output_issues_resolveShipHold = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
         stateChangedAt: string;
         approvedBaseSha: string;
         approvedHeadSha: string;
@@ -5468,7 +5468,7 @@ type Output_issues_resolveShipHold = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
         humanState: "in_progress" | "shipped" | "waiting" | "needs_you";
         activity: "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "waiting" | "checking";
         queuedAt: string;
@@ -5823,8 +5823,8 @@ type Input_issues_setPlacement = {
 type Input_issues_setCoordinator = {
     id: string;
     sessionId?: string | null | undefined;
-    claim?: boolean | undefined;
     expectedRevision?: number | undefined;
+    claim?: boolean | undefined;
 };
 type Output_issues_mailSend = ({
     reason?: string | undefined;
@@ -6234,7 +6234,7 @@ type Output_automations_runs = Array<{
 type Input_specs_save = {
     id: string;
     repoPath: string;
-    status?: "draft" | "superseded" | "active" | undefined;
+    status?: "superseded" | "active" | "draft" | undefined;
     parent?: string | undefined;
     title?: string | undefined;
     body?: string | undefined;
@@ -8563,11 +8563,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_automations_create;
             meta: unknown;
         }>;
-        "update": TRPC.TRPCMutationProcedure<{
-            input: Input_automations_update;
-            output: Output_automations_create;
-            meta: unknown;
-        }>;
         "remove": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
@@ -8575,6 +8570,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 removed: boolean;
             };
+            meta: unknown;
+        }>;
+        "update": TRPC.TRPCMutationProcedure<{
+            input: Input_automations_update;
+            output: Output_automations_create;
             meta: unknown;
         }>;
         "setEnabled": TRPC.TRPCMutationProcedure<{

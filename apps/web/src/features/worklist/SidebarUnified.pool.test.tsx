@@ -55,8 +55,9 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
 
 vi.mock('./UnifiedIssueRow', async (importOriginal) => {
   const original = await importOriginal<typeof import('./UnifiedIssueRow')>()
-  const { useLayoutEffect } = await import('react')
-  const Counted = (props: Parameters<typeof original.UnifiedIssueRow>[0]) => {
+  const React = await import('react')
+  const { memo, useLayoutEffect } = React
+  const Counted = memo((props: Parameters<typeof original.UnifiedIssueRow>[0]) => {
     // Props carry the issue model under different keys depending on the caller.
     const record = props as unknown as Record<string, unknown>
     const row = record['row'] as { issue?: { id: string } } | undefined
@@ -65,8 +66,8 @@ vi.mock('./UnifiedIssueRow', async (importOriginal) => {
     useLayoutEffect(() => {
       if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
     })
-    return original.UnifiedIssueRow(props)
-  }
+    return React.createElement(original.UnifiedIssueRow, props)
+  })
   return { ...original, UnifiedIssueRow: Counted }
 })
 vi.mock('./sidebar-common', async (importOriginal) => {
