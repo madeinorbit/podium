@@ -819,6 +819,24 @@ export class ReaderQueries {
     this.counts.scalarVisits += questions.visits - before
     return answer && { machineId: answer.machineId, createdAt: answer.createdAt }
   }
+  /** Setup uses effective source winners, including archived/cold sessions.
+   * These scalar answers never project the session catalog. */
+  setupDefaultAgent(): string | undefined {
+    this.watch('setup:agent', () => this.sessionQuestions().setupRevision('agent'))
+    this.counts.scalarVisits++
+    return this.sessionQuestions().setupAgent()
+  }
+  setupSessionCount(): number {
+    this.watch('setup:count', () => this.sessionQuestions().setupRevision('count'))
+    this.counts.scalarVisits++
+    return this.sessionQuestions().setupCount()
+  }
+  setupSessionPresent(id: string): boolean {
+    this.observeSession('presence', id)
+    this.observeSession('collapsed', id)
+    this.counts.scalarVisits++
+    return this.sessionQuestions().present(id)
+  }
   orderKey(id: string): string {
     this.observeSession('order', id)
     return this.index().sessionOrderKey(id)

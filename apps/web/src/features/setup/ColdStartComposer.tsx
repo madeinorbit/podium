@@ -152,7 +152,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     setSelectedIssueId, setSelectedWorktree, setPane, setPanelMode, setView,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
-  const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary()
+  const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
   /**
    * THE PICKER OFFERS EXACTLY WHAT LAUNCH CAN RESOLVE (POD-1582).
    *
@@ -164,9 +164,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * message about an agent that was fine. One predicate now answers both: an
    * entry is listed only if it resolves to a real checkout somewhere.
    *
-   * Usage checks only shell membership, cwd and lastActiveAt on session updates.
-   * Material changes rebuild one prefix index, rather than scanning history for
-   * every repository. Keep this cache local to this composer's session scope.
+   * The pool maintains agent usage maxima by path as session keys change.
+   * This picker asks only for its displayed repository/worktree roots.
    */
   const repoChoices = useMemo(() => {
     const usage = new Map<string, number>()

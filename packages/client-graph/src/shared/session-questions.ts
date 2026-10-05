@@ -10,6 +10,7 @@ export interface TriageSession { id: string; rank: number; at: string; createdAt
 export interface MachineSession { id: string; machineId: string; createdAt: string; order: string }
 interface TimedTriageSession extends TriageSession { deadline: number }
 interface RecentSession { id: string; at: string }
+interface SetupAgent { id: string; at: string; order: string; agentKind: string }
 interface Activity { id: string; at: number }
 interface CloseMember extends IssueCloseMemberCounts { issueId: string }
 interface ReferenceSession { id: string; order: string }
@@ -30,6 +31,8 @@ export interface SessionQuestionFacts {
   closeOffers: boolean
   closeWorking: boolean
   displayRef?: string
+  agentKind: string
+  headless: boolean
 }
 interface Bucket<T> { id: string; answer: KeyedAnswer<T> }
 interface Seed {
@@ -44,6 +47,9 @@ interface Seed {
   closeMembers: KeyedAnswer<CloseMember>
   closeCounts: KeyedAnswer<IssueCloseMemberCounts>
   references: KeyedAnswer<Bucket<ReferenceSession>>
+  setupAgents: KeyedAnswer<SetupAgent>
+  setupMembers: KeyedAnswer<boolean>
+  setupCount: number
   version: number
   replacement: number
 }
@@ -71,6 +77,9 @@ export interface SessionQuestions {
   referenceId(ref: string): string | undefined
   hasWithin(path: string): boolean
   present(id: string): boolean
+  setupAgent(): string | undefined
+  setupCount(): number
+  setupRevision(kind: 'agent' | 'count'): number
 }
 export const compareTriageSessions = (a: TriageSession, b: TriageSession) =>
   a.rank - b.rank || b.at.localeCompare(a.at) ||
@@ -83,6 +92,8 @@ const compareRecent = (a: RecentSession, b: RecentSession) =>
 const compareActivity = (a: Activity, b: Activity) => b.at - a.at
 const compareReference = (a: ReferenceSession, b: ReferenceSession) =>
   a.order < b.order ? -1 : a.order > b.order ? 1 : a.id.localeCompare(b.id)
+const compareSetupAgent = (a: SetupAgent, b: SetupAgent) =>
+  a.at > b.at ? -1 : a.at < b.at ? 1 : compareReference(a, b)
 function paths(cwd: string): string[] {
   const out = new Set([`exact:${cwd}`, `within:${cwd}`])
   for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) out.add(`within:${cwd.slice(0, at)}`)
@@ -92,7 +103,8 @@ function same(a: SessionQuestionFacts | undefined, b: SessionQuestionFacts | und
   return a === b || (!!a && !!b && a.rank === b.rank && a.at === b.at &&
     a.activity === b.activity && a.createdAt === b.createdAt && a.machineId === b.machineId &&
     a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order &&
-    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.displayRef === b.displayRef)
+    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.displayRef === b.displayRef &&
+    a.agentKind === b.agentKind && a.headless === b.headless)
 }
 
 /** Persistent declared scalar questions. Source and pool share immutable
@@ -114,6 +126,9 @@ export function createSessionQuestions(
   let closeMembers = seed?.closeMembers.fork() ?? createKeyedAnswer<CloseMember>()
   let closeCounts = seed?.closeCounts.fork() ?? createKeyedAnswer<IssueCloseMemberCounts>()
   let references = seed?.references.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
+  let setupAgents = seed?.setupAgents.fork() ?? createKeyedAnswer<SetupAgent>(compareSetupAgent)
+  let setupMembers = seed?.setupMembers.fork() ?? createKeyedAnswer<boolean>()
+  let setupCount = seed?.setupCount ?? 0
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
   let visits = 0, activityVisits = 0
   let building = false
@@ -125,6 +140,28 @@ export function createSessionQuestions(
     return builder.answer
   }
   const touch = (key: string) => revisions.set(key, key, ++version)
+  function fileSetup(id: string, value: SessionQuestionFacts | undefined) {
+    const visible = value !== undefined && !collapsed(id)
+    if (setupMembers.has(id) !== visible) {
+      if (visible) { setupMembers.set(id, id, true); setupCount++ }
+      else { setupMembers.delete(id); setupCount-- }
+      touch('setup:count')
+    }
+    const next = visible && value.agentKind !== 'shell' && !value.headless
+      ? { id, at: value.activity, order: value.order, agentKind: value.agentKind } : undefined
+    const before = setupAgents.get(id)
+    if (before && next && compareSetupAgent(before, next) === 0 && before.agentKind === next.agentKind) return
+    if (before === next) return
+    const winner = setupAgents.first()
+    if (next) setupAgents.set(id, '', next)
+    else setupAgents.delete(id)
+    const after = setupAgents.first()
+    if (winner?.agentKind !== after?.agentKind) touch('setup:agent')
+  }
+  function activityPaths(value: SessionQuestionFacts): string[] {
+    const keys = paths(value.cwd).map(path => `activity:${path}`)
+    return value.agentKind === 'shell' ? keys : [...keys, ...paths(value.cwd).map(path => `agentActivity:${path}`)]
+  }
   function fileClose(id: string, value: SessionQuestionFacts | undefined) {
     const previous = closeMembers.get(id)
     const next = value?.issueId && !collapsed(id) && (value.closeOffers || value.closeWorking)
@@ -155,6 +192,7 @@ export function createSessionQuestions(
   }
   function file(value: SessionQuestionFacts) {
     fileClose(value.id, value)
+    fileSetup(value.id, value)
     const visible = !collapsed(value.id)
     if (value.displayRef) bucket(references, `ref:${value.displayRef}`, value.id,
       visible ? { id: value.id, order: value.order } : undefined, compareReference)
@@ -182,7 +220,7 @@ export function createSessionQuestions(
     if (value.machineId) bucket(machines, `machine:${value.machineId}`, value.id,
       visible ? { id: value.id, machineId: value.machineId, createdAt: value.createdAt, order: value.order } : undefined,
       compareMachineSessions)
-    for (const path of paths(value.cwd)) bucket(activities, `activity:${path}`, value.id,
+    for (const path of activityPaths(value)) bucket(activities, path, value.id,
       visible ? { id: value.id, at: Date.parse(value.activity) || 0 } : undefined, compareActivity)
   }
   function setFacts(id: string, next: SessionQuestionFacts | undefined) {
@@ -192,13 +230,14 @@ export function createSessionQuestions(
       bucket(references, `ref:${before.displayRef}`, id, undefined, compareReference)
     if (before?.machineId && before.machineId !== next?.machineId)
       bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
-    const nextPaths = next ? new Set(paths(next.cwd)) : undefined
-    if (before) for (const path of paths(before.cwd))
-      if (!nextPaths?.has(path)) bucket(activities, `activity:${path}`, id, undefined, compareActivity)
+    const nextPaths = next ? new Set(activityPaths(next)) : undefined
+    if (before) for (const path of activityPaths(before))
+      if (!nextPaths?.has(path)) bucket(activities, path, id, undefined, compareActivity)
     future.delete(id)
     expired.delete(id)
     if (!next) {
       fileClose(id, undefined)
+      fileSetup(id, undefined)
       facts.delete(id)
       triage.delete(id)
       if (recent.has(id)) { recent.delete(id); touch('recent') }
@@ -210,13 +249,16 @@ export function createSessionQuestions(
   const api: SessionQuestions = {
     hasWithin: path => activities.get(`activity:within:${path}`)?.answer.first() !== undefined,
     present(id) {
-      const value = facts.get(id)
-      return value !== undefined && (activities.get(`activity:exact:${value.cwd}`)?.answer.has(id) ?? false)
+      return setupMembers.has(id)
     },
+    setupAgent() { visits++; return setupAgents.first()?.agentKind },
+    setupCount() { visits++; return setupCount },
+    setupRevision: kind => Math.max(replacement, revisions.get(`setup:${kind}`) ?? 0),
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
-      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, version, replacement }),
+      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references,
+        setupAgents, setupMembers, setupCount, version, replacement }),
     clear() {
       facts = newAnswer<SessionQuestionFacts>()
       triage = newAnswer<TriageSession>(compareTriageSessions)
@@ -229,6 +271,9 @@ export function createSessionQuestions(
       closeMembers = newAnswer<CloseMember>()
       closeCounts = newAnswer<IssueCloseMemberCounts>()
       references = newAnswer<Bucket<ReferenceSession>>()
+      setupAgents = newAnswer<SetupAgent>(compareSetupAgent)
+      setupMembers = newAnswer<boolean>()
+      setupCount = 0
       replacement = ++version
     },
     replace(rows) {
@@ -248,6 +293,7 @@ export function createSessionQuestions(
         machines = machines.fork(); activities = activities.fork(); revisions = revisions.fork()
         future = future.fork(); expired = expired.fork()
         closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork()
+        setupAgents = setupAgents.fork(); setupMembers = setupMembers.fork()
       }
     },
     set(id, row) {
@@ -265,6 +311,7 @@ export function createSessionQuestions(
         closeOffers: !row.archived && row.agentKind !== 'shell' && !!row.offer,
         closeWorking: !row.archived && row.agentKind !== 'shell' && isSessionWorking(row as unknown as SessionView),
         displayRef: typeof row.displayRef === 'string' ? row.displayRef : undefined,
+        agentKind: String(row.agentKind ?? ''), headless: !!row.headless,
       })
     },
     setFacts,
@@ -335,7 +382,7 @@ export function createSessionQuestions(
       const excluded = question.excluded && 'has' in question.excluded ? question.excluded : new Set(question.excluded)
       let maximum = 0
       for (const root of question.roots) {
-        const answer = activities.get(`activity:${question.match ?? 'within'}:${root}`)?.answer
+        const answer = activities.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${root}`)?.answer
         let value = answer?.first()
         while (value && excluded.has(value.id)) { activityVisits++; value = answer?.after(value, value.id) }
         if (value) { activityVisits++; maximum = Math.max(maximum, value.at) }
@@ -343,7 +390,7 @@ export function createSessionQuestions(
       return maximum
     },
     activityRevision: question => Math.max(replacement,
-      ...question.roots.map(root => revisions.get(`activity:${question.match ?? 'within'}:${root}`) ?? 0)),
+      ...question.roots.map(root => revisions.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${root}`) ?? 0)),
   }
   return api
 }

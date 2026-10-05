@@ -78,8 +78,6 @@ export function createAutomationViews(pool: MobxPool) {
         if (row === LOADING) pending++
         else if (row) machines.push(row)
       }
-      const summaries = pool.settingsViews.sessions()
-      pending += summaries.pending
       const scoped = machines.some(machine => machine.use !== undefined)
       const availability = new Map(machines.map(machine => {
         const state: TargetAvailability = scoped && machine.use !== 'granted' ? 'unauthorized'
@@ -97,17 +95,10 @@ export function createAutomationViews(pool: MobxPool) {
         if (state === 'available') choices.push(choice)
         else { excluded[state]++; withheld.push(choice) }
       }
-      const usage = (path: string) => {
-        const repo = repos.find(row => row.path === path)
-        if (!repo) return 0
-        const roots = [repo.path, ...repo.worktrees.map(row => row.path)]
-        let newest = 0
-        for (const session of summaries.rows) {
-          if (roots.some(root => session.cwd === root || session.cwd.startsWith(`${root}/`))) newest = Math.max(newest, Date.parse(session.lastActiveAt) || 0)
-        }
-        return newest
-      }
-      choices.sort((a, b) => usage(b.value) - usage(a.value))
+      const usage = new Map<string, number>()
+      for (const repo of repos) if (!usage.has(repo.path)) usage.set(repo.path,
+        pool.queries.activity({ kind: 'commandRootActivity', roots: [repo.path, ...repo.worktrees.map(row => row.path)] }))
+      choices.sort((a, b) => (usage.get(b.value) ?? 0) - (usage.get(a.value) ?? 0))
       choices.push({ value: '__global__', label: 'Global (home directory)', availability: 'available' })
       if (currentPath !== null && !choices.some(choice => choice.value === currentPath)) {
         const state = withheld.find(choice => choice.value === currentPath)?.availability ?? 'unauthorized'
@@ -119,8 +110,7 @@ export function createAutomationViews(pool: MobxPool) {
   }
   function session(id: string | undefined) {
     if (!id) return undefined
-    const { rows, pending } = pool.settingsViews.sessions()
-    return rows.find(row => row.sessionId === id) ?? (pending ? LOADING : undefined)
+    return pool.queries.setupSessionPresent(id) ? pool.row('setupSession', id) : undefined
   }
   return { list, repositories, targets, session, dispose: () => cache.clear() }
 }

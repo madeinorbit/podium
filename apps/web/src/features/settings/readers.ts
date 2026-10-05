@@ -1,5 +1,6 @@
 import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
+import type { GitRepositoryWire } from '@podium/model'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -49,8 +50,9 @@ export function useSettingsSessionPresent(id: string | null): boolean {
   return useWorklistPoolProjection(read, false)
 }
 
-const readSetup = (pool: MobxPool) => pool.settingsViews.setup()
-export function useSettingsSetupSummary() {
+export function useSettingsSetupSummary(repos: readonly GitRepositoryWire[]) {
+  const paths = useMemo(() => [...new Set(repos.flatMap(repo => [repo.path, ...repo.worktrees.map(row => row.path)]))], [repos])
+  const readSetup = useCallback((pool: MobxPool) => pool.settingsViews.setup(paths), [paths])
   return useWorklistPoolProjection(readSetup, EMPTY_SETUP)
 }
 

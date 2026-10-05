@@ -43,7 +43,7 @@ export function readSettingsData(pool: MobxPool): SettingsData {
       const row = pool.row('hostMetric', id) as HostMetricsWire | undefined
       return row ? [row] : []
     }),
-    sessionCount: pool.settingsViews.sessions().rows.length,
+    sessionCount: pool.settingsViews.sessionCount(),
     issueCount: loaded(diagnostics) ? diagnostics.issueCount : 0,
     conversationCount: loaded(diagnostics) ? diagnostics.conversationCount : 0,
     cursor: loaded(diagnostics) ? diagnostics.cursor : null,

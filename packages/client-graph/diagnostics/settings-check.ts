@@ -20,7 +20,8 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   const state = referenceState(owner)
   const catalog = pool.row('settingsCatalog', 'catalog')
   const window = pool.row('settingsWindow', 'window')
-  const setup = pool.settingsViews.setup()
+  const expectedUsage = createRepositoryUsageSelector()(state.sessions)
+  const setup = pool.settingsViews.setup([...expectedUsage.keys()])
   const sessions = pool.settingsViews.sessions()
   let pending = Number(catalog === LOADING) + Number(window === LOADING) + setup.pending
   const rows = (values: readonly (readonly [string, object])[]): CheckRow[] =>
@@ -34,7 +35,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     {
       key: 'setup',
       fields: {
-        usage: [...createRepositoryUsageSelector()(state.sessions)].sort(([a], [b]) =>
+        usage: [...expectedUsage].sort(([a], [b]) =>
           a.localeCompare(b),
         ),
         defaultAgent: resolveDefaultAgent(undefined, state.sessions),

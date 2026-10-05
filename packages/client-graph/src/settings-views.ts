@@ -35,26 +35,18 @@ export function createSettingsViews(pool: MobxPool) {
       return { rows: dedupeSessionsByResume(rows), pending }
     })
   }
-  function setup() {
-    return memo('setup', () => {
-      const { rows, pending } = sessions()
+  function setup(paths: readonly string[] = []) {
+    return memo(`setup:${JSON.stringify(paths)}`, () => {
       const usage = new Map<string, number>()
-      let last: SetupSession | undefined
-      for (const row of rows) {
-        if (row.agentKind === 'shell') continue
-        if (!row.headless && (!last || row.lastActiveAt > last.lastActiveAt)) last = row
-        const time = Date.parse(row.lastActiveAt) || 0
-        if (time <= 0) continue
-        const add = (path: string) => { if (time > (usage.get(path) ?? 0)) usage.set(path, time) }
-        add(row.cwd)
-        for (let slash = row.cwd.indexOf('/'); slash !== -1; slash = row.cwd.indexOf('/', slash + 1)) add(row.cwd.slice(0, slash))
+      for (const path of paths) {
+        const at = pool.queries.activity({ kind: 'commandRootActivity', roots: [path], agentsOnly: true })
+        if (at > 0) usage.set(path, at)
       }
-      return { usage, defaultAgent: last?.agentKind ?? DEFAULT_HARNESS_AGENT, pending }
+      return { usage, defaultAgent: pool.queries.setupDefaultAgent() ?? DEFAULT_HARNESS_AGENT, pending: 0 }
     })
   }
   function sessionPresent(id: string) {
-    const { rows, pending } = sessions()
-    return rows.some((row) => row.sessionId === id) ? true : pending ? LOADING : false
+    return pool.queries.setupSessionPresent(id)
   }
-  return { setup, sessions, sessionPresent, clear: () => cache.clear() }
+  return { setup, sessions, sessionPresent, sessionCount: () => pool.queries.setupSessionCount(), clear: () => cache.clear() }
 }

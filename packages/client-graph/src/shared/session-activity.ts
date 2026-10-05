@@ -4,6 +4,8 @@ export interface SessionActivityQuestion {
   kind: 'commandRootActivity'
   roots: readonly string[]
   match?: 'within' | 'exact'
+  /** Setup usage excludes shells; ordinary launch recency includes them. */
+  agentsOnly?: boolean
   excluded?: readonly string[] | ReadonlySet<string>
 }
 
