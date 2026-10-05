@@ -360,25 +360,8 @@ export function createHeaderViews(pool: MobxPool) {
         }
         if (!scanned && active.issueId) repoId = issueSummary(active.issueId)?.repoId ?? null
         if (!scanned && !active.issueId) {
-          let best: Partial<SliceIssue> | undefined
-          for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: active.cwd })) {
-            const candidate = issueSummary(id)
-            if (
-              !candidate?.worktreePath ||
-              candidate.archived ||
-              candidate.deletedAt ||
-              !contains(active.cwd, candidate.worktreePath)
-            )
-              continue
-            if (
-              !best ||
-              candidate.worktreePath.length > (best.worktreePath?.length ?? 0) ||
-              (candidate.worktreePath === best.worktreePath &&
-                (candidate.seq ?? 0) < (best.seq ?? 0))
-            )
-              best = candidate
-          }
-          repoId = best?.repoId ?? null
+          const id = pool.queries.containingIssueId(active.cwd)
+          repoId = id ? (issueSummary(id)?.repoId ?? null) : null
         }
       }
       return pool.header.shippingCounts(repoId)
