@@ -18191,22 +18191,22 @@
       "origin": [
         "1f52831a4d5c9e3a3bdd5d7c2eb23c1b4e9f018249a1211d72b4b4076539f03f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
+        "389872a19c2b9f9a6af923fee236bb664d1baebb92b7c623ceedf3b43a56314e",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "671067c66f73df55de3d9b242db817a7a9efadba23924553e5c0b750c8f2bb62",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
         "77676516ab173caf5c50b9c28c64c892ce3c901d9b98e6d78c454de755b42cd2",
         "7b743edfc98f333d52a6b1b667931eb1dfcbea1970f3c1f6c5930081d4ad4a43",
+        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061",
-        "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
+        "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "2cdc5f760c1fd9299abf3b933c2125dd33a2c164fe742888b0361938c70d7892",
+      "fingerprint": "ebda58d45076b640bd04a4129abe20ab44c0a2f8ac6ad15847dfaf005a21781b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18224,22 +18224,22 @@
       "origin": [
         "1f52831a4d5c9e3a3bdd5d7c2eb23c1b4e9f018249a1211d72b4b4076539f03f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
+        "389872a19c2b9f9a6af923fee236bb664d1baebb92b7c623ceedf3b43a56314e",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8",
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "671067c66f73df55de3d9b242db817a7a9efadba23924553e5c0b750c8f2bb62",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
         "77676516ab173caf5c50b9c28c64c892ce3c901d9b98e6d78c454de755b42cd2",
         "7b743edfc98f333d52a6b1b667931eb1dfcbea1970f3c1f6c5930081d4ad4a43",
+        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1",
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
         "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
-        "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061",
-        "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
+        "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061"
       ],
-      "fingerprint": "2b6eb2f37b733b4be2b159ecb0344f46c81c4f53450fca8ecb19f9d8b4204ac8",
+      "fingerprint": "ee046c2826df4a8d6be4012635681826113d35f357a57772fac2073471450080",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40086,74 +40086,14 @@
     },
     {
       "file": "packages/client-graph/src/issue-board-layout.ts",
-      "holder": "createBoardLayout/columnIds/keyedComputed:callback",
-      "rule": "loop:for-of",
-      "tokens": "2a86b6958731f85167576e632c1eb87a16f6393f3dd0cf08e8a67ca7d28ba1e7",
-      "gate": [
-        "exit:then:d95734e2e4f7125ed39d667fc86e38eb08d2261cfddcf8a92bab8d824ed276fd"
-      ],
-      "origin": [
-        "671067c66f73df55de3d9b242db817a7a9efadba23924553e5c0b750c8f2bb62"
-      ],
-      "fingerprint": "5e60eb684209f03f177b9b6a8a08dd848229e24a5ca03252ae9314637ab206e5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-layout.ts",
-      "holder": "createBoardLayout/columnIds/keyedComputed:callback/candidates",
-      "rule": "materialize:Set",
-      "tokens": "6b0adb4f55c692132390fdbf7cb6d6ddecb10e32520b70269fef053f2c551d49",
-      "gate": [
-        "exit:then:d95734e2e4f7125ed39d667fc86e38eb08d2261cfddcf8a92bab8d824ed276fd"
-      ],
-      "origin": [
-        "671067c66f73df55de3d9b242db817a7a9efadba23924553e5c0b750c8f2bb62"
-      ],
-      "fingerprint": "154d7640b7ddcd0ca6a88a781c581d34caca7b7ad25880d1b6a91b48104a8d8e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/candidates",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-layout.ts",
-      "holder": "createBoardLayout/columnIds/keyedComputed:callback/candidates/flatMap:callback",
-      "rule": "dynamic-question",
-      "tokens": "5e099c3707b0d5ab4c130e48614f93aa5fd1cf64404edf68c68ad1f1f4785070",
-      "gate": [
-        "exit:then:d95734e2e4f7125ed39d667fc86e38eb08d2261cfddcf8a92bab8d824ed276fd"
-      ],
-      "origin": [
-        "671067c66f73df55de3d9b242db817a7a9efadba23924553e5c0b750c8f2bb62"
-      ],
-      "fingerprint": "bc719cb9328e1c41ec444c32c837dae5b272812109c067e932b875c6fce0a10c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/candidates/flatMap:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/matching/keyedComputed:callback",
       "rule": "loop:for-of",
-      "tokens": "ee2a88ec650b183b5b807983794da401439abc4a477f79382b513f9058a9bf18",
+      "tokens": "279261bb5ff52b9f853b3e0ed6e7a55891ccb082d0a7d9ccd45a0008977801a4",
       "gate": [],
       "origin": [
         "3d88b8744feb26fcef65cae3c1dc4e12be50ef79b42663df6cda8a7eb046d1f8"
       ],
-      "fingerprint": "55b80c0914d9fd5a9ee1d180b1569e3f4e1ffc6a66e9d37f70680c94f14a41a3",
+      "fingerprint": "b3367191e13e5496a05fd265002de5e1f7944d4fb503ee0c42ef07d972a002c4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
@@ -40240,14 +40180,14 @@
     },
     {
       "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/catalog/memo:callback/indexed:callback",
+      "holder": "createIssueBoardSource/catalog/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "1e34b0c9e315db4611a057f823f8369181c2998c6f3306ab7b427d9711156767",
+      "tokens": "1ba7759504c00a5cc5238d62474b5b7796f44845b1d8efe268289ce8b028bcc6",
       "gate": [],
       "origin": [
-        "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
+        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1"
       ],
-      "fingerprint": "ac83491896a242f67d850328be06e3acbaa03a27d95004c141ab551b58b6cd53",
+      "fingerprint": "456ab4cbe06bc8858bdc80d471ffe8e51cb1e19f45e871b1beb37e2b94520e49",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40258,38 +40198,20 @@
     },
     {
       "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/catalog/memo:callback/indexed:callback/cold",
+      "holder": "createIssueBoardSource/catalog/memo:callback",
       "rule": "question:boardCatalog",
       "tokens": "fb189ed1c95f5115eaa2ec617319723fe87fb076b5ef80737b6930f9fe15b0e5",
       "gate": [],
       "origin": [
-        "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
+        "9dfb06e77c1bd8121fdaeed0ee36f80419d2f4c9c0fcdcc0be6052b2bbe941e1"
       ],
-      "fingerprint": "cf148422610c1979428a286ebafdae676bd9097c01bb5887d1ff2ab67cc1c326",
+      "fingerprint": "be382096f88a86012e28dbb4b98c0375bb926240c5165a247ca7ed26de5d94c7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueBoardSource/catalog/memo:callback/indexed:callback/cold",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "question:boardCatalog carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/catalog/memo:callback/indexed:callback/cold",
-      "rule": "consume:filter",
-      "tokens": "b98fb370eb6d190840302814ca1cd4f2ad3bb0342d7e2e21dc10a36656f5e5e0",
-      "gate": [],
-      "origin": [
-        "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
-      ],
-      "fingerprint": "8cc60bf20fb9f98a9a35f9abd04aecbc871116373f0237b8301d3168fcdcdbab",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createIssueBoardSource/catalog/memo:callback/indexed:callback/cold",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -40415,12 +40337,12 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/menu",
       "rule": "reader-summary",
-      "tokens": "4be9565f864888de40516d4b4a7961b1b5b36dc75bae3125eeb136e2594b2f9b",
+      "tokens": "e13c90c206316ae3a49a16750157e4334796ff9a0110cf3f178e29282b54e123",
       "gate": [],
       "origin": [
         "77676516ab173caf5c50b9c28c64c892ce3c901d9b98e6d78c454de755b42cd2"
       ],
-      "fingerprint": "61fe96bc82e62023c9d8175bae9cb94293ffac2616b651d3940d557577ec1db4",
+      "fingerprint": "0f6131dabc0dd74602ad4739a4f984c04f4c7ae87fec1e4fa9be97e2da86bbd4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
@@ -46320,6 +46242,46 @@
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
+      "rule": "materialize:Set",
+      "tokens": "4ff59a3b2e4a72b7edc6337a3b92bfbb2cd8d23285064b664ff09a6e0a8df584",
+      "gate": [
+        "then:754abe1d9174e46c0e821cddb7ccc373bf836ae820240a37989f1f3181df6495"
+      ],
+      "origin": [
+        "389872a19c2b9f9a6af923fee236bb664d1baebb92b7c623ceedf3b43a56314e"
+      ],
+      "fingerprint": "a72da8d997b5dc0b542927599def8bc126c5fdbdc47591f2331a06fd2fd5b938",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5555",
+      "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Set carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback/flatMap:callback",
+      "rule": "dynamic-question",
+      "tokens": "c40b7d5131ec953a353fad46ea852de4652a5e401e314a0323157e1cebc35b72",
+      "gate": [
+        "then:754abe1d9174e46c0e821cddb7ccc373bf836ae820240a37989f1f3181df6495"
+      ],
+      "origin": [
+        "389872a19c2b9f9a6af923fee236bb664d1baebb92b7c623ceedf3b43a56314e"
+      ],
+      "fingerprint": "c19ba2710c69c8568410501b37eb45ce6e20dffac02301fbd2e83730d347c275",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5555",
+      "trigger": "Invocation of createBoardLayout/columnIds/keyedComputed:callback/ids/callback/untracked:callback/flatMap:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "dynamic-question carries collection taint; bounded stage-change counters do not establish a bound for every demand or downstream collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }
