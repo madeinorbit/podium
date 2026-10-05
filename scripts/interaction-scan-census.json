@@ -3574,31 +3574,13 @@
     {
       "file": "apps/web/src/app/FlightDeckPool.tsx",
       "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
-      "rule": "reader-summary",
-      "tokens": "35ab388d88c5ee24b17ade4dada793d808c3d744b035ca5e709b99816277b65f",
-      "gate": [],
-      "origin": [
-        "90e2aeb98262031a67ada33da0cbfd7e049ca71b1d24f48d76416dd6d6913c52"
-      ],
-      "fingerprint": "42123ae6bc7f97d4734cac42bcb7f9a2bf3aad58cc36bc1e49ad0b75bf8d4745",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckPool.tsx",
-      "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "rule": "helper-consumer",
-      "tokens": "a76f2c0be3b62ebd8f9fab050aad7a74a172fe9d4e37b86a521b82b663737427",
+      "tokens": "4a18e3addc344d3c6e946585382bc0c5837c5e2360152fbdaed821aafa71691c",
       "gate": [],
       "origin": [
         "e1c84ca57e58d4fc4e2514dea3bba5302620b0f9640ad01d702cb0965b86c365"
       ],
-      "fingerprint": "2e0d255b121002943f2a8a5ead8308fc54a8bfd0dbf17aafc048e2ee887e6641",
+      "fingerprint": "837ca892470acc23f600a0f2e33c6b7cdf734665d1f9a25889c18f39614a8e03",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -16357,24 +16339,6 @@
       "trigger": "Invocation of bindIssueRefAnchors/observer/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/lib/PoolSessionContextMenu.tsx",
-      "holder": "PoolSessionContextMenu/read/useCallback:callback/measurePoolMission:callback",
-      "rule": "reader-summary",
-      "tokens": "366fb977ed40c6c2a26cf2fdad2631f217084163c5442154b6f8ccf8b8c1b1f4",
-      "gate": [],
-      "origin": [
-        "90e2aeb98262031a67ada33da0cbfd7e049ca71b1d24f48d76416dd6d6913c52"
-      ],
-      "fingerprint": "af253134d57664a1c9174820461aed628a236970bd932d1f1935499ea90b58ea",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolSessionContextMenu/read/useCallback:callback/measurePoolMission:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -39617,50 +39581,6 @@
       "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
       "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "readMissionActionInputs/repos",
-      "rule": "consume:flatMap",
-      "tokens": "53719cee46ec92c434be76208e91d0b89dc20f03cd6d81bec8c32b9181156e92",
-      "gate": [
-        "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
-        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "then:835e3df70646d4099181c3e519f64c3d0fc9bbbb31294c6a5a3401eccf3515ae"
-      ],
-      "origin": [
-        "90e2aeb98262031a67ada33da0cbfd7e049ca71b1d24f48d76416dd6d6913c52"
-      ],
-      "fingerprint": "ab99b67c88452e08920baa37a8319fc14399268382efc9aed1f7b7b846d71e77",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readMissionActionInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "readMissionActionInputs/repos",
-      "rule": "dynamic-question",
-      "tokens": "91a99f9b730271defe0e3fe6c91f41e0725e43acd18a2b9ecace862b23d0741c",
-      "gate": [
-        "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
-        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "then:835e3df70646d4099181c3e519f64c3d0fc9bbbb31294c6a5a3401eccf3515ae"
-      ],
-      "origin": [
-        "90e2aeb98262031a67ada33da0cbfd7e049ca71b1d24f48d76416dd6d6913c52"
-      ],
-      "fingerprint": "62724f4d817d148a2e1a7cb37400fa3ace1301b8356f1d16e479ff3f31a39e81",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readMissionActionInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/mobile-inbox-views.ts",
