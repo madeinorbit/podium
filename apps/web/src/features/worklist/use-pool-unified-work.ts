@@ -242,35 +242,36 @@ export function createPoolWorkActions(
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => {
-      // Only on menu open: enumerate resident issues, through the one reader.
-      const sessions = sessionMembership(pool)
-      const all = [...pool.tables.issue.keys()].flatMap((key) => {
-        const value = pool.sidebar.row(key)
-        if (value === undefined || value === LOADING) return []
-        // These compatibility summaries used to arrive on the legacy issue
-        // view. The menu needs the same cascade counts, membership and read
-        // state; build them on open from resident relations and the one reader.
-        const memberSessionIds = (sessions.get(key) ?? [])
-          .filter((session) => session.agentKind !== 'shell')
-          .map((session) => session.sessionId)
-        const childIds = [...pool.graph.many('issue', key, 'treeChildren')]
-        const childDoneCount = childIds.filter((id) => {
-          const child = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
-          return child !== undefined && child !== LOADING && child.stage === 'done'
-        }).length
-        return [
-          {
-            ...navigationIssue(value.issue),
-            memberSessionIds,
-            childIds: childIds.map(asIssueId),
-            childCount: childIds.length,
-            childDoneCount,
-            unread: value.issue.unread,
-            deferred: value.deferred,
-          },
-        ]
+      const value = pool.sidebar.row(id)
+      if (!value || value === LOADING)
+        return { single: [], all: [], poolInputs: value === LOADING ? LOADING : readIssueMenuPoolInputs(pool, []) }
+      // The menu acts on this issue. Its membership and direct children are
+      // declared per-key relations; no other issue or session is a candidate.
+      const memberSessionIds = [...pool.graph.many('issue', id, 'sessions')].flatMap((key) => {
+        const session = pool.row('session', key) as SessionView | typeof LOADING | undefined
+        return session && session !== LOADING && session.issueId === id && session.agentKind !== 'shell'
+          ? [session.sessionId] : []
       })
-      const single = all.filter((issue) => issue.id === id)
+      const childIds = [...pool.graph.many('issue', id, 'treeChildren')].map(asIssueId)
+      const single = [{
+        ...navigationIssue(value.issue),
+        memberSessionIds,
+        childIds,
+        ...pool.queries.issueChildCounts(id),
+        unread: value.issue.unread,
+        deferred: value.deferred,
+      }]
+      // Placement needs only the direct origin's label. Catalog choices are
+      // requested by the menu after their submenu becomes visible.
+      const originIds = new Set([
+        ...(value.issue.parentId ? [value.issue.parentId] : []),
+        ...(value.issue.deps ?? []).filter(dep => dep.type === 'discovered-from').map(dep => dep.id),
+      ])
+      const all = [...single]
+      for (const key of originIds) {
+        const issue = pool.row('issue', key) as SliceIssue | typeof LOADING | undefined
+        if (issue && issue !== LOADING) all.push(navigationIssue(issue))
+      }
       return { single, all, poolInputs: readIssueMenuPoolInputs(pool, single) }
     },
   }

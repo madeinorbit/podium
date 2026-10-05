@@ -57,6 +57,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     private readonly edges = observable.map<string, readonly string[]>(undefined, { deep: false })
     private readonly loaded = observable.set<string>()
     private readonly demanded = new Set<string>()
+    private readonly addressedThreads = new Set<string>()
     private scheduled = false
     /** Keyed (POD-5433): what each wake moved. */
     private threadsDirty = true
@@ -74,7 +75,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       // A cold cursor with rows present: only a removal can make it boot again.
       const removed = (rows: readonly { kind: string; id: string }[]) => rows.some(address =>
         (address.kind === 'sessions' || address.kind === 'issueProjections') && !replica.row?.(address.kind, address.id))
-      this.stops = [owner.onList('superThreads', () => { this.threadsDirty = true; if (this.demanded.has('threads')) this.schedule() }),
+      this.stops = [owner.onList('superThreads', () => { this.threadsDirty = true; if (this.demanded.has('threads') || this.addressedThreads.size) this.schedule() }),
         owner.onLocals(['superThreadId', 'paneA', 'selectedWorktree'], local),
         owner.readPosition.subscribe(() => { if (this.demanded.has('cursor')) this.schedule() }),
         // `booting` can move only while it holds, or when the cursor is cold.
@@ -104,9 +105,17 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
 
     read(entity: keyof SuperagentRows, id: string): Loaded<SuperagentRows[keyof SuperagentRows]> {
       if (this.disposed) return LOADING
+      if (entity === 'superThread' && !this.demanded.has('threads')) {
+        this.addressedThreads.add(id)
+        if (!this.loaded.has(`thread:${id}`)) { this.schedule(); return LOADING }
+        return this.rows.get(`superThread:${id}`) as SuperagentRows['superThread'] | undefined
+      }
       const group = entity.startsWith('superagentEvent') ? 'events' : entity === 'superagentReadPosition' ? 'cursor' : 'threads'
       this.demanded.add(group)
-      if (!this.loaded.has(group)) { this.schedule(); return LOADING }
+      if (!this.loaded.has(group)) {
+        if (group === 'threads') this.threadsDirty = true
+        this.schedule(); return LOADING
+      }
       return this.rows.get(`${entity}:${id}`) as SuperagentRows[keyof SuperagentRows] | undefined
     }
 
@@ -151,6 +160,15 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
         this.scheduled = false
         if (this.disposed) return
         runInAction(() => {
+          if (this.threadsDirty || [...this.addressedThreads].some(id => !this.loaded.has(`thread:${id}`))) {
+            for (const id of this.addressedThreads) {
+              const row = owner.listRow('superThreads', id)
+              if (row) this.set(`superThread:${id}`, row)
+              else this.rows.delete(`superThread:${id}`)
+              this.loaded.add(`thread:${id}`)
+            }
+            if (!this.demanded.has('threads')) this.threadsDirty = false
+          }
           if (this.demanded.has('threads')) {
             if (this.threadsDirty) {
               this.threadsDirty = false
@@ -188,6 +206,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       if (this.disposed) return
       this.disposed = true
       for (const stop of this.stops) stop()
+      this.addressedThreads.clear()
       this.demanded.clear()
       queueMicrotask(() => runInAction(() => { this.rows.clear(); this.edges.clear(); this.loaded.clear() }))
     }

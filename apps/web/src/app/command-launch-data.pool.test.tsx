@@ -10,14 +10,15 @@ import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import {
-  useCommandGuardSessions,
   useCommandLaunchActions,
   useCommandLaunchData,
   useCommandPaletteData,
   useCommandPaletteOpen,
   useCommandRecentFiles,
 } from './command-launch-data'
-import { attachWorklistPool } from './store-worklist-pool'
+import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
+import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import { CommandPalette } from './CommandPalette'
 import type { Trpc } from './trpc'
 
 afterEach(() => {
@@ -58,7 +59,6 @@ it('declares launch and palette demand after attachment, follows window updates 
       launch: useCommandLaunchData(),
       palette: useCommandPaletteData(),
       open: useCommandPaletteOpen(),
-      sessions: useCommandGuardSessions(),
       files: useCommandRecentFiles(),
       actions: useCommandLaunchActions(),
     }),
@@ -67,7 +67,6 @@ it('declares launch and palette demand after attachment, follows window updates 
   expect(result.current.launch).toBe(LOADING)
   expect(result.current.palette).toBe(LOADING)
   expect(result.current.open).toBe(false)
-  expect(result.current.sessions).toEqual([])
   expect(result.current.files).toEqual([])
 
   await act(async () => {
@@ -78,7 +77,6 @@ it('declares launch and palette demand after attachment, follows window updates 
   await waitFor(() => {
     expect(result.current.launch).not.toBe(LOADING)
     expect(result.current.palette).not.toBe(LOADING)
-    expect(result.current.sessions).toHaveLength(10)
   })
   const { launch, palette, actions, owner } = result.current
   expect(launch).toMatchObject({
@@ -87,13 +85,6 @@ it('declares launch and palette demand after attachment, follows window updates 
     machines: [{ id: 'host-one' }, { id: 'host-two' }, { id: 'host-three' }],
   })
   expect(palette).toMatchObject({ paletteOpen: false, selectedIssueId: null })
-  expect(result.current.sessions.map((row) => row.sessionId).sort()).toEqual(
-    [
-      ...Array.from({ length: 8 }, (_, index) => `synthetic-session-${index}`),
-      'synthetic-guest-0',
-      'synthetic-guest-1',
-    ].sort(),
-  )
   expect(actions.setPaletteOpen).toBe(referenceState(owner).setPaletteOpen)
   expect(actions.updateIssue).toBe(referenceState(owner).updateIssue)
 
@@ -111,4 +102,34 @@ it('declares launch and palette demand after attachment, follows window updates 
   })
   expect(storeStats.snapshot().runtimes).toEqual([])
   expect(fatal).not.toHaveBeenCalled()
+})
+
+
+it('mounts the actual closed palette without issue/session demand at 1x/4x, then licenses visible choices', async () => {
+  for (const scale of [1, 4]) {
+    const fixture = createHeaderFixture(12 * scale, 8 * scale), fatal = vi.fn()
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <StoreProvider principal={asClientPrincipal(asUserId(`closed-palette-${scale}`))}
+        config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
+        createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
+        attachRuntime={runtime => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, fatal) }}>
+        <CommandPalette />{children}
+      </StoreProvider>
+    }
+    const hook = renderHook(() => ({ pool: useWorklistPool(), actions: useCommandLaunchActions() }), { wrapper: Wrapper })
+    await waitFor(() => expect(hook.result.current.pool).toBeTruthy())
+    await act(async () => {})
+    const pool = hook.result.current.pool!
+    const counts = commandLaunchViews(pool).counts
+    expect(counts.catalogBuilds).toBe(0); expect(counts.issueBuilds).toBe(0)
+    expect(counts.coldSessionVisits).toBe(0); expect(counts.addressedSessionReads).toBe(0)
+    await act(async () => hook.result.current.actions.setPaletteOpen(true))
+    await waitFor(() => expect(counts.catalogBuilds).toBeGreaterThan(0))
+    await act(async () => hook.result.current.actions.setPaletteOpen(false))
+    const afterClose = { ...counts }
+    await act(async () => { for (let i = 0; i < 5; i++) fixture.activity(i + 1) })
+    expect(counts).toEqual(afterClose)
+    expect(fatal).not.toHaveBeenCalled()
+    hook.unmount(); cleanup()
+  }
 })

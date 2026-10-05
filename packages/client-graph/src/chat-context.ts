@@ -49,6 +49,25 @@ export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
   }
   return { issues, pending }
 }
+/** Source-ranked identities cap summary demand before it reaches the chat. */
+export function chatMentionMatches(pool: MobxPool, query: string, limit = 5, counts = readerCounts(pool)) {
+  if (counts) counts.mentionBuilds++
+  const prefixes: Record<string, string | undefined> = {}
+  for (const id of pool.tables.repo.keys()) {
+    const repo = pool.row('repo', id)
+    if (repo && !loading(repo)) prefixes[id] = (repo as { prefix?: string }).prefix
+  }
+  const ids = pool.queries.ids({ kind: 'issueMentionMatches', query, limit, prefixes })
+  const issues: IssueViewModel[] = []
+  let pending = 0
+  for (const id of ids) {
+    if (counts) counts.mentionIssueReads++
+    const issue = chatIssue(pool, id)
+    if (loading(issue)) pending++
+    else if (issue && !issue.deletedAt && !issue.archived) issues.push(issue)
+  }
+  return { issues, pending }
+}
 export function chatInteractions(pool: MobxPool, sessionId: string) {
   const membership = pool.row('noticeSession', sessionId)
   const rows: PendingInteractionWire[] = []
@@ -117,7 +136,7 @@ export function createChatContextReader(pool: MobxPool) {
   return {
     counts,
     issue: (id: string) => chatIssue(pool, id),
-    mentions: () => chatMentionIssues(pool, counts),
+    mentions: (query?: string, limit = 5) => query === undefined ? chatMentionIssues(pool, counts) : chatMentionMatches(pool, query, limit, counts),
     interactions: (id: string) => chatInteractions(pool, id),
     records: (id: string) => chatRecords(pool, id),
     artifactIssue: (session: Pick<SessionView, 'sessionId' | 'issueId'>) => chatArtifactIssue(pool, session),

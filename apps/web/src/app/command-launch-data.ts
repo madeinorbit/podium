@@ -5,9 +5,7 @@ import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import {
   EMPTY_FILES,
-  EMPTY_SESSIONS,
   readFiles,
-  readGuardSessions,
   readLaunch,
   readOpen,
   readPalette,
@@ -65,9 +63,6 @@ export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> 
 }
 export function useCommandPaletteOpen() {
   return useWorklistPoolProjection(readOpen, false)
-}
-export function useCommandGuardSessions() {
-  return useWorklistPoolProjection(readGuardSessions, EMPTY_SESSIONS)
 }
 export function useCommandRecentFiles() {
   return useWorklistPoolProjection(readFiles, EMPTY_FILES)

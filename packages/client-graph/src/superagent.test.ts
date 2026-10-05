@@ -163,3 +163,34 @@ it('reports planted errors in every settled differential section without hiding 
   ]
   for (const patch of wrong) expect(checkSuperagent(f.pool, { ...f.state, ...patch } as Store).differences).toBeGreaterThan(0)
 })
+
+it('answers selected private backends through one owned row, with no catalog at 1x/4x', async () => {
+  for (const size of [64, 256]) {
+    const f = await fixture()
+    f.publish({ superThreads: [...f.state.superThreads, ...Array.from({ length: size }, (_, i) => ({
+      id: `other-${i}`, kind: 'global' as const, podiumSessionId: `other-seat-${i}`,
+    }))] as Store['superThreads'] })
+    const ids = vi.spyOn(f.owner, 'listIds'), rows = vi.spyOn(f.owner, 'listRow')
+    expect(f.source.counts.threadLists).toBe(0)
+    expect(f.pool.row('superThread', 'global')).toBe(LOADING)
+    await Promise.resolve()
+    expect(f.pool.row('superThread', 'global')).toMatchObject({ id: 'global' })
+    expect(ids.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([])
+    expect(rows.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([['superThreads', 'global']])
+    expect(f.source.counts.threadLists).toBe(0)
+    // A principal-foreign ID cannot cause a lookup RPC or acquire an owned row.
+    expect(f.pool.row('superThread', 'foreign')).toBe(LOADING)
+    await Promise.resolve()
+    expect(f.pool.row('superThread', 'foreign')).toBeUndefined()
+    const own = f.state.superThreads[0]!
+    f.publish({ superThreads: [{ ...own, model: 'updated-backend' }, ...f.state.superThreads.slice(1)] })
+    await Promise.resolve()
+    expect(f.pool.row('superThread', 'global')).toMatchObject({ model: 'updated-backend' })
+    expect(f.source.counts.threadLists).toBe(0)
+    // Demand for a visible thread picker can still build its licensed catalog.
+    expect(f.pool.row('superThreadCatalog', 'catalog')).toBe(LOADING)
+    await Promise.resolve()
+    expect(f.pool.row('superThreadCatalog', 'catalog')).toMatchObject({ ids: expect.arrayContaining(['global', 'btw-private']) })
+    ids.mockRestore(); rows.mockRestore()
+  }
+})

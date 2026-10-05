@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { activateRef, closeMiniview, getMiniviewState, openMiniview } from '@/lib/ref-activation'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
+import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { RefCard, RefMiniviewHost, seedCardPosition } from './RefMiniview'
 
 const hostStore = vi.hoisted(() => ({
@@ -220,8 +221,8 @@ describe('RefMiniviewHost issue resolution', () => {
     act(() => root.render(<RefMiniviewHost />))
     expect(hostStore.referenceReads).not.toHaveBeenCalled()
     act(() => openMiniview('POD-517', { x: 100, y: 100 }))
-    expect(hostStore.referenceReads).toHaveBeenCalled()
-    expect(hostStore.activeReferenceReaders).toBe(1)
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
+    expect(hostStore.activeReferenceReaders).toBe(0)
     act(() => closeMiniview())
     expect(hostStore.activeReferenceReaders).toBe(0)
     hostStore.referenceReads.mockClear()
@@ -241,14 +242,14 @@ describe('RefMiniviewHost issue resolution', () => {
     expect(getMiniviewState()).toBeNull()
   })
 
-  it('resolves direct session activation from the latest roster on demand', () => {
+  it('resolves direct session activation from the latest addressed row without a roster', () => {
     act(() => root.render(<RefMiniviewHost />))
     hostStore.sessions = [
       { sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' },
     ]
-    act(() => activateRef('POD-517-A', { metaKey: true }))
+    act(() => { publishPoolFixture(); activateRef('POD-517-A', { metaKey: true }) })
     expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')
-    expect(hostStore.referenceReads).toHaveBeenCalledTimes(1)
+    expect(hostStore.referenceReads).not.toHaveBeenCalled()
     expect(getMiniviewState()).toBeNull()
   })
 

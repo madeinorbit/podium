@@ -11,7 +11,6 @@ import { useEffect, useMemo } from 'react'
 import { vi } from 'vitest'
 import {
   readFiles,
-  readGuardSessions,
   readLaunch,
   readOpen,
   readPalette,
@@ -94,6 +93,5 @@ vi.mock('@/app/command-launch-data', async (original) => ({
   useCommandLaunchData: () => useCommandFixture(readLaunch),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
-  useCommandGuardSessions: () => useCommandFixture(readGuardSessions),
   useCommandRecentFiles: () => useCommandFixture(readFiles),
 }))

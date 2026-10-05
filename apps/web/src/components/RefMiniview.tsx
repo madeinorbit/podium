@@ -30,7 +30,6 @@ import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import {
   useChatReferenceMachines,
-  useChatReferenceSessions,
   useChatRepositoryKey,
 } from '@/features/chat/use-chat-context'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
@@ -59,6 +58,7 @@ import {
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { LiveIssueReference } from './IssueReference'
+import { readReferenceSession, readRefMiniview } from './ref-miniview-readers'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -98,9 +98,8 @@ function PoolRefMiniviewHost(): JSX.Element {
           return
         }
       } else if (parsed?.kind === 'session' && pool) {
-        const reader = pool.row('chatContextReader', 'reader')
-        const sessions = reader && typeof reader !== 'symbol' ? reader.sessions().sessions : []
-        if (resolveRef(ref, [], sessions)) {
+        const session = readReferenceSession(pool, ref)
+        if (session && typeof session !== 'symbol') {
           navigateToSession(ref)
           return
         }
@@ -135,66 +134,14 @@ function OpenPoolRefMiniview({
   state: NonNullable<ReturnType<typeof getMiniviewState>>
   pool: MobxPool | null
 }): JSX.Element {
-  const sessions = useChatReferenceSessions()
-  const read = useCallback(
-    (pool: MobxPool) => {
-      const parsed = parseAnyRef(state.ref)
-      const id =
-        parsed?.kind === 'issue'
-          ? pool.references.id(state.ref)
-          : sessions.find((s) => s.displayRef === state.ref)?.issueId
-      if (typeof id === 'symbol') return { issues: [] as RefIssueLike[], loading: true }
-      const issues: RefIssueLike[] = []
-      const seen = new Set<string>()
-      let next = id
-      let loading = false
-      // The open issue and its ancestry only, for the existing session action.
-      // Each row is read through the pool. No issue list or peek is available.
-      while (next && !seen.has(next)) {
-        seen.add(next)
-        const row = pool.row('issue', next)
-        if (typeof row === 'symbol') {
-          loading = true
-          break
-        }
-        if (!row) break
-        const model = pool.references.readById(next)
-        const issue = row as RefIssueLike
-        const description = (row as { description?: string | { value?: string } }).description
-        let childCount = 0,
-          childDoneCount = 0
-        // The card's enrichment reads only the declared raw child relation.
-        // Archived children count too, matching the existing card projection.
-        for (const childId of pool.relations.many('issue', next, 'treeChildren')) {
-          const child = pool.row('issue', childId)
-          if (typeof child === 'symbol') {
-            loading = true
-            continue
-          }
-          if (!child) continue
-          childCount++
-          if ((child as { stage: string }).stage === 'done') childDoneCount++
-        }
-        issues.push({
-          ...issue,
-          description: typeof description === 'string' ? description : (description?.value ?? ''),
-          childCount,
-          childDoneCount,
-          ...(model && typeof model !== 'symbol'
-            ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix }
-            : {}),
-        })
-        next = pool.relations.one('issue', next, 'treeParent')
-      }
-      return { issues, loading }
-    },
-    [sessions, state],
-  )
-  const data = useWorklistPoolProjection(read, { issues: [] as RefIssueLike[], loading: !!state })
+  const read = useCallback((pool: MobxPool) => readRefMiniview(pool, state.ref), [state.ref])
+  const data = useWorklistPoolProjection(read, {
+    issues: [] as RefIssueLike[], sessions: [] as RefSessionLike[], loading: true,
+  })
   return (
     <RefMiniviewContents
       issues={data.issues}
-      sessions={sessions}
+      sessions={data.sessions}
       resolveIssue={(token) => {
         const parsed = parseAnyRef(token)
         const issue = data.issues[0]
@@ -214,7 +161,7 @@ function RefMiniviewContents({
   loading = false,
 }: {
   issues: readonly RefIssueLike[]
-  sessions: ReturnType<typeof useChatReferenceSessions>
+  sessions: readonly RefSessionLike[]
   resolveIssue: (ref: string) => ResolvedRef | null
   loading?: boolean
 }): JSX.Element | null {

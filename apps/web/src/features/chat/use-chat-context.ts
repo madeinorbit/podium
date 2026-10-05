@@ -47,7 +47,7 @@ export function useChatMentions(query: string | null) {
       if (query === null) return EMPTY_OPTIONS
       const reader = pool.row('chatContextReader', 'reader')
       return reader && !pending(reader)
-        ? issueMentions(reader.mentions().issues, query, 5)
+        ? issueMentions(reader.mentions(query, 5).issues, query, 5)
         : EMPTY_OPTIONS
     },
     [query],
@@ -218,4 +218,15 @@ const threadRead = (pool: MobxPool) => {
 }
 export function useChatThreads() {
   return useWorklistPoolProjection(threadRead, EMPTY_THREADS)
+}
+
+/** The private source already scopes row IDs to this principal. A normal
+ * session has no thread demand; a selected backend asks for its one row. */
+export function useChatThread(id: string | undefined) {
+  const read = useCallback((pool: MobxPool) => {
+    if (!id) return undefined
+    const row = pool.row('superThread', id)
+    return row && !pending(row) ? row : undefined
+  }, [id])
+  return useWorklistPoolProjection(read, undefined)
 }

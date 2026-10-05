@@ -215,3 +215,22 @@ describe('declarative issue menu projections', () => {
     ).toEqual([ISSUE_MENU_COLOR_NONE])
   })
 })
+
+
+it('builds no catalog choices for main/status menus, then derives the visible options without memoizing', () => {
+  const subject = makeIssue({ labels: ['own'] })
+  const candidate = makeIssue({ id: asIssueId('candidate'), seq: 2, title: 'Canonical', labels: ['other'] })
+  const choices = vi.fn(() => [subject, candidate])
+  const data = createIssueMenuData({ issues: [subject], allIssues: [subject], choiceIssues: choices,
+    eligibility: issueMenuEligibility([subject], 'palette'), surface: 'palette' })!
+  const entries = issueMenuEntries(data)
+  expect(choices).not.toHaveBeenCalled()
+  const status = entries.find(entry => entry.kind === 'submenu' && entry.id === 'status')!
+  if (status.kind === 'submenu') status.options(data)
+  expect(choices).not.toHaveBeenCalled()
+  expect(data.labels).toEqual(['other', 'own'])
+  expect(data.duplicateTargets).toEqual([{ id: 'candidate', title: 'Canonical', ref: expect.any(String) }])
+  expect(choices).toHaveBeenCalledTimes(2)
+  candidate.title = 'Changed canonical'
+  expect(data.duplicateTargets[0]?.title).toBe('Changed canonical')
+})

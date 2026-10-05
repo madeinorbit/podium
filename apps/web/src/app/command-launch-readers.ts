@@ -1,5 +1,4 @@
 import {
-  type CommandLaunchData,
   commandLaunchViews,
 } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -8,11 +7,6 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 // Shared with the structural work harness: measure the app's actual consumers.
 export const readLaunch = (pool: MobxPool) => commandLaunchViews(pool).launch()
 export const readPalette = (pool: MobxPool) => commandLaunchViews(pool).palette()
-export const EMPTY_SESSIONS: CommandLaunchData['sessions'] = []
-export const readGuardSessions = (pool: MobxPool) => {
-  const sessions = commandLaunchViews(pool).sessions()
-  return sessions && sessions !== LOADING ? sessions : EMPTY_SESSIONS
-}
 export const readOpen = (pool: MobxPool) => {
   const value = commandLaunchViews(pool).window('paletteOpen')
   return value !== LOADING ? value ?? false : false

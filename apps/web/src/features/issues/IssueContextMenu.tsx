@@ -21,7 +21,7 @@ import {
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Check, ChevronRight } from 'lucide-react'
-import { Fragment, type JSX, type ReactNode, useState } from 'react'
+import { Fragment, type JSX, type ReactNode, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
@@ -74,7 +74,8 @@ import {
 } from './issue-menu-config'
 import { issueMenuIcon } from './issue-menu-icons'
 import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
-import { useIssuePageData } from './issue-page/issue-page-data'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { readIssueMenuChoices, readIssueMenuOrigins } from './issue-menu-readers'
 import { isIssueStartable } from './issue-startable'
 
 /** Regions get named in mono micro-caps, the way the colour picker names its
@@ -126,13 +127,9 @@ export function IssueContextMenu({
   primaryStart?: boolean
   poolInputs: IssueMenuPoolInputs
 }): JSX.Element | null {
-  const page = useIssuePageData()
-  const menuIssues = page?.views.menuIssues()
-  const allIssues = page
-    ? menuIssues && typeof menuIssues !== 'symbol'
-      ? menuIssues
-      : page.data.issues
-    : suppliedIssues
+  const readOrigins = useCallback((pool: import('@podium/client-graph').MobxPool) => readIssueMenuOrigins(pool, issues), [issues])
+  const origins = useWorklistPoolProjection(readOrigins, undefined)
+  const allIssues = origins ?? suppliedIssues
   const {
     trpc,
     markIssueRead,
@@ -158,7 +155,9 @@ export function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard(sessions)
+  const readChoices = useCallback((pool: import('@podium/client-graph').MobxPool) => readIssueMenuChoices(pool, sub?.kind), [sub?.kind])
+  const choices = useWorklistPoolProjection(readChoices, undefined)
+  const needsCloseGuard = useIssueCloseGuard()
 
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`). Dismissal is suspended
@@ -181,7 +180,6 @@ export function IssueContextMenu({
     return (
       <IssueCloseDialog
         issue={first}
-        sessions={sessions}
         reason={pendingClose}
         busy={closing}
         onOpenChange={(open) => !open && dismiss()}
@@ -361,6 +359,7 @@ export function IssueContextMenu({
   const menuData = createIssueMenuData({
     issues,
     allIssues,
+    choiceIssues: () => choices ?? [],
     eligibility,
     surface,
     renameEnabled: onRename !== undefined,
@@ -543,7 +542,7 @@ export function IssueContextMenu({
 
   const submenuItems = new Map<IssueMenuSubmenu, JSX.Element[]>()
   for (const entry of entries) {
-    if (entry.kind !== 'submenu') continue
+    if (entry.kind !== 'submenu' || entry.id !== sub?.kind) continue
     // Colour opens the picker's swatch grid, not a row list (POD-380).
     if (entry.id === 'color') continue
     submenuItems.set(

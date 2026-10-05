@@ -2,8 +2,10 @@
  * never rows or a map. The same questions can later be answered from storage. */
 import { issueStatusOf } from '@podium/model/browser'
 import type { RowSourceEvent } from './source'
+import { createIssueMentionIndex, type IssueMentionQuestion } from './issue-mention-question'
 
 export type ReaderQuestion =
+  | IssueMentionQuestion
   | {
       kind:
         | 'residentIssues'
@@ -77,6 +79,7 @@ const referenceText = (text: string) => text.toLocaleLowerCase().replace(/[^a-z0
  * The phone target question answers its declared order/text predicate here;
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
+  const mentions = createIssueMentionIndex()
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
   const filed = new Map<string, Set<string>>()
@@ -203,6 +206,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       before = filed.get(address) ?? new Set<string>()
     const after = row ? keys(kind, row) : new Set<string>()
     if (kind === 'issue') {
+      const beforeMention = mentions.revision
+      mentions.set(id, row)
+      if (beforeMention !== mentions.revision) touch('issue:mentions')
       const scope = row
         ? Number(Boolean(row.isDraftVessel)) | (Number(Boolean(row.deletedAt)) << 1) |
           (Number(Boolean(row.archived)) << 2) | (Number(row.audience === 'agent') << 3)
@@ -347,6 +353,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       }
     },
     revision(question: ReaderQuestion): number {
+      if (question.kind === 'issueMentionMatches') return Math.max(replacement, revisions.get('issue:mentions') ?? 0)
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
         case 'mobileIssueTargets':
@@ -406,6 +413,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     apply(event: RowSourceEvent) {
       if (event.type === 'replace') {
+        mentions.clear()
         buckets.clear()
         repos.clear()
         filed.clear()
@@ -429,6 +437,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       const has = (key: string) => bucket(key).has(id)
       if (!has(`${questionEntity(question)}:all`)) return false
       switch (question.kind) {
+        case 'issueMentionMatches': return mentions.ids(question).includes(id)
         case 'residentIssues': return false
         case 'mobileIssueTargets':
         case 'headerRecentSession':
@@ -473,6 +482,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     ids(question: ReaderQuestion): string[] {
       switch (question.kind) {
+        case 'issueMentionMatches': return mentions.ids(question)
         case 'mobileIssueTargets': {
           const ids = targetPostings.get(`issue:path:${question.repoPath}`) ?? []
           const needle = question.query.trim().toLocaleLowerCase()

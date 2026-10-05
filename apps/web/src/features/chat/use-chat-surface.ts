@@ -51,7 +51,7 @@ import {
   useChatMachines,
   useChatSession,
   useChatSessionExitKind,
-  useChatThreads,
+  useChatThread,
 } from './use-chat-context'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
@@ -272,7 +272,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const storeHandle = useStoreHandle()
   const getIssueSeq = useChatIssueSeq()
   const { attachedSessionId, transcriptReveal } = useChatContextWindow()
-  const superThreads = useChatThreads()
+  const superThreadRow = useChatThread(superThread?.threadId)
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
   // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
@@ -461,10 +461,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // the same on every client), and a fresh pick is held locally until the send
   // that carries it lands, which is what lets picking and sending be one act
   // rather than a settings detour.
-  const superThreadRow = useMemo(
-    () => (superThread ? superThreads?.find((t) => t.id === superThread.threadId) : undefined),
-    [superThreads, superThread],
-  )
   const [backendPick, setBackendPick] = useState<{
     agentKind?: string | null
     model?: string
@@ -536,11 +532,11 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
 
   // Per doc §3.1.6 S2 the authority scopes `listThreads` to the caller, so the
-  // store's roster IS the principal's own set. Handing the route this set is
-  // what makes a foreign thread id unaddressable from the client.
+  // addressed source row proves membership for the selected thread. The
+  // route needs only this membership, so a foreign or pending ID is refused.
   const ownThreadIds = useMemo(
-    () => (superThreads ? new Set(superThreads.map((t) => t.id)) : undefined),
-    [superThreads],
+    () => superThread ? new Set(superThreadRow ? [superThreadRow.id] : []) : undefined,
+    [superThread, superThreadRow],
   )
 
   const attachments = useAttachments({ sessionId, trpc })

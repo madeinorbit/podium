@@ -452,6 +452,8 @@ export const ISSUE_MENU_CONFIG: readonly IssueMenuConfig[] = [
 export function createIssueMenuData(input: {
   issues: readonly IssueNavigationModel[]
   allIssues: readonly IssueNavigationModel[]
+  /** Invoked only when the host renders catalog choices. */
+  choiceIssues?: () => readonly IssueNavigationModel[]
   eligibility: IssueMenuEligibility
   surface?: IssueMenuSurface
   renameEnabled?: boolean
@@ -471,19 +473,19 @@ export function createIssueMenuData(input: {
     renameEnabled: input.renameEnabled ?? false,
     handoffEnabled: input.handoffEnabled ?? false,
     primaryStart: input.primaryStart ?? false,
-    labels: [
+    get labels() { return [
       ...new Set([
-        ...input.allIssues.flatMap((issue) => issue.labels),
+        ...(input.choiceIssues?.() ?? input.allIssues).flatMap((issue) => issue.labels),
         ...input.issues.flatMap((issue) => issue.labels),
       ]),
-    ].sort(),
-    duplicateTargets: input.allIssues
+    ].sort() },
+    get duplicateTargets() { return (input.choiceIssues?.() ?? input.allIssues)
       .filter(
         (issue) =>
           !issue.deletedAt && issue.repoPath === first.repoPath && !targetIds.has(issue.id),
       )
       .sort((a, b) => a.seq - b.seq)
-      .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title })),
+      .map((issue) => ({ id: issue.id, ref: issueDisplayRef(issue), title: issue.title })) },
     handoff: input.handoff,
   }
 }

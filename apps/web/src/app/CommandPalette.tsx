@@ -59,7 +59,6 @@ import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
-  useCommandGuardSessions,
   useCommandLaunchActions,
   useCommandPaletteData,
   useCommandPaletteOpen,
@@ -150,7 +149,6 @@ export function CommandPalette(): JSX.Element {
   const paletteOpen = useCommandPaletteOpen()
   const data = useCommandPaletteData(paletteOpen)
   const { setPaletteOpen, closeIssue } = useCommandLaunchActions()
-  const suppliedSessions = useCommandGuardSessions()
   // These flows outlive the palette (which closes on execute), so they live
   // here as siblings rather than inside the palette dialog.
   const [newIssueOpen, setNewIssueOpen] = useState(false)
@@ -167,7 +165,7 @@ export function CommandPalette(): JSX.Element {
   const [closeTarget, setCloseTarget] = useState<IssueNavigationModel | null>(null)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
+  const needsCloseGuard = useIssueCloseGuard()
   const confirmClose = (reason: IssueCloseReason): void => {
     if (!closeTarget) return
     setClosing(true)
@@ -204,7 +202,6 @@ export function CommandPalette(): JSX.Element {
       {closeTarget && (
         <IssueCloseDialog
           issue={closeTarget}
-          sessions={suppliedSessions}
           reason={closeReason}
           busy={closing}
           onOpenChange={(open) => !open && setCloseReason(null)}
