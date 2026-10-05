@@ -210,5 +210,14 @@ it('distinguishes same-path peers and picks the longest containing source while 
     expect(pool.header.shippingScope(deeper.cwd, sourceId)?.handoff)
       .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
     expect(availability([owned, peer, nested]).blocker).toBeUndefined()
+    const wildcard: HeaderRows['repository'] = { ...source, machineId: undefined,
+      worktrees: [{ path: `${nestedPath}/feature/unknown` }] }
+    pool.header.apply([{ kind: 'repository', id: 'wildcard', value: wildcard }])
+    const underUnknown = { ...deeper, cwd: `${nestedPath}/feature/unknown/src` }
+    input.set('session:picked', underUnknown)
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: underUnknown }] })
+    expect(pool.header.shippingScope(underUnknown.cwd, sourceId)?.handoff)
+      .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
+    expect(availability([owned, peer, nested, wildcard]).blocker).toBeUndefined()
   } finally { menu.stop() }
 })

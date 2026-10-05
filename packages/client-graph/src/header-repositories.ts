@@ -176,7 +176,7 @@ export function createHeaderRepositoryRelations() {
     shippingScope(
       cwd: string,
       machineId?: string,
-    ): { order: number; repoId: string | null; repoPath: string; handoff: { repoPath: string; worktreePath: string } } | undefined {
+    ): { order: number; repoId: string | null; repoPath: string; handoff: { repoPath: string; worktreePath: string } | undefined } | undefined {
       let first: Scope | undefined,
         matchedLength = -1,
         handoff: Scope | undefined,
@@ -188,9 +188,10 @@ export function createHeaderRepositoryRelations() {
           if (!candidate) continue
           // Handoff uses the longest containing worktree across repositories;
           // shipping retains its existing first-group precedence. Both read
-          // the same maintained machine/path slots, including headless senders.
-          if (!handoff || path.length > handoffPath.length ||
-            (path.length === handoffPath.length && scopeOrder(candidate, handoff) < 0)) {
+          // the same maintained slots, including headless senders. A known
+          // sender machine needs an exact peer; shipping still accepts wildcard facts.
+          if (candidate === exact && (!handoff || path.length > handoffPath.length ||
+            (path.length === handoffPath.length && scopeOrder(candidate, handoff) < 0))) {
             handoff = candidate
             handoffPath = path
           }
@@ -214,7 +215,7 @@ export function createHeaderRepositoryRelations() {
         take(cwd.slice(0, at + 1))
       }
       return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath,
-        handoff: { repoPath: handoff!.repoPath, worktreePath: handoffPath } }
+        handoff: handoff ? { repoPath: handoff.repoPath, worktreePath: handoffPath } : undefined }
     },
     clear() {
       facts.clear()
