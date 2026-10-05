@@ -52,7 +52,11 @@ describe('web demo mode', () => {
 
   it('paints the demo work list through the shared pool', async () => {
     await mountDemo(<SidebarUnified />)
-    for (const issue of DEMO_ISSUES.slice(0, 3)) {
+    // The rows the work list shows as top-level lanes: the mission root and
+    // the three demo issues. (Mission children nest collapsed under the root
+    // and proposals follow the product's proposal grouping — same as prod.)
+    for (const id of ['demo-mission-root', 'demo-issue-auth', 'demo-issue-header', 'demo-issue-ci']) {
+      const issue = DEMO_ISSUES.find((candidate) => candidate.id === id)!
       expect(screen.getByText(issue.title)).not.toBeNull()
     }
   })
