@@ -14,7 +14,7 @@ const state = vi.hoisted(() => ({
 }))
 vi.mock('../client/use-launch-inputs', () => ({ useLaunchInputs: () => state }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@podium/client-core/react')>(),
+  ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   useModelCatalogState: () => ({ catalog: {}, status: 'offline' }),
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -108,7 +108,10 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
       view.unmount()
       sheet.mockRestore()
       cleanup()
-      await act(async () => { await Promise.resolve(); await Promise.resolve() })
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
     }
   }
 })

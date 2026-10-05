@@ -596,21 +596,21 @@
       "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
       "holder": "LaunchConfigurationFields",
       "rule": "consume:map",
-      "tokens": "42de469d933bd731035fc4ef244175660c530f8b68a141d8b745a74e81c0c5e7",
+      "tokens": "ee79be73678dcb81db42ede64138d1efef6efb98e9381177e98a8e233f1d4ba9",
       "gate": [],
       "origin": [
         "307647474c51944cbd1a06f92298a7dc179084d75e76f83c7fd0d29270f6a0de",
         "3b0309cbb75f1cfdc153f24bab47e61245428a4b1e19c1b4d933cfd3dc6d5fb5",
         "82010feb9df101f75b67cdc6682a486be22f856a985280de6f4e5f5a5ff95b32"
       ],
-      "fingerprint": "593cef81288c712d5e5ea61bf982820c6ba977271cfd2a56ae11651834f6173e",
+      "fingerprint": "2a9c4feec7d4102c2899e83f10fe5e2d1abfc285983b7c7d9caa5d27fdd65723",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
+      "classification": "bounded local work",
       "owner": "POD-5530",
-      "trigger": "Invocation of LaunchConfigurationFields",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "trigger": "Launch control render, configuration change, and fallback picker open/close.",
+      "bound": "At most four launch control rows. No ActionSheet or action projection is requested while closed; only the opened picker projects its displayed options.",
+      "reason": "The fixed control loop gates sheet construction on the selected fallback key. Fleet, repository and model option derivations are separate required repairs.",
+      "guard": "apps/mobile/src/components/LaunchConfigurationFields.closed.test.tsx: 128/512 machines, zero closed sheet demand before and after a configuration update, only the opened picker, selection and dismissal preserved."
     },
     {
       "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
