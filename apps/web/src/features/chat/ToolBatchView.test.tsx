@@ -28,6 +28,20 @@ vi.mock('@/app/store', () => ({
     }),
 }))
 
+// Count unified-diff builds without changing what they return: a collapsed
+// run must build zero, opening the sheet builds the same text as before.
+const diffBuilds = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/values')>()
+  return {
+    ...actual,
+    toolEditUnifiedDiff: (...args: Parameters<typeof actual.toolEditUnifiedDiff>) => {
+      diffBuilds.count += 1
+      return actual.toolEditUnifiedDiff(...args)
+    },
+  }
+})
+
 // The work line (POD-364): a run of tool calls is one progress object. Live it
 // names the call in flight and counts up; settled it summarizes. What must never
 // regress: a failure stays visible on the COLLAPSED row, and the count is always
@@ -91,6 +105,8 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
+  diffBuilds.count = 0
+  git.calls.length = 0
 })
 
 afterEach(() => {
@@ -442,5 +458,100 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
     })
     // The row unfolds in place instead — a read has nothing to diff.
     expect(line.querySelector('.tool-row[title^="Open "]')).toBeNull()
+  })
+})
+
+/**
+ * LAZY COLLAPSED TOOL DIFFS. Opening a chat built every edit's unified diff
+ * while the run was still folded — up to 24k LCS cells per replacement hunk —
+ * on mount and again on every unrelated transcript update. The folded row only
+ * needs cheap path metadata; the sheet builds the text on open and keeps it
+ * across appends.
+ */
+describe('ToolBatchView — lazy collapsed tool diffs', () => {
+  const editJson = (path: string, oldText: string, newText: string): string =>
+    JSON.stringify({
+      kind: 'file-edit',
+      path,
+      mode: 'replace',
+      hunks: [{ path, oldText, newText }],
+      added: 1,
+      removed: 1,
+    })
+
+  it('builds zero diffs while collapsed, then shows the same recorded diff on open', async () => {
+    mount(
+      batchOf([
+        call({
+          id: 'e',
+          toolName: 'Edit',
+          toolInput: 'ChatView.tsx',
+          toolInputJson: editJson('ChatView.tsx', 'const a = 1', 'const a = 2'),
+          toolUseId: 'u1',
+        }),
+        call({ id: 'e-res', toolUseId: 'u1', toolResult: 'ok' }),
+      ]),
+    )
+    // Folded: the row is on screen but no diff text was built.
+    expect(host.querySelector('[data-testid="work-line"]')?.getAttribute('data-open')).toBe(
+      'false',
+    )
+    expect(diffBuilds.count).toBe(0)
+
+    // Expanding the run still builds nothing — the rows only need paths.
+    const line = host.querySelector('[data-testid="work-line"]')!
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    expect(line.getAttribute('data-open')).toBe('true')
+    expect(diffBuilds.count).toBe(0)
+
+    // Opening the file builds once and shows the recorded change, not git.
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
+    })
+    const sheet = await waitForDiffSheet()
+    expect(diffBuilds.count).toBeGreaterThan(0)
+    expect(sheet.textContent).toContain('const a = 1')
+    expect(sheet.textContent).toContain('const a = 2')
+    expect(git.calls).toEqual([])
+  })
+
+  it('reuses open diffs across an unrelated append instead of rebuilding them', async () => {
+    const first = [
+      call({
+        id: 'e',
+        toolName: 'Edit',
+        toolInput: 'a.ts',
+        toolInputJson: editJson('a.ts', 'one', 'ONE'),
+        toolUseId: 'u1',
+      }),
+      call({ id: 'e-res', toolUseId: 'u1', toolResult: 'ok' }),
+    ]
+    mount(batchOf(first))
+    const line = host.querySelector('[data-testid="work-line"]')!
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
+    })
+    act(() => {
+      line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
+    })
+    await waitForDiffSheet()
+    const built = diffBuilds.count
+    expect(built).toBeGreaterThan(0)
+
+    // An unrelated read lands while the sheet is open: no new diff work, and
+    // the recorded diff is still the one on screen.
+    mount(
+      batchOf([
+        ...first,
+        call({ id: 'r', toolName: 'Read', toolInput: 'b.ts', toolPaths: ['/r/b.ts'] }),
+      ]),
+    )
+    expect(diffBuilds.count).toBe(built)
+    const sheet = host.querySelector('[data-testid="diff-sheet"]')!
+    expect(sheet.textContent).toContain('one')
+    expect(sheet.textContent).toContain('ONE')
+    expect(sheet.textContent).not.toContain('b.ts')
   })
 })
