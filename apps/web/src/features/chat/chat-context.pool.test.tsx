@@ -278,8 +278,8 @@ it('updates addressed records, question membership and outbox without re-reading
   )
   corpus.updateMessages(corpus.data.messages.slice(1), ['notice-message-0'])
   expect(corpus.check().differences).toBe(0)
-  expect(corpus.pool.row('chatRecordOrder', 'order')).not.toMatchObject({
-    ids: expect.arrayContaining(['notice-message-0']),
+  expect(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)).not.toMatchObject({
+    messages: expect.arrayContaining(['notice-message-0']),
   })
 })
 
@@ -305,9 +305,10 @@ it('clears rescope inputs and releases all borrowed subscriptions on disposal', 
   const corpus = f.fixture!
   await corpus.load()
   corpus.replaceEmpty()
+  corpus.check() // The next imperative read starts the replacement's loading pass.
   await Promise.resolve()
   expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
-  expect(corpus.pool.row('chatRecordOrder', 'order')).toEqual({ ids: [] })
+  expect(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)).toBeUndefined()
   corpus.pool.dispose()
   expect(corpus.addressed.size).toBe(0)
   expect(corpus.listeners.size).toBe(0)

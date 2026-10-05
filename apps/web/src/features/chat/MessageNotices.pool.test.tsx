@@ -17,7 +17,8 @@ const mock = vi.hoisted(() => ({
   discard: vi.fn(),
   retry: vi.fn(),
   edit: vi.fn(),
-  owner: { getSnapshot: () => mock.state },
+  owner: { get access() { return mock.state } },
+  rows: vi.fn(),
 }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => mock.owner }))
 vi.mock('@/app/store', () => ({
@@ -27,7 +28,7 @@ vi.mock('@/app/store', () => ({
   },
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPoolProjection: (read: (pool: unknown) => unknown) => read(mock.pool),
+  useWorklistPoolProjection: (read: (pool: unknown) => unknown, empty: unknown, active = true) => active ? read(mock.pool) : empty,
 }))
 vi.mock('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -51,9 +52,11 @@ beforeEach(() => {
     interactions: data.interactions.map((row) => row.id),
     deadLetters: data.deadLetters.map((row) => row.entry.mutationId),
   }
-  mock.pool = {
-    row: (entity: string, id: string) => {
+  mock.rows.mockReset().mockImplementation((entity: string, id: string) => {
       if (entity === 'noticeCatalog') return catalog
+      if (entity === 'noticeAttention') return { count: 3, newest: 'notice-message-2' }
+      if (entity === 'noticeMessageCatalog') return { messages: catalog.messages.slice(0, 3) }
+      if (entity === 'noticeRecoveryCatalog') return { deadLetters: catalog.deadLetters }
       if (entity === 'noticeSession')
         return { messages: catalog.messages, interactions: catalog.interactions }
       if (entity === 'messageRecord') return data.messages.find((row) => row.id === id)
@@ -61,8 +64,8 @@ beforeEach(() => {
       if (entity === 'pendingInteraction') return data.interactions.find((row) => row.id === id)
       if (entity === 'outboxDeadLetter')
         return data.deadLetters.find((row) => row.entry.mutationId === id)
-    },
-  }
+  })
+  mock.pool = { row: mock.rows }
   mock.state = {
     messageRecords: data.messages,
     sessions: data.sessions,
@@ -112,11 +115,13 @@ const click = async (label: string) => {
     button.click()
   })
 }
+const openNotices = () => act(() => (container.querySelector('[data-testid="message-notice-chip"]') as HTMLButtonElement).click())
 
 it('uses zero legacy selectors and derivations and retains open, dismiss, answer and discard actions', async () => {
   render()
-  await click('Open chat')
+  openNotices()
   await click('Dismiss')
+  await click('Open chat')
   await click('I signed in — retry')
   await click('Discard')
   expect(mock.open).toHaveBeenCalledWith('missing-session')
@@ -145,6 +150,19 @@ it('retains recover and edited-send payloads on the existing mutation owner', as
 
 it('preserves saved notice, interaction and recovery output', () => {
   render()
+  openNotices()
   expect(container.textContent).toMatchSnapshot('last green notices and recovery')
   expect(mock.selectors).not.toHaveBeenCalled()
+})
+
+it('reads only the count with the list closed and releases list reads after opening a chat', async () => {
+  act(() => root.render(<MessageNoticeIndicator />))
+  expect(mock.rows.mock.calls.map(([entity]) => entity)).toEqual(['noticeAttention'])
+  mock.rows.mockClear()
+  openNotices()
+  expect(mock.rows.mock.calls.some(([entity]) => entity === 'noticeMessageCatalog')).toBe(true)
+  expect(mock.rows.mock.calls.filter(([entity]) => entity === 'messageRecord')).toHaveLength(3)
+  mock.rows.mockClear()
+  await click('Open chat')
+  expect(mock.rows.mock.calls.some(([entity]) => entity === 'noticeMessageCatalog' || entity === 'messageRecord')).toBe(false)
 })

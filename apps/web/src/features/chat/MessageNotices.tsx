@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { usePoolMessageNotices } from './use-pool-notices'
+import { usePoolMessageNoticeCount, usePoolMessageNotices } from './use-pool-notices'
 
 function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
   const { trpc, openSessionTab } = useStoreHandle<Trpc>().access
@@ -69,23 +69,23 @@ function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => vo
 }
 
 export function MessageNoticeIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
-  const notices = usePoolMessageNotices()
-  return <NoticeIndicatorBody notices={notices} compact={compact} />
+  const count = usePoolMessageNoticeCount()
+  return <NoticeIndicatorBody count={count} compact={compact} />
 }
 function NoticeIndicatorBody({
-  notices,
+  count,
   compact,
 }: {
-  notices: readonly MessageNotice[]
+  count: number
   compact?: boolean
 }): JSX.Element | null {
   const [open, setOpen] = useState(false)
+  const notices = usePoolMessageNotices(open)
   useEffect(() => {
-    if (notices.length === 0) setOpen(false)
-  }, [notices.length])
-  if (notices.length === 0) return null
+    if (count === 0) setOpen(false)
+  }, [count])
+  if (count === 0) return null
 
-  const count = notices.length
   const label = `${count} ${count === 1 ? 'message didn’t arrive' : 'messages didn’t arrive'}`
   return (
     <>

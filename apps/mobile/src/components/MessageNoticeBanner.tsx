@@ -4,7 +4,7 @@ import { useContext, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { useTrpc } from '../client/hooks'
-import { usePoolMessageNotices } from '../client/use-pool-notices'
+import { usePoolNewestMessageNotice } from '../client/use-pool-notices'
 import { color, elevation, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle, X } from './icons'
@@ -20,18 +20,17 @@ import { PressableScale } from './PressableScale'
  * on every device. Read from the synced records, like the chat.
  */
 export function MessageNoticeBanner() {
-  const notices = usePoolMessageNotices()
-  return <MessageNoticeBannerBody notices={notices} />
+  const { notice, count } = usePoolNewestMessageNotice()
+  return <MessageNoticeBannerBody newest={notice} count={count} />
 }
 
-function MessageNoticeBannerBody({ notices }: { notices: readonly MessageNotice[] }) {
+function MessageNoticeBannerBody({ newest, count }: { newest: MessageNotice | undefined; count: number }) {
   const trpc = useTrpc()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const insets = useContext(SafeAreaInsetsContext)
-  const newest = notices[0]
   if (!newest) return null
-  const more = notices.length - 1
+  const more = count - 1
 
   return (
     <View

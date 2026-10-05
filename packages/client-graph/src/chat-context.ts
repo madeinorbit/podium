@@ -50,13 +50,10 @@ export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
   return { issues, pending }
 }
 export function chatInteractions(pool: MobxPool, sessionId: string) {
-  const order = pool.row('superagentQuestionOrder', 'order')
   const membership = pool.row('noticeSession', sessionId)
   const rows: PendingInteractionWire[] = []
-  let pending = (loading(order) ? 1 : 0) + (loading(membership) ? 1 : 0)
-  const mine = membership && !loading(membership) ? new Set(membership.interactions) : new Set<string>()
-  if (order && !loading(order)) for (const id of order.ids) {
-    if (!mine.has(id)) continue
+  let pending = loading(membership) ? 1 : 0
+  if (membership && !loading(membership)) for (const id of membership.interactions) {
     const row = pool.row('pendingInteraction', id)
     if (loading(row)) pending++
     else if (row?.sessionId === sessionId && row.status === 'asked') rows.push(row)
@@ -65,12 +62,9 @@ export function chatInteractions(pool: MobxPool, sessionId: string) {
 }
 export function chatRecords(pool: MobxPool, sessionId: string) {
   const membership = pool.row('noticeSession', sessionId)
-  const order = pool.row('chatRecordOrder', 'order')
   const records: MessageRecordWire[] = []
-  let pending = (loading(membership) ? 1 : 0) + (loading(order) ? 1 : 0)
-  const mine = membership && !loading(membership) ? new Set(membership.messages) : new Set<string>()
-  if (order && !loading(order)) for (const id of order.ids) {
-    if (!mine.has(id)) continue
+  let pending = loading(membership) ? 1 : 0
+  if (membership && !loading(membership)) for (const id of membership.messages) {
     const row = pool.row('messageRecord', id)
     if (loading(row)) pending++
     else if (row) records.push(row)

@@ -5,6 +5,7 @@ import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/r
 import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
+import { isMessageRecordAttention } from '@podium/model'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 import { vi } from 'vitest'
@@ -154,6 +155,15 @@ function useFixturePool(): MobxPool {
               interactions: interactions().map((row) => row.id),
               deadLetters: [],
             }
+          case 'noticeAttention': {
+            const attention = messages().filter(row => isMessageRecordAttention(row.status))
+              .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+            return { count: attention.length, newest: attention[0]?.id }
+          }
+          case 'noticeMessageCatalog':
+            return { messages: messages().filter(row => isMessageRecordAttention(row.status)).map(row => row.id) }
+          case 'noticeRecoveryCatalog':
+            return { deadLetters: [] }
           case 'superThread':
             return threads().find((row) => row.id === id)
           case 'superThreadCatalog':

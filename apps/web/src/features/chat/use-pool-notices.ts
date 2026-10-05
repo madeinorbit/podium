@@ -1,6 +1,6 @@
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import { noticeInteractions, noticeMessages, noticeRecovery } from '@podium/client-graph/notice-views'
+import { noticeInteractions, noticeMessageCount, noticeMessages, noticeRecovery } from '@podium/client-graph/notice-views'
 import { useCallback } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
@@ -10,8 +10,11 @@ const EMPTY_RECOVERY: readonly OutboxDeadLetterEntry[] = []
 const messages = (pool: Parameters<typeof noticeMessages>[0]) => noticeMessages(pool).notices
 const recovery = (pool: Parameters<typeof noticeRecovery>[0]) => noticeRecovery(pool).deadLetters
 
-export function usePoolMessageNotices(): readonly MessageNotice[] {
-  return useWorklistPoolProjection(messages, EMPTY_MESSAGES)
+export function usePoolMessageNotices(active = true): readonly MessageNotice[] {
+  return useWorklistPoolProjection(messages, EMPTY_MESSAGES, active)
+}
+export function usePoolMessageNoticeCount(): number {
+  return useWorklistPoolProjection(noticeMessageCount, 0)
 }
 export function usePoolInteractionCards(sessionId: string): readonly PendingInteractionCard[] {
   const read = useCallback((pool: Parameters<typeof noticeInteractions>[0]) =>

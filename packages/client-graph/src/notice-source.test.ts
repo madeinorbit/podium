@@ -19,7 +19,7 @@ function fixture() {
   const listeners = new Set<(batch: ReplicaAddressedBatch) => void>(), outboxListeners = new Set<() => void>()
   const rows = vi.fn((kind: string) => kind === 'messageRecords' ? messages : interactions)
   const runtime = {
-    replica: { rows, row: (kind: string, id: string) => rows(kind).find(row => row.id === id),
+    replica: { rows, row: (kind: string, id: string) => (kind === 'messageRecords' ? messages : interactions).find(row => row.id === id),
       subscribeAddressedBatch: (listener: (batch: ReplicaAddressedBatch) => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } },
     outbox: { deadLetters: () => deadLetters, subscribe: (listener: () => void) => { outboxListeners.add(listener); return () => { outboxListeners.delete(listener) } } },
   } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>
@@ -36,7 +36,14 @@ function fixture() {
   pool.sources.register(NOTICE_ENTITIES, source)
   const state = () => ({ messageRecords: messages, sessions: data.sessions, pendingInteractions: interactions, outboxDeadLetters: deadLetters, outboxSize: 3 }) as Store
   const check = () => runInAction(() => checkNotices(pool, state(), ['synthetic-session-0', 'other-session']))
-  const load = async () => { check(); await Promise.resolve(); pool.hydrate(); return check() }
+  let stopWatching: (() => void) | undefined
+  const dispose = pool.dispose.bind(pool)
+  pool.dispose = () => { stopWatching?.(); dispose() }
+  const load = async () => {
+    // Mounted demand retains answers; imperative differential reads do not.
+    stopWatching ??= autorun(() => { noticeMessages(pool); noticeRecovery(pool); noticeInteractions(pool, 'synthetic-session-0') })
+    await Promise.resolve(); pool.hydrate(); return check()
+  }
   return { pool, source, data, rows, check, load, state, listeners, outboxListeners,
     updateMessages(next: typeof messages, ids = next.map(row => row.id)) {
       messages = next
@@ -56,7 +63,7 @@ it('coalesces initial LOADING demand and matches messages, all asks and parked i
   try {
     expect(f.pool.row('noticeCatalog', 'catalog')).toBe(LOADING)
     expect(f.pool.row('noticeSession', 'synthetic-session-0')).toBe(LOADING)
-    expect(f.rows).not.toHaveBeenCalled()
+    expect(f.rows).toHaveBeenCalledTimes(2)
     const result = await f.load()
     expect(result).toMatchObject({ differences: 0, pending: 0, positions: 20 })
     expect(f.source.counts).toMatchObject({ batches: 1, collectionReads: 2, outboxReads: 1 })
@@ -113,7 +120,7 @@ it('preserves outbox order across message updates and never reads recovery targe
     f.updateMessages(f.data.messages.map(row => ({ ...row, body: `${row.body}!` })))
     const read = vi.spyOn(f.pool, 'row')
     expect(noticeRecovery(f.pool).deadLetters).toEqual([...f.data.deadLetters].reverse())
-    expect(read.mock.calls.every(([entity]) => ['noticeCatalog', 'outboxDeadLetter'].includes(entity))).toBe(true)
+    expect(read.mock.calls.every(([entity]) => ['noticeRecoveryCatalog', 'outboxDeadLetter'].includes(entity))).toBe(true)
     expect(f.check().differences).toBe(0)
     expect(f.rows.mock.calls.every(([kind]) => kind === 'messageRecords' || kind === 'pendingInteractions')).toBe(true)
   } finally { f.pool.dispose() }
@@ -133,7 +140,8 @@ it('clears a replacement scope and cancels a pending load on disposal', async ()
   fresh.pool.row('noticeCatalog', 'catalog')
   fresh.pool.dispose()
   await Promise.resolve()
-  expect(fresh.rows).not.toHaveBeenCalled()
+  expect(fresh.rows).toHaveBeenCalledTimes(2)
+  expect(fresh.source.counts).toMatchObject({ batches: 0, payloadReads: 0, outboxReads: 0 })
 })
 
 it('detects a planted wrong value in each notice comparison section', async () => {

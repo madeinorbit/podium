@@ -84,6 +84,8 @@ export class NoticeSource {
 
   read(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
     if (this.disposed) return LOADING
+    if ((entity === 'noticeAttention' && id !== 'attention') ||
+      ((entity === 'noticeCatalog' || entity === 'noticeMessageCatalog' || entity === 'noticeRecoveryCatalog') && id !== 'catalog')) return undefined
     const tracked = this.watch(entity, id)
     if (!this.loaded) {
       if (!tracked) this.imperativeLoad = true
@@ -124,7 +126,11 @@ export class NoticeSource {
       this.watched.set(key, atom)
       if (entity === 'outboxDeadLetter') this.recoveryReaders++
     }
-    return atom.reportObserved()
+    if (atom.reportObserved()) return true
+    this.watched.delete(key)
+    if (entity === 'outboxDeadLetter') this.recoveryReaders--
+    this.releaseAnswers()
+    return false
   }
 
   private releaseAnswers(): void {

@@ -4,6 +4,7 @@ import {
   noticeContinuity,
   noticeInteractions,
   noticeMessages,
+  noticeNewestMessage,
   noticeRecovery,
 } from '@podium/client-graph/notice-views'
 import { useCallback } from 'react'
@@ -12,6 +13,7 @@ import { useMobilePoolProjection } from './mobile-pool'
 const EMPTY_MESSAGES: readonly MessageNotice[] = []
 const EMPTY_CARDS: readonly PendingInteractionCard[] = []
 const EMPTY_RECOVERY: readonly OutboxDeadLetterEntry[] = []
+const EMPTY_NEWEST: ReturnType<typeof noticeNewestMessage> = { count: 0, notice: undefined, pending: 0 }
 const EMPTY_CONTINUITY: ReturnType<typeof noticeContinuity> = {
   outboxSize: 0,
   deadLetters: 0,
@@ -24,6 +26,9 @@ const recovery = (pool: Parameters<typeof noticeRecovery>[0]) => noticeRecovery(
  * initial attachment and principal rebuild. */
 export function usePoolMessageNotices(): readonly MessageNotice[] {
   return useMobilePoolProjection(messages, EMPTY_MESSAGES)
+}
+export function usePoolNewestMessageNotice(): ReturnType<typeof noticeNewestMessage> {
+  return useMobilePoolProjection(noticeNewestMessage, EMPTY_NEWEST)
 }
 
 export function usePoolInteractionCards(sessionId: string): readonly PendingInteractionCard[] {

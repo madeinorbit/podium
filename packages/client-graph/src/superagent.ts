@@ -16,13 +16,10 @@ export interface SuperagentRows {
   superagentEvent: IssueEventWire
   superagentEventTail: { ids: readonly string[] }
   superagentReadPosition: ReadPositionValue
-  /** Ordered membership summary, without question payloads. Payloads belong
-   * to the existing NoticeSource and are read through that same pool. */
-  superagentQuestionOrder: { ids: readonly string[] }
 }
 declare module './source-registry' { interface PoolSourceRows extends SuperagentRows {} }
 export const SUPERAGENT_ENTITIES = ['superThread', 'superThreadCatalog', 'superagentLocal',
-  'superagentEvent', 'superagentEventTail', 'superagentReadPosition', 'superagentQuestionOrder'] as const
+  'superagentEvent', 'superagentEventTail', 'superagentReadPosition'] as const
 export const SUPERAGENT_SOURCE_KEY = 'superagent'
 export const SUPERAGENT_SCHEMA = {
   superThread: { key: 'id', source: 'engine:superThreads (principal-scoped listThreads)', residency: 'resident-on-demand' },
@@ -32,7 +29,6 @@ export const SUPERAGENT_SCHEMA = {
   superagentEventTail: { key: 'tail', source: 'resident:issueEvents', order: 'eventId ascending', limit: 40 },
   superagentReadPosition: { key: 'issueEvents', source: 'runtime:readPosition (principal-scoped)',
     visibilityContext: 'existing readPosition port: one get at the visibility edge to freeze presentation before pool attachment' },
-  superagentQuestionOrder: { key: 'order', source: 'replica:pendingInteractions', summary: ['id', 'position'], payload: 'notice:pendingInteraction' },
   session: { source: 'pool:session', reader: 'sessionPanes.session', summary: ['sessionId', 'cwd', 'machineId'] },
   repository: { source: 'header:repository', reader: 'pool.row' },
 } as const
@@ -68,7 +64,6 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     private bootingDirty = true
     private booting = true
     private eventsDirty = true
-    private questionsDirty = true
     private disposed = false
     private readonly stops: (() => void)[]
     readonly counts = { batches: 0, threadLists: 0, eventCollections: 0, addressedEvents: 0, questionCollections: 0 }
@@ -87,7 +82,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
         replica.subscribeAddressedBatch!(batch => {
           if (this.disposed) return
           if (batch.type === 'replace') {
-            this.eventsDirty = true; this.questionsDirty = true; this.localDirty = true; this.bootingDirty = true
+            this.eventsDirty = true; this.localDirty = true; this.bootingDirty = true
             if (this.demanded.size) this.schedule()
             return
           }
@@ -101,13 +96,6 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
                 else this.rows.delete(`superagentEvent:${address.id}`)
                 this.counts.addressedEvents++; events = true
               }
-              if (address.kind === 'pendingInteractions' && this.loaded.has('questions')) {
-                const order = this.rows.get('superagentQuestionOrder:order') as SuperagentRows['superagentQuestionOrder']
-                const present = !!replica.row!('pendingInteractions', address.id)
-                const ids = order.ids.filter(id => present || id !== address.id)
-                if (present && !ids.includes(address.id)) ids.push(address.id)
-                this.set('superagentQuestionOrder:order', { ids })
-              }
             }
             if (events) this.tail()
           })
@@ -116,8 +104,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
 
     read(entity: keyof SuperagentRows, id: string): Loaded<SuperagentRows[keyof SuperagentRows]> {
       if (this.disposed) return LOADING
-      const group = entity.startsWith('superagentEvent') ? 'events' : entity === 'superagentReadPosition' ? 'cursor'
-        : entity === 'superagentQuestionOrder' ? 'questions' : 'threads'
+      const group = entity.startsWith('superagentEvent') ? 'events' : entity === 'superagentReadPosition' ? 'cursor' : 'threads'
       this.demanded.add(group)
       if (!this.loaded.has(group)) { this.schedule(); return LOADING }
       return this.rows.get(`${entity}:${id}`) as SuperagentRows[keyof SuperagentRows] | undefined
@@ -188,10 +175,6 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
             for (const row of events) this.set(`superagentEvent:${row.id}`, row)
             this.tail(); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
           }
-          if (this.demanded.has('questions') && this.questionsDirty) {
-            this.set('superagentQuestionOrder:order', { ids: replica.rows('pendingInteractions').map(row => row.id) })
-            this.questionsDirty = false; this.loaded.add('questions'); this.counts.questionCollections++
-          }
           if (this.demanded.has('cursor')) {
             this.set('superagentReadPosition:issueEvents', owner.readPosition.get('issueEvents'))
             this.loaded.add('cursor')
@@ -252,9 +235,9 @@ export function superagentCursor(pool: MobxPool) {
 }
 export function superagentQuestion(pool: MobxPool, sessionId: SessionId | undefined) {
   if (!sessionId) return { question: undefined, loading: false }
-  const order = pool.row('superagentQuestionOrder', 'order')
-  let loading = pending(order)
-  if (order && typeof order !== 'symbol') for (const id of order.ids) {
+  const membership = pool.row('noticeSession', sessionId)
+  let loading = pending(membership)
+  if (membership && typeof membership !== 'symbol') for (const id of membership.interactions) {
     const row = pool.row('pendingInteraction', id)
     if (typeof row === 'symbol') { loading = true; continue }
     if (row?.sessionId === sessionId && row.kind === 'question' && row.status === 'asked') return { question: row, loading }
