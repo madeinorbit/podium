@@ -1,6 +1,6 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
-import { missionRootFor, reposToViews } from '@podium/client-core/values'
+import { missionRootFor } from '@podium/client-core/values'
 import { dedupeSessions } from '../diagnostics/reference-state'
 import { allIssueViewModels } from '../diagnostics/reference/issue-view-models'
 import { checkMissionView } from '../diagnostics/mission-view-check'
@@ -19,7 +19,7 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
   const sessions = dedupeSessions(sessionViews([...replica.rows('sessions')], {
     userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines, repos,
   }))
-  const paths = reposToViews(repos).flatMap(repo => repo.worktrees.map(tree => tree.path))
+  const paths = issues.flatMap(issue => issue.worktreePath ? [issue.worktreePath] : [])
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined,
     { load: () => undefined, worklist: 'demand' })
   pool.apply({ type: 'replace', rows: [
