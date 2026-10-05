@@ -141,6 +141,11 @@ const INTERACTION_ONLY_MODULES = [
  * and a tab moving between them remounts its terminal.
  */
 const DEFERRED_FIRST_PAINT_MODULES = [
+  // Store/schema code may be eager in the always-pool app; these optional
+  // screen bodies still load through their existing React.lazy boundaries.
+  'src/features/settings/SettingsView.tsx',
+  'src/app/CommandPalette.tsx',
+  'src/features/issues/board-pool-data.ts',
   'src/app/Workspace.tsx',
   'packages/model/src/predicates/machine-capability.ts',
   'packages/model/src/predicates/machine-handoff.ts',
@@ -843,10 +848,10 @@ if (checkBudget) {
 
   if (report.eager.clientGraphSources.length > 0)
     errors.push(
-      `client-graph pool code is eager with its startup switches off: ` +
+      `client-graph code outside the declared startup store/readers is eager: ` +
         `${report.eager.clientGraphSources.map(readableSource).join(', ')}. ` +
-        `Use type-only imports or @podium/client-graph/loading in the shell; ` +
-        `load pool code through the switch-gated dynamic import.`,
+        `Keep optional screen code behind its owning screen's dynamic import; ` +
+        `a new startup dependency needs an explicit boundary decision.`,
     )
 
   if (report.eager.interactionOnlySources.length > 0)

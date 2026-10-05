@@ -6,13 +6,13 @@ describe('pool startup bundle boundary', () => {
     entry: { file: 'assets/app.js', imports: ['shared'], dynamicImports: ['pool'] },
     shared: { file: 'assets/shared.js', imports: ['loading'] },
     loading: { file: 'assets/loading.js' },
-    pool: { file: 'assets/pool.js', imports: ['loading'] },
+    pool: { file: 'assets/board.js', imports: ['loading'] },
   }
   const sources: Record<string, string[]> = {
     'assets/app.js': ['../../src/app/main.tsx'],
     'assets/shared.js': ['../../src/features/issues/explorer/explorer-context.tsx'],
     'assets/loading.js': ['../../../../packages/client-graph/src/loading.ts'],
-    'assets/pool.js': ['../../../../packages/client-graph/src/pool.ts'],
+    'assets/board.js': ['../../../../packages/client-graph/src/issue-board-projection.ts'],
   }
   const check = (manifest: typeof graph) =>
     eagerClientGraphSources(
@@ -28,9 +28,9 @@ describe('pool startup bundle boundary', () => {
     expect(check(graph)).toEqual([])
   })
 
-  it('rejects a planted static pool import even when HTML does not preload it', () => {
+  it('rejects a planted static optional-screen import even when HTML does not preload it', () => {
     const planted = { ...graph, shared: { ...graph.shared, imports: ['loading', 'pool'] } }
-    expect(check(planted)).toEqual(['../../../../packages/client-graph/src/pool.ts'])
+    expect(check(planted)).toEqual(['../../../../packages/client-graph/src/issue-board-projection.ts'])
   })
 
   it('refuses an incomplete manifest instead of hiding an eager dependency', () => {
@@ -41,16 +41,31 @@ describe('pool startup bundle boundary', () => {
     ).toThrow('missing static import missing')
   })
 
-  it('checks the entire package and allows only the exact constants entry', () => {
+  it('allows the always-pool store and first-screen readers while refusing optional and unknown modules', () => {
+    // POD-5582: the old off-switch contract predates removal of the legacy
+    // store. These are required on the first screen now. This does not permit
+    // board, settings UI or palette implementation code to become eager.
+    expect(eagerClientGraphSources([
+      'packages/client-graph/src/pool.ts',
+      'packages/client-graph/src/host/pool-host.ts',
+      'packages/client-graph/src/worklist/sidebar.ts',
+      'packages/client-graph/src/shared/session-questions.ts',
+      'packages/client-graph/src/settings-schema.ts',
+      'packages/client-graph/src/command-launch-schema.ts',
+      'packages/client-graph/src/loading.ts',
+    ])).toEqual([])
     expect(
       eagerClientGraphSources([
         'packages/client-graph/src/loading.ts',
-        '../../packages/client-graph/src/worklist/rollup.ts',
-        '/repo/node_modules/@podium/client-graph/src/pool.ts',
-        'C:\\repo\\packages\\client-graph\\src\\models.ts',
+        '../../packages/client-graph/src/issue-board-source.ts',
+        '/repo/node_modules/@podium/client-graph/src/command-launch-source.ts',
+        'C:\\repo\\packages\\client-graph\\src\\mobile-settings.ts',
+        'packages/client-graph/src/automation-views.ts',
+        'packages/client-graph/src/workflow-views.ts',
+        'packages/client-graph/src/new-optional-screen.ts',
         'packages/client-graph/diagnostics/sidebar-check.ts',
         'packages/client-core/src/loading.ts',
       ]),
-    ).toHaveLength(4)
+    ).toHaveLength(7)
   })
 })

@@ -7,10 +7,11 @@ import { eagerClientGraphSources, eagerJsFiles } from '../../../scripts/web-bund
 const root = fileURLToPath(new URL('..', import.meta.url))
 const entry = `${root}pool-boundary-fixture.js`
 
-/** Exercise the real bundler with the same shared-marker + lazy-pool topology
- * as the shell, without building the rest of the app or starting a browser. */
+/** Exercise actual emitted static imports. The pool is the startup store now;
+ * optional screen implementations retain their own deferred chunks. */
 async function eagerSources(marker: string): Promise<string[]> {
-  const exported = marker === '@podium/client-graph' ? 'MobxPool' : 'LOADING'
+  const exported = marker === '@podium/client-graph' ? 'MobxPool' :
+    marker === '@podium/client-graph/issue-board-projection' ? 'createBoardProjection' : 'LOADING'
   const result = await build({
     configFile: false,
     root,
@@ -66,10 +67,16 @@ describe('client-graph in Vite startup chunks', () => {
     expect(eagerClientGraphSources(sources)).toEqual([])
   }, 30_000)
 
-  it('catches a planted eager root import using the actual emitted sources', async () => {
+  it('allows the pool constructor required by the always-pool first screen', async () => {
     const sources = await eagerSources('@podium/client-graph')
+    expect(sources.some(source => source.endsWith('/client-graph/src/pool.ts'))).toBe(true)
+    expect(eagerClientGraphSources(sources)).toEqual([])
+  }, 30_000)
+
+  it('catches a planted eager board reader using the actual emitted sources', async () => {
+    const sources = await eagerSources('@podium/client-graph/issue-board-projection')
     expect(eagerClientGraphSources(sources)).toContainEqual(
-      expect.stringContaining('/client-graph/src/pool.ts'),
+      expect.stringContaining('/client-graph/src/issue-board-projection.ts'),
     )
   }, 30_000)
 })
