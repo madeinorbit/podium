@@ -71,7 +71,7 @@ it('reads only changed settings keys and no list membership on scalar updates at
       expect(read()).toBeUndefined()
       const next = source.read('settingsCatalog', 'catalog')
       expect(next).not.toBe(LOADING)
-      expect((next as { machines: string[] }).machines).not.toContain('m0')
+      expect(next).toMatchObject({ machines: [...machines.keys()] })
       return Object.fromEntries(Object.entries({ changed, unrelated, window, closed }).map(([name, value]) => [name, value.work]))
     } finally { stop(); source.dispose(); await Promise.resolve(); vi.restoreAllMocks() }
   }
