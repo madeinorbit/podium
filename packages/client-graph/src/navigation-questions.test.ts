@@ -182,7 +182,7 @@ it('reads the first-worktree fallback imperatively under development diagnostics
   const state = { navigation: f.provider, reposLoaded: true, selectedWorktree: '/gone' } as unknown as EngineState
   const reactions = new Reactions({ state: () => state, publish: patch => Object.assign(state, patch),
     hub: {} as never, notices: {} as never, isVisible: () => false, markSessionRead: vi.fn(), markIssueRead: vi.fn() })
-  const paths: (string | null)[] = []
+  const paths: unknown[] = []
   const stop = autorun(() => paths.push(f.provider.firstWorktree!()))
   try {
     expect(reactions.worktreeFallback()).toBe(true)

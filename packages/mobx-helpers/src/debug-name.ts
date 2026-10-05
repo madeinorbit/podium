@@ -1,16 +1,11 @@
 /** Pool names are diagnostic data. Read the build and URL switches once at
  * startup, before any pool is built, and never interpolate a disabled name. */
-declare global {
-  interface ImportMetaEnv {
-    DEV: boolean
-    MODE: string
-  }
-  interface ImportMeta { readonly env: ImportMetaEnv }
-}
-
 function requested(): boolean {
-  if (typeof import.meta.env !== 'undefined') {
-    if (import.meta.env.DEV || import.meta.env.MODE === 'test') return true
+  // Vite defines import.meta.env; Bun and Metro type it differently, so read
+  // it through a local shape instead of augmenting the global ImportMeta.
+  const env = (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env
+  if (env !== undefined) {
+    if (env.DEV || env.MODE === 'test') return true
   }
   // Native tests and census tools have no Vite environment. Metro replaces
   // NODE_ENV for mobile builds, so its production path also omits names.
