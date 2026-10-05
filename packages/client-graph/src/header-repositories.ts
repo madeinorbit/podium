@@ -11,7 +11,12 @@ type Identity = {
   machineId: string | undefined
   repoId: string | undefined
 }
-type Scope = { order: number; memberOrder: number; repoId: string | null }
+type Scope = {
+  order: number
+  memberOrder: number
+  repoId: string | null
+  repoPath: string
+}
 type RankedId = { id: string; rank: number }
 const scopeOrder = (a: Scope, b: Scope) => a.order - b.order || a.memberOrder - b.memberOrder
 const scopeKey = (path: string, machineId?: string) =>
@@ -71,7 +76,12 @@ export function createHeaderRepositoryRelations() {
         members: { key: string; id: string }[] = []
       for (const id of ids) {
         const fact = facts.get(id)!
-        const value = { order, memberOrder: rank(id), repoId: repoId ?? fact.repoId ?? null }
+        const value = {
+          order,
+          memberOrder: rank(id),
+          repoId: repoId ?? fact.repoId ?? null,
+          repoPath: fact.path,
+        }
         for (const path of new Set([fact.path, ...fact.links])) {
           const memberId = JSON.stringify([id, path])
           for (const key of [anyScopeKey(path), scopeKey(path, fact.machineId)]) {
@@ -166,20 +176,34 @@ export function createHeaderRepositoryRelations() {
     shippingScope(
       cwd: string,
       machineId?: string,
-    ): { order: number; repoId: string | null } | undefined {
-      let first: Scope | undefined
+    ): { order: number; repoId: string | null; repoPath: string } | undefined {
+      let first: Scope | undefined,
+        matchedLength = -1
       const take = (path: string) => {
         const exact = firstScopes.get(machineId ? scopeKey(path, machineId) : anyScopeKey(path))
         const wildcard = machineId ? firstScopes.get(scopeKey(path)) : undefined
-        for (const candidate of [exact, wildcard])
-          if (candidate && (!first || scopeOrder(candidate, first) < 0)) first = candidate
+        for (const candidate of [exact, wildcard]) {
+          if (!candidate) continue
+          // First repository group wins; within it the longest containing
+          // worktree wins, with stable source order breaking path ties.
+          if (
+            !first ||
+            candidate.order < first.order ||
+            (candidate.order === first.order &&
+              (path.length > matchedLength ||
+                (path.length === matchedLength && candidate.memberOrder < first.memberOrder)))
+          ) {
+            first = candidate
+            matchedLength = path.length
+          }
+        }
       }
       take(cwd)
       for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
         take(cwd.slice(0, at))
         take(cwd.slice(0, at + 1))
       }
-      return first && { order: first.order, repoId: first.repoId }
+      return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath }
     },
     clear() {
       facts.clear()

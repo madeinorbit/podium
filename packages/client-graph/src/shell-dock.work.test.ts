@@ -149,8 +149,8 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
   const f = shellFixture(), views = shellViews(f.pool)
   const root = f.state().repos[0]!
   const repos = [
-    { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone' }] },
-    { ...root, path: '/clone', worktrees: [{ path: '/clone/nested' }] },
+    { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone/base' }] },
+    { ...root, path: '/clone', worktrees: [{ path: '/clone/base/nested' }] },
     { ...root, repoId: 'deeper' as typeof root.repoId, path: '/synthetic/project/w1' },
     { ...root, repoId: 'wildcard' as typeof root.repoId, path: '/wild/', machineId: undefined, worktrees: [] },
   ]
@@ -168,6 +168,8 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
     }
     check('/synthetic/project/w1/deep', root.machineId)
     check('/clone/nested/deep', root.machineId)
+    check('/clone/base/child', root.machineId)
+    check('/clone/base/nested/deep', root.machineId)
     check('/clone/nested/deep', undefined)
     check('/wild/child', root.machineId)
     check('/synthetic/project/w1/deep', 'another-machine' as typeof root.machineId)

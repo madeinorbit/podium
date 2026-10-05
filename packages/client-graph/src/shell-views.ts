@@ -295,8 +295,9 @@ export function createShellViews(pool: MobxPool) {
       const attachedId = active?.issueId ?? activeSession?.issueId
       const attached = attachedId ? (issue(attachedId) as Loaded<IssueViewModel>) : containing
       if (attached === LOADING) return LOADING
-      let scope: ShellDockData['scope'] = active
-        ? (pool.header.shippingScope(active.cwd, active.machineId) as ShellDockData['scope'])
+      const discovered = active ? pool.header.shippingScope(active.cwd, active.machineId) : undefined
+      let scope: ShellDockData['scope'] = discovered
+        ? { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
         : null
       if (active && !scope && attached)
         scope = { repoId: attached.repoId ?? null, repoPath: attached.repoPath }
