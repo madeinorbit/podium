@@ -1084,12 +1084,14 @@ export const TranscriptList = observer(function TranscriptList({
     () =>
       buildMobileTranscript(items, {
         collapseContext,
+        includeEmpty: transcript !== undefined,
         hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined,
       }),
-    [collapseContext, hidePendingQuestion, items, pendingKey],
+    [collapseContext, hidePendingQuestion, items, pendingKey, transcript],
   )
   const rowSources = useMemo(() => {
     const sources = new Map<string, string[]>()
+    if (!transcript) return sources
     const calls = new Map<string, string[]>()
     const users = new Map<string, string[]>()
     for (const row of model.rows) {
@@ -1107,7 +1109,7 @@ export const TranscriptList = observer(function TranscriptList({
       } else previousUser = undefined
     }
     return sources
-  }, [items, model])
+  }, [items, model, transcript])
   const liveRow = useMemo(
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],

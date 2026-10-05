@@ -101,7 +101,8 @@ vi.mock('../components/TranscriptList', async () => {
     transcriptQuestion: TranscriptItem | null
   }) => {
     if (transcript) {
-      transcript.ids.forEach(id => transcript.byId.get(id))
+      // Track order only; production message versions belong to row observers.
+      transcript.ids.length
       items = transcript.items
     }
     transcriptProps.push({

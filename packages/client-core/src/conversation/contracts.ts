@@ -2,21 +2,14 @@ import type {
   MessageRecordWire,
   SessionId,
   SessionOffer,
-  TranscriptItem,
   TranscriptTag,
 } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { OutboxChatSend } from '../engine/chat-send'
 import {
-  type ConversationBubble,
   type ConversationPendingTurn,
 } from './projection'
-
-export interface ConversationTranscript {
-  getSnapshot(): { items: readonly TranscriptItem[] }
-  subscribe(listener: () => void): () => void
-}
 
 /** This session's message records, as the synced feed carries them (POD-4764). */
 export interface ConversationRecords {
@@ -85,7 +78,6 @@ export interface ConversationClock {
 
 export interface ConversationSendOptions {
   sessionId: SessionId
-  transcript: ConversationTranscript
   /** The synced records that say where each sent message stands. Absent for a
    *  conversation whose sends make no message record (a headless thread). */
   records?: ConversationRecords
@@ -100,10 +92,8 @@ export interface ConversationSendOptions {
   /** When the device is back online, it catches up again. */
   connection?: ConversationConnection
   outbox?: ConversationOutbox
-  initialDraft?: string
   initialPending?: readonly ConversationPendingTurn[]
   initialJustSent?: boolean
-  onDraftChange?: (text: string) => void
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
   /** Ask the server to take back a message, by its id; answers the status it
@@ -125,24 +115,6 @@ export interface ConversationSendOptions {
   optimisticSendCeilingMs?: number
   clock?: ConversationClock
 }
-
-export interface ConversationState {
-  sessionId: SessionId
-  draft: string
-  /** This device's own sends, until their records take over. */
-  pending: ConversationPendingTurn[]
-  /** What the chat shows below the transcript, oldest first. */
-  bubbles: ConversationBubble[]
-  offer: SessionOffer | null
-  dismissedOfferAt: string | null
-  justSent: boolean
-  canInterrupt: boolean
-  interruptError: string | null
-  interruptMessageId: string | null
-}
-
-/** Conversation changes observed by the transcript shell; the addressed composer owns drafts. */
-export type ConversationSurfaceState = Omit<ConversationState, 'draft'>
 
 export function nativeSessionCanInterrupt(status: string | undefined): boolean {
   return status === 'live' || status === 'starting'

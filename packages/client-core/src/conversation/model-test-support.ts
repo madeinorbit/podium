@@ -4,13 +4,30 @@ import { action, computed, observable, reaction } from 'mobx'
 import type {
   ConversationSendOptions,
   ConversationContext,
-  ConversationState,
-  ConversationSurfaceState,
 } from './contracts'
+import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
+import type { ConversationBubble, ConversationPendingTurn } from './projection'
 import { Sends } from './sends'
 import { TranscriptLog } from './transcript-log'
 
-export function createSendsFixture(options: ConversationSendOptions) {
+interface FixtureOptions extends ConversationSendOptions {
+  transcript: { getSnapshot(): { items: readonly TranscriptItem[] }; subscribe(listener: () => void): () => void }
+  initialDraft?: string
+  onDraftChange?: (text: string) => void
+}
+interface FixtureSurface {
+  sessionId: SessionId
+  pending: ConversationPendingTurn[]
+  bubbles: ConversationBubble[]
+  offer: SessionOffer | null
+  dismissedOfferAt: string | null
+  justSent: boolean
+  canInterrupt: boolean
+  interruptError: string | null
+  interruptMessageId: string | null
+}
+
+export function createSendsFixture(options: FixtureOptions) {
   const context = observable.box<ConversationContext>({ canInterrupt: false }, { deep: false })
   const draft = observable.box(options.initialDraft ?? '')
   let active = false
@@ -46,7 +63,7 @@ export function createSendsFixture(options: ConversationSendOptions) {
   })
   const model = sends
   let offTranscript: (() => void) | undefined
-  const surface = computed<ConversationSurfaceState>(() => ({
+  const surface = computed<FixtureSurface>(() => ({
     sessionId: options.sessionId,
     pending: model.pending,
     bubbles: model.bubbles,
@@ -57,7 +74,7 @@ export function createSendsFixture(options: ConversationSendOptions) {
     interruptError: model.interruptError,
     interruptMessageId: model.interruptMessageId,
   }))
-  const snapshot = computed<ConversationState>(() => ({ ...surface.get(), draft: model.draft }))
+  const snapshot = computed<FixtureSurface & { draft: string }>(() => ({ ...surface.get(), draft: model.draft }))
   // A mounted observer keeps derived identities cached. Release it with the fixture.
   const retain = reaction(
     () => surface.get(),
