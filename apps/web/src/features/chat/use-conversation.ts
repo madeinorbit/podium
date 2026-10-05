@@ -5,7 +5,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import { useStoreHandle, useConversation as useOwnedConversation } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
+import { chatSendRoute, composerState, isMachineOfflineForLiveTerminal, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { action, actionBound, compareShallow, computed, makeObservable, observable, observableRef, reaction, runInAction } from 'mobx'
@@ -15,6 +15,7 @@ import type { Trpc } from '@/app/trpc'
 import { ConversationPresentation, INITIAL_LIMIT, PAGE_LIMIT } from './conversation-presentation'
 
 export interface ConversationMountOptions {
+  active?: boolean
   superThread?: SuperThreadRef
   initialTurnRunning?: boolean
   initialPendingText?: string
@@ -27,6 +28,7 @@ const loaded = <T,>(row: T): Loaded<T> | undefined => typeof row === 'symbol' ? 
 
 /** Web ports and worker presentation; the inherited model owns every live state. */
 export class WebConversation extends Conversation {
+  private readonly stopPresence: (() => void) | undefined
   readonly presentation: ConversationPresentation
   lastSubmittedPrompt: string | null = null
   ctxSeq: number | null = null
@@ -54,6 +56,13 @@ export class WebConversation extends Conversation {
       setBackendEffort: actionBound,
     })
     presentation.bind(this.transcript)
+    if (!options.headless) this.stopPresence = reaction(() => {
+      const machineId = this.session?.machineId
+      const machine = machineId ? loaded(pool.row('machine', machineId)) : undefined
+      return machine ? isMachineOfflineForLiveTerminal(machine) : undefined
+    }, (offline, previous) => {
+      if (offline === false && previous === true) void this.transcript.refresh({ disclose: true }).catch(() => {})
+    })
   }
   get session(): SessionView | undefined { return this.pool.sessionPanes.session(this.sessionId) }
   get thread() { return this.mount.superThread ? loaded(this.pool.row('superThread', this.mount.superThread.threadId)) : undefined }
@@ -78,7 +87,7 @@ export class WebConversation extends Conversation {
     this.backendPick = { ...this.backendPick, model, agentKind: model === 'auto' ? null : agentKind ?? this.backendPick.agentKind, effort: 'auto' }
   }
   setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
-  override dispose(): void { this.presentation.dispose(); super.dispose() }
+  override dispose(): void { this.stopPresence?.(); this.presentation.dispose(); super.dispose() }
 }
 
 export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
@@ -199,6 +208,20 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   const conversation = useOwnedConversation<WebConversation>(cacheId,
     () => createWebConversation(runtime, pool!, sessionId, options),
     { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript }) ?? null
+  const active = options.active !== false && !options.deferInitialTranscript
+  const activation = useRef({ runtime, cacheId, active })
+  useEffect(() => {
+    const previous = activation.current
+    if (previous.runtime !== runtime || previous.cacheId !== cacheId) {
+      activation.current = { runtime, cacheId, active }
+      return
+    }
+    if (!active) previous.active = false
+    else if (!previous.active && conversation) {
+      previous.active = true
+      void conversation.transcript.refresh({ disclose: true }).catch(() => {})
+    }
+  }, [runtime, cacheId, active, conversation])
   const onInitialPendingSettled = options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled
   useEffect(() => {
     if (!conversation || !onInitialPendingSettled || conversation.mount.initialPendingText === undefined) return

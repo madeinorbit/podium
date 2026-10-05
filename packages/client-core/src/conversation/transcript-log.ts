@@ -578,6 +578,9 @@ export class TranscriptLog {
     }
     const { items: _items, sessionId: _sessionId, ...status } = patch
     Object.assign(this, status)
+    // A same-content refresh still completes presentation of a seeded window.
+    if (!change && next && patch.freshness === 'rendering')
+      change = { changed: [], added: [], rebuild: false }
     if (change) this.options.onChange?.(change)
   }
 }

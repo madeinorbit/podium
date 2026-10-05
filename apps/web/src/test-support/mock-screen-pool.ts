@@ -187,12 +187,15 @@ function fixtureSidebarSections(models: readonly IssueViewModel[]): SidebarSecti
   }
 }
 
+// Every hook in a provider-free tree reads the same fixture publication.
+const fixtureSignal = observable.box<{ state: Inputs; issues: IssueViewModel[] }>({ state: {}, issues: [] }, { deep: false })
+
 function useFixturePool(): MobxPool {
   const state = selectFixture(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
   const input = { state: { ...state, ...borrowed.read() }, issues }
-  const signal = useMemo(() => observable.box(input, { deep: false }), [])
+  const signal = fixtureSignal
   live.current = input
   useLayoutEffect(() => { runInAction(() => signal.set(input)) })
   const notifications = useMemo(() => {
