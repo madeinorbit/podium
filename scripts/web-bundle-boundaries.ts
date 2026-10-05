@@ -55,6 +55,10 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/sidebar-roster.ts',
   'src/worklist/sidebar-row.ts', 'src/worklist/sidebar.ts', 'src/worklist/sorted-lanes.ts',
   'src/worklist/visible.ts',
+  // Startup readers own these: reader-questions builds the mention index,
+  // reader-queries the addressed worktree answers, and the sidebar close
+  // guard and issue menus read issuePages.closeFacts (POD-5530/5569/5570/5577).
+  'src/issue-page.ts', 'src/shared/issue-mention-question.ts', 'src/shared/worktree-questions.ts',
   // The first mission view still delegates these pure value rules here.
   'diagnostics/reference/issue-views.ts',
 ])
