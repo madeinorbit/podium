@@ -17,10 +17,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
     session && typeof session !== 'symbol' ? [session as SessionView] : []
   const issues: RefIssueLike[] = []
   let loading = typeof session === 'symbol'
-  const issueId =
-    parsed?.kind === 'issue'
-      ? pool.queries.linkedIssueId(ref)
-      : sessions[0]?.issueId
+  const issueId = parsed?.kind === 'issue' ? pool.queries.linkedIssueId(ref) : sessions[0]?.issueId
   let next = issueId
   const seen = new Set<string>()
   let haveSeat = false
@@ -37,7 +34,11 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
       ...row,
       description: typeof description === 'string' ? description : (description?.value ?? ''),
       ...pool.queries.issueChildCounts(next),
-      ...readAddressedIssueRef(pool, next, row as { seq: number; prefix?: string; displayRef?: string }),
+      ...readAddressedIssueRef(
+        pool,
+        next,
+        row as { seq: number; prefix?: string; displayRef?: string },
+      ),
     } as RefIssueLike
     issues.push(issue)
     if (parsed?.kind === 'issue' && !haveSeat) {
@@ -56,7 +57,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
         }
       }
     }
-    next = pool.relations.one('issue', next, 'treeParent')
+    next = pool.relations.one('issue', next, 'treeParent') ?? undefined
   }
   return { issues, sessions, loading }
 }

@@ -20,7 +20,11 @@ export function readIssueMenuOrigins(pool: MobxPool, issues: readonly IssueNavig
       return [
         {
           ...row,
-          ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
+          ...readAddressedIssueRef(
+            pool,
+            id,
+            row as { seq: number; prefix?: string; displayRef?: string },
+          ),
         } as IssueNavigationModel,
       ]
     }),
