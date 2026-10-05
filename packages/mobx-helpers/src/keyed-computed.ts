@@ -5,6 +5,13 @@ export function allowImperativeRead<T>(read: () => T): T {
   return _getGlobalState().trackingDerivation ? read() : runInAction(read)
 }
 
+/** Live render hooks must borrow their caller's reaction, even before data arrives. */
+export function assertReactiveRead(name: string): void {
+  if (!_getGlobalState().trackingDerivation) {
+    throw new Error(`${name} must run inside an observer`)
+  }
+}
+
 export interface KeyedComputedOptions<K, V> {
   equals?: (previous: V, next: V) => boolean
   context?: (key: K) => unknown

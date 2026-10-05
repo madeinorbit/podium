@@ -1,3 +1,4 @@
+import { configureDevelopmentChecks } from '@podium/mobx-helpers'
 import type { JSX } from 'react'
 import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -141,6 +142,7 @@ function ServerTransportBlockedPage({ reason }: { reason?: string }): JSX.Elemen
 // [spec: 2026-08-11-logging-strategy-design, "Crash capture (end-to-end)"].
 installVitePreloadErrorRecovery()
 startWebLogging()
+configureDevelopmentChecks(import.meta.env.DEV)
 restoreReloadRoute()
 
 const root = document.getElementById('root')

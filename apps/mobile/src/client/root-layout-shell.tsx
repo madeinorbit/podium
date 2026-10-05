@@ -1,3 +1,4 @@
+import { configureDevelopmentChecks } from '@podium/mobx-helpers'
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import type { ComponentType, ReactNode } from 'react'
@@ -30,6 +31,7 @@ const PlatformStatusBar = StatusBar as ComponentType<{
 
 // Before the first navigation, not inside an effect: the web stack's keyboard
 // manager reaches for this on the very first page change [POD-402].
+configureDevelopmentChecks(process.env.NODE_ENV === 'development')
 installBlurOnNavigate()
 
 // AT MODULE SCOPE, BEFORE REACT, and that is the whole point of the placement:
