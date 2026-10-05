@@ -449,34 +449,34 @@ export function createIssueBoardSource(
   }, { equals: compareStructural })
   function catalog(agents: boolean): Loaded<BoardCatalog> {
     return memo(`catalog:${agents}`, () => {
-        const scope: string[] = [],
-          paths = new Set<string>(),
-          assignees = new Set<string>(),
-          labels = new Set<string>()
-        const visit = (id: string) => {
-          const row = catalogEntry(JSON.stringify([id, agents]))
-          if (row === LOADING) return false
-          if (!row) return true
-          if (row.path) paths.add(row.path)
-          if (row.eligible) {
-            scope.push(id)
-            if (row.assignee) assignees.add(row.assignee)
-            for (const label of row.labels) labels.add(label)
-          }
-          return true
+      const scope: string[] = [],
+        paths = new Set<string>(),
+        assignees = new Set<string>(),
+        labels = new Set<string>()
+      const visit = (id: string) => {
+        const row = catalogEntry(JSON.stringify([id, agents]))
+        if (row === LOADING) return false
+        if (!row) return true
+        if (row.path) paths.add(row.path)
+        if (row.eligible) {
+          scope.push(id)
+          if (row.assignee) assignees.add(row.assignee)
+          for (const label of row.labels) labels.add(label)
         }
-        let pending = false
-        for (const id of pool.queries.ids({ kind: 'boardCatalog' })) if (!visit(id)) pending = true
-        return pending
-          ? LOADING
-          : {
-              scope: scope.sort(byId),
-              assignees: [...assignees].sort(),
-              labels: [...labels].sort(),
-              projectPaths: [...paths].sort((a, b) =>
-                (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
-              ),
-            }
+        return true
+      }
+      let pending = false
+      for (const id of pool.queries.ids({ kind: 'boardCatalog' })) if (!visit(id)) pending = true
+      return pending
+        ? LOADING
+        : {
+            scope: scope.sort(byId),
+            assignees: [...assignees].sort(),
+            labels: [...labels].sort(),
+            projectPaths: [...paths].sort((a, b) =>
+              (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+            ),
+          }
     })
   }
   function issue(id: string, visible = false): Loaded<IssueViewModel> {
