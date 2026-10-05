@@ -5,6 +5,7 @@ export { DeadlineClock, nextUp } from '@podium/mobx-helpers'
 export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'header-attachment': 'The attachment census seeds contributions once; row and cold-change subscriptions maintain them.',
   'header-cold-seed': 'Seed the cold contribution from its declared summary; cold-change notifications refresh it.',
+  'reader-identity-seed': 'Seed identity membership after watch registers invalidation; avoid tracking every history table entry.',
   'reader-resident-maintenance': 'Copy addressed resident facts during publication; maintained question atoms report changes.',
   'reader-repo-identity': 'Refresh a changed repository identity during publication; identity question atoms notify readers.',
   'query-membership-seed': 'Seed declared query membership; table and feed subscriptions maintain the result atom.',

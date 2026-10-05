@@ -198,6 +198,7 @@ export class ReaderQueries {
       if (present) this.residentIssueIds.add(id)
       else this.residentIssueIds.delete(id)
     }
+    // untracked-read: reader-resident-maintenance
     const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
     this.residents.apply({
       type: 'update',
@@ -891,6 +892,7 @@ export class ReaderQueries {
       }
     } else {
       for (const id of index.issueIdentityRepoChanges(event)) {
+        // untracked-read: reader-repo-identity
         const row = untracked(() => this.pool.row('repo', id)) as
           | Readonly<Record<string, unknown>>
           | undefined
@@ -1039,6 +1041,7 @@ export class ReaderQueries {
     if (!result) {
       // watch() owns membership invalidation. Seeding must not leak a table
       // membership dependency for every cold candidate into the caller.
+      // untracked-read: reader-identity-seed
       result = untracked(() => this.identityResult(question, index))
       if (this.observed.has(key)) this.identities.set(key, result)
     }
@@ -1087,7 +1090,9 @@ export class ReaderQueries {
     if (!result) {
       result = createQueryResult<unknown>({
         name,
+        // untracked-read: query-membership-seed
         ids: () => untracked(() => this.ids(question)),
+        // untracked-read: query-membership-probe
         has: (id) => untracked(() => this.includes(question, id)),
         read,
         subscribe: (changed) => {
