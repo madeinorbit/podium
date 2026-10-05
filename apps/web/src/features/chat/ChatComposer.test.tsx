@@ -278,7 +278,8 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
   })
 })
 
-it('sizes the compact field after adopting an external draft and after clearing', async () => {
+it('sizes the compact fallback after adopting an external draft and after clearing', async () => {
+  vi.stubGlobal('CSS', Object.create(CSS, { supports: { value: () => false } }))
   const { ta } = await mount({ compact: true, draft: '' })
   Object.defineProperty(ta, 'scrollHeight', {
     configurable: true,

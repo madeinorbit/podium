@@ -1,5 +1,5 @@
 /** Synthetic compact-composer capture. Run against webkit-typing-server.mjs. */
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { cpus, hostname, loadavg } from 'node:os'
 import { gzipSync } from 'node:zlib'
 import { chromium } from '@playwright/test'
@@ -11,6 +11,7 @@ const out = arg('out', '.artifacts/POD-5554/before-1x')
 const mode = arg('mode', 'timing')
 const ablate = process.argv.includes('--ablate')
 const fixture = await (await fetch(`${origin}/__fixture`)).json()
+const build = JSON.parse(readFileSync('apps/web/dist/podium-build.json', 'utf8'))
 const browser = await chromium.launch({
   headless: true,
   executablePath: arg('chromium', undefined),
@@ -56,7 +57,10 @@ try {
     }
     return counts
   })
-  if (population.issueProjection < fixture.issues || population.session < fixture.sessions)
+  if (
+    (population.issueProjection ?? 0) < fixture.issues ||
+    (population.session ?? 0) < fixture.sessions
+  )
     throw Error(`Incomplete corpus: ${JSON.stringify(population)}`)
   const cdp = await context.newCDPSession(page)
   await page.evaluate(
@@ -165,6 +169,40 @@ try {
   if (data.inputs.length !== 60 || data.final !== 'x'.repeat(60))
     throw Error('Incomplete trusted typing capture')
   delete data.final
+  const sizing = []
+  if (process.argv.includes('--check-sizing')) {
+    const check = async (name, empty) => {
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      )
+      const fit = await field.evaluate((ta) => {
+        const cs = getComputedStyle(ta)
+        const line = Number.parseFloat(cs.lineHeight)
+        const padding = Number.parseFloat(cs.paddingTop) + Number.parseFloat(cs.paddingBottom)
+        const pane = ta.closest('[data-prompt-bounds]').clientHeight
+        return {
+          height: ta.clientHeight,
+          content: ta.scrollHeight,
+          oneLine: line + padding,
+          cap: Math.max(line + padding, Math.min(line * 8 + padding, pane * 0.42)),
+          overflow: cs.overflowY,
+        }
+      })
+      if (Math.abs(fit.height - (empty ? fit.oneLine : fit.cap)) > 1)
+        throw Error(`Incorrect native ${name} height: ${JSON.stringify(fit)}`)
+      if (!empty && (fit.content <= fit.height || fit.overflow !== 'auto'))
+        throw Error('Capped native prompt must scroll')
+      sizing.push({ name, ...fit })
+    }
+    await field.fill('')
+    await check('empty', true)
+    await field.fill('line\n'.repeat(30))
+    await check('line cap', false)
+    await page.setViewportSize({ width: 1600, height: 400 })
+    await check('resized pane cap', false)
+    await field.fill('')
+    await check('clear after resize', true)
+  }
   const marks = trace
     .filter((event) => /^typing:\d+:input$/.test(event.name))
     .sort((a, b) => a.ts - b.ts)
@@ -218,6 +256,8 @@ try {
     JSON.stringify(
       {
         fixture,
+        build,
+        sizing,
         population,
         mode,
         ablate,
