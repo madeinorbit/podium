@@ -83,7 +83,7 @@ describe('declared settings readers', () => {
     expect(pool.tables.session.has('cold')).toBe(false)
   })
 
-  it('batches the catalog and window, returns loading first, and invalidates only changed rows', async () => {
+  it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
     const { pool, read, publish } = fixture()
     expect(pool.row('settingsCatalog', 'catalog')).toBe(LOADING)
     expect(pool.row('settingsWindow', 'window')).toBe(LOADING)
@@ -93,6 +93,8 @@ describe('declared settings readers', () => {
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
     expect(pool.row('settingsWindow', 'window')).toEqual({ settingsTab: 'accounts' })
+    expect(pool.row('settingsMachine', 'missing')).toBe(LOADING)
+    await Promise.resolve()
     expect(pool.row('settingsMachine', 'missing')).toBeUndefined()
     const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))
     const wake = vi.fn(), stop = view.subscribe(wake)
