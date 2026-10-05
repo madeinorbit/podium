@@ -629,3 +629,21 @@ it('a streamed replacement renders exactly the last message row', async () => {
   view.unmount()
   transcript.dispose()
 })
+
+it('reveals the first streamed text through the existing row observer', async () => {
+  const { TranscriptLog } = await import('@podium/client-core/conversation')
+  const { asSessionId } = await import('@podium/model')
+  const transcript = new TranscriptLog({
+    sessionId: asSessionId('empty-streamed-row'),
+    source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
+  })
+  transcript.merge([{ id: 'last', role: 'assistant', text: '' }])
+  const view = render(<TranscriptList transcript={transcript} transcriptQuestion={null} live onAnswer={async () => {}} />)
+  const listPaints = viewportData.length
+  act(() => transcript.merge([{ id: 'last', role: 'assistant', text: 'First streamed text' }]))
+  await waitFor(() => expect(screen.getByText('First streamed text')).toBeTruthy())
+  expect(markdownRenders.get('First streamed text')).toBe(1)
+  expect(viewportData.length).toBe(listPaints)
+  view.unmount()
+  transcript.dispose()
+})

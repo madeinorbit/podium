@@ -140,7 +140,7 @@ function Screen({ initial }: { initial: SessionView }) {
 
 async function mount(initial?: TranscriptItem[]) {
   const io = authority(initial)
-  await renderWithMobileStore(<Screen initial={working} />, {
+  const view = await renderWithMobileStore(<Screen initial={working} />, {
     sessions: [working],
     api: {
       sessions: {
@@ -150,6 +150,11 @@ async function mount(initial?: TranscriptItem[]) {
       },
     },
   })
+  const updateProps = moveRow
+  moveRow = next => {
+    view.replica.applyChanges('sessions', [next], [])
+    updateProps(next)
+  }
   await screen.findByText(initial?.at(-1)?.text ?? 'What is 7 times 7?')
   return io
 }

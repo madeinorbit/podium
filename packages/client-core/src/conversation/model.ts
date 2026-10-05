@@ -32,6 +32,7 @@ export interface TurnPreview {
 export interface HeadlessOverlay {
   readonly text?: string
   readonly status?: string
+  readonly label?: string
 }
 
 /** The addressed pool row. Reading this function in a reaction tracks its fields. */
@@ -279,7 +280,7 @@ export class Conversation {
     // Cache hydration occurs before Sends is constructed. start() sets its baseline.
     this.sends?.reconcile(change)
     if (change.added.length > 0 && this.headless?.text !== undefined) {
-      this.headless = this.headless.status ? freezePlain({ status: this.headless.status }) : null
+      this.headless = this.headless.status ? freezePlain({ status: this.headless.status, label: this.headless.label }) : null
     }
   }
 
@@ -313,7 +314,7 @@ export class Conversation {
     switch (event.kind) {
       case 'turn-start':
         this.turnRunning = true
-        this.headless = null
+        this.headless = freezePlain({ status: 'starting…', label: 'starting' })
         break
       case 'turn-end':
         this.finishTurn(event.error ?? null)
@@ -326,6 +327,7 @@ export class Conversation {
         this.turnRunning = true
         this.headless = freezePlain({
           ...(this.headless?.text !== undefined ? { text: this.headless.text } : {}),
+          label: event.label ?? event.status,
           status:
             event.status === 'tool'
               ? `running ${event.label ?? 'a tool'}…`

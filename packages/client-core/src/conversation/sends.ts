@@ -37,7 +37,7 @@ import type { TranscriptChange, TranscriptLog } from './transcript-log'
 import { freezePlain } from './frozen'
 
 export interface SendsOptions
-  extends Omit<ConversationSendOptions, 'transcript' | 'initialDraft' | 'onDraftChange'> {
+  extends ConversationSendOptions {
   transcript: TranscriptLog
   drafts: Pick<DraftStore, 'get' | 'set'>
   /** Reads the observable pool session row; no updateContext pushes. */
