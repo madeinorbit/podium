@@ -1179,7 +1179,7 @@ export class MissionViewReader {
       ? this.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy
       : this.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf
     if (targetId) {
-      const target = this.rulesIssue(targetId), ref = target ? issueDisplayRef(target) : 'another task'
+      const target = requireLoaded(this.catalogIssue(targetId)), ref = target ? issueDisplayRef(target) : 'another task'
       return issue.supersededBy ? { kind: 'superseded', ...(target ? { target } : {}), short: ref,
         full: `Work continued in ${ref}`, line: `continued · ${ref}` } :
         { kind: 'duplicate', ...(target ? { target } : {}), short: ref,
@@ -1193,7 +1193,7 @@ export class MissionViewReader {
   }
   waiting(issue: IssueNavigationModel): string[] {
     return issue.deps.filter(dep => dep.type === 'blocks').flatMap(dep => {
-      const target = this.rulesIssue(dep.id)
+      const target = requireLoaded(this.catalogIssue(dep.id))
       return target && !issueClosed(target) ? [issueDisplayRef(target)] : []
     })
   }
@@ -1218,7 +1218,7 @@ export class MissionViewReader {
     if (issue.stage === 'proposed') {
       const spin = originId(issue), sourceId = spin ?? issue.parentId
       if (sourceId) {
-        const source = this.rulesIssue(sourceId), ref = source ? issueDisplayRef(source) : null
+        const source = requireLoaded(this.catalogIssue(sourceId)), ref = source ? issueDisplayRef(source) : null
         return spin ? { kind: 'shape-own', label: 'starts', short: 'on its own',
           full: ref ? `Starts on its own — ${ref} can close without it` : 'Starts on its own — the task that found it can close without it' } :
           { kind: 'shape-mission', label: 'starts', short: 'in this mission',
@@ -1228,7 +1228,7 @@ export class MissionViewReader {
     const verbs: Record<string, string> = { 'discovered-from': 'Discovered from', related: 'Related to', tracks: 'Tracks', supersedes: 'Supersedes', 'caused-by': 'Caused by', validates: 'Validates' }
     for (const dep of issue.deps) {
       if (dep.type === 'blocks' || dep.type === 'parent-child') continue
-      const target = this.rulesIssue(dep.id)
+      const target = requireLoaded(this.catalogIssue(dep.id))
       if (!target) continue
       const label = verbs[dep.type] ?? dep.type, ref = issueDisplayRef(target)
       return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }

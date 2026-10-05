@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
-import { missionView, readMissionHandoff, readMissionView } from './mission-view'
+import { missionView, readMissionHandoff, readMissionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
 
@@ -103,6 +103,15 @@ it('bounds parent child-list reads for earliest-child parenting at 1x and 4x', (
         entity === 'issue' && id === 'root' && relation === 'children').length).toBeLessThanOrEqual(4)
     } finally { stop(); many.mockRestore() }
   }
+})
+
+it('renders an addressed dependency label without loading that target\'s unrelated dependents', () => {
+  const root = issue('root', { blocked: true, deps: [{ id: 'blocker', type: 'blocks' }] })
+  const { pool, reader } = open([root, issue('blocker', { seq: 2, stage: 'backlog' }),
+    issue('unrelated', { ...coldRoot(), id: 'unrelated', deps: [{ id: 'blocker', type: 'related' }] })], [])
+  const read = vi.spyOn(pool, 'row')
+  expect(tracked(() => settled(() => reader.note(root, true)))).toMatchObject({ kind: 'blocked', short: '#2', full: 'Blocked by #2' })
+  expect(read.mock.calls.some(([entity, id]) => entity === 'issue' && id === 'unrelated')).toBe(false)
 })
 
 it('requests cold mission ancestry together without changing the shared root answer', () => {
