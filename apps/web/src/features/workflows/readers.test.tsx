@@ -1,13 +1,14 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/values'
+import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
   checkWorkflows,
   probeWorkflowCheckScope,
 } from '@podium/client-graph/diagnostics/workflow-check'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model/browser'
@@ -115,7 +116,7 @@ it('renders the actual screens through no-pool then real attachment without chan
     locks: 1,
   })
   expect(fixture.lockInputs).toEqual([{ repoPath: '/synthetic/project' }])
-  expect(storeStats.snapshot().runtimes.every(runtime => runtime.selectorRuns === 0)).toBe(true)
+  expect(storeStats.snapshot().runtimes.every((runtime) => runtime.selectorRuns === 0)).toBe(true)
   expect(fatal).not.toHaveBeenCalled()
 })
 
@@ -215,7 +216,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
   ).toMatchObject({ differences: 0, pending: 0 })
 })
 
-it('batches initial machine demand and returns LOADING before the shared source settles', async () => {
+it('batches observed machine demand and returns LOADING before the shared source settles', async () => {
   const { fixture, Wrapper } = setup()
   const { result } = renderHook(
     () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }),
@@ -223,15 +224,29 @@ it('batches initial machine demand and returns LOADING before the shared source 
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
   const pool = result.current.pool!
-  // No machine consumer has demanded this source yet.
-  expect(workflowMachines(pool).pending).toBe(1)
-  expect(pool.row('settingsMachine', fixture.machines[0]!.id)).toBe(LOADING)
-  expect(pool.row('settingsCatalog', 'catalog')).toBe(LOADING)
-  await act(async () => {
-    await Promise.resolve()
-  })
+  // Imperative questions use the existing keyed inputs without warming a source.
   expect(workflowMachines(pool).pending).toBe(0)
-  expect(workflowSubject(pool, fixture.runs[2]!)).toMatchObject({ state: 'pending' })
+  const demand = createPoolProjection(pool, (current) => ({
+    machines: workflowMachines(current),
+    machine: current.row('settingsMachine', fixture.machines[0]!.id),
+    catalog: current.row('settingsCatalog', 'catalog'),
+  }))
+  const stop = demand.subscribe(() => {})
+  try {
+    expect(demand.getSnapshot()).toMatchObject({
+      machines: { pending: 1 },
+      machine: LOADING,
+      catalog: LOADING,
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(demand.getSnapshot().machines.pending).toBe(0)
+    expect(workflowSubject(pool, fixture.runs[2]!)).toMatchObject({ state: 'pending' })
+  } finally {
+    stop()
+    demand.dispose()
+  }
 })
 
 it('bounds diagnostic summary reads and releases its tracking scope even inside an action', async () => {
@@ -242,27 +257,34 @@ it('bounds diagnostic summary reads and releases its tracking scope even inside 
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
   const pool = result.current.pool!
-  workflowMachines(pool)
-  await act(async () => {
-    await Promise.resolve()
-  })
-  const row = vi.spyOn(pool, 'row')
-  const inputs = {
-    profiles: fixture.profiles,
-    runs: Array.from({ length: 500 }, (_, index) => ({
-      ...fixture.runs[3 + (index % 3)]!,
-      id: `diagnostic-${index}`,
-    })),
+  const demand = createPoolProjection(pool, workflowMachines)
+  const stop = demand.subscribe(() => {})
+  try {
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(demand.getSnapshot().pending).toBe(0)
+    const row = vi.spyOn(pool, 'row')
+    const inputs = {
+      profiles: fixture.profiles,
+      runs: Array.from({ length: 500 }, (_, index) => ({
+        ...fixture.runs[3 + (index % 3)]!,
+        id: `diagnostic-${index}`,
+      })),
+    }
+    const probe = probeWorkflowCheckScope(
+      pool,
+      referenceState(result.current.owner),
+      inputs,
+      'synthetic-session-0',
+    )
+    expect(probe.result).toMatchObject({ differences: 0, pending: 0, positions: 508 })
+    expect(row.mock.calls.filter((call) => String(call[0]) === 'setupSession')).toHaveLength(0)
+    expect(probe.after).toEqual(probe.before)
+  } finally {
+    stop()
+    demand.dispose()
   }
-  const probe = probeWorkflowCheckScope(
-    pool,
-    referenceState(result.current.owner),
-    inputs,
-    'synthetic-session-0',
-  )
-  expect(probe.result).toMatchObject({ differences: 0, pending: 0, positions: 508 })
-  expect(row.mock.calls.filter((call) => String(call[0]) === 'setupSession')).toHaveLength(0)
-  expect(probe.after).toEqual(probe.before)
 })
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {
@@ -299,7 +321,13 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
         lastActiveAt: new Date(Date.now() + step).toISOString(),
       })
   })
-  expect(storeStats.snapshot().runtimes.every(runtime => runtime.selectorRuns === 0 && Object.keys(runtime.slices).length === 0)).toBe(true)
+  expect(
+    storeStats
+      .snapshot()
+      .runtimes.every(
+        (runtime) => runtime.selectorRuns === 0 && Object.keys(runtime.slices).length === 0,
+      ),
+  ).toBe(true)
   expect(fixture.calls.list).toBe(1)
   fixture.denyProfileSave('Synthetic denial')
   fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Synthetic saved profile' } })

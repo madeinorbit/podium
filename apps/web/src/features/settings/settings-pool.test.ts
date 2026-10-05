@@ -142,7 +142,7 @@ describe('declared settings readers', () => {
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
     const { pool, read, publish } = fixture()
-    const initialView = createPoolProjection(pool, current => ({
+    const initialView = createPoolProjection(pool, (current) => ({
       catalog: current.row('settingsCatalog', 'catalog'),
       window: current.row('settingsWindow', 'window'),
       machine: current.row('settingsMachine', 'host'),
@@ -227,7 +227,9 @@ describe('declared settings readers', () => {
 
   it('detaches the existing owners and refuses stale reads and queued loads after disposal', async () => {
     const f = fixture()
-    f.pool.row('settingsCatalog', 'catalog')
+    const catalog = createPoolProjection(f.pool, (pool) => pool.row('settingsCatalog', 'catalog'))
+    disposals.push(catalog.subscribe(() => {}))
+    expect(catalog.getSnapshot()).toBe(LOADING)
     f.pool.row('preference', 'podium.sounds.enabled')
     expect(f.listeners.size).toBe(1)
     expect(f.uiListeners.size).toBe(1)
