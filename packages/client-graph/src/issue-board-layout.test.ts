@@ -76,6 +76,11 @@ it('changes one card and two columns for a stage edit; clicks and minute ticks l
     try {
       let board: ReturnType<typeof f.source.board>
       stops.push(autorun(() => { board = f.source.board({ ...options, addressed: selected.get() ? [selected.get()!] : [] }) }))
+      // Column components ask with a different object property order from
+      // the navigation composer; they must share the same computed identity.
+      for (const stage of ISSUE_BOARD_STAGES) stops.push(autorun(() => f.source.columnIds({
+        stage, showAgentTasks: false, ordering: 'priority', filter: {},
+      })))
       for (const stage of ISSUE_BOARD_STAGES)
         for (let n = 0; n < 8; n++) stops.push(autorun(() => f.source.card({ id: `${stage}-${n}`, now })))
       issueBoardStats.reset()

@@ -114,6 +114,8 @@ export function createBoardLayout(pool: MobxPool) {
       ? [row.priority as number, row.seq as number, '']
       : [0, 0, row[ordering === 'created' ? 'createdAt' : 'updatedAt'] as string ?? '']
   }, { equals: compareStructural })
+  const columnKey = (options: BoardColumnOptions) => JSON.stringify({ filter: options.filter,
+    ordering: options.ordering, showAgentTasks: options.showAgentTasks, stage: options.stage })
   function ordered(ids: string[], ordering: IssuesOrdering): Loaded<ReturnType<typeof asIssueId>[]> {
     const keys = new Map<string, readonly [number, number, string]>()
     for (const id of ids) {
@@ -193,7 +195,7 @@ export function createBoardLayout(pool: MobxPool) {
     if (active === LOADING || rootIds === LOADING) return LOADING
     const columns: PoolBoardData['view']['orderedByStage'] = []
     for (const stage of ISSUE_BOARD_STAGES) {
-      const ids = columnIds(JSON.stringify({ filter: options.filter, ordering: options.display.ordering,
+      const ids = columnIds(columnKey({ filter: options.filter, ordering: options.display.ordering,
         showAgentTasks: options.display.showAgentTasks, stage }))
       if (ids === LOADING) return LOADING
       columns.push({ stage, ids: ids ?? [] })
@@ -221,10 +223,10 @@ export function createBoardLayout(pool: MobxPool) {
       return ids === LOADING ? LOADING : { ids: ids ?? [] }
     },
     board: (options: BoardOptions) => board(boardKey(options)),
-    columnIds: (options: BoardColumnOptions) => columnIds(JSON.stringify(options)),
+    columnIds: (options: BoardColumnOptions) => columnIds(columnKey(options)),
     dropIndex(options: BoardColumnOptions & { id: string }) {
       const { id, ...columnOptions } = options
-      const ids = columnIds(JSON.stringify(columnOptions))
+      const ids = columnIds(columnKey(columnOptions))
       if (ids === LOADING) return LOADING
       const next = ordered([...(ids ?? []).filter(other => other !== id), id], options.ordering)
       return next === LOADING ? LOADING : next?.indexOf(asIssueId(id)) ?? 0
