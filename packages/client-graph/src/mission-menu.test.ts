@@ -36,13 +36,14 @@ function observe<T>(read: () => T) {
   return { get value() { return value }, stop }
 }
 
-it('an open task menu loads its issue, keeps exact cascade counts and never reads hidden history or a global catalog at 1x/4x', () => {
+it('an open task menu reads its issue, keeps exact cascade counts and never reads hidden history or a global catalog at 1x/4x', () => {
   const work: number[] = []
   for (const scale of [1, 4]) {
     const { pool, view, load } = fixture(scale)
     // The menu is opened from a drawn issue row, whose unread badge already
     // observes the maintained activity summary. Its cold history stays cold.
     const badge = observe(() => pool.issueObject('chosen').unread)
+    load.mockClear()
     const row = vi.spyOn(pool, 'row'), catalog = vi.spyOn(pool.queries, 'ids')
     const menu = observe(() => readMissionActionInputs(view, ['chosen']))
     try {
@@ -82,7 +83,7 @@ it('loads the sole capable archived sender and updates eligibility after capabil
   try {
     pool.hydrate()
     expect(menu.value).toMatchObject({ handoff: { session: { sessionId: 'history-0', archived: true } } })
-    expect(load.mock.calls).toEqual([['session', 'history-0']])
+    expect(load.mock.calls).toEqual([['issue', 'chosen'], ['session', 'history-0']])
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'chosen', true) }] })
     expect(menu.value).toMatchObject({ handoff: { blocker: 'multiple-sessions' } })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'elsewhere', true) }] })
