@@ -52,6 +52,8 @@ describe('mobile transcript feed', () => {
       ['answer', 'beat'],
     ])
     expect(model.rows[2]?.blocks).toHaveLength(2)
+    expect(model.rowsForBlock(2)).toEqual([2])
+    expect(model.rowsForBlock(3)).toEqual([2])
     expect(model.latestAssistantKey).toBe('a2')
   })
 
@@ -140,6 +142,9 @@ describe('mobile transcript feed', () => {
     expect(model.positionOfKey('batch:message:msg_a')).toBe(0)
     expect(model.positionOfKey('batch:message:msg_b')).toBe(1)
     expect(model.positionOfKey('answer')).toBe(2)
+    expect(model.rowsForBlock(0)).toEqual([0, 1])
+    expect(model.rowsForBlock(1)).toEqual([2])
+    expect(model.rowsForBlock(100)).toEqual([])
     expect(positionMobileTranscriptSearch(answer, 0)).toMatchObject({
       activeRow: 0,
       position: 1,

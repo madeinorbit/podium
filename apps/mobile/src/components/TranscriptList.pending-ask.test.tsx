@@ -277,7 +277,7 @@ describe('TranscriptList pendingAsk', () => {
       expect(searchWork.rowReads).toBe(0)
       fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
       expect(screen.getByText('1/3')).toBeTruthy()
-      expect(searchWork.rowReads).toBe(128 * scale)
+      expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(128 * scale)
       reset()
       for (let index = 0; index < 6; index++) fireEvent.click(screen.getByLabelText('Next match'))

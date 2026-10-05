@@ -5,9 +5,10 @@ import {
   buildMobileTranscript,
   matchMobileTranscript,
   positionMobileTranscriptSearch,
+  projectMobileTranscriptMatches,
 } from './transcript-feed'
 
-it('keeps closed Find and selected-match lookup flat and detects the former whole-row walk', async () => {
+it('keeps closed Find, matched-block projection and cursor lookup flat and detects the former whole-row walk', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
     let rowReads = 0,
@@ -54,6 +55,18 @@ it('keeps closed Find and selected-match lookup flat and detects the former whol
       matchMobileTranscript(model, '   ')
     })
     const answer = matchMobileTranscript(model, 'needle')
+    // The remaining text search reads all blocks. Projecting its two named
+    // matches must not read any other block or presentation row.
+    const projection = await measure(() => {
+      const projected = projectMobileTranscriptMatches(model, [5, 10])
+      expect([...projected.matchingRows]).toEqual([5, 10])
+      expect(projected.firstRowByBlock.get(5)).toBe(5)
+      expect(projected.firstRowByBlock.get(10)).toBe(10)
+    })
+    expect(projection.rowReads).toBe(0)
+    expect(projection.blockReads).toBe(0)
+    expect(projection.work.derivations).toBe(0)
+    expect(projection.work.elements).toBeLessThan(32)
     const next = await measure(() => {
       positionMobileTranscriptSearch(answer, 1)
     })
@@ -78,9 +91,10 @@ it('keeps closed Find and selected-match lookup flat and detects the former whol
       expect(action.work.visits).toBe(0)
     }
     expect(control.rowReads).toBe(128 * scale)
-    samples.push({ scale, actions, control })
+    samples.push({ scale, actions, projection, control })
   }
   expect(samples[1]!.actions).toEqual(samples[0]!.actions)
+  expect(samples[1]!.projection).toEqual(samples[0]!.projection)
   expect(samples[1]!.control.rowReads).toBe(samples[0]!.control.rowReads * 4)
   console.log('[phone Find lookup work1x4x]', JSON.stringify(samples))
 })
