@@ -1,3 +1,4 @@
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -212,9 +213,9 @@ export function createPoolWorkActions(
     })
   }
   return {
-    selectIssue,
-    selectPanelForIssue: (id: string, sessionId: SessionId) => selectIssue(id, sessionId),
-    selectWorktree,
+    selectIssue: (id: string, paneSession?: SessionId) => allowImperativeRead(() => selectIssue(id, paneSession)),
+    selectPanelForIssue: (id: string, sessionId: SessionId) => allowImperativeRead(() => selectIssue(id, sessionId)),
+    selectWorktree: (path: string) => allowImperativeRead(() => selectWorktree(path)),
     selectPanel: (path: string, sessionId: SessionId) => {
       const store = runtime.access
       batch(() => {
@@ -242,7 +243,7 @@ export function createPoolWorkActions(
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
-    resolveMenuData: (id: string): UnifiedIssueRowMenuData => {
+    resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {
       const value = pool.sidebar.row(id)
       if (!value || value === LOADING)
         return { single: [], all: [], poolInputs: value === LOADING ? LOADING : readIssueMenuPoolInputs(pool, []) }
@@ -269,7 +270,7 @@ export function createPoolWorkActions(
       // requested by the menu after their submenu becomes visible.
       const all = readIssueMenuOrigins(pool, single)
       return { single, all, poolInputs: readIssueMenuPoolInputs(pool, single) }
-    },
+    }),
   }
 }
 

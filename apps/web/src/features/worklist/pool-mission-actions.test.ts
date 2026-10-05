@@ -1,4 +1,6 @@
-import { expect, it, vi } from 'vitest'
+import { configureDevelopmentChecks } from '@podium/mobx-helpers'
+import { configure } from 'mobx'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { missionIndexStats } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -106,4 +108,19 @@ it('selects one mission without visiting unrelated resident keys at 1x/4x', asyn
   const first = await measured(1), second = await measured(4)
   console.info('scoped selection work 1x/4x', JSON.stringify({ first, second }))
   for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const) expect(second[counter]).toBe(first[counter])
+})
+
+let warnings: unknown[][] = []
+beforeEach(() => {
+  warnings = []
+  vi.spyOn(console, 'warn').mockImplementation((...args) => { warnings.push(args) })
+  configureDevelopmentChecks(true)
+})
+afterEach(() => {
+  try { expect(warnings.filter(args => String(args[0]).startsWith('[mobx]'))).toEqual([]) }
+  finally {
+    configure({ enforceActions: 'never', computedRequiresReaction: false,
+      reactionRequiresObservable: false, observableRequiresReaction: false })
+    vi.restoreAllMocks()
+  }
 })

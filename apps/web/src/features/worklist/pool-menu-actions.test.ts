@@ -1,7 +1,9 @@
+import { configureDevelopmentChecks } from '@podium/mobx-helpers'
+import { configure } from 'mobx'
 import { LOADING } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createPoolWorkActions } from './use-pool-unified-work'
 
 it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrelated history', () => {
@@ -136,6 +138,21 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
     expect(menu.poolInputs).toBe(LOADING)
   } finally {
     pool.dispose()
+    vi.restoreAllMocks()
+  }
+})
+
+let warnings: unknown[][] = []
+beforeEach(() => {
+  warnings = []
+  vi.spyOn(console, 'warn').mockImplementation((...args) => { warnings.push(args) })
+  configureDevelopmentChecks(true)
+})
+afterEach(() => {
+  try { expect(warnings.filter(args => String(args[0]).startsWith('[mobx]'))).toEqual([]) }
+  finally {
+    configure({ enforceActions: 'never', computedRequiresReaction: false,
+      reactionRequiresObservable: false, observableRequiresReaction: false })
     vi.restoreAllMocks()
   }
 })

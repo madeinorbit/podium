@@ -1,3 +1,4 @@
+import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { type ShellDockData, shellViews } from '@podium/client-graph/shell-views'
@@ -49,22 +50,26 @@ const EMPTY_DOCK: ShellDockData = {
   shipping: { unfinishedCount: 0, decisionCount: 0 },
 }
 export function useShellDock(includeIssues = false): ShellDockData {
+  if (import.meta.env.DEV) assertReactiveRead('useShellDock')
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).dock(includeIssues) : LOADING
   return value && value !== LOADING ? value : EMPTY_DOCK
 }
 export function useShellShipping() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellShipping')
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).shipping() : LOADING
   return value && value !== LOADING ? value : EMPTY_DOCK.shipping
 }
 
 export function useShellWindow() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellWindow')
   const pool = useWorklistPool()
   const value = pool?.row('shellWindow', 'window')
   return value === LOADING ? undefined : value
 }
 export function useShellApprovals() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellApprovals')
   const pool = useWorklistPool(),
     rows = pool ? shellViews(pool).approvals() : LOADING
   return rows && rows !== LOADING ? rows : EMPTY_APPROVALS
@@ -77,18 +82,18 @@ export function useShellLinks() {
     views = pool ? shellViews(pool) : null
   return useMemo(
     () => ({
-      readSession: (identifier: string) => {
+      readSession: (identifier: string) => allowImperativeRead(() => {
         const session = views?.linkedSession(identifier)
         return session && session !== LOADING ? session : undefined
-      },
-      readIssue: (identifier: string) => {
+      }),
+      readIssue: (identifier: string) => allowImperativeRead(() => {
         const issue = views?.linkedIssue(identifier)
         return issue && issue !== LOADING ? issue : undefined
-      },
-      artifactIssue: (id: string) => {
+      }),
+      artifactIssue: (id: string) => allowImperativeRead(() => {
         const row = views?.issue(id, true)
         return row && row !== LOADING ? (row as IssueViewModel) : undefined
-      },
+      }),
       pool,
     }),
     [pool, views],
@@ -97,26 +102,29 @@ export function useShellLinks() {
 export function useShellSessionResolver() {
   const pool = useWorklistPool()
   return useMemo(
-    () => (id: string) => {
+    () => (id: string) => allowImperativeRead(() => {
       const value = pool ? shellViews(pool).session(id) : undefined
       return value && value !== LOADING ? value : undefined
-    },
+    }),
     [pool],
   )
 }
 export function useShellSessions() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellSessions')
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).sessions() : LOADING
   return value && value !== LOADING ? value : EMPTY_SESSIONS
 }
 
 export function useShellClose() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellClose')
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).close() : LOADING
   return value && value !== LOADING ? value : undefined
 }
 const EMPTY_MACHINES: Store['machines'] = []
 export function useShellMachines() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellMachines')
   const pool = useWorklistPool()
   return pool ? shellViews(pool).machines() : EMPTY_MACHINES
 }
@@ -135,6 +143,7 @@ const EMPTY_CHROME = {
   colors: [] as IssueViewModel[],
 }
 export function useShellChrome() {
+  if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellViews(pool).chrome() : LOADING
   return value && value !== LOADING ? value : EMPTY_CHROME
