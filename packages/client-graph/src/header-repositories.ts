@@ -8,6 +8,7 @@ type Identity = {
   machineId: string | undefined; repoId: string | undefined
 }
 type Scope = { order: number; memberOrder: number; repoId: string | null }
+type RankedId = { id: string; rank: number }
 const scopeOrder = (a: Scope, b: Scope) => a.order - b.order || a.memberOrder - b.memberOrder
 const scopeKey = (path: string, machineId?: string) => JSON.stringify([path, 'machine', machineId ?? null])
 const anyScopeKey = (path: string) => JSON.stringify([path, 'any'])
@@ -17,8 +18,8 @@ const EMPTY: readonly string[] = []
  * table; queries address one path and its canonical repository group. */
 export function createHeaderRepositoryRelations() {
   const facts = observable.map<string, Identity>(undefined, { deep: false })
-  const paths = observable.map<string, readonly string[]>(undefined, { deep: false })
-  const groups = observable.map<string, readonly string[]>(undefined, { deep: false })
+  const paths = observable.map<string, KeyedAnswer<RankedId>>(undefined, { deep: false })
+  const groups = observable.map<string, KeyedAnswer<RankedId>>(undefined, { deep: false })
   const linked = observable.map<string, number>(undefined, { deep: false })
   const scopeAnswers = new Map<string, KeyedAnswer<Scope>>()
   const firstScopes = observable.map<string, Scope>(undefined, { deep: false })
@@ -27,9 +28,8 @@ export function createHeaderRepositoryRelations() {
   let positions: Map<string, number> | undefined
   let arrival = 0
   const rank = (id: string) => positions?.get(id) ?? facts.get(id)!.arrival
-  const ordered = (ids: readonly string[]) => [...ids].sort((a, b) => rank(a) - rank(b))
   const active = (id: string) => !positions || positions.has(id)
-  const eligible = (group: string) => (groups.get(group) ?? EMPTY).filter(id => !linked.has(facts.get(id)!.path))
+  const eligible = (group: string) => (groups.get(group)?.snapshot() ?? []).flatMap(({ id }) => linked.has(facts.get(id)!.path) ? [] : [id])
   function scopeMember(key: string, id: string, value?: Scope) {
     let answer = scopeAnswers.get(key)
     if (!answer) {
@@ -72,9 +72,13 @@ export function createHeaderRepositoryRelations() {
     dirtyScopes.clear()
   }
   function member(table: typeof paths, key: string, id: string, present: boolean) {
-    const previous = table.get(key) ?? EMPTY
-    const next = present ? ordered([...previous, id]) : previous.filter((value) => value !== id)
-    if (next.length) table.set(key, next)
+    const previous = table.get(key), before = previous?.get(id)
+    const at = present ? rank(id) : undefined
+    if (before?.rank === at) return
+    const next = previous?.fork() ?? createKeyedAnswer<RankedId>((a, b) => a.rank - b.rank)
+    if (present) next.set(id, id, { id, rank: at! })
+    else next.delete(id)
+    if (next.first()) table.set(key, next)
     else table.delete(key)
   }
   function contribute(id: string, fact: Identity, delta: 1 | -1) {
@@ -86,7 +90,7 @@ export function createHeaderRepositoryRelations() {
       if (count) linked.set(path, count)
       else linked.delete(path)
       if (!!before !== !!count)
-        for (const member of paths.get(path) ?? EMPTY) dirtyScopes.add(facts.get(member)!.group)
+        for (const member of paths.get(path)?.snapshot() ?? []) dirtyScopes.add(facts.get(member.id)!.group)
     }
   }
   return {
@@ -116,8 +120,6 @@ export function createHeaderRepositoryRelations() {
       const previous = positions
       const changed = new Set(previous ? [...previous.keys(), ...ids] : [...facts.keys(), ...ids])
       positions = next
-      const reorderPaths = new Set<string>(),
-        reorderGroups = new Set<string>()
       for (const id of changed) {
         const fact = facts.get(id)
         if (!fact) continue
@@ -125,27 +127,17 @@ export function createHeaderRepositoryRelations() {
           after = next.has(id)
         if (before !== after) contribute(id, fact, after ? 1 : -1)
         if (before && after && (previous?.get(id) ?? fact.arrival) !== next.get(id)) {
-          reorderPaths.add(fact.path)
-          reorderGroups.add(fact.group)
+          member(paths, fact.path, id, true)
+          member(groups, fact.group, id, true)
           dirtyScopes.add(fact.group)
         }
-      }
-      for (const key of reorderPaths) {
-        const before = paths.get(key)!
-        const after = ordered(before)
-        if (!compareStructural(before, after)) paths.set(key, after)
-      }
-      for (const key of reorderGroups) {
-        const before = groups.get(key)!
-        const after = ordered(before)
-        if (!compareStructural(before, after)) groups.set(key, after)
       }
       flush()
     },
     group(path: string): readonly string[] {
       if (linked.has(path)) return EMPTY
       const visited = new Set<string>()
-      for (const id of paths.get(path) ?? EMPTY) {
+      for (const { id } of paths.get(path)?.snapshot() ?? []) {
         const key = facts.get(id)!.group
         if (visited.has(key)) continue
         visited.add(key)
