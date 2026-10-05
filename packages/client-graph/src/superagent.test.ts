@@ -178,6 +178,8 @@ it('answers selected private backends through one owned row, with no catalog at 
     expect(ids.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([])
     expect(rows.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([['superThreads', 'global']])
     expect(f.source.counts.threadLists).toBe(0)
+    expect(f.source.related?.('superThread', 'global', 'session')).toEqual(['s-a'])
+    expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual(['global'])
     // A principal-foreign ID cannot cause a lookup RPC or acquire an owned row.
     expect(f.pool.row('superThread', 'foreign')).toBe(LOADING)
     await Promise.resolve()

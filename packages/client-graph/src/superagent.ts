@@ -127,6 +127,28 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       if (!compareStructural(this.rows.get(key), value)) this.rows.set(key, value)
     }
 
+    private thread(id: string, row: Store['superThreads'][number] | undefined) {
+      const before = this.rows.get(`superThread:${id}`) as Store['superThreads'][number] | undefined
+      for (const relation of SUPERAGENT_RELATIONS) {
+        const oldTarget = before?.[relation.key], target = row?.[relation.key]
+        if (oldTarget === target) continue
+        if (oldTarget) {
+          const inverse = `${relation.to}:${oldTarget}:${relation.inverse}`
+          const ids = (this.edges.get(inverse) ?? []).filter(member => member !== id)
+          if (ids.length) this.edges.set(inverse, ids)
+          else this.edges.delete(inverse)
+        }
+        const forward = `${relation.from}:${id}:${relation.name}`
+        if (target) {
+          this.edges.set(forward, [target])
+          const inverse = `${relation.to}:${target}:${relation.inverse}`
+          this.edges.set(inverse, [...(this.edges.get(inverse) ?? []), id])
+        } else this.edges.delete(forward)
+      }
+      if (row) this.set(`superThread:${id}`, row)
+      else this.rows.delete(`superThread:${id}`)
+    }
+
     private threads(next: Store['superThreads']) {
       this.counts.threadLists++
       const keep = new Set(next.map(row => row.id))
@@ -163,8 +185,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
           if (this.threadsDirty || [...this.addressedThreads].some(id => !this.loaded.has(`thread:${id}`))) {
             for (const id of this.addressedThreads) {
               const row = owner.listRow('superThreads', id)
-              if (row) this.set(`superThread:${id}`, row)
-              else this.rows.delete(`superThread:${id}`)
+              this.thread(id, row)
               this.loaded.add(`thread:${id}`)
             }
             if (!this.demanded.has('threads')) this.threadsDirty = false
