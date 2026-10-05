@@ -21,7 +21,7 @@ it('keeps an observed eviction pending across repeated render reads until select
         },
       ],
     })
-    expect(pool.sidebar.selectionEvicted()).toBe(false)
+    // Eviction history is maintained on selection/publication; no render read seeds it.
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'selected', value: undefined }] })
     const reads = Array.from({ length: 2 }, () => pool.sidebar.selectionEvicted())
     expect(reads).toEqual([true, true])

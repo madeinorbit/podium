@@ -5,6 +5,7 @@
   "license": "Apache-2.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@podium/mobx-helpers": "workspace:*",
     "@expo-google-fonts/geist": "^0.4.2",
     "@expo-google-fonts/geist-mono": "^0.4.3",
     "@expo/metro-runtime": "~57.0.14",

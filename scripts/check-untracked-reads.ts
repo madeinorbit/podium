@@ -24,25 +24,28 @@ export function scanUntrackedReads(file: string, source: string): UntrackedRead[
       if ((binding.propertyName ?? binding.name).text === 'untracked') aliases.add(binding.name.text)
   }
   const lines = source.split(/\r?\n/)
-  const reads = new Map<number, UntrackedRead>()
-  const visit = (node: ts.Node): void => {
+  const reads: UntrackedRead[] = []
+  const visit = (node: ts.Node, insideEscape = false): void => {
     if (ts.isCallExpression(node)) {
       const expr = node.expression
       const escape = ts.isIdentifier(expr) && aliases.has(expr.text)
         || ts.isPropertyAccessExpression(expr) && expr.name.text === 'untracked'
           && ts.isIdentifier(expr.expression) && namespaces.has(expr.expression.text)
       const peek = node.arguments.some(arg => ts.isStringLiteral(arg) && arg.text === 'peek')
-      if (escape || peek) {
-        const line = ast.getLineAndCharacterOfPosition(node.getStart(ast)).line
+      if (escape || (peek && !insideEscape)) {
+        const position = ts.isPropertyAccessExpression(expr) ? expr.name.getStart(ast) : node.getStart(ast)
+        const line = ast.getLineAndCharacterOfPosition(position).line
         // A nested peek in an untracked call shares that call site's tag.
         const comment = /^\s*\/\/ untracked-read: ([a-z][a-z0-9-]*)\s*$/.exec(lines[line - 1] ?? '')
-        reads.set(line, { file, line: line + 1, tag: comment?.[1] })
+        reads.push({ file, line: line + 1, tag: comment?.[1] })
       }
+      ts.forEachChild(node, child => visit(child, insideEscape || escape))
+      return
     }
-    ts.forEachChild(node, visit)
+    ts.forEachChild(node, child => visit(child, insideEscape))
   }
   visit(ast)
-  return [...reads.values()]
+  return reads
 }
 
 export function inventoryErrors(reads: readonly UntrackedRead[], inventory = UNTRACKED_READS): string[] {

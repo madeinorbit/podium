@@ -53,3 +53,25 @@ untracked(read)
 `)
   expect(reads[0]?.tag).toBeUndefined()
 })
+
+it('counts independent reads on one line and shares a multiline nested peek with its escape', () => {
+  const reads = scanUntrackedReads('example.ts', `
+// untracked-read: first
+untracked(read); untracked(other)
+// untracked-read: nested
+untracked(() =>
+  pool.row('issue', id, 'peek'))
+`)
+  expect(reads).toHaveLength(3)
+  expect(inventoryErrors(reads, { first: 'First reason.', nested: 'Nested reason.' }))
+    .toEqual([expect.stringContaining('duplicate call-site tag first')])
+})
+
+it('finds tags on chained peek reads at the method call', () => {
+  const reads = scanUntrackedReads('example.ts', `
+const rows = pool.queries.indexed(question)
+  // untracked-read: spawn-sort-peek
+  .map(id => pool.row('issue', id, 'peek'))
+`)
+  expect(reads).toEqual([{ file: 'example.ts', line: 4, tag: 'spawn-sort-peek' }])
+})

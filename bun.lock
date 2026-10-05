@@ -86,6 +86,7 @@
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
+        "@podium/mobx-helpers": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/sync": "workspace:*",
@@ -202,6 +203,7 @@
         "@podium/commands": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
+        "@podium/mobx-helpers": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
@@ -306,6 +308,7 @@
       "dependencies": {
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
+        "@podium/mobx-helpers": "workspace:*",
         "@podium/mobx-helpers": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
