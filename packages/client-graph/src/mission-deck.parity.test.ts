@@ -1,6 +1,7 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
 import { missionRootFor, type HandoffNowEntry } from '@podium/client-core/values'
+import { asIssueId } from '@podium/model/browser'
 import { dedupeSessions } from '../diagnostics/reference-state'
 import { allIssueViewModels } from '../diagnostics/reference/issue-view-models'
 import { checkMissionView } from '../diagnostics/mission-view-check'
@@ -37,7 +38,7 @@ for (const scale of [1, 4] as const) it(`matches the synthetic mission and graft
     // Render the corpus's large mission, then the addressed graft/resume
     // regressions. The old reference scans the world for each selected root;
     // enumerating every unrelated leaf makes this guard quadratic in scale.
-    const selected = scale === 1 ? ['i0', 'i292', 'i2696'] : ['i0', 'i11616', 'i11834']
+    const selected = (scale === 1 ? ['i0', 'i292', 'i2696'] : ['i0', 'i11616', 'i11834']).map(asIssueId)
     for (const id of selected) expect(issues.some(issue => issue.id === id), `corpus regression ${id}`).toBe(true)
     const roots = new Set(selected.map(id => missionRootFor(issues, id)?.id))
     for (const root of roots) for (const mode of ['full', 'working', 'needs-you'] as const) {
