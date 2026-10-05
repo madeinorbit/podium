@@ -4,7 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { dirname, join, posix, relative } from 'node:path'
+import { join, posix, relative } from 'node:path'
 import ts from 'typescript'
 
 export const INTERACTION_ROOTS = [
@@ -23,7 +23,7 @@ const SCALARS = new Set(['count', 'counts', 'activity', 'has', 'contains', 'revi
 
 type Fn = ts.FunctionLikeDeclaration & { body: ts.ConciseBody }
 type Scope = { parent?: Scope; bindings: Map<string, Binding>; fn?: Fn }
-type Binding = { node: ts.Node; init?: ts.Expression; path?: string[]; imported?: { file: string; name: string }; namespace?: string }
+type Binding = { node: ts.Node; init?: ts.Expression; writes?: ts.Expression[]; path?: string[]; imported?: { file: string; name: string }; namespace?: string }
 type Origin = { file: string; holder: string; rule: string; tokens: string; gate: string[] }
 type Value = { origins: Set<string>; fields: Map<string, Value>; callable?: Fn; closure?: Context; literal?: ts.Expression }
 type Context = Map<ts.Node, Value>
@@ -66,7 +66,7 @@ export function normalized(node: ts.Node): string {
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.JSX, node.getText())
   const tokens: [number, string][] = []
   for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
-    tokens.push([token, scanner.getTokenValue() || scanner.getTokenText()])
+    tokens.push([token, [ts.SyntaxKind.Identifier, ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NumericLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral, ts.SyntaxKind.TemplateHead, ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail].includes(token) ? scanner.getTokenValue() : scanner.getTokenText()])
   }
   return JSON.stringify(tokens)
 }
@@ -138,8 +138,6 @@ export function scanSources(sources: Record<string, string>): Scan[] {
   const fileScopes = new Map<string, Scope>()
   const exports = new Map<string, Map<string, Binding>>()
   const stars = new Map<string, string[]>()
-  const bindings: Binding[] = []
-  const functions: Fn[] = []
   const candidates: ts.Node[] = []
   const resolveModule = (from: string, module: string): string | undefined => {
     let base = module.startsWith('.') ? posix.normalize(posix.join(posix.dirname(from), module)) : module.replace(/^@podium\/(client-core|client-graph)(?:\/|$)/, 'packages/$1/src/')
@@ -150,7 +148,7 @@ export function scanSources(sources: Record<string, string>): Scan[] {
   const declare = (pattern: ts.BindingName, node: ts.Node, scope: Scope, init?: ts.Expression, path: string[] = []): void => {
     if (ts.isIdentifier(pattern)) {
       const binding: Binding = { node, init, path }
-      scope.bindings.set(pattern.text, binding); bindings.push(binding)
+      scope.bindings.set(pattern.text, binding)
     } else for (const element of pattern.elements) if (ts.isBindingElement(element)) {
       declare(element.name, element, scope, init, [...path, name(element.propertyName ?? element.name) || String(pattern.elements.indexOf(element))])
     }
@@ -186,7 +184,6 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       if ((ts.isFunctionLike(node) && 'body' in node && node.body) || ts.isBlock(node) || ts.isCatchClause(node) || ts.isForStatement(node) || ts.isForOfStatement(node) || ts.isForInStatement(node)) {
         inner = { parent: scope, bindings: new Map(), fn: ts.isFunctionLike(node) ? node as Fn : undefined }
         if (ts.isFunctionLike(node) && 'body' in node && node.body) {
-          functions.push(node as Fn)
           for (const parameter of node.parameters) declare(parameter.name, parameter, inner, parameter.initializer)
           if ((ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node)) && node.name) inner.bindings.set(node.name.text, { node })
         }
@@ -217,6 +214,18 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     if (binding) return binding
     for (const target of stars.get(file) ?? []) { const found = exported(target, key, seen); if (found) return found }
     return undefined
+  }
+  // Resolve writes only after every lexical declaration is known, so a later
+  // block-local declaration shadows an outer collection even before its TDZ.
+  for (const ast of files.values()) {
+    const writes = (node: ts.Node): void => {
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left)) {
+        const binding = lookup(node.left, node.left.text)
+        if (binding) (binding.writes ??= []).push(node.right)
+      }
+      ts.forEachChild(node, writes)
+    }
+    writes(ast)
   }
   const originDetails = new Map<string, Origin>()
   const hits = new Map<string, Scan>()
@@ -255,6 +264,7 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     else if (ts.isFunctionLike(binding.node) && 'body' in binding.node && binding.node.body) value = { ...empty(), callable: binding.node as Fn, closure: context }
     else if (ts.isParameter(binding.node) && (COLLECTION.test(binding.node.name.getText()) || (binding.node.type && DOMAIN.test(binding.node.type.getText()) && /(?:\[\]|Array|Map|Set|Record)/.test(binding.node.type.getText())))) value = acquisition(binding.node, 'collection-input')
     else value = empty()
+    for (const write of binding.writes ?? []) value = merge(value, evaluate(write, context))
     for (const key of binding.path ?? []) value = value.fields.get(key) ?? { ...value, callable: undefined }
     bindingBusy.delete(binding)
     return value
@@ -302,7 +312,7 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       for (const property of node.properties) {
         if (ts.isPropertyAssignment(property)) value.fields.set(name(property.name), evaluate(property.initializer, context))
         if (ts.isShorthandPropertyAssignment(property)) value.fields.set(property.name.text, evaluate(property.name, context))
-        if (ts.isMethodDeclaration(property) && property.body) value.fields.set(name(property.name), { ...empty(), callable: property as Fn, closure: context })
+        if ((ts.isMethodDeclaration(property) || ts.isGetAccessorDeclaration(property)) && property.body) value.fields.set(name(property.name), { ...empty(), callable: property as Fn, closure: context })
         if (ts.isSpreadAssignment(property)) value = merge(value, evaluate(property.expression, context))
       }
       value.literal = node
@@ -320,7 +330,10 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       const base = evaluate(field.base, context)
       const namespace = ts.isIdentifier(field.base) ? lookup(field.base, field.base.text)?.namespace : undefined
       if (namespace) value = evalBinding(exported(namespace, field.key), context)
-      else if (base.fields.has(field.key)) value = base.fields.get(field.key)!
+      else if (base.fields.has(field.key)) {
+        value = base.fields.get(field.key)!
+        if (value.callable && ts.isGetAccessorDeclaration(value.callable)) value = invoke(value, [], context)
+      }
       else if (['length', 'size'].includes(field.key)) value = empty()
       else if (COLLECTION.test(field.key) && !base.origins.size) value = acquisition(node, 'collection-property')
       else if (field.key && SCALARS.has(field.key)) value = empty()
@@ -338,10 +351,11 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       const kindProperty = question && ts.isObjectLiteralExpression(question) ? question.properties.find(p => ts.isPropertyAssignment(p) && name(p.name) === 'kind') as ts.PropertyAssignment | undefined : undefined
       const kindValue = kindProperty ? evaluate(kindProperty.initializer, context).literal : undefined
       const kind = kindValue ? name(kindValue) : ''
-      if (['ids', 'readerIds', 'queryIds'].includes(method) && !ADDRESSED.has(kind)) value = acquisition(node, kind ? `question:${kind}` : 'dynamic-question')
+      if (['collection', 'rows', 'subscribeRows', 'table'].includes(method) && (DOMAIN.test(kindValue ? name(kindValue) : '') || (args[0]?.literal && DOMAIN.test(name(args[0].literal))))) value = acquisition(node, `collection:${method}`)
+      else if (['ids', 'readerIds', 'queryIds'].includes(method) && !ADDRESSED.has(kind) && !callee.callable) value = acquisition(node, kind ? `question:${kind}` : 'dynamic-question')
       else if (['issues', 'sessions'].includes(method) && !node.arguments?.length && (field || !callee.callable)) value = acquisition(node, `zero-arg:${method}`)
       else if (/^(?:all|known|resident)/i.test(method) && DOMAIN.test(method) && !callee.callable) value = acquisition(node, `enumerator:${method}`)
-      else if (['keys', 'values', 'entries', 'forEach'].includes(method) && origins(receiver).size) value = merge(acquisition(node, `enumerate:${method}`), receiver)
+      else if (['keys', 'values', 'entries', 'forEach'].includes(method) && (origins(receiver).size || origins(callee).size)) value = merge(acquisition(node, `enumerate:${method}`), receiver, callee)
       else if (field && ts.isIdentifier(field.base) && field.base.text === 'Object' && !lookup(field.base, 'Object') && ['keys', 'values', 'entries'].includes(method) && args[0] && origins(args[0]).size) value = merge(acquisition(node, `enumerate:Object.${method}`), args[0])
       else if (SCALARS.has(method) || (['ids', 'readerIds', 'queryIds'].includes(method) && ADDRESSED.has(kind))) value = empty()
       else if (callee.callable) value = invoke(callee, args, context)
@@ -351,9 +365,9 @@ export function scanSources(sources: Record<string, string>): Scan[] {
         record(node, 'bounded-window', origins(receiver)); value = empty()
       } else {
         const callbackResults = args.filter(argument => argument.callable).map(argument => invoke(argument, [], context))
-        value = merge(receiver, ...args, ...callbackResults)
+        value = merge(receiver, callee, ...args, ...callbackResults)
       }
-      const taint = origins(receiver)
+      const taint = origins(merge(receiver, callee))
       if (CONSUMERS.has(method)) record(node, `consume:${method}`, taint)
       if ((ts.isNewExpression(node) && ['Map', 'Set'].includes(method) && !lookup(node.expression, method)) || (field?.key === 'from' && ts.isIdentifier(field.base) && field.base.text === 'Array' && !lookup(field.base, 'Array'))) record(node, `materialize:${method}`, args[0] ? origins(args[0]) : [])
       if (!CONSUMERS.has(method) && !SCALARS.has(method)) for (const argument of args) record(node, 'forward-collection', origins(argument))
