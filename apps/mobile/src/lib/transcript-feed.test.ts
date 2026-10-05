@@ -115,11 +115,14 @@ describe('mobile transcript feed', () => {
     expect(hidden.rows.map((row) => row.kind)).toEqual(['tools', 'answer'])
     expect(hidden.positionOfKey('ask')).toBeUndefined()
     expect(hidden.positionOfKey('a1')).toBe(1)
+    const askBlock = model.rows[1]!.blockIndices[0]!
+    expect(hidden.rowsForBlock(askBlock)).toEqual([])
     const receipt = buildMobileTranscript([{ ...ask, toolResult: 'Done' }], {
       hiddenQuestionId: 'ask',
     })
     expect(receipt.rows[0]?.kind).toBe('receipt')
     expect(receipt.positionOfKey('ask')).toBe(0)
+    expect(receipt.rowsForBlock(0)).toEqual([0])
     const duplicate = buildMobileTranscript([
       item('same', 'assistant', 'First'),
       item('same', 'assistant', 'Second'),
