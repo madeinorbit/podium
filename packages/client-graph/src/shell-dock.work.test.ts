@@ -9,8 +9,17 @@ import type { HeaderRows } from './header-schema'
 import { shellViews } from './shell-views'
 import { LOADING } from './worklist/rollup'
 
+function dockFixture() {
+  const f = shellFixture()
+  // Production issue paths join through the authoritative repo companion.
+  // Keep this input local: the legacy parity fixture is owned by POD-5667.
+  f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: 'shell-repo',
+    value: { id: 'shell-repo', prefix: 'SYN', repoPath: '/synthetic/project' } }] as never })
+  return f
+}
+
 function fixture(scale: 1 | 4) {
-  const f = shellFixture(40)
+  const f = dockFixture()
   const count = 128 * scale
   // Every issue competes at the active path. The winner remains the named
   // issue; reading a containing-candidate bucket is still collection work.
@@ -146,7 +155,7 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
 })
 
 it('preserves dock scope path, group order, machine, linked scan and fallback semantics', () => {
-  const f = shellFixture(), views = shellViews(f.pool)
+  const f = dockFixture(), views = shellViews(f.pool)
   const root = f.state().repos[0]!
   const repos = [
     { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone/base' }] },
@@ -183,7 +192,7 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
 })
 
 it('tracks active session cwd and attachment changes and keeps explicit file git precedence', () => {
-  const f = shellFixture(), views = shellViews(f.pool)
+  const f = dockFixture(), views = shellViews(f.pool)
   const values: unknown[] = [], stop = autorun(() => values.push(views.dock()))
   try {
     const selected = { ...f.sessions[0]!, cwd: '/undiscovered/sub', issueId: f.issues[2]!.id }
