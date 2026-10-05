@@ -7415,13 +7415,13 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/check/callback",
       "rule": "helper-consumer",
-      "tokens": "dee949333312b2b57963cce8b6066e25a2e74cdef8db7dd4badf487734330c68",
+      "tokens": "012eea82587a2ef8d075a275e768ec26a2b86a48de3fb8674c34d3c55bd5501c",
       "gate": [],
       "origin": [
         "08a96a87f2785e6ba9f4b3e474c3f180d6edbb7fa8d3b393b9a3fe5cb4634546",
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "80704251c934b86da701f0e1f362e16381fa5c73e21edf16067cc45747237228",
+      "fingerprint": "eb75e089f55b26bc912412ce32e980bb948a17272dc1e88ecb995ea8e90e5d26",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7689,13 +7689,13 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/setSessionDraft/callback",
       "rule": "spread",
-      "tokens": "1347da27b1537e0884b19d12edcb4e06e86edab77829fd93194a62a4303470e3",
+      "tokens": "60f04213d1083ddb766cc6f268c1d721d48976335f83681be1991e4abe7352e3",
       "gate": [],
       "origin": [
         "08a96a87f2785e6ba9f4b3e474c3f180d6edbb7fa8d3b393b9a3fe5cb4634546",
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "2f255d652b004ea7590a1b4eacd442274f62436cfe21d7fd9e6a7db77db9c9ae",
+      "fingerprint": "99dda39117f76de95e31dae50db54f809d33b25a7ae40250afec9d77cbeca0a3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7708,12 +7708,12 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/updateDraft",
       "rule": "helper-consumer",
-      "tokens": "d777ee0945eec4f2ec1e4b97cd970ebd5c95cd336625957204a65d3862906d93",
+      "tokens": "1f5c2078381cd5a2d7861da43e4eea5a0e1bc73921974fad493c45f3bdc915bf",
       "gate": [],
       "origin": [
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "99d667e9f1899014fb0ea12a499a64637580dd8a20be861e4dc0e8136e0207b2",
+      "fingerprint": "4216d7fad927f7b32f1730e7c78c15abd992404f1852d176c0d1f33b408b884a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7778,14 +7778,14 @@
     },
     {
       "file": "apps/web/src/features/chat/ChatComposer.tsx",
-      "holder": "ChatComposer/issueOptions",
+      "holder": "ChatComposer/ChatComposer/issueOptions",
       "rule": "reader-summary",
       "tokens": "e388d08d88be15371f620cdc527c54bc8c94c841fd021992cb71944af2ebca1d",
       "gate": [],
       "origin": [
         "b42eb2b2fae1aedbe5a23e06bc5ccef8257c0a0f66c4deda862007a1b3b5d050"
       ],
-      "fingerprint": "44cd2d7cac284539a7a7ac344c240512f7a22a2f6ed0fa71c747c8a2a08119a6",
+      "fingerprint": "8bb30ac52a525402c9b02d1486f3bc027247d2fe6e92bf82b2525a2bb6692d3c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7796,14 +7796,14 @@
     },
     {
       "file": "apps/web/src/features/chat/ChatComposer.tsx",
-      "holder": "ChatComposer/options/useMemo:callback",
+      "holder": "ChatComposer/ChatComposer/options/useMemo:callback",
       "rule": "spread",
       "tokens": "8ae93114b3eb5c628e961900f02bcd0e1098fcc1b06522b5467113eacbcd8fbb",
       "gate": [],
       "origin": [
         "b42eb2b2fae1aedbe5a23e06bc5ccef8257c0a0f66c4deda862007a1b3b5d050"
       ],
-      "fingerprint": "4482ddcd4dbbc668f4c3b14b66c001b47206db10a8e4e038cf1f4308ec5f280c",
+      "fingerprint": "d0cb5e0133d7fd83c63c80cf9ca9d8e90d59346ed748eb5f288445d7e1a9ecf5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7814,22 +7814,16 @@
     },
     {
       "file": "apps/web/src/features/chat/ChatView.tsx",
-      "holder": "ChatView/chat",
+      "holder": "ChatView/conversation",
       "rule": "reader-summary",
-      "tokens": "b89a7cc72f4347deed5f9eab29409f114922c2275b5448dd0ec52d1a613f946c",
+      "tokens": "5647394889f2f1327141cfc2dd1715c9d7824dec043622c484681c3773f0a147",
       "gate": [],
       "origin": [
-        "25611251a56f050459adaeaff003b24c5ba0a187f7b51d9168a87ac05fee5bb8",
-        "2c027cea35cc155a449642f0ab739ddffe4f2ef7950b3f35dee558388bd44674",
-        "42f057b5884120f635275e1de0227d6ee791a3185bc57925c7f944f9b69c4888",
-        "4cfb80d798ee7f600ed75d1de040a27cbf9922d9e352df1e9288038bbc7300f8",
-        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172",
-        "62272641337649fd372e31acf89dd9cd34d21f355c6bd1906691137d4aa0b6b4",
-        "8ce34a5a460c298b623e3fe2e09c597c200ddfdf910f15cfc84b4c448d65fac3",
-        "aa0445dd461168de2253b1031e02428de7f9bf692f3985b9e14d26951b7e2a2f",
-        "bc2f21134beb75ef9f747076e0fbf24b03ea37ae11a0522ab5440bb2c84f6cc9"
+        "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
+        "61394c5858feb778b7495e95dc1eeacc5803c6537780b29e1ae90770e146ed07",
+        "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d"
       ],
-      "fingerprint": "dce91a9ad614fadbfea5697f0234ccd860a8479c365fcce5309d3a05579a9b07",
+      "fingerprint": "aed88a9cf3771a9c961df39e6c15447e5e505a6b14890d69831bfef97ff1ac05",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7917,15 +7911,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/use-chat-context.ts",
+      "file": "apps/web/src/features/chat/test-support/conversation-ports.ts",
       "holder": "useChatConversationPorts/useLayoutEffect:callback",
       "rule": "helper-consumer",
       "tokens": "e647e6a99de72070cec16f74e80ee824780328f5551254708d509e33116fb689",
       "gate": [],
       "origin": [
-        "8ce34a5a460c298b623e3fe2e09c597c200ddfdf910f15cfc84b4c448d65fac3"
+        "3a9d65e191b03acd36af003a1ff49536c0e0b72cbb2ed394da7d73a9d8e29ac7"
       ],
-      "fingerprint": "039c717c82770b09352ec795f091d38c7749b7199aff561f8b8736e0bfde2fbb",
+      "fingerprint": "4a7aa36d086f97d4bbc64dcd77f5009b4a94b7759e3a89b6d9fae5daf162d606",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7935,35 +7929,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/use-chat-send.ts",
-      "holder": "useChatSend/interruptDelivery/useCallback:callback/refused",
+      "file": "apps/web/src/features/chat/test-support/model-send.ts",
+      "holder": "useModelSend/ports",
       "rule": "reader-summary",
-      "tokens": "47e58dfb1e2b6335a1c2e75e7ee8a667a30be8112b22694d0502b7a995763461",
-      "gate": [
-        "exit:then:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
-      ],
-      "origin": [
-        "62272641337649fd372e31acf89dd9cd34d21f355c6bd1906691137d4aa0b6b4"
-      ],
-      "fingerprint": "91fecaa299cd312433f14b0e46d00ae6c4ac6026d532b46e31e175248869034c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatSend/interruptDelivery/useCallback:callback/refused",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-send.ts",
-      "holder": "useChatSend/ports",
-      "rule": "reader-summary",
-      "tokens": "c0ed983e80ed61c6653550b98fc1172d60f52f0526ee0209db096eaed504e16a",
+      "tokens": "3d6af25bd7f2dd82c81b840739fda07683c9b82dec84775b8c32aa8d35912c6b",
       "gate": [],
       "origin": [
-        "8ce34a5a460c298b623e3fe2e09c597c200ddfdf910f15cfc84b4c448d65fac3"
+        "3a9d65e191b03acd36af003a1ff49536c0e0b72cbb2ed394da7d73a9d8e29ac7"
       ],
-      "fingerprint": "f56dd62ac8d0b9d6a88f1be7f25c5c6da538719e06ba10efcdbb815526443d2a",
+      "fingerprint": "c68c39e2b913375acf6cf9818b919c038b61eef1505e0efe326a3201adf2e3ca",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7973,15 +7947,16 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/use-chat-surface.ts",
-      "holder": "useChatSurface",
+      "file": "apps/web/src/features/chat/ChatView.tsx",
+      "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "4e70762e2ece30befbe26f69757ba996097e6c738a0f53d94adcc680824a9780",
+      "tokens": "4255f7f76257602339eb47f3a0361c9ddca75c03bcc15354acf66f0b0f7ee1f8",
       "gate": [],
       "origin": [
-        "42f057b5884120f635275e1de0227d6ee791a3185bc57925c7f944f9b69c4888"
+        "3867b12a3065faa4384a2fe935624b5db4eef30898c33bb8fc7a22b6d96dbc2e",
+        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
       ],
-      "fingerprint": "deb3c364253eaa3c497bdec87976c173ab4dcceeb05878278dfbee56485dc34b",
+      "fingerprint": "96906d452e16cb765955b0ec0e24e63616109540dd1e09623a734df5a10f9894",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7991,42 +7966,19 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/use-chat-surface.ts",
-      "holder": "useChatSurface/attachments",
+      "file": "apps/web/src/features/chat/use-chat-layout.ts",
+      "holder": "useChatLayout/attachments",
       "rule": "reader-summary",
       "tokens": "f6cbe29c9003ac9e3d135955ae4765468c9cf902318dc0656a736a06ca3d3df0",
       "gate": [],
       "origin": [
         "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
       ],
-      "fingerprint": "0697be0270733d6d1964c3ca8207656e0c9c93ac73c37ac26264c06928185056",
+      "fingerprint": "18f7f7969b97f75e9488ee6fcc9f6a5967852fcd4ec1620d84c03f9868d4734d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useChatSurface/attachments",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-surface.ts",
-      "holder": "useChatSurface/send",
-      "rule": "reader-summary",
-      "tokens": "dd899c55a4e777dc7494e925ea7e1000f9f81446d1e04b25cf0208d8c0e8988d",
-      "gate": [],
-      "origin": [
-        "25611251a56f050459adaeaff003b24c5ba0a187f7b51d9168a87ac05fee5bb8",
-        "2c027cea35cc155a449642f0ab739ddffe4f2ef7950b3f35dee558388bd44674",
-        "4cfb80d798ee7f600ed75d1de040a27cbf9922d9e352df1e9288038bbc7300f8",
-        "62272641337649fd372e31acf89dd9cd34d21f355c6bd1906691137d4aa0b6b4",
-        "8ce34a5a460c298b623e3fe2e09c597c200ddfdf910f15cfc84b4c448d65fac3",
-        "aa0445dd461168de2253b1031e02428de7f9bf692f3985b9e14d26951b7e2a2f"
-      ],
-      "fingerprint": "8783b6a47e43f0beeac5d07794e8fb115d152218bac6f4cfd00bd541227deb53",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatSurface/send",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -16984,14 +16936,14 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/state",
+      "holder": "useFixturePool/input/state",
       "rule": "spread",
       "tokens": "ddb00639b8a75f84ec8256e74e031a9e616cc949b99354e720748a7d7da8acb1",
       "gate": [],
       "origin": [
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "1a9fc427dc0d5e309939fe271738dc969da34f14db86333437a11be46e22d897",
+      "fingerprint": "7572c0962f351dfeb6cbfd55c6b4846789d17c98123ccad136ac45673effed65",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17002,68 +16954,14 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/interactions/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "56912d2138a0e2ba59c46dd9a108d17dadad8e0971d7c9f21ac751ee73b2606e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/interactions/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/machines/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "c8a92db8058f81a900b363c24cab2044f045d668119acaf577cf52141f03bd06",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/machines/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/messages/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "4f965d0aa2569a4875843b3c0a496bf6cf005cf82de4747b4228e855ada0af94",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/messages/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/queries/activity/callback/usage",
       "rule": "helper-consumer",
       "tokens": "23c3c83bc7ab9da05f12a2dd5f55e73b271706fbe106585b98594450967fc033",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "987392b9c195b11ffbe013fa4e9cc8d90530b02cdd77768093621c36b0c1b023",
+      "fingerprint": "ae30eadc72978879f63af2d162328e212f6ac64f6f2417e3981c0dadc731fc29",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17079,9 +16977,9 @@
       "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "b49ede748f5855efc0636f72f23188226c09b7f18e69006e08c7fbfe4d8a2a84",
+      "fingerprint": "f157ab105bfcad097fd7054edb1d9a920497fb4af0a9555cb4e61af3198793de",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17094,15 +16992,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/queries/ids/callback",
       "rule": "consume:map",
-      "tokens": "8fd6fbbeede01ef647c497c637b8b0bb2abf26ae9a2971735cc653f42a7a9320",
+      "tokens": "8394fb5e68d9dc22db81f0530bb5dbe67ea01bac9fe6b98e8bcf5a503ea773e7",
       "gate": [
         "then:56f089113dc87b4f6d48772547e5e4f2f45de35e058b23d01a918951267ef754"
       ],
       "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+        "108db4795cb373320091b36ae4710f20597f2ab09644298c9447d14e7ed5d427"
       ],
-      "fingerprint": "5c54babbb356091ae83a4ab2a1825c8ec8323f0c9fbdb52ddd7f13a61ebf2df0",
+      "fingerprint": "028108ed801343fdc1d326a683d79d0975ff79eb6790b8e50227ab1f84111120",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17120,9 +17017,9 @@
         "else:56f089113dc87b4f6d48772547e5e4f2f45de35e058b23d01a918951267ef754"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "da5f9b1fc45ee77a236da4f18e674e3ff0a35ff188250274ea70a87b8f47f72a",
+      "fingerprint": "1c03a966768b66e783f65c37973868d4f91f15a4ec75432d98d4228cceecf049",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17140,9 +17037,9 @@
         "else:56f089113dc87b4f6d48772547e5e4f2f45de35e058b23d01a918951267ef754"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "ea6c0d7871a4fa04c0b1ac9b286ec27594cb62ebe1dedb7c03545ddac665812e",
+      "fingerprint": "2aa68d24c9fb3afb56d9d2651c1109426eb48f46d4b7cab0f0e36f8b61d9cbaf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17158,9 +17055,9 @@
       "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "2bf14cbb56bf0505e4aaba0a3e0de130515e238bd795873679ebb28eacb5d400",
+      "fingerprint": "e2312d3cc9d1fb140b64b563a6c6339f2cff8a186244ff092db81831ddf71a18",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17176,9 +17073,9 @@
       "tokens": "098815b7a51ae2ab45d65ba72740ef9cad0c3266a54e9deab77b9ce09e2c9fbd",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "5c082160f217123ef9a09be89af2bf4708a830d6aa59a49f47effec33e3b7973",
+      "fingerprint": "5dece3fb7f382e2e25d4503effc0e982c4facd19ba29b042b2fb313fbcc0bf8d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17194,9 +17091,9 @@
       "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "b2f12c0e3f762d3e03baf1bbd4ec64286198b87f218c652a9b5d9644f38a23bb",
+      "fingerprint": "3a8a9ea99d6682b7dec73715a7cc373648dd55c863ede7482e6a413dd361d822",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17212,9 +17109,9 @@
       "tokens": "01300bd9af794bc45a24253b74786aa1cce9da53f0425653d19f71d55c14a28a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "c4bc696a5e2d5a4883e9dddb2b07b37b3d90d77e61f0265712718e91ede8989a",
+      "fingerprint": "d6df5840687f0398801740aebbb0986cb4b5280b2e329b11f616923841d07db4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17227,15 +17124,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/relations/one",
       "rule": "consume:find",
-      "tokens": "f47158a6dadb2e91a5ec3f515070b83bc5637f1c4d8a5ab406bc4736d83fa4b1",
+      "tokens": "c8fcfd9c61e97db151b49494db848ec3f5ee7838ebcc0cfa411ab9eec9b7e82b",
       "gate": [
         "then:8c116642ce7feb9c08410acc5d08c9925a43402f881c086d363b2124ef0a3979"
       ],
       "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+        "7dd69102ce93127148f25a4ac2bb36f83e2d882230d0007ce2fe0923cfe35458"
       ],
-      "fingerprint": "079a7fde5f4f02af0a5f5fab160481cf1e74b8273236c86049aa03290ad2b648",
+      "fingerprint": "4eddcf727ad33fbf540c7a5bf40ac0a608dea7bcaa4265dc6ba7fab1e9e9e4e4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17248,16 +17144,15 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/relations/one",
       "rule": "consume:find",
-      "tokens": "85e49d74166e53786474b1c550b3765c47beaab90dbc3a3ae9ea8c97e992b04a",
+      "tokens": "c16174b8236496e3c31f739ec2c59be71e3cc13278053fcef7c27a5046119b97",
       "gate": [
         "exit:then:8c116642ce7feb9c08410acc5d08c9925a43402f881c086d363b2124ef0a3979",
         "then:58ed107f08ee595f2cd9fac8ffcf6d5d23e5ae8a71b503267f619346e1a0c578"
       ],
       "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+        "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f"
       ],
-      "fingerprint": "f63413fcada205759d94a4e2eabd7562e54910487ed44260362c3576308458e3",
+      "fingerprint": "68e09cfe00d2b98366ecf62a10a07d2f17c8fde048ca55c99f240946d05cadf9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17270,16 +17165,15 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/row",
       "rule": "consume:find",
-      "tokens": "f47158a6dadb2e91a5ec3f515070b83bc5637f1c4d8a5ab406bc4736d83fa4b1",
+      "tokens": "c8fcfd9c61e97db151b49494db848ec3f5ee7838ebcc0cfa411ab9eec9b7e82b",
       "gate": [
         "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
         "case:cc8364be024cc4ed75d7c7c1d8d08092ae017ea7d682f44d5c2d22894889c9e2"
       ],
       "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+        "79df9ce0fb282efa78e48c29a0d005297550152334690e9da3dbea8a95fa766d"
       ],
-      "fingerprint": "0dca42f966a384535270cd6fa4c895c5a5a7221550284108ea153b9670d20b76",
+      "fingerprint": "5b84b0c224df87c30b701dd9bb51df264c97b552d95ca4b4a7a2b0c1e850f987",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17299,51 +17193,9 @@
         "else:6d402f1a672f1cdb01c33258b5bb81860235ab5fe9c42f781a0dcc718b32aaa2"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "1abf03ae4f92445cbfc523c48614b6e457c18498b2fa33e84fbe649162376a02",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:916f18d2c44ddc31b62999e9fcd17591edd158359e81bb8e90108d1b670f470d"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "6252418f01978e028cda4fe1d2c8afdec4b55f5a7c105b5bae67c9413e0af3c7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:c777dc3f8132a867105b2a626f1179b30da78a5d6308308779ba0ff2e5baae48"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "6e2db96bc24ea98049a654c8b01da648e00b18d97722f90e6d577c0a006e06ef",
+      "fingerprint": "c962b5d37da0df25274f5fcd22fa360153ce9f1cb4ec2946dce13e3dd873a7fb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17362,9 +17214,9 @@
         "case:b11d7da581082f1768b9d75b7f8aa800bb50a2fc4fba6f432d030d24ad7ff6f8"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "e90b2541131ed320e6d1e87183ca5396a2c90b346d9e2aae5df6711a60469c1f",
+      "fingerprint": "17336a4ae8da3fefa0e4619acafdc93d4288b351a8b2f7b81ad8c5dcc6cf75ef",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17383,9 +17235,9 @@
         "case:b11d7da581082f1768b9d75b7f8aa800bb50a2fc4fba6f432d030d24ad7ff6f8"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "ebb63df2038717e44b6b04094a3a52212706874d844ea6a4dbef2e925ecfabc8",
+      "fingerprint": "ac6377d7498cf02ce8e83b2e91e6a2e13ba8d00b7424411a1a962eee02a7bbdc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17405,9 +17257,9 @@
         "else:6d402f1a672f1cdb01c33258b5bb81860235ab5fe9c42f781a0dcc718b32aaa2"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "ec131621530678e659f397381286633669deb9fb14656848ce44bc94809d503d",
+      "fingerprint": "bb6f32dfd69636c854f750f1e6ab74afcd0bd75c381c1d153399c6e209c42a3b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17418,39 +17270,17 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/attachedSessionId",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:9757831293aac94ed860367590616f81cc9a4c818af1af6c3247fcd1d5a90e36"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "3727476beee60fdd871474ff8bec4d4eac75aa0cebdafd1f38be7ef3a0955057",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/attachedSessionId",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/row/ids",
       "rule": "consume:map",
-      "tokens": "8fd6fbbeede01ef647c497c637b8b0bb2abf26ae9a2971735cc653f42a7a9320",
+      "tokens": "8394fb5e68d9dc22db81f0530bb5dbe67ea01bac9fe6b98e8bcf5a503ea773e7",
       "gate": [
         "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
         "case:f5a65eac2b5b6821d17c987a917f3427c2436dbfb5350161adbf962ad5fc1e1a"
       ],
       "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+        "16b390d1d3bc60b7e5f328bafc3da202f294bb33b0c77bf343782d96d65af233"
       ],
-      "fingerprint": "7ba05f69e6944e6b41afa03a6d7fc9b47dcd632a2103fe353956565b0e9d9c75",
+      "fingerprint": "6f2dbe1a2b78e3fdcef354b2d094aa1da1cb8c2857ea6962ea87d9ccc1905b38",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17469,30 +17299,9 @@
         "case:eda8fa62417c0f004af3e7af3423a16a2c670e72d704a1685dfe1577c89311d4"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "a4b833616eaffecc3f9a78a637fe924deaab06952725d4f6cf2f5a79b6f3f5b8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/ids",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/ids",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:f670ed5e0aacaf8d0ea2e5a2420aca2b9b28f8557b3a738b750a0a7c710b2912"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "e1be5ca1a34c48692024c42ef5d9c51d5fc421ba63e49afcb0a3a72987cda3af",
+      "fingerprint": "8e9116ad8d279a085fabd36386c6ffb945e324be220d99b06f3c66f96a6d3c11",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17511,120 +17320,15 @@
         "case:eda8fa62417c0f004af3e7af3423a16a2c670e72d704a1685dfe1577c89311d4"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "e7b143e01f97e3c86ff1d1fb31654f362359d0f1ab133980c33c22c9f477182f",
+      "fingerprint": "e15d0d2d7bccdaf5130aa028eb47c21ecaefaa0a11059162b416d73a71581198",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/ids",
       "bound": "No proven named-demand or cardinality cap for this captured collection path.",
       "reason": "consume:map is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/kind",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:6cfeb4dc607a7edede0ac93fc84ffb0fd34a5b621632bb532428621aed5be463"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "3219d40bfe20ca969db9d1615a07cb74e8066d60b56430ccb25e21d3b091eb69",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/kind",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/paneA",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:8e67ed5d8a250dd1a15f70391e02b276ec55884f4499f715a18af2f440e04d80"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "b9138c58d9e03b6fb1733c0bcb8ae9ee7bc195d2b7518d6abd561b155da29a37",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/paneA",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/selectedWorktree",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:8e67ed5d8a250dd1a15f70391e02b276ec55884f4499f715a18af2f440e04d80"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "7119f3000f50b7b0fe24b11553271ac2019e877ffcdd43eec28e35329bfe826f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/selectedWorktree",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/sends",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:d31ae20050d82d38194fb3ba22c8c1fca80da7b431cc27179b86e0967c073db2"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "17dbff4780ece1c21a80f9efb1fd3d954675bbd4d4e8b01627fde944fbad92d3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/sends",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/settingsTab",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:ff52855288a0ad6da61ee09625ec9c2e6d2b8a7f4945416098b8fe7b7f289b9c"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "bbcb2511b64da51866a3533abe9822c558fbae6ebe104e45856efe3553f12497",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/settingsTab",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
       "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
     },
     {
@@ -17637,9 +17341,9 @@
         "case:23d9d4660d88cdae3c19e4312ff3d8c0a396e2b8df25dd27c5a7be1f3b578f71"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "3ed5a3321a6612b4471c0d23a79f60453a8855f13a4c8783dd2db499e5f59439",
+      "fingerprint": "e412d1d9a22eb581598f00a0edb9197cafb2dbb082ecfd9629eae9ca5d039af4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17658,97 +17362,13 @@
         "case:23d9d4660d88cdae3c19e4312ff3d8c0a396e2b8df25dd27c5a7be1f3b578f71"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "74ef41559365685d9d8773651e39a0f3d2cdee087bc48c5f745dd3c979e50148",
+      "fingerprint": "4fcfb0056d17c37bb791d436daa8c4ba56fa2282c863929aeb84a74d21b75a53",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/setupOrder",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/superThreadId",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:8e67ed5d8a250dd1a15f70391e02b276ec55884f4499f715a18af2f440e04d80"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "8834a6b38a0f53a8c60b43a0dd0206366263ca70d1b190f54d4759ed2db12d02",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/superThreadId",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/text",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:0887b80f4a26f336360ffb0abc29c4ae529bce505da5791e319f074f24905348"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "0fb28c06185e580c607dec703e3378b91c924d9eb131315d430c40c93d480966",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/text",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/transcriptReveal",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:9757831293aac94ed860367590616f81cc9a4c818af1af6c3247fcd1d5a90e36"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "1d063b5410fd30e69d2e4b6ea3d3930ab8127bc9b772fd9555e4a79a5fc7da4c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/transcriptReveal",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/pool/row/value",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [
-        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
-        "case:305be6f0f69f0bc8c767198727dae830b91e035b643be27f0fecccade3a0a0b5"
-      ],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "a8bc32b65149527b939cb84cc3679230d931d9adfc9bc028205f42f8ae6eec9c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/row/value",
       "bound": "No proven named-demand or cardinality cap for this captured collection path.",
       "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
       "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
@@ -17760,9 +17380,9 @@
       "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "347b1266395d9ed6b845050f80b137806bf03fb83c7a0cb674eed475039c57e7",
+      "fingerprint": "b68a9b3f2afe8e093adec36c6cb760230d9f42caa858a704c0ac96c206a0e404",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17778,69 +17398,15 @@
       "tokens": "7257cb87397d11b62f16d3a4bf576bbcd07786735afb34b6b78698d32a880d4a",
       "gate": [],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "fe729cac7e44e5096128b254ff5ba635875f6d983d6d4bf45bfd635b77007c92",
+      "fingerprint": "1498b7b3115661d5295ebb9f14fab9498bc04864bfc0b0fb7f5e4f9c2ff44ae7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Captured collection reaches useFixturePool/useMemo:callback/pool/sessionPanes/session/callback",
       "bound": "No proven named-demand or cardinality cap for this captured collection path.",
       "reason": "consume:find is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/repos/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "e0fdc1d8cfe21ec37b4c53d6406a1d7adf904ab3e465674611c00cbe29067a6b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/repos/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/sessions/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "64ecddb9f54794a9ae021798e3c5d336845ba897d65987be041970a4cb112e3f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/sessions/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/threads/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "e98a0802305730cbc694c38be433cc6eef7878209c6a89828dea96ecdd5dc822",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches useFixturePool/useMemo:callback/threads/callback",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
       "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
     },
     {
@@ -45605,13 +45171,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "reader-summary",
-      "tokens": "58b2023d67c1f4893dfd0c4413d6adbc817cad34e99ba21b14b56fcc67802761",
+      "tokens": "cf8e38e307741be3a0804df276a70e90cde757c8d44cf0c5ed1bbaf043613ba0",
       "gate": [],
       "origin": [
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
       ],
-      "fingerprint": "44f184cc3dd09e2b267604b19434deb6c753fe48931e5ac9df6de27c91f2c8b7",
+      "fingerprint": "c7aef1685f943ca70f1abc5ec4043d798613f89dec92773de5308fca687f3f97",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45624,13 +45190,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback/model",
       "rule": "consume:find",
-      "tokens": "f47158a6dadb2e91a5ec3f515070b83bc5637f1c4d8a5ab406bc4736d83fa4b1",
+      "tokens": "263e765a44e8232eef8d9cdbf38e3002ad5787436fb6b1a05a862c4077fdde1a",
       "gate": [],
       "origin": [
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
       ],
-      "fingerprint": "50d80fc02553665219ef76fda837b468de7306dc92289cd186bd1ccd59639f10",
+      "fingerprint": "426ac2e70291aecd7fce3881cc36301bc1ec25224a9e94be27cd11d28b67ad8f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45648,9 +45214,9 @@
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "5bd7f5399f698bb49a2315047d8359cf0c0da7c32b4bfb475d8c4ee06d063865",
+      "fingerprint": "3716ab9cd78e55edf0dd229204e39bdc73f2e5d9d9ead9261316727ee1e5886f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45759,9 +45325,9 @@
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
       "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38"
       ],
-      "fingerprint": "c4a972cb758396f0f11294d495b5b6cf93013127af3dd3c284e20048b4c413d8",
+      "fingerprint": "68b0b1cc8acdee12052fc9773977d5cc4ba186c32c0005acdec13b257f521a6c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45772,20 +45338,26 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "mock:callback/useWorklistPoolProjection/next",
+      "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "e480bf047cf0ab10e7b2ce15e560819c9a65f6e849e861ec36cea253a4db641c",
+      "tokens": "0e8cfa6a5fdfc6f2de763b7e9cb8b9c38a82d03a68f1e994346ea6c5fd69e7d6",
       "gate": [],
       "origin": [
+        "108db4795cb373320091b36ae4710f20597f2ab09644298c9447d14e7ed5d427",
+        "16b390d1d3bc60b7e5f328bafc3da202f294bb33b0c77bf343782d96d65af233",
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "4d592a60e2a770093d0835e1f5838dc9948b6742e74499620ad25a42c3cb5a38",
         "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
+        "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f",
         "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
+        "79df9ce0fb282efa78e48c29a0d005297550152334690e9da3dbea8a95fa766d",
+        "7dd69102ce93127148f25a4ac2bb36f83e2d882230d0007ce2fe0923cfe35458",
         "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "cedfa12b1872c9ec07a74633895ccbbd73fbab63b5eb1e25954a22c3e1136134",
+      "fingerprint": "529a8833cbc3c36be5c9201370e71080010f2d8ba1584f6004565f6ca671886e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45798,13 +45370,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "helper-consumer",
-      "tokens": "4ec1ec54b1c102fd9a0be726f0115e980c8d898e75389921beef81396aa35d24",
+      "tokens": "dfee6ab337b9318d3ee985e7bf230d874ea4b44d74bb13d35af2fb23a5a5f28f",
       "gate": [],
       "origin": [
         "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
         "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
       ],
-      "fingerprint": "d8fb0847f5145d8b5dc5c9f0560c2adf6b1480aff961390f063cd74f5c161399",
+      "fingerprint": "7fc6464af13eb286cc2bbf12c85e85ef26b424e4214b95691084d672ac2a8f3c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46023,6 +45595,87 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation",
+      "rule": "spread",
+      "tokens": "bc98f8a464a691e148dff7fe200fd75db6d809aceb01148d16888a8e2542ca8d",
+      "gate": [],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+      ],
+      "fingerprint": "3ae6722b92892c568d273115ce435f3dca13154d393e0f6071bab3ac6709e368",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Construct one addressed WebConversation.",
+      "bound": "The static headless callback spread is fixed, but construction inherits held-send and context collection taint without a proven cap.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/deliver/callback/answer",
+      "rule": "spread",
+      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
+      "gate": [
+        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
+        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
+        "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
+        "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
+        "exit:then:f980b00660b3549535d9db334b4698787619f7d663d6c08ae4a51ab3070eb151",
+        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
+      ],
+      "origin": [
+        "a3c49019b89c55dad216f71845342b2ef3aa9dbfa352658112724905bd116b69"
+      ],
+      "fingerprint": "3ac0d77752f14bc4a2d9caa40a4f27a9f72a1716caf6d07f6772823524e8f840",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Send a turn to the selected superagent thread.",
+      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/deliver/callback/composer",
+      "rule": "helper-consumer",
+      "tokens": "8d3980aca9e4f89f078b6e68af87ae4f6a3a4118c83a3017b30421553dd8f746",
+      "gate": [
+        "exit:then:f980b00660b3549535d9db334b4698787619f7d663d6c08ae4a51ab3070eb151"
+      ],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+      ],
+      "fingerprint": "590b1eedfa1c85ee81072d9bc4acd1a81b1d3247ff7c5ad9854bda4bfb9f1738",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Compute composer state immediately before one addressed delivery.",
+      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "useConversation/conversation/useOwnedConversation:callback",
+      "rule": "reader-summary",
+      "tokens": "a4041c39387f174fb05bf70c02f02a05ed349d9eceaae55c369894d0a801ad6a",
+      "gate": [],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+      ],
+      "fingerprint": "37d39a0891b1967dbdd81c0c164969a3f3645b7ac351baf110ddc68f26ec0101",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
+      "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     }
   ]
 }
