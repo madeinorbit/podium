@@ -13,7 +13,10 @@ export function inBoardCheck<T>(read: () => T): T {
   let value!: T
   let failure: unknown
   let failed = false
+  let readOnce = false
   const stop = autorun(() => {
+    if (readOnce) return
+    readOnce = true
     try { value = read() }
     catch (error) { failed = true; failure = error }
   })

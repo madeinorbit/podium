@@ -1,5 +1,5 @@
 import { issueBoardStats } from '@podium/client-core/perf'
-import { asIssueId, ISSUE_BOARD_STAGES } from '@podium/model/browser'
+import { asIssueId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_BOARD_STAGES } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { type BoardOptions, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
@@ -129,5 +129,32 @@ it('keeps filtered-parent promotion, nested rows, cycles and terminal reasons in
     const filtered = f.source.board({ ...options, filter: { priority: 1 } })
     expect(filtered && filtered !== LOADING && filtered.rootIds).toEqual(['child'])
     expect(f.pool.hydrate()).toBe(0)
+    // A child whose ID precedes a closed cycle is also promoted by the shared
+    // partition's unreached-item fallback, before that cycle's first member.
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: '0-child', value: row('0-child', { parentId: 'a' }) }] })
+    const cycle = f.source.board(options)
+    expect(cycle && cycle !== LOADING && cycle.rootIds).toEqual(['cancelled', 'parent', 'shipping', '0-child', 'a'])
   } finally { f.stop() }
+})
+
+it('expires a confirmed descendant worker at its deadline without minute card keys', () => {
+  const f = setup(0)
+  f.pool.apply({ type: 'replace', rows: [
+    { kind: 'issue', id: 'parent', value: row('parent') },
+    { kind: 'issue', id: 'child', value: row('child', { parentId: 'parent', memberSessionIds: ['worker'] }) },
+    { kind: 'session', id: 'worker', value: { sessionId: 'worker', issueId: 'child', status: 'live', agentKind: 'codex',
+      lastActiveAt: new Date(now).toISOString(), agentState: { phase: 'working', since: new Date(now).toISOString() } } },
+  ] })
+  let card: ReturnType<typeof f.source.card>
+  const stop = autorun(() => { card = f.source.card({ id: 'parent', now }) })
+  try {
+    expect(card! && card! !== LOADING && card!.progress).toEqual({ total: 1, done: 0, liveAgents: 1 })
+    const before = card!
+    runInAction(() => f.pool.clock.advance(now + 60_000))
+    expect(card!).toBe(before)
+    runInAction(() => f.pool.clock.advance(now + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS))
+    expect(card!).toBe(before)
+    runInAction(() => f.pool.clock.advance(now + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1))
+    expect(card! && card! !== LOADING && card!.progress).toEqual({ total: 1, done: 0, liveAgents: 0 })
+  } finally { stop(); f.stop() }
 })

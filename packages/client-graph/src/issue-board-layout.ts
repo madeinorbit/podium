@@ -97,7 +97,7 @@ export function createBoardLayout(pool: MobxPool) {
     let next: string | undefined = first
     while (next && ids.has(next)) {
       const at = seen.get(next)
-      if (at !== undefined) return at === 0 && [...path].sort(byId)[0] === id ? 2 : 0
+      if (at !== undefined) return [...path].sort(byId)[0] === id ? 2 : 0
       seen.set(next, path.length)
       path.push(next)
       const value: Loaded<string> = parent(next)
