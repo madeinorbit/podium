@@ -1,14 +1,15 @@
 import '@/test-support/mock-core-store-handle'
 /**
- * What the sheet has to get right (POD-787):
+ * What the sheet has to get right (POD-787, POD-5646):
  *
  *  1. It opens ON the file that was clicked — the dock's click is the reason it
  *     exists, and a viewer that opens on the first file instead makes the click
  *     a lie.
- *  2. Moving to another file is instant, because every file's diff was fetched
- *     while the first one was being read. The assertion is on the FETCH, not on
- *     the paint: prefetching is the whole reason the rail can show counts and
- *     the second click has nothing to wait for.
+ *  2. It fetches ONLY the file being read (F23): opening the sheet on one file
+ *     of F issues one payload request, not one per rail row. Visited files stay
+ *     cached under the sheet owner, so going BACK is instant — the assertion is
+ *     on the FETCH, not on the paint. A rail row shows its counts once that
+ *     file has been read.
  *  3. An untracked file reads as a diff like any other — it goes through the
  *     file read and the synthesized hunk, and lands numbered from 1.
  */
@@ -149,24 +150,49 @@ describe('DiffSheet', () => {
     ])
   })
 
-  it('prefetches every file, so the counts are real and the next click is instant', async () => {
+  it('fetches only the selected file, keeping visited results so going back is instant', async () => {
     open('src/a.ts')
-    // Every diffable entry, once each — and the folder, which has no diff to
-    // ask for, never becomes a request.
-    await waitFor(() => {
-      expect(gitDiffFile.mock.calls.map((c) => c[0].path).sort()).toEqual([
-        'src/a.ts',
-        'src/deep/b.ts',
-      ])
-      expect(readFileScoped.mock.calls.map((c) => c[1]).sort()).toEqual(['notes.md', 'shot.png'])
-    })
-    // Two added, one removed — per file, in the rail, before it is opened.
-    await waitFor(() => expect(row('src/deep/b.ts').textContent).toContain('+2'))
-    expect(row('src/deep/b.ts').textContent).toContain('−1')
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
+
+    // One payload request for the selected file — not one per rail row. The
+    // folder has no diff to ask for and the unvisited files stay unfetched.
+    expect(gitDiffFile.mock.calls.map((c) => c[0].path)).toEqual(['src/a.ts'])
+    expect(readFileScoped).not.toHaveBeenCalled()
+    // No counts on the unvisited rail row: there is nothing to count yet.
+    expect(row('src/deep/b.ts').textContent).not.toContain('+')
+    // The selected row earned its counts by being read.
+    await waitFor(() => expect(row('src/a.ts').textContent).toContain('+2'))
 
     await userEvent.click(row('src/deep/b.ts'))
     expect(row('src/deep/b.ts').getAttribute('aria-current')).toBe('true')
-    expect(gitDiffFile).toHaveBeenCalledTimes(2) // nothing refetched
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
+    await waitFor(() =>
+      expect(gitDiffFile.mock.calls.map((c) => c[0].path).sort()).toEqual([
+        'src/a.ts',
+        'src/deep/b.ts',
+      ]),
+    )
+    // Two added, one removed — on the rail row once that file has been read.
+    await waitFor(() => expect(row('src/deep/b.ts').textContent).toContain('+2'))
+    expect(row('src/deep/b.ts').textContent).toContain('−1')
+
+    await userEvent.click(row('src/a.ts'))
+    expect(row('src/a.ts').getAttribute('aria-current')).toBe('true')
+    expect(gitDiffFile).toHaveBeenCalledTimes(2) // visited: nothing refetched
+    expect(readFileScoped).not.toHaveBeenCalled()
+  })
+
+  it('reads untracked files on demand, never the ones not opened', async () => {
+    open('src/a.ts')
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
+    expect(readFileScoped).not.toHaveBeenCalled()
+
+    await userEvent.click(row('notes.md'))
+    expect(await screen.findByText('alpha')).toBeTruthy()
+    expect(readFileScoped.mock.calls.map((c) => c[1])).toEqual(['notes.md'])
+    // The other untracked file and the folder stay untouched.
+    expect(readFileScoped.mock.calls.map((c) => c[1])).not.toContain('shot.png')
+    expect(gitDiffFile).toHaveBeenCalledTimes(1)
   })
 
   it('reads an untracked file as an all-added diff numbered from 1', async () => {
@@ -189,9 +215,23 @@ describe('DiffSheet', () => {
     expect(row('out/').textContent).toContain('out/')
   })
 
-  it('totals the tree once every entry has settled, binaries and folders included', async () => {
+  it('totals the tree only once every file has been visited, binaries and folders included', async () => {
     open('src/a.ts')
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
+    // One of five visited: the global figure stays hidden rather than climbing
+    // with each visit like a progress bar wearing a number's clothes.
+    expect(screen.queryByTitle(/Lines added and removed/)).toBeNull()
+
+    for (const path of ['src/deep/b.ts', 'notes.md', 'shot.png', 'out/']) {
+      await userEvent.click(row(path))
+    }
+    expect(await screen.findByText(/A new folder\./)).toBeTruthy()
     // 2 tracked files × (+2 −1), plus an untracked file's two added lines.
+    // Binaries and folders are settled answers that contribute nothing.
+    await waitFor(() => {
+      expect(gitDiffFile).toHaveBeenCalledTimes(2)
+      expect(readFileScoped.mock.calls.map((c) => c[1]).sort()).toEqual(['notes.md', 'shot.png'])
+    })
     const totals = await screen.findByTitle(/Lines added and removed/)
     expect(totals.textContent).toBe('+6−2')
   })
@@ -234,13 +274,20 @@ describe('DiffSheet', () => {
     openCommit('src/deep/b.ts')
     expect(await screen.findByText('function shape() {')).toBeTruthy()
 
+    // Only the selected commit file is read — the other row stays unfetched.
+    await waitFor(() => {
+      expect(gitCommitDiffFile.mock.calls.map((c) => c[0].path)).toEqual(['src/deep/b.ts'])
+    })
+    expect(gitCommitDiffFile.mock.calls.every((c) => c[0].sha === COMMIT.sha)).toBe(true)
+
+    await userEvent.click(row('src/a.ts'))
+    expect(await screen.findByText('function shape() {')).toBeTruthy()
     await waitFor(() => {
       expect(gitCommitDiffFile.mock.calls.map((c) => c[0].path).sort()).toEqual([
         'src/a.ts',
         'src/deep/b.ts',
       ])
     })
-    expect(gitCommitDiffFile.mock.calls.every((c) => c[0].sha === COMMIT.sha)).toBe(true)
     // Not one worktree question asked about a file that is already in history.
     expect(gitDiffFile).not.toHaveBeenCalled()
     expect(readFileScoped).not.toHaveBeenCalled()
