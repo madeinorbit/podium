@@ -863,8 +863,13 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     busy.add(fn)
     const next = new Map(closure)
     fn.parameters.forEach((parameter, index) => {
-      const supplied =
+      let supplied =
         args[index] ?? (parameter.initializer ? evaluate(parameter.initializer, context) : empty())
+      if (parameter.dotDotDotToken) {
+        const remaining = args.slice(index)
+        supplied = merge(...remaining)
+        remaining.forEach((argument, position) => supplied.fields.set(String(position), argument))
+      }
       if (ts.isIdentifier(parameter.name)) next.set(parameter, supplied)
       else {
         const bind = (pattern: ts.BindingName, data: Value): void => {
@@ -1013,13 +1018,24 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       }
       let method = field?.key ?? name(node.expression)
       const receiver = field ? evaluate(field.base, context) : empty()
-      const callee = evaluate(node.expression, context)
+      let callee = evaluate(node.expression, context)
       if (!field && callee.member) method = callee.member
-      const args = [...(node.arguments ?? [])].map((argument) =>
+      let args = [...(node.arguments ?? [])].map((argument) =>
         ts.isSpreadElement(argument)
           ? evaluate(argument.expression, context)
           : evaluate(argument, context),
       )
+      // Standard callback forwarding must not make a shared helper opaque.
+      if (receiver.callable && ['call', 'apply'].includes(method)) {
+        callee = receiver
+        if (method === 'call') args = args.slice(1)
+        else {
+          const tuple = args[1]
+          const indexed = tuple ? [...tuple.fields].filter(([key]) => /^\d+$/.test(key)) : []
+          args = indexed.length ? indexed.sort(([a], [b]) => Number(a) - Number(b)).map(([, value]) => value)
+            : tuple ? [tuple] : []
+        }
+      }
       const question = args[0]?.literal
       const kindProperty =
         question && ts.isObjectLiteralExpression(question)

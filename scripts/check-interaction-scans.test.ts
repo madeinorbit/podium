@@ -330,3 +330,20 @@ it('traces collection callbacks through the shared MobX helper barrel', () => {
   })
   expect(scans.some(scan => scan.file === 'packages/client-graph/src/example.ts' && scan.rule === 'consume:filter')).toBe(true)
 })
+
+it.each([
+  'return (...args) => fn.apply(undefined, args)',
+  'return (key, read) => fn.call(undefined, key, read)',
+])('traces forwarded callback arguments through the helper: %s', body => {
+  const scans = scanSources({
+    'packages/client-graph/src/example.ts': `
+      import { keyedComputed } from '@podium/mobx-helpers'
+      const read = keyedComputed('rows', (_key, query) => query())
+      export function question() { return read('one', () => pool.queries.ids({ kind: 'boardIssues' })).filter(id => id !== '') }
+    `,
+    'packages/mobx-helpers/src/index.ts': "export { keyedComputed } from './keyed-computed'",
+    'packages/mobx-helpers/src/keyed-computed.ts': `export function keyedComputed(name, fn) { ${body} }`,
+  })
+  expect(scans.some(scan => scan.file === 'packages/client-graph/src/example.ts' && scan.rule === 'consume:filter')).toBe(true)
+  expect(scans.some(scan => scan.file === 'packages/mobx-helpers/src/keyed-computed.ts' && scan.rule === 'reader-summary')).toBe(true)
+})
