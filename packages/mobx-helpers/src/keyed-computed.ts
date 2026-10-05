@@ -35,7 +35,7 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
       }
       return derive()
     }
-    const value = computed(derive, {
+    const value = computed(() => derive(), {
       equals, name: typeof name === 'function' ? name(key) : name, context: context?.(key),
     })
     cache.set(key, value)
