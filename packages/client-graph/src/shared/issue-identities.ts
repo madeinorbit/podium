@@ -4,7 +4,7 @@ import { ingestWorktreeRecord } from './repo-from-lane'
 import type { RowSourceEvent } from './source'
 
 type Row = Readonly<Record<string, unknown>>
-export interface IssueIdentityFact { repoId?: string; seq: string }
+export interface IssueIdentityFact { repoId?: string; seq: string; deleted?: boolean }
 interface Lane { path?: string; repoId?: string; prefix?: string; repoPath?: string; repoName?: string }
 interface Bucket { answer: KeyedAnswer<string> }
 interface Seed {
@@ -14,6 +14,7 @@ interface Seed {
   pairs: KeyedAnswer<Bucket>
   bare: KeyedAnswer<Bucket>
   byRepo: KeyedAnswer<Bucket>
+  liveByRepo: KeyedAnswer<Bucket>
   lanes: KeyedAnswer<Lane>
   holders: KeyedAnswer<Lane>
 }
@@ -27,6 +28,8 @@ export interface IssueIdentities {
   repoPrefix(id: string): string | undefined
   setRepo(id: string, prefix: string | undefined): ReadonlySet<string>
   resolve(identifier: string): string | undefined
+  referenceId(token: string): string | undefined
+  hasPrefix(prefix: string): boolean
   aliasKeys(identifier: string): readonly string[]
   factAlias(fact: IssueIdentityFact | undefined): string | undefined
 }
@@ -47,6 +50,7 @@ export function createIssueIdentities(
   let pairs = seed?.pairs.fork() ?? createKeyedAnswer<Bucket>()
   let bare = seed?.bare.fork() ?? createKeyedAnswer<Bucket>()
   let byRepo = seed?.byRepo.fork() ?? createKeyedAnswer<Bucket>()
+  let liveByRepo = seed?.liveByRepo.fork() ?? createKeyedAnswer<Bucket>()
   let lanes = seed?.lanes.fork() ?? createKeyedAnswer<Lane>()
   let holders = seed?.holders.fork() ?? createKeyedAnswer<Lane>()
   const prefixOf = (fact: IssueIdentityFact) => fact.repoId ? repos.get(fact.repoId) : undefined
@@ -61,10 +65,11 @@ export function createIssueIdentities(
   }
   function setFact(id: string, next: IssueIdentityFact | undefined) {
     const previous = facts.get(id)
-    if (previous === next || (previous && next && previous.repoId === next.repoId && previous.seq === next.seq)) return
+    if (previous === next || (previous && next && previous.repoId === next.repoId && previous.seq === next.seq && !!previous.deleted === !!next.deleted)) return
     const contribution = (value: IssueIdentityFact, present: boolean) => {
       file(pairs, pair(value.repoId ?? '', value.seq), id, present)
       if (value.repoId) file(byRepo, value.repoId, id, present)
+      if (value.repoId && !value.deleted) file(liveByRepo, value.repoId, id, present)
       if (!prefixOf(value)) file(bare, value.seq, id, present)
     }
     if (previous) contribution(previous, false)
@@ -104,11 +109,12 @@ export function createIssueIdentities(
     return at > 0 ? prefixed(token.slice(0, at), token.slice(at + 1)) : undefined
   }
   return {
-    fork: () => createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, lanes, holders }),
+    fork: () => createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, liveByRepo, lanes, holders }),
     clear() {
       facts = createKeyedAnswer<IssueIdentityFact>(); repos = createKeyedAnswer<string>()
       prefixes = createKeyedAnswer<Bucket>(); pairs = createKeyedAnswer<Bucket>()
       bare = createKeyedAnswer<Bucket>(); byRepo = createKeyedAnswer<Bucket>()
+      liveByRepo = createKeyedAnswer<Bucket>()
       lanes = createKeyedAnswer<Lane>(); holders = createKeyedAnswer<Lane>()
     },
     apply(event) {
@@ -137,7 +143,7 @@ export function createIssueIdentities(
       for (const record of event.rows) if (record.kind === 'issue') this.set(record.id, record.value as unknown as Row | undefined)
       return affected
     },
-    set(id, row) { setFact(id, row ? { repoId: typeof row.repoId === 'string' && row.repoId ? row.repoId : undefined, seq: String(row.seq) } : undefined) },
+    set(id, row) { setFact(id, row ? { repoId: typeof row.repoId === 'string' && row.repoId ? row.repoId : undefined, seq: String(row.seq), ...(row.deletedAt ? { deleted: true } : {}) } : undefined) },
     setFact,
     fact: id => facts.get(id),
     repoPrefix: id => repos.get(id),
@@ -148,6 +154,17 @@ export function createIssueIdentities(
       if (exact !== undefined) return exact
       const ref = parseIssueRef(token)
       return ref ? prefixed(ref.prefix, String(ref.seq)) : undefined
+    },
+    referenceId(token) {
+      const ref = parseIssueRef(token.trim())
+      return ref ? prefixed(ref.prefix, String(ref.seq)) : undefined
+    },
+    hasPrefix(prefix) {
+      // A prefix can have multiple holders during a rename/collision. This
+      // reads only that prefix's repos and their maintained live membership.
+      for (const repoId of prefixes.get(prefix)?.answer.snapshot() ?? [])
+        if (liveByRepo.get(repoId)?.answer.first() !== undefined) return true
+      return false
     },
     aliasKeys(identifier) {
       const token = identifier.trim()

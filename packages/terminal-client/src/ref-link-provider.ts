@@ -24,6 +24,10 @@ export interface RefLinkConfig {
    * accent. Read from a live issues projection on each call.
    */
   resolveStage?: (ref: string) => IssueStage | null | undefined
+  /** Declare and release data demand for one painted viewport. Hover and
+   * activation reads outside this boundary retain no viewport observers. */
+  beginPaint?: () => void
+  endPaint?: () => void
 }
 
 // A ref token is short; cap the scanned row so a pathological line can't drive

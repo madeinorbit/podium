@@ -376,6 +376,8 @@ export class TerminalView {
       getRows: () => this.term.rows,
       getIsKnownPrefix: () => this.refLinkConfig?.isKnownPrefix ?? null,
       getResolveStage: () => this.refLinkConfig?.resolveStage ?? null,
+      beginPaint: () => this.refLinkConfig?.beginPaint?.(),
+      endPaint: () => this.refLinkConfig?.endPaint?.(),
     })
     this.refOverlay = overlay
     const subs = [

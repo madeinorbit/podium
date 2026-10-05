@@ -277,15 +277,6 @@ export function AgentPanel({
   const settleOptimisticFirstPrompt = useCallback(() => {
     setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
   }, [sessionId])
-  const referenceStages = usePaneReferenceStages()
-  // Keep the terminal's imperative getter current through pool attachment
-  // without remounting the terminal or changing its transcript subscription.
-  const referenceStagesRef = useRef(referenceStages)
-  referenceStagesRef.current = referenceStages
-  const resolveReferenceStage = useCallback(
-    (ref: string) => referenceStagesRef.current.resolveStage(ref),
-    [],
-  )
   const { guardedEnd } = useSessionGuard(sessionId, undefined, session ? [session] : [])
   // An optimistically-spawned session doesn't exist server-side yet (#119): the
   // terminal's one-shot `hub.attach` would be dropped and never retried, leaving
@@ -334,6 +325,15 @@ export function AgentPanel({
     inTransit,
     onEnterNative: () => rearmFlushRef.current?.(),
   })
+  const referenceStages = usePaneReferenceStages(gates.terminalActive)
+  // Keep the terminal's imperative getter current through pool attachment
+  // without remounting the terminal or changing its transcript subscription.
+  const referenceStagesRef = useRef(referenceStages)
+  referenceStagesRef.current = referenceStages
+  const resolveReferenceStage = useCallback(
+    (ref: string) => referenceStagesRef.current.resolveStage(ref),
+    [],
+  )
   const pickModeWithTrace = (mode: PanelMode): void => {
     if (active && mode !== effectiveMode) {
       beginSwitch({ sessionId, issueId: traceIssueId })
@@ -629,6 +629,8 @@ export function AgentPanel({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
         resolveStage: resolveReferenceStage,
+        beginPaint: () => referenceStagesRef.current.beginPaint(),
+        endPaint: () => referenceStagesRef.current.endPaint(),
       })
       // Draft sync between the PTY and chat, both directions (#17/#62/#53,
       // POD-859). Everything it needs from React arrives as a getter, so no
@@ -818,6 +820,8 @@ export function AgentPanel({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
         resolveStage: resolveReferenceStage,
+        beginPaint: () => referenceStagesRef.current.beginPaint(),
+        endPaint: () => referenceStagesRef.current.endPaint(),
       })
     paint()
     return referenceStages.subscribe(paint)

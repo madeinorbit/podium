@@ -35,7 +35,8 @@ export class ReaderQueries {
   private effectiveIssueSource: ColdQueries | undefined
   private effectiveIssueIdentities: IssueIdentities | undefined
   private effectiveIdentitySource: ColdQueries | undefined
-  private readonly linkedIssueAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
+  private readonly linkedIssueAtoms = new Map<string, { atom: IAtom; value: string | undefined; identifier: string; referenceOnly: boolean }>()
+  private readonly issuePrefixAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly linkedAliases = new Map<string, Set<string>>()
   private readonly linkedPrefixes = new Map<string, Set<string>>()
   private readonly repoOverrides = new Map<string, string | undefined>()
@@ -223,27 +224,37 @@ export class ReaderQueries {
   /** Exact ID, exact display alias, then a parsed human ref. First demand
    * reads maintained roots; it never seeds references from resident rows. */
   linkedIssueId(identifier: string): string | undefined {
-    const identities = this.issueIdentities(), value = identities.resolve(identifier)
-    const state = this.linkedIssueAtoms.get(identifier)
+    return this.readIssueIdentity(identifier, false)
+  }
+  /** A terminal token asks about a human reference, even when an unrelated
+   * raw issue ID happens to have the same spelling. */
+  issueReferenceId(token: string): string | undefined {
+    return this.readIssueIdentity(token, true)
+  }
+  private readIssueIdentity(identifier: string, referenceOnly: boolean): string | undefined {
+    const identities = this.issueIdentities()
+    const value = referenceOnly ? identities.referenceId(identifier) : identities.resolve(identifier)
+    const question = JSON.stringify([referenceOnly, identifier])
+    const state = this.linkedIssueAtoms.get(question)
     if (state) state.atom.reportObserved()
     else {
       const keys = identities.aliasKeys(identifier)
       const prefixes = keys.filter(key => !key.startsWith('#')).map(key => JSON.parse(key)[0] as string)
       const atom = createAtom(`history.linkedIssue:${identifier}`, undefined, () => {
-        this.linkedIssueAtoms.delete(identifier)
+        this.linkedIssueAtoms.delete(question)
         const remove = (map: Map<string, Set<string>>, key: string) => {
-          const ids = map.get(key); ids?.delete(identifier)
+          const ids = map.get(key); ids?.delete(question)
           if (!ids?.size) map.delete(key)
         }
         for (const key of keys) remove(this.linkedAliases, key)
         for (const prefix of prefixes) remove(this.linkedPrefixes, prefix)
       })
       if (atom.reportObserved()) {
-        this.linkedIssueAtoms.set(identifier, { atom, value })
+        this.linkedIssueAtoms.set(question, { atom, value, identifier, referenceOnly })
         const add = (map: Map<string, Set<string>>, key: string) => {
           let ids = map.get(key)
           if (!ids) map.set(key, ids = new Set())
-          ids.add(identifier)
+          ids.add(question)
         }
         for (const key of keys) add(this.linkedAliases, key)
         for (const prefix of prefixes) add(this.linkedPrefixes, prefix)
@@ -252,10 +263,11 @@ export class ReaderQueries {
     this.counts.scalarVisits++
     return value
   }
-  private publishLinkedIssue(identifier: string): void {
-    const state = this.linkedIssueAtoms.get(identifier)
+  private publishLinkedIssue(question: string): void {
+    const state = this.linkedIssueAtoms.get(question)
     if (!state) return
-    const value = this.issueIdentities().resolve(identifier)
+    const identities = this.issueIdentities()
+    const value = state.referenceOnly ? identities.referenceId(state.identifier) : identities.resolve(state.identifier)
     if (value === state.value) return
     state.value = value; state.atom.reportChanged()
   }
@@ -263,12 +275,18 @@ export class ReaderQueries {
     if (key) for (const identifier of this.linkedAliases.get(key) ?? []) this.publishLinkedIssue(identifier)
   }
   private changeIssueIdentity(id: string, change: (identities: IssueIdentities) => void): void {
-    const identities = this.issueIdentities(), before = identities.factAlias(identities.fact(id))
+    const identities = this.issueIdentities(), previous = identities.fact(id)
+    const before = identities.factAlias(previous)
+    const beforePrefix = previous?.repoId ? identities.repoPrefix(previous.repoId) : undefined
     change(identities)
-    this.publishLinkedIssue(id)
+    this.publishLinkedIssue(JSON.stringify([false, id]))
     this.publishLinkedAlias(before)
     const after = identities.factAlias(identities.fact(id))
     if (after !== before) this.publishLinkedAlias(after)
+    const next = identities.fact(id)
+    const afterPrefix = next?.repoId ? identities.repoPrefix(next.repoId) : undefined
+    if (beforePrefix) this.publishIssuePrefix(beforePrefix)
+    if (afterPrefix && afterPrefix !== beforePrefix) this.publishIssuePrefix(afterPrefix)
   }
   private changeRepoIdentity(id: string, prefix: string | undefined): void {
     this.repoOverrides.set(id, prefix)
@@ -276,7 +294,29 @@ export class ReaderQueries {
     const bare = identities.setRepo(id, prefix)
     for (const key of bare) this.publishLinkedAlias(key)
     for (const key of new Set([before, prefix]))
-      if (key) for (const identifier of this.linkedPrefixes.get(key) ?? []) this.publishLinkedIssue(identifier)
+      if (key) {
+        for (const question of this.linkedPrefixes.get(key) ?? []) this.publishLinkedIssue(question)
+        this.publishIssuePrefix(key)
+      }
+  }
+  /** Phone links admit only prefixes with a non-deleted issue. No issue or
+   * repository catalog is projected on first demand or during repaint. */
+  hasIssuePrefix(prefix: string): boolean {
+    const value = this.issueIdentities().hasPrefix(prefix), state = this.issuePrefixAtoms.get(prefix)
+    if (state) state.atom.reportObserved()
+    else {
+      const atom = createAtom(`history.issuePrefix:${prefix}`, undefined, () => this.issuePrefixAtoms.delete(prefix))
+      if (atom.reportObserved()) this.issuePrefixAtoms.set(prefix, { atom, value })
+    }
+    this.counts.scalarVisits++
+    return value
+  }
+  private publishIssuePrefix(prefix: string): void {
+    const state = this.issuePrefixAtoms.get(prefix)
+    if (!state) return
+    const value = this.issueIdentities().hasPrefix(prefix)
+    if (state.value === value) return
+    state.value = value; state.atom.reportChanged()
   }
   sessionReferenceId(ref: string): string | undefined {
     const questions = this.sessionQuestions(), before = questions.visits, value = questions.referenceId(ref)
@@ -561,6 +601,7 @@ export class ReaderQueries {
       for (const id of this.issueCloseAtoms.keys()) this.publishIssueClose(id)
       for (const id of this.issueChildAtoms.keys()) this.publishIssueChildren(id)
       for (const id of this.linkedIssueAtoms.keys()) this.publishLinkedIssue(id)
+      for (const prefix of this.issuePrefixAtoms.keys()) this.publishIssuePrefix(prefix)
       for (const ref of this.sessionReferenceAtoms.keys()) this.publishSessionReference(ref)
       for (const path of this.sessionPathAtoms.keys()) this.publishSessionPath(path)
       const sessions: NavigationTopologyDelta['sessions'][number][] = []
@@ -800,6 +841,7 @@ export class ReaderQueries {
     this.issueCloseAtoms.clear()
     this.issueChildAtoms.clear()
     this.linkedIssueAtoms.clear()
+    this.issuePrefixAtoms.clear()
     this.linkedAliases.clear()
     this.linkedPrefixes.clear()
     this.sessionReferenceAtoms.clear()

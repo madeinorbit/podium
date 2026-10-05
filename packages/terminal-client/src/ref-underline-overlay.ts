@@ -111,6 +111,8 @@ export interface RefUnderlineOverlayHooks {
   getIsKnownPrefix: () => ((prefix: string) => boolean) | null
   /** Optional live stage for issue refs (POD-529). Session/unknown omit. */
   getResolveStage?: () => ((ref: string) => IssueStage | null | undefined) | null | undefined
+  beginPaint?: () => void
+  endPaint?: () => void
 }
 
 export class RefUnderlineOverlay {
@@ -148,6 +150,15 @@ export class RefUnderlineOverlay {
   /** Recompute and reposition every underline for the current viewport. */
   refreshNow(): void {
     if (this.disposed) return
+    this.hooks.beginPaint?.()
+    try {
+      this.paintViewport()
+    } finally {
+      this.hooks.endPaint?.()
+    }
+  }
+
+  private paintViewport(): void {
     const isKnown = this.hooks.getIsKnownPrefix()
     if (!isKnown) {
       this.showRects([])

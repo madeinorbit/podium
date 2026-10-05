@@ -88,11 +88,10 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
   const read = useCallback(
     (pool: MobxPool): IssueViewModel | null | undefined => {
       if (ref === undefined) return undefined
-      const id = pool.references.id(ref)
-      if (pending(id) || id === undefined) return undefined
-      if (id === null) return null
       const reader = pool.row('mobileSessionReader', 'reader')
       if (!reader || pending(reader)) return undefined
+      const id = pool.queries.linkedIssueId(ref)
+      if (id === undefined) return null
       const row = reader.issue(id)
       return pending(row) ? undefined : (row ?? null)
     },

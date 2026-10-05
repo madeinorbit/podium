@@ -118,6 +118,7 @@ function makeOverlay(
   rows: string[],
   prefix: ((p: string) => boolean) | null = known,
   resolveStage?: (ref: string) => IssueStage | null | undefined,
+  boundary?: { beginPaint(): void; endPaint(): void },
 ) {
   const screen = document.createElement('div')
   document.body.appendChild(screen)
@@ -131,6 +132,7 @@ function makeOverlay(
     getRows: () => 24,
     getIsKnownPrefix: () => prefix,
     getResolveStage: () => resolveStage ?? null,
+    ...boundary,
   })
   return { screen, overlay }
 }
@@ -141,6 +143,26 @@ const visibleRects = (screen: HTMLElement): HTMLElement[] =>
   )
 
 describe('RefUnderlineOverlay', () => {
+  it('ends each viewport demand even with no visible rows or a failed stage read', () => {
+    const events: string[] = []
+    const rows = ['POD-1']
+    let fail = false
+    const { screen, overlay } = makeOverlay(rows, known, () => {
+      if (fail) throw new Error('stage failed')
+      return 'review'
+    }, { beginPaint: () => events.push('begin'), endPaint: () => events.push('end') })
+    overlay.refreshNow()
+    rows.splice(0, rows.length, 'plain output')
+    overlay.refreshNow()
+    rows.splice(0, rows.length, 'POD-2'); fail = true
+    expect(() => overlay.refreshNow()).toThrow('stage failed')
+    screen.getBoundingClientRect = () => ({ width: 0, height: 0 }) as DOMRect
+    overlay.refreshNow()
+    expect(events).toEqual(['begin', 'end', 'begin', 'end', 'begin', 'end', 'begin', 'end'])
+    overlay.dispose()
+    overlay.refreshNow()
+    expect(events).toHaveLength(8)
+  })
   it('draws pooled underline divs for visible mentions and hides them when gone', () => {
     const rows = ['see POD-13 now', 'and WEB-2']
     const { screen, overlay } = makeOverlay(rows)

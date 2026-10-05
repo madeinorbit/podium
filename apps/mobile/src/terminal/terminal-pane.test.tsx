@@ -64,6 +64,8 @@ let lastMountOpts: MountCallbacks | null = null
 
 /** The ref-link config the pane hands the terminal — see the POD-724 cases. */
 type RefLinks = {
+  beginPaint(): void
+  endPaint(): void
   isKnownPrefix: (prefix: string) => boolean
   onActivate: (ref: string) => void
   resolveStage: (ref: string) => string | null
@@ -410,10 +412,12 @@ describe('TerminalPane ref underlines (POD-724)', () => {
 
     // Armed at mount time, so the first replayed frame is already marked.
     expect(setRefLinksMock).toHaveBeenCalled()
+    refLinks().beginPaint()
     expect(refLinks().isKnownPrefix('POD')).toBe(true)
     // The defect this guards: `UTF-8` is a real hyphen, not a task.
     expect(refLinks().isKnownPrefix('UTF')).toBe(false)
     expect(refLinks().resolveStage('POD-7')).toBe('in_progress')
+    refLinks().endPaint()
 
     refLinks().onActivate('POD-7')
     expect(opened).toEqual(['iss-7'])

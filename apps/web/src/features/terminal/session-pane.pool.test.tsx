@@ -23,7 +23,7 @@ import {
   SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
-import { asIssueId } from '@podium/model/browser'
+import { asIssueId, asRepoId } from '@podium/model/browser'
 import type { RefLinkConfig } from '@podium/terminal-client'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -333,12 +333,14 @@ it('has zero legacy pane derivations while mounted and after an unrelated sessio
 })
 
 it('keeps native reference underlines equal and live without legacy issue reads on the pool path', async () => {
+  f.state.panelMode[sessions[0]!.sessionId] = 'native'
   const issues = [
     { seq: 1, stage: 'in_progress' as const },
     { seq: 2, stage: 'review' as const, archived: true },
     { seq: 3, stage: 'done' as const, deletedAt: '2026-10-01' },
   ].map((patch) => ({
     id: asIssueId(`underline-${patch.seq}`),
+    repoId: asRepoId('synthetic'),
     prefix: 'POD',
     displayRef: `POD-${patch.seq}`,
     title: `Reference ${patch.seq}`,
@@ -353,14 +355,19 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   f.issues = issues
   f.pool!.apply({
     type: 'update',
-    rows: issues.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),
+    rows: [
+      { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'synthetic', prefix: 'POD', repoPath: '/synthetic', repoName: 'Synthetic' } as never },
+      ...issues.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never })),
+    ],
   })
   const tokens = ['POD-1', ' POD-01 ', 'POD-2', 'POD-3', 'POD-99', 'POD-1-a', '#1', 'bad']
   const config = { current: null as RefLinkConfig | null }
   let stages: Array<string | null> = []
   const paint = vi.fn((next: RefLinkConfig) => {
     config.current = next
+    next.beginPaint?.()
     stages = tokens.map((token) => next.resolveStage?.(token) ?? null)
+    next.endPaint?.()
   })
   f.mounted.current = {
     setAppearance: vi.fn(),

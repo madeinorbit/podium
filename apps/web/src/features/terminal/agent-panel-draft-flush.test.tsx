@@ -82,7 +82,7 @@ vi.mock('./use-session-pane-inputs', () => ({
   usePanePanelModes: () => storePanelMode,
   usePaneSpawnConfirmed: () => true,
   usePaneOwnership: () => ({ selectedIssueId: null, stampIssue: undefined, issueHex: undefined }),
-  usePaneReferenceStages: () => ({ resolveStage: () => null, subscribe: () => () => {} }),
+  usePaneReferenceStages: () => ({ beginPaint: () => {}, endPaint: () => {}, resolveStage: () => null, subscribe: () => () => {} }),
 }))
 
 const fakeHub = {

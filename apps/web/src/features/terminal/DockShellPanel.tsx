@@ -215,7 +215,7 @@ function DockShellTerminal({
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
-  const references = usePaneReferenceStages()
+  const references = usePaneReferenceStages(true)
   const referencesRef = useRef(references)
   referencesRef.current = references
   const { containerRef, viewportRef, ready, mountedRef } = useTerminalSession({
@@ -234,6 +234,8 @@ function DockShellTerminal({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
         resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+        beginPaint: () => referencesRef.current.beginPaint(),
+        endPaint: () => referencesRef.current.endPaint(),
       })
     },
   })
@@ -245,12 +247,16 @@ function DockShellTerminal({
       isKnownPrefix: (p) => isKnownRefPrefix(p),
       onActivate: (ref, event) => activateRef(ref, event),
       resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+      beginPaint: () => referencesRef.current.beginPaint(),
+      endPaint: () => referencesRef.current.endPaint(),
     })
     return references.subscribe(() =>
       view.setRefLinks({
         isKnownPrefix: (p) => isKnownRefPrefix(p),
         onActivate: (ref, event) => activateRef(ref, event),
         resolveStage: (ref) => referencesRef.current.resolveStage(ref),
+        beginPaint: () => referencesRef.current.beginPaint(),
+        endPaint: () => referencesRef.current.endPaint(),
       }),
     )
   }, [references, mountedRef])

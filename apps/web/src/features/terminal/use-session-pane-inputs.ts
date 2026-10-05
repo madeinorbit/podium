@@ -2,7 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import type { IssueStage, MachineWire, SessionId } from '@podium/model/browser'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { issueColorHex } from '@/lib/issueColors'
 
@@ -57,17 +57,25 @@ export function usePaneOwnership(session: SessionView | undefined) {
 }
 
 export interface PaneReferenceStages {
+  setActive(active: boolean): void
+  beginPaint(): void
+  endPaint(): void
   resolveStage(ref: string): IssueStage | null
   subscribe(paint: () => void): () => void
 }
 const EMPTY_REFERENCE_STAGES: PaneReferenceStages = {
+  setActive: () => {},
+  beginPaint: () => {},
+  endPaint: () => {},
   resolveStage: () => null,
   subscribe: () => () => {},
 }
 
-export function usePaneReferenceStages(): PaneReferenceStages {
+export function usePaneReferenceStages(active: boolean): PaneReferenceStages {
   const pool = useWorklistPool()
   const [stages, setStages] = useState(EMPTY_REFERENCE_STAGES)
+  const activeRef = useRef(active)
+  activeRef.current = active
   useEffect(() => {
     let disposed = false
     let reader:
@@ -78,6 +86,7 @@ export function usePaneReferenceStages(): PaneReferenceStages {
       void import('./pane-reference-stages').then(({ createPaneReferenceStages }) => {
         if (disposed) return
         reader = createPaneReferenceStages(pool)
+        reader.setActive(activeRef.current)
         setStages(reader)
       })
     }
@@ -86,5 +95,8 @@ export function usePaneReferenceStages(): PaneReferenceStages {
       reader?.dispose()
     }
   }, [pool])
+  useEffect(() => {
+    stages.setActive(active)
+  }, [stages, active])
   return stages
 }

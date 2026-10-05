@@ -1,15 +1,13 @@
-import { resolveIssueReference } from '@podium/client-core/values'
 import type { IssueId, SessionId } from '@podium/model'
-import { parseAnyRef } from '@podium/protocol'
 import { MobileTerminalKeyboard, useTerminalSession } from '@podium/terminal-client-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
 import {
-  useSessionContextIssues as useIssues,
   useSessionContextSession,
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
+import { useTerminalReferences } from '../client/use-terminal-references'
 import { Icon } from '../components/Icon'
 import { Mic } from '../components/icons'
 import { color, font, mono, sans, space } from '../theme/theme'
@@ -43,55 +41,32 @@ export function TerminalPane({
 }: TerminalPaneProps) {
   const hub = useHub()
   const connected = useConnected()
-  const issues = useIssues()
+  const references = useTerminalReferences(active)
   // The row this pane's grid comes from (POD-3239 B1). Read once at mount by
   // `useTerminalSession`; a later row update never remounts the terminal.
   const session = useSessionContextSession(sessionId)
   // Live reads for callbacks the terminal keeps for the lifetime of the mount:
   // the overlay asks for a stage on every repaint, and a closure that captured
   // one render's projection would underline a stage the board has left behind.
-  const issuesRef = useRef(issues)
-  issuesRef.current = issues
+  const referencesRef = useRef(references)
+  referencesRef.current = references
   const onOpenIssueRef = useRef(onOpenIssue)
   onOpenIssueRef.current = onOpenIssue
   const onControlStateRef = useRef(onControlState)
   onControlStateRef.current = onControlState
 
-  /**
-   * WHICH `PREFIX-N` TOKENS ARE REAL REFS (POD-724).
-   *
-   * The desktop answers this from a repo-prefix registry (`setKnownRefPrefixes`,
-   * fed by the repo list) so `UTF-8` never becomes a dead link. The phone has no
-   * such registry, and standing a second one up would be a second source of
-   * truth for the same fact — so the prefixes are derived from the issue
-   * projection the replica already holds. That is deliberately the STRICTER
-   * answer: the phone marks exactly the prefixes it can actually resolve and
-   * open, so an underline here is never an affordance that leads nowhere.
-   */
-  const knownPrefixes = useMemo(() => {
-    const prefixes = new Set<string>()
-    for (const issue of issues) {
-      const prefix = issue.prefix ?? parseAnyRef(issue.displayRef ?? '')?.prefix
-      if (prefix) prefixes.add(prefix)
-    }
-    return prefixes
-  }, [issues])
-  const knownPrefixesRef = useRef(knownPrefixes)
-  knownPrefixesRef.current = knownPrefixes
-
-  // One stable config object: every field reads through a ref, so re-arming it
-  // is only ever a repaint request — it can never resurrect a stale projection.
+  // The viewport declares only the prefixes and issue tokens it paints.
+  // Source-owned identity questions answer cold tokens without a catalog.
   const refLinks = useMemo(
     () => ({
-      isKnownPrefix: (prefix: string) => knownPrefixesRef.current.has(prefix),
-      // A token the phone cannot resolve does NOTHING rather than navigating to
-      // a guess: absence here means late, hidden, or removed, and this surface
-      // must not render any of those as a destination.
+      beginPaint: () => referencesRef.current?.beginPaint(),
+      endPaint: () => referencesRef.current?.endPaint(),
+      isKnownPrefix: (prefix: string) => referencesRef.current?.isKnownPrefix(prefix) ?? false,
       onActivate: (ref: string) => {
-        const issueId = resolveIssueReference(ref, issuesRef.current)?.issueId
+        const issueId = referencesRef.current?.issueId(ref)
         if (issueId) onOpenIssueRef.current?.(issueId)
       },
-      resolveStage: (ref: string) => resolveIssueReference(ref, issuesRef.current)?.stage ?? null,
+      resolveStage: (ref: string) => referencesRef.current?.resolveStage(ref) ?? null,
     }),
     [],
   )
@@ -151,13 +126,12 @@ export function TerminalPane({
       onState: (state) => setControlView(terminalControlView(state)),
     })
 
-  // Re-arm on every projection change, exactly as the desktop effect does: the
-  // stage colour is READ live, but nothing schedules a repaint on its own, so a
-  // task moving to review would keep its old underline until the next frame.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `issues` is the repaint trigger; refLinks reads it through a ref
+  // Only a painted prefix/stage answer schedules a new underline paint.
   useEffect(() => {
-    mountedRef.current?.view.setRefLinks(refLinks)
-  }, [issues, refLinks, mountedRef])
+    const paint = () => mountedRef.current?.view.setRefLinks(refLinks)
+    paint()
+    return references?.subscribe(paint)
+  }, [references, refLinks, mountedRef])
 
   const takeControl = useCallback(() => {
     // THE EXPLICIT TAKEOVER (POD-724). `takeControl` rather than a bare
