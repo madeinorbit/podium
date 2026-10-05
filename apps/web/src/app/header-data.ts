@@ -40,6 +40,10 @@ const EMPTY_METRICS: ReturnType<typeof readMetrics> = []
 export function usePoolHeaderMetrics() {
   return useWorklistPoolProjection(readMetrics, EMPTY_METRICS)
 }
+const readIdleCapUnmet = (pool: MobxPool) => pool.headerViews.idleCapUnmetCount()
+export function usePoolIdleCapUnmetCount() {
+  return useWorklistPoolProjection(readIdleCapUnmet, 0)
+}
 const readQuotas = (pool: MobxPool) => pool.headerViews.quotas()
 const EMPTY_QUOTAS: ReturnType<typeof readQuotas> = []
 export function usePoolHeaderQuotas() {

@@ -462,6 +462,7 @@ export function createHeaderViews(pool: MobxPool) {
     shipping,
     reclaimCounts,
     repositoryCount: () => pool.header.count('repository'),
+    idleCapUnmetCount: () => pool.header.idleCapUnmetCount(),
     panelMetric: (machineId: MachineId | undefined) => {
       const id = machineId ?? pool.header.firstId('hostMetric')
       return id ? row('hostMetric', id) : undefined

@@ -1,4 +1,3 @@
-import type { HostMetricsWire } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -17,13 +16,12 @@ import { clampInt, clampNumber, Row, Section, Subsection } from './shared'
 export function HibernationSection({
   settings,
   patch,
-  hostMetrics = [],
+  idleCapUnmet = 0,
 }: {
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
-  hostMetrics?: HostMetricsWire[]
+  idleCapUnmet?: number
 }): JSX.Element {
-  const unmet = hostMetrics.reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0)
   return (
     <Section
       title="Auto-hibernation"
@@ -107,9 +105,9 @@ export function HibernationSection({
             load pressure act independently. Quiet unobserved agents (no phase signal) count toward
             the target after at least 4 hours. The top-bar IDLE meter shows observed idle sessions
             against this target when set; long-quiet unobserved sessions may also count.
-            {unmet > 0 && (
+            {idleCapUnmet > 0 && (
               <span className="mt-1 block font-medium text-warning">
-                Cap unmet: {unmet} protected/ineligible
+                Cap unmet: {idleCapUnmet} protected/ineligible
               </span>
             )}
           </>

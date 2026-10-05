@@ -2,12 +2,12 @@ import { useSettingsTab } from './readers'
 import { useSettingsClient } from './stable-access'
 import { MembersSection } from './sections/members'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
-import type { HostMetricsWire, ServerSecretKey } from '@podium/model/browser'
+import type { ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
-import { useHostMetrics } from '@/app/store'
+import { usePoolIdleCapUnmetCount } from '@/app/header-data'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -171,7 +171,6 @@ interface SectionContext {
   trpc: Trpc
   telegramSetup: TelegramSetupState
   telegramSetupNow: number
-  hostMetrics: HostMetricsWire[]
   startTelegramSetup: () => void
   resetTelegramSetup: () => void
   openNetworkSettings: () => void
@@ -204,8 +203,8 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   workllm: ({ settings, accounts, patch }) => (
     <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
   ),
-  hibernation: ({ settings, patch, hostMetrics }) => (
-    <HibernationSection settings={settings} patch={patch} hostMetrics={hostMetrics} />
+  hibernation: ({ settings, patch }) => (
+    <HibernationSettingsSection settings={settings} patch={patch} />
   ),
   notifications: (ctx) => (
     <NotificationsSection
@@ -248,6 +247,13 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
 }
 
+/** This scalar demand belongs to the mounted tab, so other settings surfaces
+ * never subscribe to fleet metric payloads or the hibernation aggregate. */
+function HibernationSettingsSection({ settings, patch }: Pick<SectionContext, 'settings' | 'patch'>) {
+  const idleCapUnmet = usePoolIdleCapUnmetCount()
+  return <HibernationSection settings={settings} patch={patch} idleCapUnmet={idleCapUnmet} />
+}
+
 /**
  * Settings — a full main-content surface (not a modal), split into sections via a
  * side nav. Loads the whole blob, edits a local copy, saves it whole — no
@@ -257,7 +263,6 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
  * state (and its poll) stays here so it survives switching tabs.
  */
 export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element {
-  const hostMetrics = useHostMetrics()
   const { trpc, setSettingsTab } = useSettingsClient()
   const settingsTab = useSettingsTab()
   const notificationsEnabled = useFeature('notifications')
@@ -781,7 +786,6 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
                     trpc,
                     telegramSetup,
                     telegramSetupNow,
-                    hostMetrics,
                     startTelegramSetup: () => void startTelegramSetup(),
                     resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
                     openNetworkSettings: () => setSettingsTab('network'),

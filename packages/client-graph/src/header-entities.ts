@@ -28,6 +28,7 @@ export function createHeaderEntities() {
   const refs = observable.map<string, string>(undefined, { deep: false })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
+  const idleCapUnmet = observable.box(0)
   // Kernel facade rows use ascending canonical IDs. Membership changes alone
   // invalidate this order; per-session activity never sorts the whole fleet.
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
@@ -103,6 +104,7 @@ export function createHeaderEntities() {
     members: (entity: string, id: string, relation: string) =>
       members.get(`${entity}:${id}:${relation}`) ?? [],
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
+    idleCapUnmetCount: () => idleCapUnmet.get(),
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
@@ -118,6 +120,12 @@ export function createHeaderEntities() {
               adjustShipping(after, 1)
             }
           }
+          if (record.kind === 'hostMetric') {
+            const key = HEADER_SCHEMA.hostMetric.counts.idleCapUnmet
+            const before = (previous as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
+            const after = (record.value as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
+            if (before !== after) idleCapUnmet.set(idleCapUnmet.get() + after - before)
+          }
           if (record.value === undefined) table.delete(record.id)
           else table.set(record.id, record.value)
           change(record.kind, record.id, record.value)
@@ -131,6 +139,7 @@ export function createHeaderEntities() {
       refs.clear()
       sessionIds.clear()
       shipping.clear()
+      idleCapUnmet.set(0)
     },
   }
 }

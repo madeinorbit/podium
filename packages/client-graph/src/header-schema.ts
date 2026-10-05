@@ -46,6 +46,7 @@ export const HEADER_SCHEMA = {
     source: 'runtime:hostMetrics',
     model: 'HostMetricsWire',
     cold: 'never',
+    counts: { idleCapUnmet: 'idleCapUnmet' },
   },
   quota: {
     key: 'machineId',
