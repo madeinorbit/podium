@@ -1,6 +1,6 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
-import { deriveHandoffNow, missionRootFor } from '@podium/client-core/values'
+import { missionRootFor, type HandoffNowEntry } from '@podium/client-core/values'
 import { dedupeSessions } from '../diagnostics/reference-state'
 import { allIssueViewModels } from '../diagnostics/reference/issue-view-models'
 import { checkMissionView } from '../diagnostics/mission-view-check'
@@ -42,7 +42,7 @@ for (const scale of [1, 4] as const) it(`matches the synthetic mission and graft
     const roots = new Set(selected.map(id => missionRootFor(issues, id)?.id))
     for (const root of roots) for (const mode of ['full', 'working', 'needs-you'] as const) {
       let result!: ReturnType<typeof checkMissionView>
-      let handoff: ReturnType<typeof deriveHandoffNow> | undefined
+      let handoff: readonly HandoffNowEntry[] | undefined
       const stop = autorun(() => {
         result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths)
         if (result.first?.section === 'handoff' && root) {
