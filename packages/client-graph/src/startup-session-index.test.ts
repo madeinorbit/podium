@@ -1,3 +1,4 @@
+import { referenceKey } from './shared/session-reference'
 import { expect, it, vi } from 'vitest'
 import * as answers from './query-result'
 import { createColdIndex } from './shared/cold-index'
@@ -11,7 +12,7 @@ type Row = Readonly<Record<string, unknown>>
 const row = (n: number): Row => ({
   sessionId: `startup-${n}`, agentKind: n % 11 === 0 ? 'shell' : 'codex', status: 'live',
   cwd: `/repo/${n % 3}/child`, machineId: `m${n % 2}`, issueId: `i${n % 3}`,
-  displayRef: `POD-${n % 3}-A`,
+  refRepoId: 'repo', refSeq: n % 3, refLetter: 'A',
   lastActiveAt: stamp, createdAt: stamp, archived: n % 13 === 0, headless: n % 17 === 0,
   snoozedUntil: n % 7 === 0 ? '2026-10-04T12:00:00Z' : '',
   agentState: { phase: n % 3 === 0 ? 'needs_user' : 'working' },
@@ -55,7 +56,7 @@ function view(q: SessionQuestions, ids: string[], time: number) {
     activity: q.activity(activity), exact: q.activity({ ...activity, match: 'exact' }),
     revisions: [q.recentRevision(), q.machineRevision(['m0', 'm1']), q.activityRevision(activity)],
     close: ['i0', 'i1', 'i2'].map(id => q.issueCloseCounts(id)),
-    references: ['POD-0-A', 'POD-1-A', 'POD-2-A', 'NEW'].map(ref => q.referenceId(ref)),
+    references: ['POD-0-A', 'POD-1-A', 'POD-2-A', 'NEW'].map(ref => q.referenceId(referenceKey('repo', ref) ?? ref)),
   }
 }
 
@@ -107,7 +108,7 @@ it('matches a final relation state and subsequent collapse winner flips after bo
       latest: index.latestMachineSession(['m0', 'm1']),
       activity: index.readerActivity({ kind: 'commandRootActivity', roots: ['/repo'] }),
       close: ['i0', 'i1', 'i2'].map(id => q.issueCloseCounts(id)),
-      references: ['POD-0-A', 'POD-1-A', 'POD-2-A'].map(ref => q.referenceId(ref)),
+      references: ['POD-0-A', 'POD-1-A', 'POD-2-A'].map(ref => q.referenceId(referenceKey('repo', ref) ?? ref)),
     }
   }
   expect(read(bulk)).toEqual(read(sequential))

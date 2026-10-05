@@ -18,7 +18,8 @@ export function joinInputs(entity: string, field: string): readonly string[] | u
 export function joinedFields(entity: string, row: Row, fields: readonly string[], read: CompanionRead): Row {
   const out = { ...row }
   for (const field of fields) {
-    if (!joinInputs(entity, field)) continue
+    const inputs = joinInputs(entity, field)
+    if (!inputs || !inputs.some(key => Object.hasOwn(row, key))) continue
     Object.defineProperty(out, field, {
       enumerable: true,
       get() {

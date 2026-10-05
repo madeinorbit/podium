@@ -1,3 +1,5 @@
+import { parseSessionRef } from '@podium/protocol'
+import { referenceKey } from './shared/session-reference'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
@@ -14,15 +16,22 @@ const issue = (id: string, seq = 1, patch: object = {}): RowRecord => ({ kind: '
   repoPath: '/fixture', audience: 'human', labels: [], deps: [], priority: 2,
   createdAt: old, updatedAt: old, ...patch,
 } } as RowRecord)
-const session = (id: string, patch: object = {}): RowRecord => ({ kind: 'session', id, value: {
-  sessionId: id, displayRef: 'POD-1-A', title: id, cwd: '/fixture', agentKind: 'codex',
-  status: 'exited', archived: true, createdAt: old, lastActiveAt: old, ...patch,
-} } as RowRecord)
+const session = (id: string, patch: object = {}): RowRecord => {
+  const { displayRef, ...own } = patch as { displayRef?: string }
+  const ref = parseSessionRef(displayRef ?? 'POD-1-A')!
+  return { kind: 'session', id, value: {
+    sessionId: id, refRepoId: 'repo', refSeq: ref.seq, refLetter: ref.letter, refDraft: ref.draft,
+    title: id, cwd: '/fixture', agentKind: 'codex', status: 'exited', archived: true,
+    createdAt: old, lastActiveAt: old, ...own,
+  } } as RowRecord
+}
+
 const repo = (id = 'repo', prefix: string | undefined = 'POD'): RowRecord =>
   ({ kind: 'worktree', id, value: { prefix } } as unknown as RowRecord)
 const lane = (path: string, id = 'repo', prefix: string | undefined = 'POD'): RowRecord =>
   ({ kind: 'worktree', id: path, value: { path, repoId: id, prefix, repoPath: '/fixture', repoName: 'Fixture' } } as RowRecord)
 function fixture(rows: RowRecord[]) {
+  if (rows.some(row => row.kind === 'session') && !rows.some(row => row.kind === 'worktree')) rows = [repo(), ...rows]
   let source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
@@ -119,7 +128,7 @@ it('uses maintained session-ref winners across cold collapse/order flips and res
     expect(runs).toBe(2)
     runInAction(() => f.pool.tables.session.set('a', session('a', { displayRef: 'POD-3-A' }).value as never))
     expect(f.pool.queries.linkedSessionId('POD-3-A')).toBe('a')
-    expect(f.source().forkSessionQuestions(id => f.source().sessionCollapsed(id), id => f.source().sessionOrderKey(id)).referenceId('POD-3-A')).toBeUndefined()
+    expect(f.source().forkSessionQuestions(id => f.source().sessionCollapsed(id), id => f.source().sessionOrderKey(id)).referenceId(referenceKey('repo', 'POD-3-A')!)).toBeUndefined()
     runInAction(() => f.pool.tables.session.delete('a'))
     expect(value).toBe('a')
   } finally { stop(); f.pool.dispose() }

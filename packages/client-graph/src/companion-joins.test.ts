@@ -102,3 +102,15 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
     console.info(`companion ${scale}x`, JSON.stringify({ sessions: 32 * scale, records: 1, sessionWrites: writes, visited: f.source.stats.rowsVisited }))
   } finally { stopRef(); stopHot(); stopCold(); stopWrites(); stopEvents(); f.dispose() }
 })
+
+for (const scale of [1, 4] as const) it(`a repo prefix change alone publishes one record at ${scale}x`, () => {
+  const f = fixture(scale)
+  try {
+    f.source.stats.reset()
+    const event = f.change('repos', 'project', { prefix: 'NEW' })!
+    expect(event.rows).toHaveLength(1)
+    expect(event.rows[0]?.kind).toBe('repo')
+    expect(f.source.stats.rowsVisited).toBe(1)
+    expect((f.pool.row('session', 'session-1', 'summary') as Row).displayRef).toBe('NEW-2-A')
+  } finally { f.dispose() }
+})
