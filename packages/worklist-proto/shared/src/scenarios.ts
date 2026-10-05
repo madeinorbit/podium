@@ -690,6 +690,8 @@ export interface ScenarioEngine {
    * holding the old `engine`/`replica` (a row source) must re-bind.
    */
   reload: () => Promise<void>
+  /** Release the runtime and the scenario-owned side cache at the final boundary. */
+  dispose: () => void
   corpus: FixtureCorpus
   targets: ScenarioTargets
   rejectNextMarkRead: () => void
@@ -862,6 +864,13 @@ export async function startEngineOnCorpus(
       ctx.replica = fresh
       ctx.hub = next.hub
       await install(ctx)
+    },
+    dispose: () => {
+      try {
+        ctx.engine.destroy()
+      } finally {
+        side.dispose()
+      }
     },
     corpus,
     targets: pickTargets(corpus),

@@ -11,7 +11,7 @@ import type { GitRepositoryWire } from '@podium/model'
  */
 import { asSessionId } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   startScenarioEngine,
   writeHeartbeat,
@@ -39,6 +39,17 @@ interface Meter {
   wakes: number
   reads: number
 }
+
+const cleanups: (() => void)[] = []
+beforeEach(async () => {
+  // Each test owns a large corpus. Collect after the previous async test
+  // unwinds, keeping retired snapshots below the shared host memory budget.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  ;(globalThis as typeof globalThis & { Bun: { gc(force: boolean): unknown } }).Bun.gc(true)
+})
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+})
 
 /** The runtime as one adapter sees it, counting every wake and every read. */
 function metered(rt: Runtime): { view: Runtime; meter: Meter } {
@@ -77,13 +88,20 @@ const flush = async () => {
 async function fixture(scale: 1 | 4) {
   const ctx = await startScenarioEngine(scale)
   const rt = ctx.engine
+  // The scenario owns the runtime and side cache, including their window
+  // listeners and polling timers. Release every owner, even if setup fails.
+  const stops: (() => void)[] = [() => ctx.dispose()]
+  const dispose = () => {
+    for (const stop of stops.splice(0).reverse()) stop()
+  }
+  cleanups.push(dispose)
   const handle = createRuntimeWorklistPool(rt, { summaries: COMMAND_SUMMARIES })
+  stops.push(() => handle.dispose())
   for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {
     /* baseline boot */
   }
   const pool = handle.pool
   const meters: Record<string, Meter> = {}
-  const stops: (() => void)[] = []
   const add = (name: string) => {
     const { view, meter } = metered(rt)
     meters[name] = meter
@@ -136,10 +154,7 @@ async function fixture(scale: 1 | 4) {
     session,
     command,
     chat,
-    dispose() {
-      for (const stop of stops) stop()
-      handle.dispose()
-    },
+    dispose,
   }
 }
 
@@ -271,11 +286,13 @@ describe('keyed adapter inputs (POD-5433)', () => {
           f.pool.row('issueExit', other)
           runs++
         })
+        cleanups.push(off)
         const named = { runs: 0 }
         const offNamed = autorun(() => {
           f.pool.row('issueExit', renamed)
           named.runs++
         })
+        cleanups.push(offNamed)
         runs = 0
         named.runs = 0
         await writeTitleRename(f.ctx)
@@ -299,6 +316,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
         const stop = autorun(() => {
           f.chat.read('chatSessionOrder', 'order')
         })
+        cleanups.push(stop)
         const order = f.chat.read('chatSessionOrder', 'order')
         const { orderLists, orderIds, addressedOrders } = f.chat.counts
         await writeHeartbeat(f.ctx)
