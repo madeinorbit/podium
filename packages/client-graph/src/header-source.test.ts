@@ -2,10 +2,11 @@ import { createHeaderPollingService, type ClientRuntime, type KeyedListChange } 
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
-import { observe } from 'mobx'
+import { autorun, observe } from 'mobx'
 import type { HeaderRows } from './header-schema'
 import { attachHeaderSource } from './header-source'
 import { MobxPool } from './pool'
+import { HeaderSessions } from './header-sessions'
 
 it('reads only changed header keys between 1x/4x and preserves removal and rescope', async () => {
   const samples = []
@@ -234,6 +235,42 @@ function pollingFixture() {
     },
   }
 }
+
+it('releases header sessions with the attached history source when the last header reader leaves', async () => {
+  vi.useFakeTimers()
+  const f = pollingFixture(),
+    dispose = vi.spyOn(HeaderSessions.prototype, 'dispose'),
+    count = vi.spyOn(f.pool.headerViews, 'workingCount')
+  const stamp = new Date(0).toISOString()
+  const row = { sessionId: 'seat', agentKind: 'codex', cwd: '/header', status: 'live',
+    lastActiveAt: stamp, agentState: { phase: 'idle', since: stamp } }
+  f.pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
+  const off = f.start()
+  let stop = () => {}
+  try {
+    await Promise.resolve()
+    expect(count).not.toHaveBeenCalled()
+    expect(dispose).not.toHaveBeenCalled()
+    stop = autorun(() => { f.pool.headerViews.workingCount() })
+    const initialHistory = f.history.mock.calls.length
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: {
+      ...row, agentState: { phase: 'working', since: stamp },
+    } as never }] })
+    expect(f.history).toHaveBeenCalledTimes(initialHistory + 1)
+    await Promise.resolve()
+    stop()
+    expect(dispose).toHaveBeenCalledTimes(1)
+    const afterClose = f.history.mock.calls.length
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
+    expect(f.history).toHaveBeenCalledTimes(afterClose)
+    expect(dispose).toHaveBeenCalledTimes(1)
+    stop = autorun(() => { expect(f.pool.headerViews.workingCount()).toBe(0) })
+    stop()
+    expect(dispose).toHaveBeenCalledTimes(2)
+  } finally {
+    stop(); off(); f.pool.dispose()
+  }
+})
 
 afterEach(() => {
   vi.useRealTimers()

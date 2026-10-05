@@ -371,10 +371,13 @@ describe('declared command and launch targets', () => {
       expect(globals()).toEqual(before)
       expect(census).not.toHaveBeenCalled()
       // A relevant activity publication arms usage work, without cold scans.
+      const heartbeatCold = !f.pool.tables.session.has(f.ctx.targets.heartbeatSessionId)
       await writeHeartbeat(f.ctx)
       f.parity('activity publication')
       expect(views.counts.usageQueries).toBeGreaterThan(before.usageQueries)
-      expect(views.counts.coldSessionVisits).toBe(before.coldSessionVisits)
+      // The keyed helper counts this addressed cold value too; it never
+      // revisits the remaining browsing summaries on this publication.
+      expect(views.counts.coldSessionVisits).toBe(before.coldSessionVisits + Number(heartbeatCold))
     } finally {
       census.mockRestore()
       for (const stop of stops) stop()
