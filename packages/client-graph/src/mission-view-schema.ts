@@ -20,6 +20,9 @@ export const MISSION_VIEW_SESSION_FIELDS: Readonly<Record<string, FieldSpec>> = 
 /** Cold issue rows need only topology/stage facts. Visible prose/detail loads
  * normally; attachment counts use scalar summaries; session display detail loads normally. */
 export const MISSION_VIEW_SUMMARIES = {
-  issue: ['id', 'parentId', 'archived', 'deletedAt', 'stage', 'closedReason', 'updatedAt'],
+  issue: ['id', 'parentId', 'archived', 'deletedAt', 'stage', 'closedReason', 'updatedAt',
+    // Open menus show these authored fields, never a full history projection.
+    'seq', 'title', 'repoId', 'repoPath', 'deps', 'labels', 'priority', 'color', 'pinned',
+    'worktreePath', 'deferUntil', 'duplicateOf', 'defaultAgent', 'needsHuman', 'blocked', 'isDraftVessel', 'audience'],
   session: ['sessionId', 'issueId', 'archived', 'headless', 'agentKind', 'lastActiveAt'],
 } as const

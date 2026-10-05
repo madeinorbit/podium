@@ -40,18 +40,19 @@ it('an open task menu loads its issue, keeps exact cascade counts and never read
   const work: number[] = []
   for (const scale of [1, 4]) {
     const { pool, view, load } = fixture(scale)
+    // The menu is opened from a drawn issue row, whose unread badge already
+    // observes the maintained activity summary. Its cold history stays cold.
+    const badge = observe(() => pool.issueObject('chosen').unread)
     const row = vi.spyOn(pool, 'row'), catalog = vi.spyOn(pool.queries, 'ids')
     const menu = observe(() => readMissionActionInputs(view, ['chosen']))
     try {
-      expect(menu.value).toBe(LOADING)
-      expect(pool.hydrate()).toBe(1)
       expect(menu.value).toMatchObject({ issues: [{ id: 'chosen', sessionSummary: { total: 32 * scale + 1 } }],
         sessions: [], handoff: { blocker: 'multiple-sessions' } })
-      expect(load.mock.calls).toEqual([['issue', 'chosen']])
+      expect(load).not.toHaveBeenCalled()
       expect(row.mock.calls.some(([kind]) => kind === 'session')).toBe(false)
       expect(catalog).not.toHaveBeenCalled()
       work.push(row.mock.calls.length)
-    } finally { menu.stop() }
+    } finally { menu.stop(); badge.stop() }
   }
   expect(work[1]).toBe(work[0])
 })
@@ -65,9 +66,8 @@ it('a session menu reads only its addressed session and attached issue, includin
     try {
       expect(menu.value).toBe(LOADING)
       expect(pool.hydrate()).toBe(1)
-      expect(pool.hydrate()).toBe(1)
       expect(menu.value).toMatchObject({ session: { sessionId: 'picked' }, issue: { id: 'chosen' }, sessions: [] })
-      expect(load.mock.calls).toEqual([['session', 'picked'], ['issue', 'chosen']])
+      expect(load.mock.calls).toEqual([['session', 'picked']])
       expect(row.mock.calls.filter(([kind]) => kind === 'session').every(([, id]) => id === 'picked')).toBe(true)
       expect(attached).not.toHaveBeenCalled()
       work.push(row.mock.calls.length)
@@ -80,9 +80,9 @@ it('loads the sole capable archived sender and updates eligibility after capabil
   const { pool, view, load, session } = fixture(4, 1)
   const menu = observe(() => readMissionActionInputs(view, ['chosen']))
   try {
-    pool.hydrate(); pool.hydrate()
+    pool.hydrate()
     expect(menu.value).toMatchObject({ handoff: { session: { sessionId: 'history-0', archived: true } } })
-    expect(load.mock.calls).toEqual([['issue', 'chosen'], ['session', 'history-0']])
+    expect(load.mock.calls).toEqual([['session', 'history-0']])
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'chosen', true) }] })
     expect(menu.value).toMatchObject({ handoff: { blocker: 'multiple-sessions' } })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'elsewhere', true) }] })

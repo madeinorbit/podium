@@ -662,13 +662,12 @@ export class MissionViewReader {
    * it does not show the history roster or its phase summary. */
   menuIssue(id: string): Loaded<IssueNavigationModel> { return menuIssueValue(this.node(id)) }
   readMenuIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = this.catalogIssue(id)
+    const row = this.menuCatalogIssue(id)
     if (!row || row === LOADING) return row
     const readAt = this.pool.readCursor(id) ?? null, readTime = Date.parse(readAt ?? '')
-    const activity = this.pool.visibleInputs.seatSummary?.(id).activity ?? 0
     return menuIssueOverlay(row, {
       readAt,
-      unread: !row.deletedAt && (!Number.isFinite(readTime) || Date.parse(row.updatedAt) > readTime || activity > readTime),
+      unread: !row.deletedAt && (!Number.isFinite(readTime) || Date.parse(row.updatedAt) > readTime || (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
       ...this.pool.queries.issueChildCounts(id),
       sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
     }, MENU_OMISSIONS) as IssueNavigationModel
@@ -683,6 +682,15 @@ export class MissionViewReader {
     const session = this.session(sessionId)
     return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
   })
+  /** Menu metadata is already declared in the cold summary. Reading it does
+   * not promote a closed issue and initialize its full display roster. */
+  menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
+    const row = this.pool.row('issue', id, 'summary-fields') as Loaded<IssueNavigationModel>
+    if (!row || row === LOADING) return row
+    const repoId = this.pool.graph.one('issue', id, 'repo')
+    const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
+  }
   /** Shared raw-member facts: read cursors and machine display changes do not
    * rebuild the archived contribution or the ordered membership IDs. */
   issueMembers(id: string): IssueMemberFacts | typeof LOADING { return this.readIssueMembers(id) }
@@ -1564,7 +1572,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   if (session === LOADING) return LOADING
   const requested = sessionId ? (handoffEnabled && session?.issueId ? [session.issueId] : []) : issueIds
   for (const id of requested) {
-    const issue = sessionId ? view.catalogIssue(id) : view.menuIssue(id)
+    const issue = sessionId ? view.menuCatalogIssue(id) : view.menuIssue(id)
     if (issue === LOADING) return LOADING
     if (issue) selected.push(issue)
   }

@@ -172,14 +172,9 @@ it('batches the addressed cold session and supplies pool inputs with equal click
     await act(async () => {
       expect(pool.hydrate()).toBe(1)
     })
-    expect(screen.queryByTestId('pool-session-menu')).toBeNull()
-    await act(async () => {
-      expect(pool.hydrate()).toBe(1)
-    })
     expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
     expect(load.mock.calls).toEqual([
       ['session', 'chosen-session'],
-      ['issue', 'chosen-issue'],
     ])
     expect(
       read.mock.calls
@@ -207,10 +202,6 @@ it('waits for pool attachment and drops obsolete menu inputs when the pool detac
   const { pool } = open(1)
   f.pool = pool
   view.rerender(<PoolSessionContextMenu {...props} />)
-  expect(screen.queryByTestId('pool-session-menu')).toBeNull()
-  await act(async () => {
-    pool.hydrate()
-  })
   expect(screen.queryByTestId('pool-session-menu')).toBeNull()
   await act(async () => {
     pool.hydrate()
