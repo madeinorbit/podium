@@ -17368,30 +17368,6 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "mock:callback/useWorklistPoolProjection/next",
-      "rule": "reader-summary",
-      "tokens": "4b6b3212318f44bfd7e00f7fde892f6da62a4d599d7a6a80c2033daa22dacbbe",
-      "gate": [],
-      "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
-        "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
-        "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "718c96a594aad0ec602e17ddf82049a4573e6cc508d77906680e85b0cc12ee09",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Hermetic mock reader invocation",
-      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
-      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/issues",
       "rule": "reader-summary",
       "tokens": "8363b52e0cd802168cded1bc910522000d16d052f691f939eae0335f2dcaf4c9",
@@ -46594,6 +46570,309 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections/pinnedIds",
+      "rule": "consume:filter",
+      "tokens": "8c68563ec90262bd977b17e181dc2753f33e3655047308401916be4777af99cb",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+      ],
+      "fingerprint": "14c3523407e3e7aedb0bc0e0d459cf449ad8e51cf0f8ac11823e85e7de43f173",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections",
+      "rule": "consume:filter",
+      "tokens": "f4a3e92ecc771c4a052f9f2ae9f16fe2de8dd0fab7d17fb377204fae7d11bcd2",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "294ba027c5b4db2810f8368f5cff14fbd2915f011390420cd16cbdf243c73e23",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
+      "rule": "reader-summary",
+      "tokens": "58b2023d67c1f4893dfd0c4413d6adbc817cad34e99ba21b14b56fcc67802761",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+      ],
+      "fingerprint": "44f184cc3dd09e2b267604b19434deb6c753fe48931e5ac9df6de27c91f2c8b7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback/model",
+      "rule": "consume:find",
+      "tokens": "f47158a6dadb2e91a5ec3f515070b83bc5637f1c4d8a5ab406bc4736d83fa4b1",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+      ],
+      "fingerprint": "50d80fc02553665219ef76fda837b468de7306dc92289cd186bd1ccd59639f10",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback/members/map:callback",
+      "rule": "consume:find",
+      "tokens": "60dab686982dd75a0e5dd4e5b63e6651c03f55ba9afa223245df95f862ddbe4c",
+      "gate": [
+        "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
+      ],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "5bd7f5399f698bb49a2315047d8359cf0c0da7c32b4bfb475d8c4ee06d063865",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections/pinnedIds",
+      "rule": "consume:map",
+      "tokens": "3f440a2c47881bd5de463ae0376e9ee4d65d280d95b76541712086151c7db8d1",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "5d8663bb95a192ddf4d722bf47a131778ab89f00051d6c8011b47cccb1f18ea2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/working",
+      "rule": "consume:some",
+      "tokens": "85cb1c6488fe48c33abc62776568e19a250ec14bb7891aa5fb8821ff15732f8c",
+      "gate": [],
+      "origin": [
+        "bd72c61e292e15f8de7e07b36ad79c86b4371305412c544da410faa3ab91cb63"
+      ],
+      "fingerprint": "845498a41ba8d69d24af7582b4f32701c2bb2840b2d826a3b42cc6940e04348f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections",
+      "rule": "consume:sort",
+      "tokens": "11e1386fd7d4d2bff62ed5b3025d11c487cfc36aac6843402ee2e6e9b8a116c6",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "9459e613cc158deaaa7a098cd650ad130ebcd1a8ece5f16f154bfa7a706d36d9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections/pinnedIds",
+      "rule": "consume:map",
+      "tokens": "3f440a2c47881bd5de463ae0376e9ee4d65d280d95b76541712086151c7db8d1",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+      ],
+      "fingerprint": "a326cc5a4e81fd10072dc506e126b33990dde2714515b7acc2bae8f8ae3ad8b9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/sessions",
+      "rule": "spread",
+      "tokens": "2acf587c4578a6c316a3f94fd7f1a629a2d730b91a345ef706e1ddf832b19a3b",
+      "gate": [],
+      "origin": [
+        "bd72c61e292e15f8de7e07b36ad79c86b4371305412c544da410faa3ab91cb63"
+      ],
+      "fingerprint": "bc88c14e45db1f3acf616fc5b9f51ecfb4607d4c7175dbdddb99edd414a246a4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback/members/map:callback",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [
+        "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
+      ],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "c4a972cb758396f0f11294d495b5b6cf93013127af3dd3c284e20048b4c413d8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "mock:callback/useWorklistPoolProjection/next",
+      "rule": "reader-summary",
+      "tokens": "e480bf047cf0ab10e7b2ce15e560819c9a65f6e849e861ec36cea253a4db641c",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
+        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
+        "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
+        "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "cedfa12b1872c9ec07a74633895ccbbd73fbab63b5eb1e25954a22c3e1136134",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
+      "rule": "helper-consumer",
+      "tokens": "4ec1ec54b1c102fd9a0be726f0115e980c8d898e75389921beef81396aa35d24",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933"
+      ],
+      "fingerprint": "d8fb0847f5145d8b5dc5c9f0560c2adf6b1480aff961390f063cd74f5c161399",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections",
+      "rule": "loop:for-of",
+      "tokens": "d981a47ede3d452ae1ce058ba60f14b81ab56db341c14892ed44b84bddb5adc5",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "e958d489c86a665b79f69ab1b5bf08f935c14e6fea45b95fb161f843fdfb4f88",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections",
+      "rule": "spread",
+      "tokens": "e8f1c4a78690520fab098b560fef8bd6030bf017620ae3dd0793b8cc1ca81a2a",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "f7e75be36909bf36ab57ba323c22d4b4ac33d887ec18785e5c8a7a4d6a5f8a91",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarSections/pinnedIds",
+      "rule": "consume:filter",
+      "tokens": "8c68563ec90262bd977b17e181dc2753f33e3655047308401916be4777af99cb",
+      "gate": [],
+      "origin": [
+        "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
+      ],
+      "fingerprint": "ff5390ee3ca85e81bc8ed8db2135e7e754467750d011fa6f4012b322fb4ce89e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     }
   ]
 }
