@@ -322,6 +322,7 @@ export class MobxPool {
   private referenceReader: IssueReferences | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private readonly joinedRows = new WeakMap<object, object>()
+  private companionMachines = new Set<string>()
   private disposed = false
 
   /** A reference borrows the source's keyed identity answer and one named
@@ -1035,6 +1036,15 @@ export class MobxPool {
     const out = ingestOut()
     runInAction(() => {
       const machineRows = event.rows.filter(record => record.kind === 'machine')
+      if (event.type === 'replace') {
+        const next = new Set(machineRows.filter(record => record.value !== undefined).map(record => record.id))
+        for (const id of this.companionMachines)
+          if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
+        this.companionMachines = next
+      } else for (const record of machineRows) {
+        if (record.value === undefined) this.companionMachines.delete(record.id)
+        else this.companionMachines.add(record.id)
+      }
       if (machineRows.length) this.header.apply(machineRows as never)
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)

@@ -261,7 +261,12 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
           put(target, 'repo', id, row, out)
         },
         dropWorktree: (id) => drop(target, 'worktree', id, out),
-        dropRepo: (id) => drop(target, 'repo', id, out),
+        dropRepo: (id) => {
+          holders.delete(id)
+          const companion = repoState(target.write.repo).records.get(id)
+          if (companion) put(target, 'repo', id, companion, out)
+          else drop(target, 'repo', id, out)
+        },
         repoWorktreeMembers: (repoId) => target.relations?.members('repo', repoId, 'worktrees'),
       },
       record.id,

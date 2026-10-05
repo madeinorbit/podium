@@ -33,10 +33,11 @@ function fixture(scale: 1 | 4) {
       issueId: n ? 'history' : undefined, status: n ? 'exited' : 'live', archived: !!n,
       stoppedAt: n ? stamp : undefined, agentState: { phase: n ? 'ended' : 'working' } })
   }
-  const discovery = [{ path: '/synthetic/project', repoId: 'project', worktrees: [{ path: '/synthetic/project/wt' }] }]
+  let discovery = [{ path: '/synthetic/project', repoId: 'project', worktrees: [{ path: '/synthetic/project/wt' }] }]
+  let localChanged = () => {}
   const source = createRowSource({ principal: { userId: 'operator' },
     readLocal: () => discovery,
-    onLocals: () => () => {},
+    onLocals: (_keys, listener) => { localChanged = listener; return () => {} },
   }, {
     row: (kind, id) => tables.get(kind)?.get(id), rows: kind => [...(tables.get(kind)?.values() ?? [])],
     subscribeAddressedBatch(listener) { addressed = listener; return () => {} },
@@ -48,7 +49,14 @@ function fixture(scale: 1 | 4) {
     addressed({ type: 'update', rows: [{ kind, id }] })
     return source.flush()
   }
-  return { source, pool: handle.pool, change, dispose() { handle.dispose(); source.dispose() } }
+  return { source, pool: handle.pool, change,
+    removeDiscovery() { discovery = []; localChanged(); return source.flush() },
+    replaceWithoutMachine(id: string) {
+      tables.get('machines')?.delete(id)
+      addressed({ type: 'replace', reason: 'rescope' })
+      return source.flush()
+    },
+    dispose() { handle.dispose(); source.dispose() } }
 }
 function values(row: Row) { return Object.fromEntries(displayed.map(key => [key, row[key] ?? null])) }
 
@@ -117,5 +125,26 @@ for (const scale of [1, 4] as const) it(`a repo prefix change alone publishes on
     expect(event.rows[0]?.kind).toBe('repo')
     expect(f.source.stats.rowsVisited).toBe(1)
     expect((f.pool.row('session', 'session-1', 'summary') as Row).displayRef).toBe('NEW-2-A')
+  } finally { f.dispose() }
+})
+
+it('keeps repo companions when their last discovered lane leaves', () => {
+  const f = fixture(1)
+  try {
+    f.removeDiscovery()
+    expect(f.pool.tables.worktree.size).toBe(0)
+    expect(f.pool.row('repo', 'project')).toMatchObject({ prefix: 'POD' })
+    expect((f.pool.row('session', 'session-1', 'summary') as Row).displayRef).toBe('POD-2-A')
+    expect(f.pool.queries.linkedSessionId('POD-2-A')).toBe('session-1')
+  } finally { f.dispose() }
+})
+
+it('removes a missing machine companion when the source replaces its snapshot', () => {
+  const f = fixture(1)
+  try {
+    expect((f.pool.row('session', 'session-1', 'summary') as Row).handoffTarget).toBe('Laptop')
+    f.replaceWithoutMachine('target')
+    expect(f.pool.row('machine', 'target')).toBeUndefined()
+    expect((f.pool.row('session', 'session-1', 'summary') as Row).handoffTarget).toBeUndefined()
   } finally { f.dispose() }
 })
