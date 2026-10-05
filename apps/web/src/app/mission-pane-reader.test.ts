@@ -6,10 +6,10 @@ import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/
 import { readMissionPane } from './mission-pane-reader'
 import { poolBackedScreens } from './pool-screens'
 
-it('settles a cold production mission before its first visible pane', async () => {
-  const ctx = await startScenarioEngine(1, { seed: 4443 })
+it.each([1, 4] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
+  const ctx = await startScenarioEngine(scale, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
-  const input = { selectedIssueId: 'i1766', paneA: 's0', paneB: null, split: false,
+  const input = { selectedIssueId: scale === 1 ? 'i1766' : 'i13916', paneA: 's0', paneB: null, split: false,
     mode: 'full' as const, handoff: false }
   const projection = createPoolProjection(handle.pool, () => readMissionPane(handle.pool, input))
   const stop = projection.subscribe(() => {})
@@ -32,4 +32,4 @@ it('settles a cold production mission before its first visible pane', async () =
     handle.dispose()
     ctx.engine.destroy()
   }
-}, 30_000)
+}, 60_000)
