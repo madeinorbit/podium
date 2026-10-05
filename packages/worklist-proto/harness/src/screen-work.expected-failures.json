@@ -1,15 +1,5 @@
 [
   {
-    "issue": "POD-5555",
-    "reason": "Coordinator-confirmed unchanged-pilot board roster lookup: navigate-by-ref reads and derives one session group per archived row (32 to 128). The board rewrite removes this lookup and retires these exact entries.",
-    "readers": [
-      {
-        "reader": "consumer:board.card/IssueBoard@sessions:guard-root.row:guard-history-#",
-        "actions": { "navigate-by-ref": ["rows", "derivations"] }
-      }
-    ]
-  },
-  {
     "issue": "POD-5618",
     "reason": "Confirmed unchanged-pilot IssuePage growth: collecting references from all archived related sessions adds 96 elements when closed history grows from 32 to 128. Coordinator authorized these two exact entries; the detail-view owner removes them with its repair.",
     "readers": [
