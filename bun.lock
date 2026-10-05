@@ -315,6 +315,7 @@
         "@podium/client-core": "workspace:*",
         "@podium/harness": "workspace:*",
         "@podium/mobx-helpers": "workspace:*",
+        "@podium/mobx-helpers": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "mobx": "7.0.3",
