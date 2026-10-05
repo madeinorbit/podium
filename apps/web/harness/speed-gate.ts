@@ -44,6 +44,14 @@ type MissionClicks = {
   targets: string[]
   firstClickMs: number
   revisitMs: number
+  uptime: { first: string; revisit: string }
+}
+type PreparedMissionBuild = {
+  version: 1
+  sourceSha: string
+  captureSha: string
+  dirtyProduct: false
+  fixture: 'ordinary minified production'
 }
 type MissionClickBaseline = {
   sourceSha: string
@@ -84,7 +92,9 @@ const value = (name: string, fallback: string) =>
 const calibrate = args.includes('--calibrate')
 const promote = args.includes('--promote')
 const structuralOnly = args.includes('--structural-only')
-const missionClicksOnly = args.includes('--mission-clicks-only')
+const interleaveBuild = value('interleave-mission-build', '')
+const prepareBuild = value('prepare-mission-build', '')
+const missionClicksOnly = args.includes('--mission-clicks-only') || Boolean(interleaveBuild)
 const missionBaselinePath = value('mission-click-baseline', '')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
@@ -103,6 +113,32 @@ const median = (values: number[]) => {
 const round = (n: number) => Math.round(n * 1000) / 1000
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
+async function buildProductionFixture(directory: string) {
+  console.log('Building ordinary, minified production web fixture (no profiling renderer or state instrumentation)…')
+  const { build } = await import('../node_modules/vite/dist/node/index.js')
+  const { default: config } = await import('./sidebar-acceptance.vite')
+  await build({
+    ...config, configFile: false, logLevel: 'warn',
+    plugins: config.plugins?.filter(
+      (plugin) => (plugin as { name?: string })?.name !== 'acceptance-state-boundaries',
+    ),
+    build: { ...config.build, outDir: directory, sourcemap: false, minify: 'esbuild' },
+  })
+}
+
+function serveProductionFixture(directory: string) {
+  return createServer(async (req, res) => {
+    try {
+      const path = resolve(directory, '.' + new URL(req.url!, 'http://localhost').pathname)
+      if (!path.startsWith(directory + '/')) { res.writeHead(403); res.end(); return }
+      const bytes = await readFile(path)
+      res.setHeader('Content-Type', ({ '.html': 'text/html', '.js': 'text/javascript',
+        '.css': 'text/css', '.woff2': 'font/woff2' } as Record<string, string>)[extname(path)] ?? 'application/octet-stream')
+      res.end(bytes)
+    } catch { res.writeHead(404); res.end() }
+  })
+}
+
 async function main() {
   if (args.includes('--help')) {
     console.log(
@@ -113,6 +149,8 @@ async function main() {
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
         '--mission-clicks-only: diagnostic first click and revisit once at 1×/4×; no structural or five-action gate and no promotion.\n' +
         '--mission-click-baseline=<json>: add those cold captures to the normal gate and compare with the saved pre-change capture.\n' +
+        '--prepare-mission-build=<dir> --baseline-ref=<SHA>: prepare a clean pinned product fixture outside the benchmark lease.\n' +
+        '--interleave-mission-build=<dir>: diagnostic before/after/before/after, both scales and uptime per sample, under one lease.\n' +
         '--switch=<urlKey>=<0|1>: repeatable startup URL overrides; other settings stay fixed.\n' +
         '--external-lease: signal CAPTURE_READY after preparation, then await the caller lease.json; signal CAPTURE_FINISHED after cleanup.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
@@ -127,6 +165,8 @@ async function main() {
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--switch=') &&
       !arg.startsWith('--baseline-ref=') &&
+      !arg.startsWith('--prepare-mission-build=') &&
+      !arg.startsWith('--interleave-mission-build=') &&
       !arg.startsWith('--mission-click-baseline=')
     )
       throw new Error(`Unknown argument ${arg}`)
@@ -143,6 +183,23 @@ async function main() {
   )
     throw new Error('Invalid planted delay/mode')
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
+  if (prepareBuild) {
+    if (calibrate || promote || structuralOnly || missionClicksOnly || missionBaselinePath ||
+      delayMs || args.includes('--external-lease') || args.includes('--lease-confirmed'))
+      throw new Error('Prepare the pinned fixture separately, without a capture or lease')
+    const sourceSha = git('rev-parse', value('baseline-ref', 'HEAD'))
+    const captureSha = git('rev-parse', 'HEAD')
+    if (git('status', '--porcelain', '--', 'apps/web/src', 'packages'))
+      throw new Error('A prepared comparison arm needs a clean product tree')
+    git('diff', '--exit-code', sourceSha, captureSha, '--', 'apps/web/src', 'packages')
+    const directory = resolve(prepareBuild)
+    await buildProductionFixture(directory)
+    const provenance: PreparedMissionBuild = { version: 1, sourceSha, captureSha,
+      dirtyProduct: false, fixture: 'ordinary minified production' }
+    await writeFile(resolve(directory, 'build-provenance.json'), JSON.stringify(provenance, null, 2) + '\n')
+    console.log(`Pinned mission fixture prepared at ${directory}; source ${sourceSha}; no timing or lease.`)
+    return
+  }
   if (structuralOnly && (calibrate || promote || delayMs))
     throw new Error('Structural-only cannot measure or promote timing')
   if (
@@ -232,6 +289,7 @@ async function main() {
   let externalGranted = false
   let browser: Browser | undefined
   let server: ReturnType<typeof createServer> | undefined
+  let beforeServer: ReturnType<typeof createServer> | undefined
   const podium = async (argv: string[]) => {
     const proc = spawn('podium', argv, { stdio: ['ignore', 'pipe', 'inherit'] })
     let output = ''
@@ -261,6 +319,9 @@ async function main() {
               server!.close((error) => (error ? reject(error) : done())),
             )
           : Promise.resolve(),
+        beforeServer?.listening
+          ? new Promise<void>((done, reject) => beforeServer!.close(error => error ? reject(error) : done()))
+          : Promise.resolve(),
       ])
       if (leased) {
         leased = false
@@ -271,10 +332,11 @@ async function main() {
     })()
     await cleaning
   }
+  const budgetSeconds = interleaveBuild ? 600 : 285
   const deadline = setTimeout(() => {
-    console.error(`speed:gate exceeded 285 seconds. No baseline promoted.`)
+    console.error(`speed:gate exceeded ${budgetSeconds} seconds. No baseline promoted.`)
     void cleanup().finally(() => process.exit(2))
-  }, 285_000)
+  }, budgetSeconds * 1000)
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {
       void cleanup().finally(() => process.exit(130))
@@ -638,12 +700,14 @@ async function main() {
             throw new Error('Cold mission click routed to the wrong issue')
           return round(ms)
         }
+        const firstUptime = execFileSync('uptime', { encoding: 'utf8' }).trim()
         const firstClickMs = await click(targets[0]!)
         await full.page.locator(row(targets[1]!)).first().click()
         await settle(full.page)
+        const revisitUptime = execFileSync('uptime', { encoding: 'utf8' }).trim()
         const revisitMs = await click(targets[0]!)
-        results.push({ scale, targets, firstClickMs, revisitMs })
-        console.log(`${scale}× mission: first ${firstClickMs} ms; revisit ${revisitMs} ms (one capture each)`)
+        results.push({ scale, targets, firstClickMs, revisitMs, uptime: { first: firstUptime, revisit: revisitUptime } })
+        console.log(`${scale}× mission: first ${firstClickMs} ms; revisit ${revisitMs} ms (one capture each); uptime ${JSON.stringify({ first: firstUptime, revisit: revisitUptime })}`)
       } finally {
         await full.context.close()
       }
@@ -653,48 +717,23 @@ async function main() {
 
   let exitCode = 2
   try {
-    console.log(
-      'Building ordinary, minified production web fixture (no profiling renderer or state instrumentation)…',
-    )
-    const { build } = await import('../node_modules/vite/dist/node/index.js')
-    const { default: config } = await import('./sidebar-acceptance.vite')
-    await build({
-      ...config,
-      configFile: false,
-      logLevel: 'warn',
-      plugins: config.plugins?.filter(
-        (plugin) => (plugin as { name?: string })?.name !== 'acceptance-state-boundaries',
-      ),
-      build: { ...config.build, outDir: buildDir, sourcemap: false, minify: 'esbuild' },
-    })
-    server = createServer(async (req, res) => {
-      try {
-        const path = resolve(buildDir, '.' + new URL(req.url!, 'http://localhost').pathname)
-        if (!path.startsWith(buildDir + '/')) {
-          res.writeHead(403)
-          res.end()
-          return
-        }
-        const bytes = await readFile(path)
-        res.setHeader(
-          'Content-Type',
-          (
-            {
-              '.html': 'text/html',
-              '.js': 'text/javascript',
-              '.css': 'text/css',
-              '.woff2': 'font/woff2',
-            } as Record<string, string>
-          )[extname(path)] ?? 'application/octet-stream',
-        )
-        res.end(bytes)
-      } catch {
-        res.writeHead(404)
-        res.end()
-      }
-    })
+    await buildProductionFixture(buildDir)
+    server = serveProductionFixture(buildDir)
     await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done))
     const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    let beforeOrigin: string | undefined
+    let beforeBuild: PreparedMissionBuild | undefined
+    if (interleaveBuild) {
+      const directory = resolve(interleaveBuild)
+      beforeBuild = JSON.parse(await readFile(resolve(directory, 'build-provenance.json'), 'utf8')) as PreparedMissionBuild
+      if (beforeBuild.version !== 1 || beforeBuild.dirtyProduct ||
+        beforeBuild.fixture !== 'ordinary minified production' || !/^[a-f0-9]{40}$/.test(beforeBuild.sourceSha))
+        throw new Error('Before arm needs a clean pinned ordinary production build')
+      git('merge-base', '--is-ancestor', beforeBuild.sourceSha, sourceSha)
+      beforeServer = serveProductionFixture(directory)
+      await new Promise<void>(done => beforeServer!.listen(0, '127.0.0.1', done))
+      beforeOrigin = `http://127.0.0.1:${(beforeServer.address() as { port: number }).port}`
+    }
     const launchBrowser = () =>
       chromium.launch({
         headless: true,
@@ -729,6 +768,8 @@ async function main() {
           clicks.firstClickMs > 0 && clicks.revisitMs > 0)))
     )
       throw new Error('Mission comparison needs both scales on the same machine/browser and seed')
+    if (beforeBuild && missionBefore && beforeBuild.sourceSha !== missionBefore.sourceSha)
+      throw new Error('The prepared before arm differs from the pinned mission reference')
     if (args.includes('--external-lease')) {
       // flatblock has no operator CLI. Its caller takes the existing benchmark
       // lock only after this production build/browser are ready, and releases
@@ -757,7 +798,7 @@ async function main() {
         'acquire',
         'bench:flatblock',
         '--ttl',
-        '6m',
+        interleaveBuild ? '10m' : '6m',
         '--wait',
         '--timeout',
         '30s',
@@ -768,6 +809,32 @@ async function main() {
     }
     const runs: Awaited<ReturnType<typeof suite>>[] = []
     console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
+    if (beforeOrigin && beforeBuild) {
+      const arms: { arm: 'before' | 'after'; sourceSha: string; missionClicks: MissionClicks[] }[] = []
+      let targets = missionBefore
+      for (const arm of ['before', 'after', 'before', 'after'] as const) {
+        console.log(`Interleaved ${arm} arm ${arms.length + 1}/4`)
+        const clicks = await coldMissions(arm === 'before' ? beforeOrigin : origin, targets)
+        targets ??= { sourceSha: beforeBuild.sourceSha, machine, seed: 4443, missionClicks: clicks }
+        arms.push({ arm, sourceSha: arm === 'before' ? beforeBuild.sourceSha : sourceSha, missionClicks: clicks })
+      }
+      const comparison = [1, 4].map(scale => {
+        const samples = (arm: 'before' | 'after', kind: 'firstClickMs' | 'revisitMs') =>
+          arms.filter(result => result.arm === arm).map(result => result.missionClicks.find(clicks => clicks.scale === scale)![kind])
+        return { scale, first: { beforeMs: round(median(samples('before', 'firstClickMs'))), afterMs: round(median(samples('after', 'firstClickMs'))) },
+          revisit: { beforeMs: round(median(samples('before', 'revisitMs'))), afterMs: round(median(samples('after', 'revisitMs'))) } }
+      })
+      await writeFile(resolve(root, 'mission-interleaved.json'), JSON.stringify({
+        sourceSha, captureSha, dirtyProduct, machine, seed: 4443, beforeBuild, arms, comparison,
+        metric: 'trusted pointerdown to first Chromium Paint after expected mission DOM change',
+        diagnosticOnly: true, protocol: 'before, after, before, after; fresh context per scale and arm; uptime per sample',
+        runtimeSeconds: round((performance.now() - began) / 1000),
+      }, null, 2) + '\n')
+      console.log(JSON.stringify(comparison, null, 2))
+      console.log('INTERLEAVED MISSION CAPTURE ONLY — no structural or five-action gate result and no baseline promotion.')
+      exitCode = 0
+      return
+    }
     const missionClicks = missionClicksOnly || missionBefore
       ? await coldMissions(origin, missionBefore)
       : undefined
