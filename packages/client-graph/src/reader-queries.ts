@@ -84,7 +84,7 @@ export class ReaderQueries {
         this.repoStops.set(change.name, reaction(
           () => {
             const row = pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined
-            return row && row !== LOADING && typeof row.prefix === 'string' ? row.prefix : undefined
+            return row && typeof row.prefix === 'string' ? row.prefix : undefined
           },
           prefix => this.changeRepoIdentity(change.name, prefix),
           { fireImmediately: true },
@@ -418,7 +418,7 @@ export class ReaderQueries {
     } else {
       for (const id of index.issueIdentityRepoChanges(event)) {
         const row = untracked(() => this.pool.row('repo', id)) as Readonly<Record<string, unknown>> | undefined
-        this.changeRepoIdentity(id, row && row !== LOADING && typeof row.prefix === 'string' ? row.prefix : undefined)
+        this.changeRepoIdentity(id, row && typeof row.prefix === 'string' ? row.prefix : undefined)
       }
       const delta = index.changes(event)
       for (const [entity, id] of [...delta.flips, ...delta.orders])
