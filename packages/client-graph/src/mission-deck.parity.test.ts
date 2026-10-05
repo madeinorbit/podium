@@ -16,13 +16,14 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const issues = allIssueViewModels(replica)
   const repos = [...replica.rows('repos')], machines = [...replica.rows('machines')]
-  const sessions = dedupeSessions(sessionViews([...replica.rows('sessions')], {
+  const rawSessions = sessionViews([...replica.rows('sessions')], {
     userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines, repos,
-  }))
+  })
+  const sessions = dedupeSessions(rawSessions)
   const paths = issues.flatMap(issue => issue.worktreePath ? [issue.worktreePath] : [])
   const rows = [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
-    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+    ...rawSessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
     ...repos.map(value => ({ kind: 'repo' as const, id: value.id, value })),
     ...machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
   ]
