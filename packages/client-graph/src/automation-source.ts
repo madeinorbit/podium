@@ -1,7 +1,7 @@
 import type { Replica } from '@podium/client-core/replica'
 import { compareStructural, observable, runInAction } from 'mobx'
 import { AUTOMATION_RELATIONS, type AutomationEntity, type AutomationRows } from './automation-schema'
-import { RelationBuckets } from './shared/relation-buckets'
+import { RelationBuckets } from './relations'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Borrow the existing replica rows at a batched demand boundary. Addressed

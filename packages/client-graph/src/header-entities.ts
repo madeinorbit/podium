@@ -2,7 +2,7 @@ import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
-import { RelationBuckets } from './shared/relation-buckets'
+import { RelationBuckets } from './relations'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,

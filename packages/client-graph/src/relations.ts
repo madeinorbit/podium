@@ -33,7 +33,7 @@
  * through this reader and never themselves.
  */
 
-import { createAtom, type IAtom } from 'mobx'
+import { createAtom, type IAtom, observable } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
@@ -265,4 +265,43 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
     if (!atom.reportObserved() && fresh) this.atoms.delete(key)
   }
+}
+
+const EMPTY_RELATION_IDS: readonly string[] = Object.freeze([])
+
+/** Shared forward links and inverse membership for core and screen sources. Updates
+ * touch only the buckets a member entered or left; unchanged buckets keep
+ * their array identity. Call mutations inside the source publication action. */
+export class RelationBuckets {
+  private readonly forwards: Map<string, readonly string[]>
+  private readonly buckets = observable.map<string, readonly string[]>(undefined, { deep: false })
+
+  constructor(private readonly options: { trackedForward?: boolean; sorted?: boolean } = {}) {
+    this.forwards = options.trackedForward
+      ? observable.map<string, readonly string[]>(undefined, { deep: false })
+      : new Map()
+  }
+
+  move(address: string, member: string, targets: readonly string[], bucket: (target: string) => string): void {
+    const previous = this.forwards.get(address) ?? EMPTY_RELATION_IDS
+    if (previous.length === targets.length && previous.every((target, index) => target === targets[index])) return
+    for (const target of previous) {
+      if (targets.includes(target)) continue
+      const key = bucket(target), rest = this.many(key).filter(id => id !== member)
+      if (rest.length) this.buckets.set(key, rest)
+      else this.buckets.delete(key)
+    }
+    for (const target of targets) {
+      if (previous.includes(target)) continue
+      const key = bucket(target), next = [...this.many(key), member]
+      if (this.options.sorted) next.sort()
+      this.buckets.set(key, next)
+    }
+    if (targets.length) this.forwards.set(address, [...targets])
+    else this.forwards.delete(address)
+  }
+
+  one(address: string): string | undefined { return this.forwards.get(address)?.[0] }
+  many(key: string): readonly string[] { return this.buckets.get(key) ?? EMPTY_RELATION_IDS }
+  clear(): void { this.forwards.clear(); this.buckets.clear() }
 }

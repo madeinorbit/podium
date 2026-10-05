@@ -11,7 +11,7 @@ import {
 } from './command-launch-schema'
 import { allResidentSessions } from './enumerate'
 import type { MobxPool } from './pool'
-import { RelationBuckets } from './shared/relation-buckets'
+import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'

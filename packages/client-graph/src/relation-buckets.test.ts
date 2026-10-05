@@ -1,6 +1,6 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
-import { RelationBuckets } from './shared/relation-buckets'
+import { RelationBuckets } from './relations'
 
 it('moves a member between addressed buckets without waking another bucket', () => {
   const relations = new RelationBuckets({ trackedForward: true })
