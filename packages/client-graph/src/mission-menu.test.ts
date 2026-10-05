@@ -1,5 +1,8 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { reposToViews } from '@podium/client-core/values'
+import { asMachineId, asRepoId, handoffAvailability } from '@podium/model/browser'
+import type { HeaderRows } from './header-schema'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
@@ -103,4 +106,44 @@ it('does not demand handoff catalogs or the attached issue when the feature is h
     expect(load.mock.calls).toEqual([['session', 'picked']])
     expect(ids).not.toHaveBeenCalled(); expect(machines).not.toHaveBeenCalled()
   } finally { menu.stop() }
+})
+
+it('reads only the sender repository group and keeps handoff targets exact as unrelated repositories grow', () => {
+  const work: number[] = []
+  for (const scale of [1, 4]) {
+    const { pool, view } = fixture(scale)
+    const repoId = asRepoId('menu-repo')
+    const target: HeaderRows['repository'] = { kind: 'repository', path: '/target', repoId,
+      worktrees: [{ path: '/menu', branch: 'issue' }] }
+    const clone: HeaderRows['repository'] = { kind: 'repository', path: '/clone', repoId,
+      machineId: asMachineId('destination'), worktrees: [] }
+    const others: HeaderRows['repository'][] = Array.from({ length: 128 * scale }, (_, i) => ({
+      kind: 'repository', path: `/other/${i}`, worktrees: [], originUrl: `https://example.test/other-${i}`,
+    }))
+    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId } }] })
+    pool.header.apply([
+      { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
+      ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
+      { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
+    ])
+    const row = vi.spyOn(pool, 'row'), ids = vi.spyOn(pool.headerViews, 'ids')
+    const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
+    try {
+      pool.hydrate()
+      const value = menu.value
+      expect(value).not.toBe(LOADING)
+      if (value === LOADING || !value.session) throw new Error('Menu did not load')
+      expect(value.repos).toEqual([target, clone])
+      expect(handoffAvailability(value.session, reposToViews(value.repos), value.machines, value.issue))
+        .toEqual(handoffAvailability(value.session, reposToViews([target, clone, ...others]), value.machines, value.issue))
+      expect(value.machines).toHaveLength(1)
+      expect(ids).not.toHaveBeenCalled()
+      expect(row.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
+      work.push(row.mock.calls.length)
+      row.mockClear()
+      pool.header.apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
+      expect(row).not.toHaveBeenCalled()
+    } finally { menu.stop() }
+  }
+  expect(work[1]).toBe(work[0])
 })

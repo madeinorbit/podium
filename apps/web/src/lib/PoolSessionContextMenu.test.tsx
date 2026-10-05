@@ -182,7 +182,8 @@ it('batches the addressed cold session and supplies pool inputs with equal click
         .every(([, id]) => id === 'chosen-session'),
     ).toBe(true)
     expect(f.menu?.poolInputs.repos.map((repo) => repo.path)).toEqual(['/synthetic/menu'])
-    expect(f.menu?.poolInputs.machines.map((machine) => machine.name)).toEqual(['Menu machine'])
+    // No worktree can move, so the disabled handoff item needs no targets.
+    expect(f.menu?.poolInputs.machines).toEqual([])
     work.push({ rows: read.mock.calls.length, derivations: f.derivations })
     cleanup()
   }

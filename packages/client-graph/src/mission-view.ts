@@ -8,9 +8,9 @@ import {
   motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, sessionNeedsHuman, type FlightDeckFoldMap, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
-  type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
+  type PresenceNote, type HandoffNowEntry, type HandoffNextEntry, reposToViews,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE } from '@podium/model/browser'
+import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, handoffAvailability } from '@podium/model/browser'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
@@ -707,7 +707,7 @@ export class MissionViewReader {
     return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
   /** Every explicit mission sender, archived history included, in session
-   * order. Only whole-list readers (menus) ask for it; mission derivations
+   * order. Explicit whole-roster readers ask for it; mission derivations
    * compose {@link present} and {@link history} so a seated heartbeat never
    * re-reads history. */
   attached(id: string): readonly SessionView[] | typeof LOADING { return attachedValue(this.node(id)) }
@@ -1578,12 +1578,20 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   }
   const handoff = handoffEnabled && !sessionId && selected.length === 1 ? view.menuHandoff(selected[0]!.id) : undefined
   if (handoff === LOADING) return LOADING
-  const repos = handoffEnabled ? view.pool.headerViews.ids('repository').flatMap(id => {
+  const subject = handoffEnabled ? session ?? (handoff && 'session' in handoff ? handoff.session : undefined) : undefined
+  // Handoff checks the sender's containing repository, not every registered
+  // repository. The declared lane owns normal seats; the header's existing
+  // cwd question also covers headless senders and header-only consumers.
+  const laneId = subject ? view.pool.graph.one('session', subject.sessionId, 'worktree') : null
+  const lane = laneId ? view.pool.row('worktree', laneId) as { repoPath?: string } | undefined : undefined
+  const repoPath = subject ? lane?.repoPath ?? view.pool.header.shippingScope(subject.cwd, subject.machineId)?.repoPath : undefined
+  const repos = repoPath ? view.pool.header.repositoryGroup(repoPath).flatMap(id => {
     const repo = view.pool.headerViews.row('repository', id)
     return repo ? [repo] : []
   }) : []
+  const needsTargets = subject && !handoffAvailability(subject, reposToViews(repos), [], selected[0]).blocker
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
-    machines: handoffEnabled ? view.pool.headerViews.machines() : [], session, issue: selected[0], handoff }
+    machines: needsTargets ? view.pool.headerViews.machines() : [], session, issue: selected[0], handoff }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
   return view.handoff(rootId)
