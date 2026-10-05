@@ -197,6 +197,17 @@ export function createIssueBoardSource(
   function sessions(id: string): Loaded<SessionView[]> {
     return disposed ? LOADING : roster(id).get()
   }
+  function cardSessions(id: string): Loaded<SessionView[]> {
+    return memo(`visibleSessions:${id}`, () => {
+      const seats = pool.queries.project({ kind: 'commandIssueSessions', issueId: id,
+        archived: false, includeShells: true }, `IssueBoard@sessions:${id}`, sid =>
+        pool.graph.isCollapsed('session', sid) ? undefined
+          : pool.row('session', sid, 'summary') as Loaded<SessionView>)
+      if (!seats || seats === LOADING) return seats
+      return seats.slice().sort((a, b) => pool.graph.orderKey('session', a.sessionId)
+        .localeCompare(pool.graph.orderKey('session', b.sessionId)))
+    })
+  }
   function actionable(row: IssueViewModel): boolean {
     if (row.archived || row.deletedAt || isFinished(row)) return false
     const seats = roster(row.id)
@@ -469,8 +480,8 @@ export function createIssueBoardSource(
       }),
     )
   }
-  function issue(id: string): Loaded<IssueViewModel> {
-    return memo(`row:${id}`, () => {
+  function issue(id: string, visible = false): Loaded<IssueViewModel> {
+    return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {
       countIssueBoard('rowModels')
       const value = facts(id)
       if (!value || value === LOADING) return value
@@ -490,12 +501,20 @@ export function createIssueBoardSource(
         for (const dep of row?.deps ?? [])
           if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
-      const memberSessionIds = [...pool.graph.many('issue', id, 'pageSessions')]
+      const visibleSeats = visible ? cardSessions(id) : undefined
+      if (visibleSeats === LOADING) return LOADING
+      const memberSessionIds = (visible
+        ? (visibleSeats ?? []).filter(seat => seat.agentKind !== 'shell').map(seat => seat.sessionId)
+        : [...pool.graph.many('issue', id, 'pageSessions')])
         .sort(byId)
         .map(asSessionId)
       const readAt = pool.readCursor(id) ?? null,
         readTime = Date.parse(readAt ?? '')
       let unread = !Number.isFinite(readTime) || Date.parse(value.updatedAt) > readTime
+      if (visible) {
+        const activity = pool.visibleInputs.seatSummary?.(id).activity
+        if (activity != null && activity > readTime) unread = true
+      }
       const byPhase: Record<string, number> = {}
       let total = 0
       for (const sid of memberSessionIds) {
@@ -551,7 +570,7 @@ export function createIssueBoardSource(
         if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
         total++
         if (isFinished(row)) done++
-        const seats = sessions(next)
+        const seats = cardSessions(next)
         if (seats === LOADING) return LOADING
         liveAgents += workingAgents(seats ?? [])
         stack.push(...pool.graph.many('issue', next, 'treeChildren'))
@@ -582,8 +601,8 @@ export function createIssueBoardSource(
   function card(options: { id: string; now?: number; agents?: boolean }): Loaded<BoardCardData> {
     return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {
       countIssueBoard('cards')
-      const row = issue(options.id),
-        roster = sessions(options.id)
+      const row = issue(options.id, true),
+        roster = cardSessions(options.id)
       if (!row || row === LOADING || roster === LOADING)
         return row === undefined ? undefined : LOADING
       const byId = new Map<string, IssueViewModel>([[row.id, row]])

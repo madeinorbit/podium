@@ -120,8 +120,9 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
   if (options.openIssueId) shown.add(options.openIssueId)
   for (const id of shown) {
     const card = pool.row('issueBoardCard', JSON.stringify({ id, agents: options.display.showAgentTasks }))
-    if (!card || card === LOADING) return LOADING
-    models.set(id, card.issue)
+    const row = pool.row('issueBoardRow', id)
+    if (!card || card === LOADING || !row || row === LOADING) return LOADING
+    models.set(id, row)
     stageCounts.set(id, card.stageCounts)
     if (layout.rootIds.includes(id)) progress.set(id, card.progress)
   }
