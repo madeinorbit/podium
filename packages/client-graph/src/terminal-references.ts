@@ -2,7 +2,7 @@ import { asIssueId, type IssueId, type IssueStage } from '@podium/model/browser'
 import { parseAnyRef } from '@podium/protocol'
 import type { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
-import { LOADING } from './worklist/rollup'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface TerminalReferences {
   setActive(active: boolean): void
@@ -22,8 +22,8 @@ function referenceRow(pool: MobxPool, token: string) {
   const key = issueToken(token)
   const id = key === undefined ? undefined : pool.queries.issueReferenceId(key)
   if (id === undefined) return undefined
-  const row = pool.row('issue', id, 'summary-fields')
-  return !row || row === LOADING || row.deletedAt ? undefined : { id, stage: row.stage as IssueStage }
+  const row = pool.row('issue', id, 'summary-fields') as Loaded<{ stage: IssueStage; deletedAt?: string }>
+  return !row || row === LOADING || row.deletedAt ? undefined : { id, stage: row.stage }
 }
 /** Clicks borrow current source identity and one named summary, retaining no
  * catalog or demand after the action. Deleted tasks have no destination. */

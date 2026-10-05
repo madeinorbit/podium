@@ -10,7 +10,7 @@ import { createTerminalReferences } from './terminal-references'
 
 const stamp = '2020-01-01T00:00:00Z'
 const issue = (id: string, seq = 1, patch: object = {}): RowRecord => ({ kind: 'issue', id, value: {
-  id, seq, repoId: 'target-repo', title: id, description: '', stage: 'review', archived: true,
+  id, seq, repoId: 'target-repo', repoPath: '/fixture', title: id, description: '', stage: 'review', archived: true,
   audience: 'human', labels: [], deps: [], priority: 2, createdAt: stamp, updatedAt: stamp, ...patch,
 } } as RowRecord)
 const repo = (id = 'target-repo', prefix = 'POD'): RowRecord => ({ kind: 'worktree', id: `/${id}`, value: {
