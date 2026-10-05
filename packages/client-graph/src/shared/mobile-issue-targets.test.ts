@@ -41,6 +41,7 @@ describe('mobile target identity question', () => {
       residentIssues: { kind: 'residentIssues' },
       commandIssues: { kind: 'commandIssues' },
       mentionIssues: { kind: 'mentionIssues' },
+      issueMentionMatches: { kind: 'issueMentionMatches', query: 'candidate 17', limit: 5, prefixes: { phone: 'POD' } },
       pageIssues: { kind: 'pageIssues' },
       shellIssues: { kind: 'shellIssues' },
       missionIssues: { kind: 'missionIssues' },

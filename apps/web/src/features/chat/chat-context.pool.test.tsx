@@ -16,7 +16,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { createRef, StrictMode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createChatContextFixture } from './chat-context-test-fixture'
@@ -703,11 +703,11 @@ it('requests no thread for ordinary chat and only the selected backend row for a
   const rows = vi.spyOn(f.pool!, 'row')
   const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined } })
   expect(hook.result.current).toBeUndefined()
-  expect(rows.mock.calls.some(([kind]) => kind === 'superThread' || kind === 'superThreadCatalog')).toBe(false)
+  expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog')).toBe(false)
   await act(async () => hook.rerender({ id: 'own-thread' }))
   await waitFor(() => expect(hook.result.current).toMatchObject({ id: 'own-thread' }))
-  expect(rows.mock.calls.some(([kind]) => kind === 'superThreadCatalog')).toBe(false)
-  expect(rows.mock.calls.filter(([kind]) => kind === 'superThread').every(([, id]) => id === 'own-thread')).toBe(true)
+  expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThreadCatalog')).toBe(false)
+  expect(rows.mock.calls.filter(([kind]) => String(kind) === 'superThread').every(([, id]) => id === 'own-thread')).toBe(true)
 })
 
 it('keeps mention catalog demand off until the picker is visible', async () => {
@@ -717,5 +717,5 @@ it('keeps mention catalog demand off until the picker is visible', async () => {
   expect(rows).not.toHaveBeenCalled()
   await act(async () => hook.rerender({ query: 'task' }))
   await waitFor(() => expect(hook.result.current.length).toBeGreaterThan(0))
-  expect(rows.mock.calls.some(([kind]) => kind === 'chatIssueOrder')).toBe(false)
+  expect(rows.mock.calls.some(([kind]) => String(kind) === 'chatIssueOrder')).toBe(false)
 })

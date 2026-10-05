@@ -104,7 +104,7 @@ it('reads at most five source-ranked mention summaries on first/repeated 1x/4x h
       const result = chatMentionMatches(pool, 'unique')
       expect(result.pending).toBe(0)
       expect(result.issues.map(issue => issue.seq)).toEqual([7, 6, 5, 4, 3])
-      expect(rows.mock.calls.some(([kind]) => kind === 'chatIssueOrder')).toBe(false)
+      expect(rows.mock.calls.some(([kind]) => String(kind) === 'chatIssueOrder')).toBe(false)
       const summaries = rows.mock.calls.filter(([kind]) => kind === 'issue')
       expect(summaries).toHaveLength(5)
       expect(summaries.every(([, , purpose]) => purpose === 'summary-fields')).toBe(true)

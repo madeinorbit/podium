@@ -16,6 +16,7 @@ import {
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
+import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
 import { navigationIssue } from './pool-row-data'
 import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
 
@@ -266,15 +267,7 @@ export function createPoolWorkActions(
       }]
       // Placement needs only the direct origin's label. Catalog choices are
       // requested by the menu after their submenu becomes visible.
-      const originIds = new Set([
-        ...(value.issue.parentId ? [value.issue.parentId] : []),
-        ...(value.issue.deps ?? []).filter(dep => dep.type === 'discovered-from').map(dep => dep.id),
-      ])
-      const all = [...single]
-      for (const key of originIds) {
-        const issue = pool.row('issue', key) as SliceIssue | typeof LOADING | undefined
-        if (issue && issue !== LOADING) all.push(navigationIssue(issue))
-      }
+      const all = readIssueMenuOrigins(pool, single)
       return { single, all, poolInputs: readIssueMenuPoolInputs(pool, single) }
     },
   }
