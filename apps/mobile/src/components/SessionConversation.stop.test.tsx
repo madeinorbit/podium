@@ -31,22 +31,6 @@ vi.mock('@podium/client-core/values', async (importOriginal) => {
     },
   }
 })
-vi.mock('@podium/client-core/transcript', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/client-core/transcript')>()
-  return {
-    ...actual,
-    createTranscriptController: (...args: Parameters<typeof actual.createTranscriptController>) => {
-      const controller = actual.createTranscriptController(...args)
-      const query = controller.latestPendingQuestion.bind(controller)
-      controller.latestPendingQuestion = () => {
-        factQuestions()
-        return query()
-      }
-      return controller
-    },
-  }
-})
-
 afterEach(cleanup)
 
 vi.mock('expo-haptics', () => ({
@@ -78,7 +62,7 @@ vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./TranscriptList', () => ({
   TranscriptList: (props: Parameters<typeof import('./TranscriptList').TranscriptList>[0]) => {
-    listFacts(props.items.length, props.transcriptQuestion)
+    listFacts(props.transcript?.ids.length ?? props.items?.length ?? 0, props.transcriptQuestion)
     return null
   },
 }))

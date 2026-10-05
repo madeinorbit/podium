@@ -561,7 +561,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (chat panes, split view) and preserved across chat/native mode switches.
    *  The native PTY input line is opaque bytes we can't read back, so this is the
    *  one input state we *can* synchronize. */
-  drafts: Record<string, string>
   setSessionDraft: (sessionId: SessionId, text: string) => void
   /** Sidebar layout preferences (repo sort mode + custom order). */
   sidebarSettings: SidebarSettings

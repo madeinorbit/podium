@@ -16,7 +16,6 @@ import type { EngineState } from './state'
  *   and whether the order moved. The diff runs once per array change, at
  *   this producer, and only for a list someone follows. An unchanged row
  *   keeps its identity, so `listRow` is stable across RPC refreshes.
- * - **Drafts.** `onDraft(listener)` names the one session whose draft moved.
  *
  * The runtime is the only writer: it calls `emit` once per completed batch.
  */
@@ -62,7 +61,6 @@ export interface KeyedInputs {
   onList<N extends KeyedListName>(name: N, listener: (change: KeyedListChange) => void): () => void
   listIds(name: KeyedListName): readonly string[]
   listRow<N extends KeyedListName>(name: N, id: string): KeyedListRow<N> | undefined
-  onDraft(listener: (sessionId: string) => void): () => void
 }
 
 /** Counted for the adapter wake meters (plan steps 7-9). */
@@ -84,7 +82,7 @@ interface ListState {
 export interface KeyedInputsChannel extends KeyedInputs {
   readonly stats: KeyedInputStats
   /** The runtime's batch end: `changed` keys and the sessions whose draft moved. */
-  emit(changed: ReadonlySet<LocalKey>, drafts: ReadonlySet<string>): void
+  emit(changed: ReadonlySet<LocalKey>): void
   dispose(): void
 }
 
@@ -103,7 +101,6 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
   const current = (): Partial<EngineState> => (live ? read() : snapshot)
   const byKey = new Map<LocalKey, Set<{ keys: ReadonlySet<LocalKey>; listener: LocalsListener }>>()
   const lists = new Map<KeyedListName, ListState>()
-  const draftListeners = new Set<(sessionId: string) => void>()
   const stats: KeyedInputStats = { wakes: 0, listRowsCompared: 0 }
   let disposed = false
 
@@ -175,13 +172,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
     },
     listIds: (name) => listState(name).ids,
     listRow: (name, id) => listState(name).rows.get(id) as never,
-    onDraft(listener) {
-      draftListeners.add(listener)
-      return () => {
-        draftListeners.delete(listener)
-      }
-    },
-    emit(changed, drafts) {
+    emit(changed) {
       if (disposed) return
       const state = read()
       for (const key of changed) (snapshot as Record<string, unknown>)[key] = state[key]
@@ -200,13 +191,11 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
         }
       }
       for (const [listener, keys] of woken) call(listener, keys)
-      for (const sessionId of drafts) for (const listener of [...draftListeners]) call(listener, sessionId)
     },
     dispose() {
       disposed = true
       byKey.clear()
       lists.clear()
-      draftListeners.clear()
     },
   }
 }

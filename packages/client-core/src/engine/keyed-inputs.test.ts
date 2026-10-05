@@ -8,9 +8,9 @@ function channel(initial: Partial<EngineState>) {
   const inputs = createKeyedInputs(() => state)
   return {
     inputs,
-    write(patch: Partial<EngineState>, drafts: string[] = []) {
+    write(patch: Partial<EngineState>) {
       state = { ...state, ...patch }
-      inputs.emit(new Set(Object.keys(patch) as (keyof EngineState)[]), new Set(drafts))
+      inputs.emit(new Set(Object.keys(patch) as (keyof EngineState)[]))
     },
   }
 }
@@ -68,12 +68,8 @@ describe('keyed inputs (POD-5433)', () => {
     expect(c.inputs.listRow('workspaces', 'w2')).toEqual({ panes: 2 })
   })
 
-  it('names the one session whose draft moved', () => {
-    const c = channel({ drafts: {} })
-    const listener = vi.fn()
-    c.inputs.onDraft(listener)
-    c.write({ drafts: { s1: 'hi' } }, ['s1'])
-    expect(listener.mock.calls).toEqual([['s1']])
+  it('leaves composer documents to DraftStore', () => {
+    expect(channel({}).inputs).not.toHaveProperty('onDraft')
   })
 
   it('a throwing listener does not stop the others', () => {
@@ -88,7 +84,7 @@ describe('keyed inputs (POD-5433)', () => {
   })
 
   it('over a hand-held store, diffs each publication key by key', () => {
-    let state: Record<string, unknown> = { paneA: null, drafts: {} }
+    let state: Record<string, unknown> = { paneA: null, paneB: null }
     const listeners = new Set<() => void>()
     const inputs = keyedInputsOverStore({
       getSnapshot: () => state,
@@ -97,17 +93,15 @@ describe('keyed inputs (POD-5433)', () => {
         return () => listeners.delete(listener)
       },
     })
-    const locals = vi.fn(), drafts = vi.fn()
+    const locals = vi.fn()
     inputs.onLocals(['paneA'], locals)
-    inputs.onDraft(drafts)
     // Following reads nothing, so a key's first publication counts as moved.
     for (const listener of listeners) listener()
     expect(locals).toHaveBeenCalledTimes(1)
     locals.mockClear()
-    state = { ...state, drafts: { s2: 'x' } }
+    state = { ...state, paneB: 'other' }
     for (const listener of listeners) listener()
     expect(locals).not.toHaveBeenCalled()
-    expect(drafts.mock.calls).toEqual([['s2']])
     inputs.dispose()
     expect(listeners.size).toBe(0)
   })

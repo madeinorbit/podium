@@ -1,3 +1,4 @@
+import { observe } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView, SessionViewInput } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -475,7 +476,7 @@ describe('engine lifecycle', () => {
     const publish = vi.fn()
     const machinePublish = vi.fn()
     let previousMachines = engine.access.machines
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], () => {
+    engine.onLocals(['machines', 'repos', 'superThreads'], () => {
       publish()
       const machines = engine.access.machines
       if (machines !== previousMachines) machinePublish()
@@ -536,7 +537,7 @@ describe('engine lifecycle', () => {
     const machine = { id: 'machine-a', online: true }
     hub.emit('machines', [machine])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], publish)
+    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
     hub.emit('machines', [{ ...machine, ...patch }])
     expect(publish).toHaveBeenCalledTimes(1)
     engine.dispose()
@@ -550,7 +551,7 @@ describe('engine lifecycle', () => {
     const b = { id: 'b', online: true }
     hub.emit('machines', [a, b])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], publish)
+    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
     hub.emit('machines', [b, a])
     expect(publish).not.toHaveBeenCalled()
     hub.emit('machines', [a])
@@ -1030,7 +1031,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
 describe('offline-first composer drafts (POD-2045)', () => {
   const SID = asSessionId('s-draft')
   const draftOf = (e: ReturnType<typeof makeEngine>['engine']): string | undefined =>
-    e.access.drafts[SID]
+    e.drafts.get(SID)
 
   it('paints a keystroke locally before anything reaches the server', async () => {
     const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
@@ -1192,8 +1193,8 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.access.setSessionDraft(SID, 'the last unsent keystroke')
     await first.engine.prepareReload()
     const restored = makeEngine({ storage })
-    expect(restored.engine.access.drafts[SID]).toBe('the last unsent keystroke')
-    expect(first.engine.access.drafts[SID]).toBe('the last unsent keystroke')
+    expect(restored.engine.drafts.get(SID)).toBe('the last unsent keystroke')
+    expect(first.engine.drafts.get(SID)).toBe('the last unsent keystroke')
     expect(first.hub.draftEdits).toEqual([])
     first.engine.dispose()
     restored.engine.dispose()
@@ -1213,7 +1214,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     release()
     await prepared
     const restored = makeEngine({ storage })
-    expect(restored.engine.access.drafts[SID]).toBe('typed during commit')
+    expect(restored.engine.drafts.get(SID)).toBe('typed during commit')
     first.engine.dispose()
     restored.engine.dispose()
   })
@@ -1232,7 +1233,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     // A NEW runtime over the same device storage — the reload. No hub traffic
     // and no start() before the read: the draft is on screen from frame one.
     const second = makeEngine({ storage })
-    expect(second.engine.access.drafts[SID]).toBe('survives the reload')
+    expect(second.engine.drafts.get(SID)).toBe('survives the reload')
     second.engine.dispose()
     await settle()
   })
@@ -1280,16 +1281,16 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.start()
     await settle()
     second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     await settle()
     expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 7, text: '' })
     second.hub.emit('sessionDraft', SID, '', { rev: 8 })
     second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.dispose()
     await settle()
   })
@@ -1310,7 +1311,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.dispose()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.start()
     await settle()
     second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
@@ -1330,12 +1331,12 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
     const published: string[] = []
-    const off = engine.onDraft((id) => {
-      if (id === SID) published.push(engine.readLocal('drafts')[SID]!)
+    const off = observe(engine.drafts.values, change => {
+      if (change.name === SID) published.push(engine.drafts.get(SID))
     })
     engine.access.setSessionDraft(SID, '')
     expect(published).toEqual([''])
-    expect(engine.readLocal('drafts')[SID]).toBe('')
+    expect(engine.drafts.get(SID)).toBe('')
     hub.emit('sessionDraft', SID, '', { rev: 6 })
     hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
     hub.emit('sessionDraft', SID, 'other old text', { rev: 4 })
@@ -1357,17 +1358,17 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.dispose()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('previous message')
+    expect(second.engine.drafts.get(SID)).toBe('previous message')
     second.engine.start()
     await settle()
     second.hub.emit('sessionDraft', SID, 'current draft', { rev: 9 })
-    expect(second.engine.access.drafts[SID]).toBe('current draft')
+    expect(second.engine.drafts.get(SID)).toBe('current draft')
     second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
     second.hub.emit('connectionHealth', second.hub.health)
     await settle()
     expect(second.hub.draftEdits).toEqual([])
     second.hub.emit('sessionDraft', SID, '', { rev: 10 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.dispose()
     await settle()
   })

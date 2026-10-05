@@ -631,7 +631,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
   await waitFor(() => expect(enabled.latest().question?.id).not.toBe('notice-ask-2'))
   expect(enabled.latest().ports?.records).toBe(records)
   expect(enabled.latest().ports?.outbox).toBe(outbox)
-  expect(enabled.latest().ports?.draft).toBe('Saved synthetic draft')
+  expect(enabled.runtime.drafts.get(SID)).toBe('Later draft')
   expect(enabled.latest().ports?.ready).toBe(true)
   stopRecord()
   stopOutbox()

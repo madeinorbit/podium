@@ -16,7 +16,7 @@ declare module './source-registry' { interface PoolSourceRows extends ChatContex
 export const CHAT_CONTEXT_ENTITIES = ['chatContextReader', 'chatDraft', 'chatWindow', 'chatHeld', 'chatRecordOrder', 'chatIssueOrder', 'chatSessionOrder'] as const
 export const CHAT_CONTEXT_SCHEMA = {
   chatContextReader: { source: 'screen:reader', key: 'reader', owner: 'existing pool' },
-  chatDraft: { key: 'sessionId', source: 'engine:locals.drafts', fields: ['text'], residency: 'addressed-on-demand' },
+  chatDraft: { key: 'sessionId', source: 'DraftStore.values', fields: ['text'], residency: 'addressed-on-demand' },
   chatWindow: { key: 'window', source: 'engine:locals', fields: ['attachedSessionId', 'transcriptReveal'] },
   chatHeld: { key: 'sessionId', source: 'runtime:outbox', fields: ['sends'], order: 'queuedAt ascending' },
   chatRecordOrder: { key: 'order', source: 'replica:messageRecords', fields: ['ids'], order: 'replica insertion order', payload: 'notice:messageRecord' },
