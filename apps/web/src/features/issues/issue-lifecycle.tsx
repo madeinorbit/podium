@@ -4,10 +4,14 @@ import {
   blockingCloseConcerns,
   type IssueCloseConcern,
   issueCloseConcerns,
+  issueCloseConcernsFromCounts,
 } from '@podium/client-core/values'
+import { issuePages } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import { useCallback, type JSX, type ReactNode } from 'react'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +23,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { issueRefLabel } from '@/lib/issue-labels'
-import { useIssuePageSessions } from './issue-page/issue-page-data'
 
 /** Re-exported from the model (POD-1074), where the vocabulary now lives with
  *  its labels and its legacy `wontfix` → `cancelled` canonicalization. Kept as a
@@ -81,18 +84,22 @@ export function issueMemberSessions(
  * is being closed until the press — the palette closes whatever the command was
  * run against, the menu is mounted over a selection.
  */
-function useCloseSessions(supplied?: readonly SessionView[]) {
-  // The host fixes supplied inputs for this component's lifetime.
-  // biome-ignore lint/correctness/useHookAtTopLevel: Supplied pool hosts unmount before changing their reader contract.
-  return supplied ?? useIssuePageSessions()
-}
 export function useIssueCloseGuard(
-  suppliedSessions?: readonly SessionView[],
+  _suppliedSessions?: readonly SessionView[],
 ): (issue: IssueNavigationModel) => boolean {
-  const sessions = useCloseSessions(suppliedSessions)
-  return (issue) =>
-    blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length >
-    0
+  const pool = useWorklistPool()
+  return useCallback((issue) => {
+    const facts = pool ? issuePages(pool).closeFacts(issue.id) : LOADING
+    // Unknown or unsettled data keeps the close pending.
+    return !facts || facts === LOADING ||
+      blockingCloseConcerns(issueCloseConcernsFromCounts(facts.subject, facts.members)).length > 0
+  }, [pool])
+}
+
+function useCloseConcerns(id: string) {
+  const read = useCallback((pool: Parameters<typeof issuePages>[0]) => issuePages(pool).closeFacts(id), [id])
+  const facts = useWorklistPoolProjection(read, LOADING)
+  return facts && facts !== LOADING ? issueCloseConcernsFromCounts(facts.subject, facts.members) : LOADING
 }
 
 /** What a batch close is about to do, issue by issue. `flagged` keeps the input
@@ -141,26 +148,30 @@ const concernIcons: Record<IssueCloseConcern['icon'], ReactNode> = {
 
 /** Shared in-place guard for the compact surfaces and canonical full page. */
 export function IssueCloseDialog({
+  reason,
+  ...props
+}: Parameters<typeof OpenIssueCloseDialog>[0]): JSX.Element | null {
+  return reason === null ? null : <OpenIssueCloseDialog {...props} reason={reason} />
+}
+function OpenIssueCloseDialog({
   issue,
   reason,
   busy = false,
   onOpenChange,
   onConfirm,
-  sessions: suppliedSessions,
+  sessions: _suppliedSessions,
 }: {
   issue: IssueNavigationModel
   reason: IssueCloseReason | null
   busy?: boolean
-  /** Same pool roster as the initiating guard, chosen once per mount. */
+  /** Compatibility input; close facts now come from the addressed pool answer. */
   sessions?: readonly SessionView[]
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  // `?? []` because a host can mount this over a store slice that has not
-  // populated yet; the guard then finds no sessions rather than throwing, which
-  // is what the derivation's own session default used to absorb.
-  const sessions = useCloseSessions(suppliedSessions)
-  const concerns = issueCloseConcerns(issue, issueMemberSessions(issue, sessions))
+  const value = useCloseConcerns(issue.id)
+  const pending = value === LOADING
+  const concerns = pending ? [] : value
   const blockers = blockingCloseConcerns(concerns)
   return (
     <AlertDialog open={reason !== null} onOpenChange={onOpenChange}>
@@ -173,14 +184,14 @@ export function IssueCloseDialog({
             {/* The ending is named only when it is NOT the ordinary one:
                 "Close this issue?" already means done, and spelling that out
                 would make the common path read like a special case. */}
-            {blockers.length > 0
+            {pending ? 'Checking this issue…' : blockers.length > 0
               ? 'This issue still needs attention'
               : reason && reason !== 'done'
                 ? `Close this issue as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
                 : 'Close this issue?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {blockers.length > 0
+            {pending ? 'Waiting for the issue’s current close concerns.' : blockers.length > 0
               ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
               : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found.'}
           </AlertDialogDescription>
@@ -215,7 +226,7 @@ export function IssueCloseDialog({
           <AlertDialogCancel disabled={busy}>Keep open</AlertDialogCancel>
           <AlertDialogAction
             variant={blockers.length > 0 ? 'destructive' : 'default'}
-            disabled={busy || reason === null}
+            disabled={busy || pending || reason === null}
             onClick={() => reason && onConfirm(reason)}
           >
             {/* The button says which ENDING is being recorded, not just "close"
@@ -248,12 +259,23 @@ export function IssueCloseDialog({
  * describe.
  */
 export function IssueBulkCloseDialog({
+  reason,
+  ...props
+}: Parameters<typeof OpenIssueBulkCloseDialog>[0]): JSX.Element | null {
+  if (reason === null || props.issues.length === 0) return null
+  if (props.issues.length === 1) {
+    const { issues, ...shared } = props
+    return <IssueCloseDialog {...shared} issue={issues[0]!} reason={reason} />
+  }
+  return <OpenIssueBulkCloseDialog {...props} reason={reason} />
+}
+function OpenIssueBulkCloseDialog({
   issues,
   reason,
   busy = false,
   onOpenChange,
   onConfirm,
-  sessions: suppliedSessions,
+  sessions: _suppliedSessions,
 }: {
   issues: readonly IssueNavigationModel[]
   reason: IssueCloseReason | null
@@ -262,21 +284,21 @@ export function IssueBulkCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const sessions = useCloseSessions(suppliedSessions)
-  const summary = issueBulkCloseSummary(issues, sessions)
-  const first = issues[0]
-  if (!first) return null
-  if (issues.length === 1)
-    return (
-      <IssueCloseDialog
-        sessions={suppliedSessions}
-        issue={first}
-        reason={reason}
-        busy={busy}
-        onOpenChange={onOpenChange}
-        onConfirm={onConfirm}
-      />
-    )
+  const read = useCallback((pool: Parameters<typeof issuePages>[0]) => {
+    const summary: IssueBulkCloseSummary = { flagged: [], clear: 0 }
+    for (const issue of issues) {
+      const value = issuePages(pool).closeFacts(issue.id)
+      if (!value || value === LOADING) return LOADING
+      const concerns = blockingCloseConcerns(issueCloseConcernsFromCounts(value.subject, value.members))
+      const lead = concerns[0]
+      if (lead) summary.flagged.push({ issue, lead, concerns })
+      else summary.clear++
+    }
+    return summary
+  }, [issues])
+  const value = useWorklistPoolProjection(read, LOADING)
+  const pending = value === LOADING
+  const summary = pending ? { flagged: [], clear: 0 } : value
   const count = issues.length
   const ending = reason && reason !== 'done' ? ISSUE_STATUS_LABELS[reason].toLowerCase() : null
   return (
@@ -290,14 +312,14 @@ export function IssueBulkCloseDialog({
             {/* The headline counts what is WRONG when something is, because that
                 is the number the decision turns on — "3 of 12" is a different
                 press from "12 of 12". */}
-            {summary.flagged.length > 0
+            {pending ? 'Checking selected tasks…' : summary.flagged.length > 0
               ? `${summary.flagged.length} of ${count} tasks still need attention`
               : ending
                 ? `Close ${count} tasks as ${ending}?`
                 : `Close ${count} tasks?`}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {summary.flagged.length > 0
+            {pending ? 'Waiting for the selected tasks’ current close concerns.' : summary.flagged.length > 0
               ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
               : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found in the selection.'}
           </AlertDialogDescription>
@@ -341,7 +363,7 @@ export function IssueBulkCloseDialog({
           <AlertDialogCancel disabled={busy}>Keep open</AlertDialogCancel>
           <AlertDialogAction
             variant={summary.flagged.length > 0 ? 'destructive' : 'default'}
-            disabled={busy || reason === null}
+            disabled={busy || pending || reason === null}
             onClick={() => reason && onConfirm(reason)}
           >
             {busy

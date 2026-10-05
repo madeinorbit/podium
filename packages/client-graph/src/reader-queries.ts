@@ -1,8 +1,10 @@
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
+import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
+import type { IssueChildCounts, IssueQuestions } from './shared/issue-questions'
 import { createReaderIndex, type IssueScopeFacts, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
@@ -23,6 +25,10 @@ interface IdentityResult {
 export class ReaderQueries {
   private readonly sessionAtoms = new Map<string, IAtom>()
   private readonly issueScopeAtoms = new Map<string, { atom: IAtom; bits: number }>()
+  private readonly issueCloseAtoms = new Map<string, { atom: IAtom; value: IssueCloseMemberCounts }>()
+  private readonly issueChildAtoms = new Map<string, { atom: IAtom; value: IssueChildCounts }>()
+  private effectiveIssues: IssueQuestions | undefined
+  private effectiveIssueSource: ColdQueries | undefined
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: ColdQueries | undefined
   private readonly observed = new Map<
@@ -71,9 +77,17 @@ export class ReaderQueries {
     this.residents.apply({ type: 'update', rows: [{ kind: entity, id,
       value: row && row !== LOADING ? row : undefined } as RowSourceEvent['rows'][number]] })
     if (entity === 'session') {
-      if (present) this.sessionQuestions().set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
-      else this.sessionQuestions().setFacts(id, this.index().sessionQuestionFact(id))
-    } else this.publishIssueScope(id)
+      this.changeSessionFacts(id, questions => {
+        if (present) questions.set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+        else questions.setFacts(id, this.index().sessionQuestionFact(id))
+      })
+    } else {
+      this.changeIssueFacts(id, questions => {
+        if (present) questions.set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+        else questions.setFacts(id, this.index().issueQuestionFact(id))
+      })
+      this.publishIssueScope(id)
+    }
     // Ranked windows do not have an identity answer to publish a delta through.
     for (const [key, state] of this.observed) {
       if (this.identities.has(key) || key.startsWith('count:')) continue
@@ -93,6 +107,14 @@ export class ReaderQueries {
       )
     }
     return this.effectiveSessions
+  }
+  private issueQuestions(): IssueQuestions {
+    const index = this.index()
+    if (!this.effectiveIssues || this.effectiveIssueSource !== index) {
+      this.effectiveIssueSource = index
+      this.effectiveIssues = index.forkIssueQuestions()
+    }
+    return this.effectiveIssues
   }
   private correctCount(entity: 'issue' | 'session', id: string): void {
     const before = this.extras[entity].has(id)
@@ -144,6 +166,61 @@ export class ReaderQueries {
     if (bits === state.bits) return
     state.bits = bits
     state.atom.reportChanged()
+  }
+  /** Maintained own-session concern counts. A close asks for this key only;
+   * neither first demand nor repeated clicks construct a history roster. */
+  issueCloseCounts(id: string): IssueCloseMemberCounts {
+    const value = this.sessionQuestions().issueCloseCounts(id)
+    const state = this.issueCloseAtoms.get(id)
+    if (state) state.atom.reportObserved()
+    else {
+      const atom = createAtom(`history.issueClose:${id}`, undefined, () => this.issueCloseAtoms.delete(id))
+      if (atom.reportObserved()) this.issueCloseAtoms.set(id, { atom, value })
+    }
+    this.counts.scalarVisits++
+    return value
+  }
+  private publishIssueClose(id: string): void {
+    const state = this.issueCloseAtoms.get(id)
+    if (!state) return
+    const value = this.sessionQuestions().issueCloseCounts(id)
+    if (value.offers === state.value.offers && value.working === state.value.working) return
+    state.value = value
+    state.atom.reportChanged()
+  }
+  private changeSessionFacts(id: string, change: (questions: SessionQuestions) => void): void {
+    const questions = this.sessionQuestions(), before = questions.fact(id)?.issueId
+    change(questions)
+    const after = questions.fact(id)?.issueId
+    if (before) this.publishIssueClose(before)
+    if (after && after !== before) this.publishIssueClose(after)
+  }
+  /** Raw parent edges count archived/deleted children, with only stage=done
+   * contributing to the completed count, matching the issue close contract. */
+  issueChildCounts(id: string): IssueChildCounts {
+    const value = this.issueQuestions().childCounts(id), state = this.issueChildAtoms.get(id)
+    if (state) state.atom.reportObserved()
+    else {
+      const atom = createAtom(`history.issueChildren:${id}`, undefined, () => this.issueChildAtoms.delete(id))
+      if (atom.reportObserved()) this.issueChildAtoms.set(id, { atom, value })
+    }
+    this.counts.scalarVisits++
+    return value
+  }
+  private publishIssueChildren(id: string): void {
+    const state = this.issueChildAtoms.get(id)
+    if (!state) return
+    const value = this.issueQuestions().childCounts(id)
+    if (value.childCount === state.value.childCount && value.childDoneCount === state.value.childDoneCount) return
+    state.value = value
+    state.atom.reportChanged()
+  }
+  private changeIssueFacts(id: string, change: (questions: IssueQuestions) => void): void {
+    const questions = this.issueQuestions(), before = questions.fact(id)?.parentId
+    change(questions)
+    const after = questions.fact(id)?.parentId
+    if (before) this.publishIssueChildren(before)
+    if (after && after !== before) this.publishIssueChildren(after)
   }
   private updateIdentity(entity: 'issue' | 'session', id: string): void {
     for (const [key, result] of this.identities) {
@@ -198,6 +275,9 @@ export class ReaderQueries {
       this.effectiveSessions = index.forkSessionQuestions(
         id => this.index().sessionCollapsed(id), id => this.index().sessionOrderKey(id),
       )
+      this.effectiveIssueSource = index
+      this.effectiveIssues = index.forkIssueQuestions()
+      for (const id of residentIds(this.pool, 'issue')) this.updateResident('issue', id)
       for (const id of residentIds(this.pool, 'session')) this.updateResident('session', id)
       for (const entity of ['issue', 'session'] as const) {
         this.extras[entity].clear()
@@ -206,7 +286,7 @@ export class ReaderQueries {
     } else {
       const delta = index.changes(event)
       for (const [entity, id] of [...delta.flips, ...delta.orders])
-        if (entity === 'session') this.sessionQuestions().visibilityChanged(id)
+        if (entity === 'session') this.changeSessionFacts(id, questions => questions.visibilityChanged(id))
     }
     // Replacement counts were rebuilt from residents above. Observed identity
     // answers are rebuilt below from the new source catalog. Updating every
@@ -218,11 +298,18 @@ export class ReaderQueries {
           this.updateIdentity(row.kind, row.id)
         }
         if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
-          this.sessionQuestions().setFacts(row.id, index.sessionQuestionFact(row.id))
-        if (row.kind === 'issue') this.publishIssueScope(row.id)
+          this.changeSessionFacts(row.id, questions => questions.setFacts(row.id, index.sessionQuestionFact(row.id)))
+        if (row.kind === 'issue') {
+          if (!this.pool.tables.issue.has(row.id))
+            this.changeIssueFacts(row.id, questions => questions.setFacts(row.id, index.issueQuestionFact(row.id)))
+          this.publishIssueScope(row.id)
+        }
       }
-    if (event.type === 'replace' || fresh)
+    if (event.type === 'replace' || fresh) {
       for (const id of this.issueScopeAtoms.keys()) this.publishIssueScope(id)
+      for (const id of this.issueCloseAtoms.keys()) this.publishIssueClose(id)
+      for (const id of this.issueChildAtoms.keys()) this.publishIssueChildren(id)
+    }
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
       const result = this.identities.get(key)
@@ -446,10 +533,15 @@ export class ReaderQueries {
     this.observed.clear()
     this.sessionAtoms.clear()
     this.issueScopeAtoms.clear()
+    this.issueCloseAtoms.clear()
+    this.issueChildAtoms.clear()
     this.residentIssueIds.clear()
     this.residents.apply({ type: 'replace', rows: [] })
     this.effectiveSessions?.clear()
     this.effectiveSessions = undefined
     this.effectiveSource = undefined
+    this.effectiveIssues?.clear()
+    this.effectiveIssues = undefined
+    this.effectiveIssueSource = undefined
   }
 }

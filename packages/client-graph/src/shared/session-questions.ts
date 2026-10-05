@@ -1,5 +1,6 @@
 import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
+import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
 import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
 import type { SessionActivityQuestion } from './session-activity'
 
@@ -10,6 +11,8 @@ export interface MachineSession { id: string; machineId: string; createdAt: stri
 interface TimedTriageSession extends TriageSession { deadline: number }
 interface RecentSession { id: string; at: string }
 interface Activity { id: string; at: number }
+interface CloseMember extends IssueCloseMemberCounts { issueId: string }
+const NO_CLOSE_MEMBERS: IssueCloseMemberCounts = Object.freeze({ offers: 0, working: 0 })
 export interface SessionQuestionFacts {
   id: string
   rank: number | null
@@ -22,6 +25,9 @@ export interface SessionQuestionFacts {
   deadline: number
   archived: boolean
   order: string
+  issueId?: string
+  closeOffers: boolean
+  closeWorking: boolean
 }
 interface Bucket<T> { id: string; answer: KeyedAnswer<T> }
 interface Seed {
@@ -33,6 +39,8 @@ interface Seed {
   revisions: KeyedAnswer<number>
   future: KeyedAnswer<TimedTriageSession>
   expired: KeyedAnswer<TimedTriageSession>
+  closeMembers: KeyedAnswer<CloseMember>
+  closeCounts: KeyedAnswer<IssueCloseMemberCounts>
   version: number
   replacement: number
 }
@@ -54,6 +62,7 @@ export interface SessionQuestions {
   latest(machineIds: readonly string[], excluded?: Excluded): MachineSession | undefined
   activity(question: SessionActivityQuestion): number
   activityRevision(question: SessionActivityQuestion): number
+  issueCloseCounts(issueId: string): IssueCloseMemberCounts
 }
 export const compareTriageSessions = (a: TriageSession, b: TriageSession) =>
   a.rank - b.rank || b.at.localeCompare(a.at) ||
@@ -72,7 +81,8 @@ function paths(cwd: string): string[] {
 function same(a: SessionQuestionFacts | undefined, b: SessionQuestionFacts | undefined): boolean {
   return a === b || (!!a && !!b && a.rank === b.rank && a.at === b.at &&
     a.activity === b.activity && a.createdAt === b.createdAt && a.machineId === b.machineId &&
-    a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order)
+    a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order &&
+    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking)
 }
 
 /** Persistent declared scalar questions. Source and pool share immutable
@@ -91,9 +101,27 @@ export function createSessionQuestions(
   let revisions = seed?.revisions.fork() ?? createKeyedAnswer<number>()
   let future = seed?.future.fork() ?? createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
   let expired = seed?.expired.fork() ?? createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
+  let closeMembers = seed?.closeMembers.fork() ?? createKeyedAnswer<CloseMember>()
+  let closeCounts = seed?.closeCounts.fork() ?? createKeyedAnswer<IssueCloseMemberCounts>()
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
   let visits = 0, activityVisits = 0
   const touch = (key: string) => revisions.set(key, key, ++version)
+  function fileClose(id: string, value: SessionQuestionFacts | undefined) {
+    const previous = closeMembers.get(id)
+    const next = value?.issueId && !collapsed(id) && (value.closeOffers || value.closeWorking)
+      ? { issueId: value.issueId, offers: Number(value.closeOffers), working: Number(value.closeWorking) }
+      : undefined
+    if (previous?.issueId === next?.issueId && previous?.offers === next?.offers && previous?.working === next?.working) return
+    const change = (member: CloseMember, sign: 1 | -1) => {
+      const before = closeCounts.get(member.issueId) ?? NO_CLOSE_MEMBERS
+      const after = { offers: before.offers + sign * member.offers, working: before.working + sign * member.working }
+      if (after.offers || after.working) closeCounts.set(member.issueId, member.issueId, after)
+      else closeCounts.delete(member.issueId)
+    }
+    if (previous) change(previous, -1)
+    if (next) { change(next, 1); closeMembers.set(id, id, next) }
+    else closeMembers.delete(id)
+  }
   function bucket<T>(collection: KeyedAnswer<Bucket<T>>, key: string, id: string,
     next: T | undefined, compare: (a: T, b: T) => number) {
     const before = collection.get(key), previous = before?.answer.get(id)
@@ -107,6 +135,7 @@ export function createSessionQuestions(
     touch(key)
   }
   function file(value: SessionQuestionFacts) {
+    fileClose(value.id, value)
     const visible = !collapsed(value.id)
     const next = value.rank === null || !visible ? undefined : {
       id: value.id, rank: value.rank, createdAt: value.createdAt, at: value.at,
@@ -146,6 +175,7 @@ export function createSessionQuestions(
     future.delete(id)
     expired.delete(id)
     if (!next) {
+      fileClose(id, undefined)
       facts.delete(id)
       triage.delete(id)
       if (recent.has(id)) { recent.delete(id); touch('recent') }
@@ -158,7 +188,7 @@ export function createSessionQuestions(
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
-      { facts, triage, recent, machines, activities, revisions, future, expired, version, replacement }),
+      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, version, replacement }),
     clear() {
       facts = createKeyedAnswer<SessionQuestionFacts>()
       triage = createKeyedAnswer<TriageSession>(compareTriageSessions)
@@ -168,6 +198,8 @@ export function createSessionQuestions(
       revisions = createKeyedAnswer<number>()
       future = createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
       expired = createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
+      closeMembers = createKeyedAnswer<CloseMember>()
+      closeCounts = createKeyedAnswer<IssueCloseMemberCounts>()
       replacement = ++version
     },
     set(id, row) {
@@ -181,10 +213,14 @@ export function createSessionQuestions(
         cwd: String(row.cwd ?? ''), archived: !!row.archived,
         snooze: typeof row.snoozedUntil === 'string' ? row.snoozedUntil : '',
         deadline: Date.parse(String(row.snoozedUntil ?? '')), order: order(id),
+        issueId: typeof row.issueId === 'string' ? row.issueId : undefined,
+        closeOffers: !row.archived && row.agentKind !== 'shell' && !!row.offer,
+        closeWorking: !row.archived && row.agentKind !== 'shell' && isSessionWorking(row as unknown as SessionView),
       })
     },
     setFacts,
     fact: id => facts.get(id),
+    issueCloseCounts: id => closeCounts.get(id) ?? NO_CLOSE_MEMBERS,
     visibilityChanged(id) {
       const value = facts.get(id)
       if (!value) return

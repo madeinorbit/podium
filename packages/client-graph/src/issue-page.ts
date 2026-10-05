@@ -3,6 +3,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
   isEmptyDraftVessel,
+  type IssueCloseMemberCounts,
+  type IssueCloseSubject,
   issueDisplayTitle,
   type MissionSessionIndex,
   presenceNote,
@@ -78,6 +80,22 @@ export function createIssuePageViews(pool: MobxPool) {
   function memberSessions(id: string): Loaded<SessionView[]> {
     if (disposed) return LOADING
     return roster(id, 'pageSessions').get()
+  }
+  function closeFacts(id: string): Loaded<{ subject: IssueCloseSubject; members: IssueCloseMemberCounts }> {
+    return memo(`close:${id}`, () => {
+      const raw = pool.row('issue', id, 'summary-fields') as Loaded<Readonly<Record<string, unknown>>>
+      if (!raw || raw === LOADING) return raw
+      return {
+        subject: {
+          needsHuman: !!raw.needsHuman,
+          asked: raw.asked as IssueCloseSubject['asked'],
+          gitState: raw.gitState as IssueCloseSubject['gitState'],
+          parentBranch: String(raw.parentBranch ?? 'main'),
+          ...pool.queries.issueChildCounts(id),
+        },
+        members: pool.queries.issueCloseCounts(id),
+      }
+    })
   }
   function roster(
     id: string,
@@ -540,6 +558,7 @@ export function createIssuePageViews(pool: MobxPool) {
     explorer,
     memberSessions,
     attachedSessions,
+    closeFacts,
     stats,
     dispose() {
       disposed = true

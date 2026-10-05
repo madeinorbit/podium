@@ -63,13 +63,32 @@ export function issueCloseConcerns(
   issue: IssueCloseSubject,
   members: readonly SessionView[] = [],
 ): IssueCloseConcern[] {
+  let offers = 0, working = 0
+  for (const session of members) {
+    if (session.archived) continue
+    if (session.offer) offers++
+    if (isSessionWorking(session)) working++
+  }
+  return issueCloseConcernsFromCounts(issue, { offers, working })
+}
+
+/** Pool answers maintain these two contributions at ingestion, so a close
+ * action does not have to materialize the issue's session history. */
+export interface IssueCloseMemberCounts {
+  readonly offers: number
+  readonly working: number
+}
+
+export function issueCloseConcernsFromCounts(
+  issue: IssueCloseSubject,
+  members: IssueCloseMemberCounts,
+): IssueCloseConcern[] {
   const concerns: IssueCloseConcern[] = []
-  const live = members.filter((session) => !session.archived)
-  const offers = live.filter((session) => session.offer)
-  if (offers.length > 0) {
+  const { offers, working } = members
+  if (offers > 0) {
     concerns.push({
       key: 'offers',
-      label: `${offers.length} pending decision${offers.length === 1 ? '' : 's'}`,
+      label: `${offers} pending decision${offers === 1 ? '' : 's'}`,
       // Closing retires standing offers (POD-290); surface them so "Close anyway"
       // is an explicit choice rather than a silent drop.
       detail: 'Closing retires these pending agent decisions.',
@@ -86,11 +105,10 @@ export function issueCloseConcerns(
       icon: 'attention',
     })
   }
-  const working = live.filter((session) => isSessionWorking(session))
-  if (working.length > 0) {
+  if (working > 0) {
     concerns.push({
       key: 'working',
-      label: `${working.length} agent${working.length === 1 ? ' is' : 's are'} still working`,
+      label: `${working} agent${working === 1 ? ' is' : 's are'} still working`,
       detail: 'Closing the issue does not silently explain or retire active execution.',
       blocking: true,
       icon: 'sessions',

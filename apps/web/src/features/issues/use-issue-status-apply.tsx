@@ -1,12 +1,11 @@
 import { parseIssueStatusValue } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
-import { blockingCloseConcerns } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useRuntimeSelector } from '@/app/store'
-import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard, issueCloseConcerns, issueMemberSessions } from './issue-lifecycle'
+import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 
 /**
  * THE HOST HALF OF {@link IssueStatusPicker} — one issue, one picked value, the
@@ -37,16 +36,15 @@ export interface IssueStatusApply {
   dialog: JSX.Element | null
 }
 
-export function useIssueStatusApply(suppliedSessions?: readonly SessionView[], sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
+export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], _sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
   const updateIssue = useRuntimeSelector((store) => store.updateIssue)
   const closeIssue = useRuntimeSelector((store) => store.closeIssue)
-  const needsCloseGuard = useIssueCloseGuard(suppliedSessions)
+  const needsCloseGuard = useIssueCloseGuard()
   // The ISSUE is held with the reason, not just its id: these lists repaint
   // under the open dialog, and the guard reads the row it was opened for.
   const [pending, setPending] = useState<{
     issue: IssueViewModel
     reason: IssueCloseReason
-    sessions?: readonly SessionView[]
   } | null>(null)
   const [closing, setClosing] = useState(false)
 
@@ -58,12 +56,8 @@ export function useIssueStatusApply(suppliedSessions?: readonly SessionView[], s
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
-      const addressed = sessionsForIssue?.(issue)
-      if (sessionsForIssue && (!addressed || typeof addressed === 'symbol')) return
-      const sessions = addressed && typeof addressed !== 'symbol' ? addressed : undefined
-      const guarded = sessions ? blockingCloseConcerns(issueCloseConcerns(issue, issueMemberSessions(issue, sessions))).length > 0 : needsCloseGuard(issue)
-      if (guarded) {
-        setPending({ issue, reason: intent.reason, ...(sessions ? { sessions } : {}) })
+      if (needsCloseGuard(issue)) {
+        setPending({ issue, reason: intent.reason })
         return
       }
       closeIssue(issue.id, intent.reason).catch(fail)
@@ -75,7 +69,6 @@ export function useIssueStatusApply(suppliedSessions?: readonly SessionView[], s
   const dialog = pending ? (
     <IssueCloseDialog
       issue={pending.issue}
-      sessions={pending.sessions ?? suppliedSessions}
       reason={pending.reason}
       busy={closing}
       onOpenChange={(open) => {

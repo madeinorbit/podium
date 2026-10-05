@@ -64,6 +64,7 @@ import {
 } from './schema'
 import type { RowRecord, RowSourceEvent } from './source'
 import { createReaderIndex, type IssueScopeFacts, type ReaderQuestion } from './reader-questions'
+import { createIssueQuestions, type IssueQuestionFacts, type IssueQuestions } from './issue-questions'
 import type { SessionActivityQuestion } from './session-activity'
 import { createSessionQuestions, type MachineSession, type TriageSession, type SessionQuestions, type SessionQuestionFacts } from './session-questions'
 import { createRelationIndex, type RelationDelta, type RelationQueries } from './relation-index'
@@ -97,6 +98,8 @@ export interface ColdQueries {
   readonly issueRepoRevision: number
   issueRepoPathRevision(path: string): number
   issueScope(id: string): IssueScopeFacts | undefined
+  forkIssueQuestions(): IssueQuestions
+  issueQuestionFact(id: string): IssueQuestionFacts | undefined
   readonly sessionRevision: number
   /** Session presence, issue/path membership and resume-collapse changes; not display metadata or heartbeats. */
   readonly sessionTopologyVersion: number
@@ -209,6 +212,7 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
 
 export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = {}): ColdIndex {
   const readers = createReaderIndex()
+  const issueQuestions = createIssueQuestions()
   const relations = createRelationIndex(schema)
   const sessionQuestions = createSessionQuestions(id => relations.collapsed('session', id), id => relations.orderKey('session', id))
   let collapseVersion = 0
@@ -599,6 +603,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     },
     issueRepoPathRevision: path => readers.repoPathRevision(path),
     issueScope: id => readers.issueScope(id),
+    forkIssueQuestions: () => issueQuestions.fork(),
+    issueQuestionFact: id => issueQuestions.fact(id),
     get sessionRevision() {
       return collapseVersion
     },
@@ -674,6 +680,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       if (event.type === 'replace') {
         clear()
         sessionQuestions.clear()
+        issueQuestions.clear()
         positions.clear()
         positionSeq = 0
         positionVersion += 1
@@ -704,6 +711,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       dirty.clear()
       if (delta.flips.length > 0 || delta.orders.length > 0) collapseVersion++
       readers.apply(event)
+      for (const record of event.rows)
+        if (record.kind === 'issue') issueQuestions.set(record.id, record.value as Row | undefined)
       for (const record of event.rows) {
         if (record.kind === 'session') {
           sessionQuestions.set(record.id, record.value as Row | undefined)
