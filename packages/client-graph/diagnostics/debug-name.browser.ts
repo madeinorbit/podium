@@ -3,6 +3,7 @@ import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { enableDebugNames } from '../src/debug-name'
 import { MobxPool } from '../src/pool'
+import { sidebarIssueRow } from '../src/worklist/sidebar'
 import type { RowRecord } from '../src/shared/source'
 
 if (new URLSearchParams(location.search).get('toolNames') === '1') enableDebugNames()
@@ -32,7 +33,7 @@ pool.apply({ type: 'replace', rows })
 const stops = [autorun(() => {
   for (let i = 0; i < count; i++) {
     const issue = pool.model('issue', `heap-issue-${i}`)!
-    void issue.sidebar
+    void sidebarIssueRow(issue)
     void issue.presence
     void pool.model('session', `heap-session-${i}`)!.retention
   }

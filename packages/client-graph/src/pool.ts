@@ -662,7 +662,7 @@ export class MobxPool {
   get undeletedIssueCount(): number { return this.issueCount.get() }
 
   /** Source ordering is tracked independently from the named row payload. */
-  sourcePosition(entity: EntityName, id: string): number {
+  sourcePosition(entity: 'session', id: string): number | undefined {
     this.sourcePositionVersion?.get()
     // untracked-read: pool-session-position
     return untracked(() => this.coldIndex().position(entity, id))

@@ -1,4 +1,5 @@
 import type { MobxPool } from '../pool'
+import { debugName } from '../debug-name'
 /**
  * The worklist's groups and closed folds, over the ordered
  * visible ids (`visible.ts`).
