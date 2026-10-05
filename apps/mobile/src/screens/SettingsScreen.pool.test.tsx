@@ -38,6 +38,10 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: async () => {},
 }))
+vi.mock('expo-clipboard', () => ({
+  setStringAsync: async () => {}, getStringAsync: async () => '',
+  isPasteButtonAvailable: false, ClipboardPasteButton: () => null,
+}))
 vi.mock('../client/auth', () => ({ logout: seams.logout }))
 vi.mock('../client/shell', () => ({ useMobileShell: () => ({ eraseLocalData: seams.erase }) }))
 vi.mock('../client/ServerProfileGate', () => ({

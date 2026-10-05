@@ -222,7 +222,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   const issueIdentities = createIssueIdentities(id => relations.members('repo', id, 'worktrees'))
   let identityRepoChanges: ReadonlySet<string> = new Set()
   let identityEvent: RowSourceEvent | undefined
-  const sessionQuestions = createSessionQuestions(id => relations.collapsed('session', id), id => relations.orderKey('session', id))
+  const sessionQuestions = createSessionQuestions(id => relations.collapsed('session', id),
+    id => relations.orderKey('session', id), undefined, id => positions.get(id) ?? 0)
   let collapseVersion = 0
   let sessionTopologyVersion = 0
   let topologyMoved = false

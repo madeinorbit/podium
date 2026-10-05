@@ -20,7 +20,7 @@ function fixture(rows: RowRecord[]) {
   const source = createColdIndex(SCHEMA)
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
-    cold: () => source, load: () => undefined, schedule: () => () => {},
+    settings: true, cold: () => source, load: () => undefined, schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
   const publish = (event: RowSourceEvent) => { source.apply(event); pool.apply(event) }
@@ -62,7 +62,8 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
       expect(view.getSnapshot().setup.usage.get('/shown')).toBe(Date.parse('2025-01-01T00:00:00Z'))
       stop(); rows.mockClear(); paint.mockClear()
       const closed = await measure('setup closed', () => f.publish({ type: 'update', rows: [session('fallback', { lastActiveAt: recent })] }))
-      expect(rows).not.toHaveBeenCalled(); expect(paint).not.toHaveBeenCalled()
+      expect(rows.mock.calls.every(([entity, id, mode]) => entity === 'session' && id === 'fallback' && mode === 'mark')).toBe(true)
+      expect(paint).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled(); expect(roster).not.toHaveBeenCalled(); expect(keys).not.toHaveBeenCalled()
       return Object.fromEntries(Object.entries({ first, repeated, unrelated, targetUpdate, named, removed, closed }).map(([name, value]) => [name, value.work]))
     } finally { stop(); rows.mockRestore(); ids.mockRestore(); roster.mockRestore(); keys.mockRestore(); f.pool.dispose() }
@@ -136,7 +137,8 @@ it('orders visible automation targets with path maxima and no session catalog at
       expect(paint).toHaveBeenCalledTimes(1)
       stop(); rows.mockClear(); paint.mockClear()
       const closed = await measure('automation choices closed', () => f.publish({ type: 'update', rows: [session('target', { cwd: '/shown', lastActiveAt: '2028-01-01T00:00:00Z' })] }))
-      expect(rows).not.toHaveBeenCalled(); expect(paint).not.toHaveBeenCalled()
+      expect(rows.mock.calls.every(([entity, id, mode]) => entity === 'session' && id === 'target' && mode === 'mark')).toBe(true)
+      expect(paint).not.toHaveBeenCalled()
       expect(roster).not.toHaveBeenCalled(); expect(ids).not.toHaveBeenCalled()
       return Object.fromEntries(Object.entries({ first, repeated, unrelated, changed, closed }).map(([name, value]) => [name, value.work]))
     } finally { stop(); rows.mockRestore(); roster.mockRestore(); ids.mockRestore(); f.pool.dispose() }

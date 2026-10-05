@@ -10,7 +10,7 @@ export interface TriageSession { id: string; rank: number; at: string; createdAt
 export interface MachineSession { id: string; machineId: string; createdAt: string; order: string }
 interface TimedTriageSession extends TriageSession { deadline: number }
 interface RecentSession { id: string; at: string }
-interface SetupAgent { id: string; at: string; order: string; agentKind: string }
+interface SetupAgent { id: string; at: string; setupOrder: number; agentKind: string }
 interface Activity { id: string; at: number }
 interface CloseMember extends IssueCloseMemberCounts { issueId: string }
 interface ReferenceSession { id: string; order: string }
@@ -33,6 +33,7 @@ export interface SessionQuestionFacts {
   displayRef?: string
   agentKind: string
   headless: boolean
+  setupOrder: number
 }
 interface Bucket<T> { id: string; answer: KeyedAnswer<T> }
 interface Seed {
@@ -93,7 +94,7 @@ const compareActivity = (a: Activity, b: Activity) => b.at - a.at
 const compareReference = (a: ReferenceSession, b: ReferenceSession) =>
   a.order < b.order ? -1 : a.order > b.order ? 1 : a.id.localeCompare(b.id)
 const compareSetupAgent = (a: SetupAgent, b: SetupAgent) =>
-  a.at > b.at ? -1 : a.at < b.at ? 1 : compareReference(a, b)
+  a.at > b.at ? -1 : a.at < b.at ? 1 : a.setupOrder - b.setupOrder || a.id.localeCompare(b.id)
 function paths(cwd: string): string[] {
   const out = new Set([`exact:${cwd}`, `within:${cwd}`])
   for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) out.add(`within:${cwd.slice(0, at)}`)
@@ -104,7 +105,7 @@ function same(a: SessionQuestionFacts | undefined, b: SessionQuestionFacts | und
     a.activity === b.activity && a.createdAt === b.createdAt && a.machineId === b.machineId &&
     a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order &&
     a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.displayRef === b.displayRef &&
-    a.agentKind === b.agentKind && a.headless === b.headless)
+    a.agentKind === b.agentKind && a.headless === b.headless && a.setupOrder === b.setupOrder)
 }
 
 /** Persistent declared scalar questions. Source and pool share immutable
@@ -114,6 +115,7 @@ export function createSessionQuestions(
   collapsed: (id: string) => boolean,
   order: (id: string) => string = id => id,
   seed?: Seed,
+  setupOrder: (id: string) => number = () => 0,
 ): SessionQuestions {
   let facts = seed?.facts.fork() ?? createKeyedAnswer<SessionQuestionFacts>()
   let triage = seed?.triage.fork() ?? createKeyedAnswer<TriageSession>(compareTriageSessions)
@@ -148,7 +150,7 @@ export function createSessionQuestions(
       touch('setup:count')
     }
     const next = visible && value.agentKind !== 'shell' && !value.headless
-      ? { id, at: value.activity, order: value.order, agentKind: value.agentKind } : undefined
+      ? { id, at: value.activity, setupOrder: value.setupOrder, agentKind: value.agentKind } : undefined
     const before = setupAgents.get(id)
     if (before && next && compareSetupAgent(before, next) === 0 && before.agentKind === next.agentKind) return
     if (before === next) return
@@ -258,7 +260,7 @@ export function createSessionQuestions(
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
       { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references,
-        setupAgents, setupMembers, setupCount, version, replacement }),
+        setupAgents, setupMembers, setupCount, version, replacement }, setupOrder),
     clear() {
       facts = newAnswer<SessionQuestionFacts>()
       triage = newAnswer<TriageSession>(compareTriageSessions)
@@ -312,6 +314,7 @@ export function createSessionQuestions(
         closeWorking: !row.archived && row.agentKind !== 'shell' && isSessionWorking(row as unknown as SessionView),
         displayRef: typeof row.displayRef === 'string' ? row.displayRef : undefined,
         agentKind: String(row.agentKind ?? ''), headless: !!row.headless,
+        setupOrder: setupOrder(id),
       })
     },
     setFacts,
@@ -321,7 +324,7 @@ export function createSessionQuestions(
     visibilityChanged(id) {
       const value = facts.get(id)
       if (!value) return
-      const next = { ...value, order: order(id) }
+      const next = { ...value, order: order(id), setupOrder: setupOrder(id) }
       facts.set(id, id, next)
       file(next)
     },

@@ -19,11 +19,11 @@ const session = (id: string, agent: string, cold = false): SliceSession => ({
 })
 function fixture(sessions: SliceSession[] = []) {
   const values = new Map<string, string>()
-  const uiListeners = new Set<() => void>(), listeners = new Set<() => void>()
+  const uiListeners = new Set<(keys: readonly string[]) => void>(), listeners = new Set<() => void>()
   const ui = {
     get: (key: string) => values.get(key) ?? null,
-    set: (key: string, value: string | null) => { if (value === null) values.delete(key); else values.set(key, value); for (const wake of uiListeners) wake() },
-    subscribe: (wake: () => void) => { uiListeners.add(wake); return () => { uiListeners.delete(wake) } },
+    set: (key: string, value: string | null) => { if (value === null) values.delete(key); else values.set(key, value); for (const wake of uiListeners) wake([key]) },
+    subscribe: (wake: (keys: readonly string[]) => void) => { uiListeners.add(wake); return () => { uiListeners.delete(wake) } },
   } as RoutedUiState
   let state = { machines: [{ id: 'host', name: 'Host' }], repos: [{ path: '/project', kind: 'repository', worktrees: [] }], settingsTab: 'accounts',
     sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]) }
