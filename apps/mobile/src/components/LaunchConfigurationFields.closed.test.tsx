@@ -57,7 +57,7 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
           },
         }) as MachineWire,
     )
-    const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => null)
+    const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
     const onChange = vi.fn()
     const value: LaunchConfiguration = {
       agentKind: 'claude-code',
