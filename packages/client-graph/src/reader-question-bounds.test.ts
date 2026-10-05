@@ -69,7 +69,7 @@ function fixture(scale: 1 | 4 = 1) {
   const repo = (id: string, path: string, prefix: string): RowRecord =>
     ({ kind: 'worktree', id, value: { repoId: id, repoPath: path, prefix } }) as RowRecord
   const rows = [
-    repo('wanted', '/wanted', 'WANTED'),
+    repo('wanted', '/wanted', 'WANT'),
     repo('other', '/other', 'OTHER'),
     repo('new', '/pending', 'NEW'),
     repo('else', '/else', 'ELSE'),
@@ -115,7 +115,7 @@ it('keeps narrowed answers and scalar questions flat with fully resident history
             expect(queries.ids({ kind: 'commandIssueSessions', issueId: 'target' })).toEqual([
               'mine',
             ])
-            expect(queries.ids({ kind: 'sessionReference', ref: 'WANTED-1-A' })).toEqual(['mine'])
+            expect(queries.ids({ kind: 'sessionReference', ref: 'WANT-1-A' })).toEqual(['mine'])
             expect(queries.ids({ kind: 'headerRecentSession' })).toEqual(['mine'])
             expect(queries.nextTriageSession('mine')).toBe('peer')
             expect(queries.latestMachineSession(['m0', 'm1'])).toEqual({
