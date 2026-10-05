@@ -146,7 +146,7 @@ async function rescopeRun(scans: boolean): Promise<{ grown: ScopeCheck; back: Sc
   } finally {
     handle.dispose()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

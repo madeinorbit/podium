@@ -109,7 +109,7 @@ describe('hand-rolled arm on the native renderer', () => {
     } finally {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })

@@ -45,7 +45,7 @@ describe('the pool over the app-owned runtime', () => {
       parity()
     } finally {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -64,7 +64,7 @@ describe('the pool over the app-owned runtime', () => {
       expect(snapshotPool(handle.pool)).toEqual(before)
     } finally {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -103,7 +103,7 @@ describe('the pool over the app-owned runtime', () => {
       )
     } finally {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -128,7 +128,7 @@ describe('the pool over the app-owned runtime', () => {
       expect(tracked(() => handle.pool.row('session', id))).toBe(row)
     } finally {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 
@@ -161,7 +161,7 @@ describe('the pool over the app-owned runtime', () => {
       expect(apply).not.toHaveBeenCalled()
     } finally {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })

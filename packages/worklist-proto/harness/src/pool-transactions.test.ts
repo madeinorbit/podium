@@ -86,7 +86,7 @@ async function boot(scale: 1 | 4, opts: { online: boolean; server?: ScenarioServ
     network: { isOnline: net.isOnline, onlineEvents: net.onlineEvents },
     ...(opts.server ? { server: opts.server } : {}),
   })
-  cleanups.push(() => ctx.engine.destroy())
+  cleanups.push(() => ctx.dispose())
   return { ctx, net }
 }
 

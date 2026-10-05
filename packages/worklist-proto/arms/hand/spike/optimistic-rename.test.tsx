@@ -165,7 +165,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
     } finally {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

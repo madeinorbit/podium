@@ -125,7 +125,7 @@ describe('header pool values', () => {
       })
     } finally {
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 120_000)
 
@@ -156,7 +156,7 @@ describe('header pool values', () => {
     } finally {
       stop()
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 180_000)
 
@@ -228,7 +228,7 @@ describe('header pool values', () => {
     } finally {
       for (const stop of stops) stop()
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 120_000)
 
@@ -270,7 +270,7 @@ describe('header pool values', () => {
     } finally {
       stop()
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 120_000)
 
@@ -300,7 +300,7 @@ describe('header pool values', () => {
       ).toBe('metrics')
     } finally {
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 120_000)
 
@@ -323,7 +323,7 @@ describe('header pool values', () => {
     } finally {
       stop()
       f.dispose()
-      f.ctx.engine.destroy()
+      f.ctx.dispose()
     }
   }, 120_000)
 })

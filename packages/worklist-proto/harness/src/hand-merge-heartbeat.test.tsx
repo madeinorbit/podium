@@ -45,7 +45,7 @@ describe('Hand merge verdict on an unrelated heartbeat', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

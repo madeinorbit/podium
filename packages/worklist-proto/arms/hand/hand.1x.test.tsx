@@ -173,7 +173,7 @@ describe('hand-rolled arm at 1x', () => {
     } finally {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

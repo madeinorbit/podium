@@ -173,7 +173,7 @@ describe('awaiting merge keeps a finished row (POD-4940)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -191,7 +191,7 @@ describe('awaiting merge keeps a finished row (POD-4940)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

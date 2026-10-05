@@ -204,7 +204,7 @@ describe('#2 target family is larger than one level of the reads budget (POD-463
         ),
       ).toHaveLength(ctx.corpus.issues.length)
     } finally {
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -462,7 +462,7 @@ describe('seeded kernel rows reach the replica (POD-4624)', () => {
       expect(ctx.corpus.repoProjections.length).toBeGreaterThan(0)
       expect(ctx.replica.rows('repos')).toHaveLength(ctx.corpus.repoProjections.length)
     } finally {
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })
@@ -498,7 +498,7 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
       )
     } finally {
       rows.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })
@@ -573,7 +573,7 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
         orderBefore,
       )
     } finally {
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

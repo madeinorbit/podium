@@ -158,7 +158,7 @@ describe('mission pane value differential', () => {
         } finally {
           handle.dispose()
           feeds.dispose()
-          ctx.engine.destroy()
+          ctx.dispose()
         }
       }, 600_000)
 
@@ -240,7 +240,7 @@ describe('mission pane value differential', () => {
       row.mockRestore()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

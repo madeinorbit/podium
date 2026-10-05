@@ -277,7 +277,7 @@ describe('groups and closed folds (Mb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)
 
@@ -359,7 +359,7 @@ describe('groups and closed folds (Mb2)', () => {
       observe()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })
@@ -513,7 +513,7 @@ describe('the windowed web list (Mb2)', () => {
       el.remove()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

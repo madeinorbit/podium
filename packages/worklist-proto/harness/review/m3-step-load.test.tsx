@@ -211,7 +211,7 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -288,7 +288,7 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
   }, 600_000)

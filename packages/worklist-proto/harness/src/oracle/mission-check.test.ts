@@ -45,7 +45,7 @@ describe('mission differential replay', () => {
       await writeRescopeGrow(ctx); check('rescopeGrowth')
       await writeRescopeBack(ctx); check('rescopeBack')
       writeResult(`mission-check-${scale}x`, { issue: 'POD-5088', scale, checks })
-    } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
+    } finally { stop(); handle.dispose(); feeds.dispose(); ctx.dispose() }
   }, 600_000)
 
   const firstSeed = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)

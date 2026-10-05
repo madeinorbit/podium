@@ -736,7 +736,7 @@ describe('row fields against the oracle', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

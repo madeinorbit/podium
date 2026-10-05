@@ -418,7 +418,7 @@ describe('sidebar readiness', () => {
         hydrate.mockRestore()
         handle.dispose()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 120_000)
 })
@@ -486,7 +486,7 @@ describe('sidebar differential replay', () => {
           stop()
           handle.dispose()
           feeds.dispose()
-          ctx.engine.destroy()
+          ctx.dispose()
         }
       }, 600_000)
 
@@ -508,7 +508,7 @@ describe('sidebar differential replay', () => {
         handle.dispose()
         locals.dispose()
         rows.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
   }, 600_000)

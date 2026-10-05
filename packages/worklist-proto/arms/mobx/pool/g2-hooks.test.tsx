@@ -65,7 +65,7 @@ describe('G2 load hooks (outside)', () => {
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
   }, 120_000)

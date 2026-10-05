@@ -165,7 +165,7 @@ async function withMounted<T>(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -197,7 +197,7 @@ async function withMountedScale<T>(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -396,7 +396,7 @@ async function familyRig(eagerRollups = false) {
       for (const stop of stops) stop()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     },
   }
 }
@@ -573,7 +573,7 @@ describe('row roll-ups (Mb3)', () => {
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
     writeResult('mobx-rollups-first-paint', { cells })
@@ -827,7 +827,7 @@ describe('row roll-ups (Mb3)', () => {
       observe()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

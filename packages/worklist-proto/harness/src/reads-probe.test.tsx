@@ -120,7 +120,7 @@ async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountRes
     done: () => {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     },
   }
 }

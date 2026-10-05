@@ -319,7 +319,7 @@ async function cellsAt(
     mounted.unmount()
     restoreLayout()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

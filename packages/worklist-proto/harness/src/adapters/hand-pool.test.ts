@@ -91,7 +91,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
       }
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -120,7 +120,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
       }
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -149,7 +149,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
       }
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -224,7 +224,7 @@ describe('the hand harness adapter wraps the product entry points (POD-4944)', (
       expect(transport.listeners.size).toBe(0)
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

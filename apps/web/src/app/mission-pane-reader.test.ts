@@ -32,6 +32,6 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
     stop()
     projection.dispose()
     handle.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }, 60_000)

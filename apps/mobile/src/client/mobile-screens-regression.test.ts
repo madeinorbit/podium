@@ -150,6 +150,6 @@ for (const scale of [1, 4] as const)
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)

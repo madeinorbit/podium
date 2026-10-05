@@ -62,7 +62,7 @@ describe('engine-backed locals source', () => {
       expect(locals.stats.notifications).toBe(1)
     } finally {
       locals.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })

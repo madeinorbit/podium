@@ -134,7 +134,7 @@ describe('hand-rolled arm on the engine (fixture 1x)', () => {
     } finally {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 })

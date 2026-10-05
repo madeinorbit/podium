@@ -169,7 +169,7 @@ async function withMounted<T>(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -439,7 +439,7 @@ async function coldProgressRun(plant: boolean): Promise<ColdProgressRun> {
   } finally {
     handle.dispose()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -648,7 +648,7 @@ describe('row roll-ups (Hb3)', () => {
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
     writeResult('hand-rollups-first-paint', { cells })
@@ -760,7 +760,7 @@ describe('row roll-ups (Hb3)', () => {
       unsub()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

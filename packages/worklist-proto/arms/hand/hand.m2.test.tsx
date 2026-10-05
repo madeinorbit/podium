@@ -319,7 +319,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
     } finally {
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)
 })

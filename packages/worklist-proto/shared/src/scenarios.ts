@@ -1010,7 +1010,7 @@ async function scenario(
   try {
     return await runWithSource(name, methodology, ctx, () => write(ctx))
   } finally {
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -1629,7 +1629,7 @@ export async function principalSwitch(scale: FixtureScale = 1): Promise<Scenario
   const before = captureSnapshot(old.engine)
   oldOff()
   oldHandle.dispose()
-  old.engine.destroy()
+  old.dispose()
   // The disposed source stays silent even when its replica moves.
   old.replica.onKernelEvent({
     type: 'upserted',
@@ -1661,7 +1661,7 @@ export async function principalSwitch(scale: FixtureScale = 1): Promise<Scenario
       { before },
     )
   } finally {
-    fresh.engine.destroy()
+    fresh.dispose()
   }
 }
 
@@ -1690,7 +1690,7 @@ export async function coldBootstrap(scale: FixtureScale = 1): Promise<ScenarioRe
       { before: EMPTY_SNAPSHOT },
     )
   } finally {
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

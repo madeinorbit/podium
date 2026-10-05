@@ -156,7 +156,7 @@ async function census(
     handle.dispose()
     locals.dispose()
     feed.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -229,7 +229,7 @@ describe('per-cold-row structures outside the cold index (POD-5417 finding 14)',
       handle.dispose()
       locals.dispose()
       feed.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)
 

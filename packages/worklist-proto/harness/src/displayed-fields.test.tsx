@@ -128,7 +128,7 @@ describe('the rows an arm must redraw are the rows whose DRAWN fields changed (P
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 300_000)
   }

@@ -136,7 +136,7 @@ describe('mobx pool on the native renderer', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })
@@ -199,7 +199,7 @@ async function nativeCellsAt(scale: 1 | 4): Promise<ScaleCell[]> {
     mounted.unmount()
     sections.mockRestore()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

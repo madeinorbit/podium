@@ -137,7 +137,7 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })
@@ -208,7 +208,7 @@ for (const entry of ROUND_THREE_ARMS) {
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 300_000)
   })
@@ -258,7 +258,7 @@ describe('wall-clock independence of the #9 steps', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
       vi.useRealTimers()
     }
   }

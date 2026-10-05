@@ -47,7 +47,7 @@ describe('pool chip replay', () => {
       } finally {
         handle.dispose()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 180_000)
 })

@@ -229,7 +229,7 @@ describe('rendered mission pane parity', () => {
     } finally {
       cleanup()
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 

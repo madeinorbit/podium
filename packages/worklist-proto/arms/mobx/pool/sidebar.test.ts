@@ -133,7 +133,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       } finally {
         handle.dispose()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 600_000)
 
@@ -391,7 +391,7 @@ describe('real sidebar oracle (POD-4953)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 

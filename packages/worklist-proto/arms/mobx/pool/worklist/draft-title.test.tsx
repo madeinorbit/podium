@@ -46,7 +46,7 @@ describe('a draft wears its first non-shell member (4x)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

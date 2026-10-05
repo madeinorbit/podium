@@ -104,7 +104,7 @@ describe('growth: reads per change are flat at 1x, 2x and 4x (POD-4576)', () => 
       } finally {
         mounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
     writeResult('mobx-growth-mc4', {

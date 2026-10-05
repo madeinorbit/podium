@@ -99,7 +99,7 @@ describe.each([
     expect(all.map((e) => e.mutationId)).not.toContain(events[1]!.txId)
     expect(ctx.engine.outbox.deadLetters()).toEqual([])
     off()
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 })
 
@@ -134,7 +134,7 @@ describe('write transport on the kernel queue', () => {
     // The arm's contract type accepts this transport as is.
     const asContract: WriteTransport = transport
     expect(typeof asContract.subscribe).toBe('function')
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 
   it('a refused title is one rejected, parked for recovery, and the kernel still parks it', async () => {
@@ -160,7 +160,7 @@ describe('write transport on the kernel queue', () => {
       },
     ])
     expect(ctx.engine.outbox.deadLetters().map((d) => d.entry.mutationId)).toEqual([tx('2')])
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 
   it('offline: a collapsed mark-read is superseded; pending() lists the survivor; online it is accepted, then acked', async () => {
@@ -200,7 +200,7 @@ describe('write transport on the kernel queue', () => {
     ])
     // Applied, and held by the kernel until its echo: awaiting truth.
     expect(transport.pending()).toEqual([{ ...queued[0], acked: true }])
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 
   it('pending() survives a reload under the same txIds, with no base (the kernel keeps it in memory)', async () => {
@@ -224,7 +224,7 @@ describe('write transport on the kernel queue', () => {
         acked: false,
       },
     ])
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 
   it('the kernel queue scans for collapsible entries only while an outcome listener is subscribed', async () => {
@@ -250,7 +250,7 @@ describe('write transport on the kernel queue', () => {
     expect(observed - unobserved).toBe(1)
     expect(afterOff).toBe(unobserved)
     expect(events).toEqual([{ type: 'superseded', txId: tx('7'), kind: 'issueMarkRead', id }])
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 
   it('a throwing outcome listener neither wedges the drain nor starves the stream', async () => {
@@ -264,7 +264,7 @@ describe('write transport on the kernel queue', () => {
     expect(events.map((e) => e.type)).toEqual(['accepted'])
     // The ledger still took the applied entry into awaiting truth.
     expect(ctx.engine.outbox.awaiting().map((e) => e.mutationId)).toEqual([events[0]!.txId])
-    ctx.engine.destroy()
+    ctx.dispose()
   }, 60_000)
 })
 

@@ -76,7 +76,7 @@ describe('store helpers run on the caller clock alone', () => {
     }
   }, 60_000)
 
-  afterAll(() => ctx.engine.destroy())
+  afterAll(() => ctx.dispose())
 
   it('control: deriving at the store clock and projecting at the caller clock differs from the truth', () => {
     const twoClocks = legacyDerivationFromStore(early)
@@ -162,7 +162,7 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
     truth = snapshotFromStore(referenceState(ctx.engine), later)
   }, 60_000)
 
-  afterAll(() => ctx.engine.destroy())
+  afterAll(() => ctx.dispose())
 
   it('the planted row is on the list at the store clock and off it two hours later', () => {
     expect(oracleIds(early).has(planted)).toBe(true)

@@ -110,7 +110,7 @@ describe('mobile pool values', () => {
       for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); await check(scenario.scenario) }
       expect(retained).toBeGreaterThan(0)
       writeResult(`mobile-${scale}x`, { issue: 'POD-5439', scale, checks, retainedNativeArrays: retained })
-    } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
+    } finally { stop(); handle.dispose(); feeds.dispose(); ctx.dispose() }
   }, 600_000)
 
   it('pinned asks keep both keys, complete counts and their original reorder scope', async () => {

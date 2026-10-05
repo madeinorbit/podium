@@ -221,7 +221,7 @@ describe('visible collection and order (Hb1)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -254,7 +254,7 @@ describe('visible collection and order (Hb1)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -295,7 +295,7 @@ describe('visible collection and order (Hb1)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -314,7 +314,7 @@ describe('visible collection and order (Hb1)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -400,7 +400,7 @@ describe('visible collection and order (Hb1)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

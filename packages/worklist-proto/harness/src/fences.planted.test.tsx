@@ -54,7 +54,7 @@ async function plantedStep(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

@@ -103,7 +103,7 @@ describe('cold index equals the rule over whole rows (POD-5405)', () => {
       writeResult(`cold-index-${scale}x`, { scale, cells })
     } finally {
       feed.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 900_000)
 

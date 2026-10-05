@@ -168,7 +168,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -247,7 +247,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -332,7 +332,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -400,7 +400,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -451,7 +451,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -482,7 +482,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -518,7 +518,7 @@ describe('Hc2 hand receipts and remote updates', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

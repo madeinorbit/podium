@@ -311,7 +311,7 @@ describe('groups and closed folds (Hb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)
 
@@ -378,7 +378,7 @@ describe('groups and closed folds (Hb2)', () => {
     } finally {
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -445,7 +445,7 @@ describe('groups and closed folds (Hb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 600_000)
 })
@@ -592,7 +592,7 @@ describe('the windowed web list (Hb2)', () => {
       el.remove()
       handle.dispose()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })
@@ -643,7 +643,7 @@ describe('plants that must fail (Hb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -714,7 +714,7 @@ describe('plants that must fail (Hb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -764,7 +764,7 @@ describe('plants that must fail (Hb2)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })

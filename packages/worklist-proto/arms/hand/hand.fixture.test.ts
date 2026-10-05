@@ -44,6 +44,6 @@ it.fails('fixture corpus at 1x: parity with the legacy oracle, rebuild oracle gr
     handle.dispose()
     source.dispose()
   } finally {
-    boot.engine.destroy()
+    boot.dispose()
   }
 }, 120_000)

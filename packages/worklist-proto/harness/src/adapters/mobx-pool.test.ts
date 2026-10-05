@@ -49,7 +49,7 @@ describe('the harness adapter wraps the product entry points (POD-4944)', () => 
       }
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -111,7 +111,7 @@ describe('the harness adapter wraps the product entry points (POD-4944)', () => 
 
     } finally {
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

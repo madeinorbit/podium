@@ -99,7 +99,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     }
     const coldStoreLeftovers = 0
     expect(coldStoreLeftovers).toBe(0)
-    cold.engine.destroy()
+    cold.dispose()
 
     // Principal switch: dispose everything, rebuild over a FRESH replica.
     const first = await startScenarioEngine(1, { principal: 'operator' })
@@ -114,7 +114,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     expect(firstVisible).toBeGreaterThan(0)
     firstMounted.unmount()
     firstSource.dispose()
-    first.engine.destroy()
+    first.dispose()
     // The dispose contract: zero listeners survive from the old store.
     expect(firstStore.listenerCount()).toBe(0)
 
@@ -143,7 +143,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     } finally {
       secondMounted.unmount()
       secondSource.dispose()
-      second.engine.destroy()
+      second.dispose()
     }
 
     // Rescope growth then back at 1x: two full replaces, tables back to
@@ -250,7 +250,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       const store = storeOf(mounted)
       mounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
       expect(store.listenerCount()).toBe(0)
     }
   }, 600_000)
@@ -341,7 +341,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       } finally {
         mounted.unmount()
         source.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
       byScale.set(name, perStep)
     }
@@ -405,7 +405,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       } finally {
         mounted.unmount()
         source.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
     const soloArm = await soloHeartbeat('arm')
@@ -499,7 +499,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       armMounted.unmount()
       controlMounted.unmount()
       source.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
     // The armed control still says NO on its own (detector not blinded by the
     // arm's presence): solo control heartbeat commits rows.

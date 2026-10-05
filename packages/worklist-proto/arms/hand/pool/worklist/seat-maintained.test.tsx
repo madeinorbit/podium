@@ -96,7 +96,7 @@ async function withMountedScale<T>(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

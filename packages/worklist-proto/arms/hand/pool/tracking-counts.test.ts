@@ -384,7 +384,7 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
     census.stop()
     handle?.dispose()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

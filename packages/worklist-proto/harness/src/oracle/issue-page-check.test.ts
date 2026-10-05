@@ -70,7 +70,7 @@ describe('issue page differential replay', () => {
         stop()
         handle.dispose()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }, 600_000)
 

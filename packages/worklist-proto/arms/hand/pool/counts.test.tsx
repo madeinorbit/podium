@@ -133,7 +133,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 
@@ -184,7 +184,7 @@ describe('fence steps #1-#4, #8, #8b', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 120_000)
 })

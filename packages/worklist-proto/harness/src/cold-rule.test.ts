@@ -191,7 +191,7 @@ async function measure(scale: 1 | 4) {
     }
   } finally {
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

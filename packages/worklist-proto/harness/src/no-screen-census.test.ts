@@ -80,7 +80,7 @@ async function phases(scale: FixtureScale) {
   } finally {
     census.stop()
     handle.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

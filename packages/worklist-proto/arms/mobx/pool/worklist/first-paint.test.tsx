@@ -130,7 +130,7 @@ async function measure(scale: 1 | 4) {
   } finally {
     m.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 

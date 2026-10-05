@@ -84,7 +84,7 @@ async function soloArm(scenario: 'heartbeat' | 'click', scale: FixtureScale): Pr
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -127,7 +127,7 @@ async function soloControl(
   } finally {
     mounted.unmount()
     feeds.dispose()
-    ctx.engine.destroy()
+    ctx.dispose()
   }
 }
 
@@ -179,7 +179,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 60_000)
 
@@ -281,7 +281,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         armMounted.unmount()
         controlMounted.unmount()
         feeds.dispose()
-        ctx.engine.destroy()
+        ctx.dispose()
       }
     }
     await coRun('heartbeat')

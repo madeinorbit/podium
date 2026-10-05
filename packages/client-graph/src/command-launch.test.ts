@@ -76,7 +76,7 @@ async function fixture() {
     parity,
     close() {
       handle.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     },
   }
 }

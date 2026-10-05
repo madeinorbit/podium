@@ -158,7 +158,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -212,7 +212,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 
@@ -280,7 +280,7 @@ describe('mobx pool on the native renderer, fence steps #1-#3', () => {
     } finally {
       mounted.unmount()
       feeds.dispose()
-      ctx.engine.destroy()
+      ctx.dispose()
     }
   }, 300_000)
 })
