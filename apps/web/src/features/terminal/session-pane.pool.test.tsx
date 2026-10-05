@@ -371,6 +371,7 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   })
   f.mounted.current = {
     setAppearance: vi.fn(),
+    connection: { state: () => ({ connected: true }) },
     view: { setRefLinks: paint, setFileLinks: vi.fn() },
   } as unknown as MountedSession
   const actual = render(<AgentPanel sessionId={sessions[0]!.sessionId} />)
