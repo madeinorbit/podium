@@ -1,6 +1,6 @@
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
-import { missionRootFor } from '@podium/client-core/values'
+import { deriveHandoffNow, missionRootFor } from '@podium/client-core/values'
 import { dedupeSessions } from '../diagnostics/reference-state'
 import { allIssueViewModels } from '../diagnostics/reference/issue-view-models'
 import { checkMissionView } from '../diagnostics/mission-view-check'
@@ -9,6 +9,8 @@ import { seedCacheFromCorpus } from '../../worklist-proto/shared/src/scenarios'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { MobxPool } from './pool'
+import { missionView } from './mission-view'
+import { LOADING } from './loading'
 
 for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly at ${scale}x in every spine mode`, () => {
   const corpus = buildCorpus(scale)
@@ -32,14 +34,23 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   pool.apply({ type: 'replace', rows })
   try {
-    const roots = new Set(issues.map(issue => missionRootFor(issues, issue.id)?.id))
+    // Run the raw-member and retired-crew regressions before the ordinary
+    // roots; the remainder still covers every root at each scale.
+    const roots = new Set([scale === 4 ? 'i11834' : 'i2696', ...issues.map(issue => missionRootFor(issues, issue.id)?.id)])
     for (const root of roots) for (const mode of ['full', 'working', 'needs-you'] as const) {
       let result!: ReturnType<typeof checkMissionView>
-      const stop = autorun(() => { result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths) })
+      let handoff = ''
+      const stop = autorun(() => {
+        result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths)
+        if (result.first?.section === 'handoff' && root) {
+          const actual = missionView(pool).handoff(root)
+          handoff = JSON.stringify({ expected: deriveHandoffNow(issues, sessions, root), actual: actual === LOADING ? 'LOADING' : actual.current })
+        }
+      })
       try {
         expect(result.pending, `${root} ${mode}: ${JSON.stringify(result)}`).toBe(0)
-        expect(result.differences, `${root} ${mode}: ${JSON.stringify(result.first)}`).toBe(0)
+        expect(result.differences, `${root} ${mode}: ${JSON.stringify(result.first)} ${handoff}`).toBe(0)
       } finally { stop() }
     }
   } finally { pool.dispose() }
-})
+}, 600_000)
