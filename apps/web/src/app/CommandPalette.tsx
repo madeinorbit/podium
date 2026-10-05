@@ -362,7 +362,7 @@ function PaletteDialogBody({
     [issues, openIssueId, selectedIssueId, sessions, repos, repoViews, machines, handoffEnabled],
   )
 
-  const focusedValue = useCommandSession(paneA)
+  const focusedValue = useCommandSession(paneA && data.sessionIds.includes(paneA) ? paneA : null)
   const focused = focusedValue !== LOADING ? focusedValue : undefined
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
