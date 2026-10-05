@@ -166,3 +166,31 @@ it('expires a confirmed descendant worker at its deadline without minute card ke
     expect(card! && card! !== LOADING && card!.progress).toEqual({ total: 1, done: 0, liveAgents: 0 })
   } finally { stop(); f.stop() }
 })
+
+it('keeps a drawn card flat through archived session history while preserving unread', () => {
+  for (const scale of [1, 4]) {
+    const f = setup(0)
+    const readAt = new Date(now - 60_000).toISOString()
+    const archived = Array.from({ length: 32 * scale }, (_, n) => ({ kind: 'session' as const, id: `history-${n}`,
+      value: { sessionId: `history-${n}`, issueId: 'parent', status: 'exited', agentKind: 'codex', archived: true,
+        lastActiveAt: new Date(now).toISOString(), agentState: { phase: 'ended' } } }))
+    f.pool.apply({ type: 'replace', rows: [
+      { kind: 'issue', id: 'parent', value: row('parent', { readAt, updatedAt: readAt }) },
+      { kind: 'session', id: 'worker', value: { sessionId: 'worker', issueId: 'parent', status: 'live', agentKind: 'codex',
+        lastActiveAt: readAt, agentState: { phase: 'idle' } } }, ...archived,
+    ] })
+    let card: ReturnType<typeof f.source.card>
+    const stop = autorun(() => { card = f.source.card({ id: 'parent', now }) })
+    const read = vi.spyOn(f.pool, 'row')
+    try {
+      expect(card! && card! !== LOADING && card!.issue.unread).toBe(true)
+      expect(card! && card! !== LOADING && card!.sessions.map(seat => seat.sessionId)).toEqual(['worker'])
+      read.mockClear()
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'parent', value: row('parent', {
+        readAt, updatedAt: readAt, stage: 'planning',
+      }) }] })
+      expect(card! && card! !== LOADING && card!.issue.stage).toBe('planning')
+      expect(read.mock.calls.filter(([entity, id]) => entity === 'session' && id.startsWith('history-'))).toHaveLength(0)
+    } finally { read.mockRestore(); stop(); f.stop() }
+  }
+})

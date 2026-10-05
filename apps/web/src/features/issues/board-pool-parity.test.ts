@@ -28,8 +28,18 @@ function expectBoard(
   pool: import('@podium/client-graph').MobxPool,
   options: import('@podium/client-graph/issue-board-schema').BoardOptions,
 ) {
-  const value = inBoardCheck(() => readBoardSnapshot(pool, options))
+  const { value, unread } = inBoardCheck(() => {
+    const value = readBoardSnapshot(pool, options)
+    if (value === LOADING) return { value, unread: [] }
+    return { value, unread: value.values.flatMap(({ fields }) => {
+      const id = fields.id as string
+      const card = pool.row('issueBoardCard', JSON.stringify({ id, agents: options.display.showAgentTasks }))
+      return card && card !== LOADING && card.issue.unread !== fields.unread
+        ? [{ id, expected: fields.unread, actual: card.issue.unread }] : []
+    }) }
+  })
   if (!value || value === LOADING) throw new Error('Board fixture is loading')
+  expect(unread).toEqual([])
   expectPoolOutput(value, JSON.stringify(options))
 }
 function expectExplorer(
