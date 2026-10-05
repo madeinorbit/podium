@@ -5,7 +5,7 @@
 
 import { compareStructural, observable, reaction } from 'mobx'
 import { cachedGroup, keyedViews } from '../cached'
-import { modelHost, type IssueModel, type ModelHost } from '../models'
+import { hostOf, type IssueModel, type ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
@@ -107,7 +107,7 @@ export const sidebarIssueRow = cachedGroup(
 )
 
 function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
-  const host = modelHost(model)
+  const host = hostOf(model)
   const own = host.rollupInputs.loadedIssue(model.id)
   if (own === LOADING) return LOADING
   if (own === undefined) return undefined

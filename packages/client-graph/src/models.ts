@@ -291,7 +291,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
         configurable: false,
         enumerable: false,
         get(this: EntityModel): EntityModel | typeof LOADING | null {
-          const host = modelHost(this)
+          const host = hostOf(this)
           const target = host.relations.one(entity, this.id, name)
           return target === null ? null : objectOrLoading(host, spec.to, target)
         },
@@ -315,14 +315,14 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
       configurable: false,
       enumerable: false,
       get(this: EntityModel): ModelCollection {
-        const host = modelHost(this)
+        const host = hostOf(this)
         return new Members(host, spec.to, this.id, () => host.relations.many(entity, this.id, name))
       },
     })
   }
 }
 
-export function modelHost(model: EntityModel): ModelHost {
+export function hostOf(model: EntityModel): ModelHost {
   return (model as unknown as { readonly host: ModelHost }).host
 }
 

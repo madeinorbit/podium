@@ -16,6 +16,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  */
 
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
 import { act } from 'react'
 import { flushSync } from 'react-dom'
 import { describe, expect, it } from 'vitest'
@@ -142,7 +143,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         handle.settleLoads()
       })
       const id = ctx.targets.visibleRootId
-      const before = tracked(() => pool.issue(id)!.sidebar)
+      const before = tracked(() => sidebarIssueRow(pool.issue(id)!))
       if (before === undefined || before === LOADING)
         throw new Error('roster head fixture did not load')
       const next = before.sessions.find(
@@ -165,7 +166,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       assertReads(moved, { readsPerChange: 3 })
       const readHead = () =>
         tracked(() => {
-          const row = pool.issue(id)!.sidebar
+          const row = sidebarIssueRow(pool.issue(id)!)
           return row === undefined || row === LOADING ? null : row.firstSessionId
         })
       expect(readHead(), 'cached ID follows the promoted roster head').toBe(next)
