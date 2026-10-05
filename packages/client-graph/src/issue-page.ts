@@ -71,7 +71,8 @@ export function createIssuePageViews(pool: MobxPool) {
   }
   function session(id: string): Loaded<SessionView> {
     if (pool.graph.isCollapsed('session', id)) return undefined
-    return pool.row('session', id) as Loaded<SessionView>
+    const row = pool.row('session', id) as Loaded<SessionView>
+    return row && row !== LOADING ? { ...row } : row
   }
   function attachedSessions(id: string): Loaded<SessionView[]> {
     if (disposed) return LOADING
@@ -539,7 +540,7 @@ export function createIssuePageViews(pool: MobxPool) {
         if (pool.queries.collapsed(id)) continue
         const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
         if (seat === LOADING) pending = true
-        else if (seat) seats.push(seat)
+        else if (seat) seats.push({ ...seat })
       }
       return pending ? LOADING : { issues: world, sessions: seats }
     })

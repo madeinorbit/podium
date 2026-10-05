@@ -6,7 +6,9 @@ import { LOADING, type Loaded } from './worklist/rollup'
 import type { SessionPaneRows } from './session-pane-schema'
 
 export function paneSession(pool: MobxPool, id: string | undefined): Loaded<SessionView> {
-  return id === undefined ? undefined : pool.row('session', id) as Loaded<SessionView>
+  const row = id === undefined ? undefined : pool.row('session', id) as Loaded<SessionView>
+  // React receives a read snapshot; observing the joined getters happens here.
+  return row && row !== LOADING ? { ...row } : row
 }
 export function paneWindow(pool: MobxPool): Loaded<SessionPaneRows['sessionPaneWindow']> {
   return pool.row('sessionPaneWindow', 'window')

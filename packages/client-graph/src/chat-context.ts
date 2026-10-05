@@ -137,7 +137,7 @@ export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool
     if (counts) counts.referenceSessionReads++
     const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     if (loading(row)) pending++
-    else if (row) sessions.push(row)
+    else if (row) sessions.push({ ...row })
   }
   return { sessions: dedupeSessionsByResume(sessions), pending }
 }

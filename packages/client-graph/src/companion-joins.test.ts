@@ -72,7 +72,7 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
   const stopRef = autorun(() => { ref = f.pool.queries.linkedSessionId('POD-2-A') })
   try {
     expect(f.pool.tables.session.size).toBe(1)
-    expect(cold.machineName).toBe('Workstation')
+    expect((f.pool.row('session', 'session-1', 'summary') as Row).machineName).toBe('Workstation')
     expect(ref).toBe('session-1')
     f.source.stats.reset()
     const machine = f.change('machines', 'host', { name: 'Renamed', loggedOutHarnesses: ['codex'] })!

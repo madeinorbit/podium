@@ -1,0 +1,1154 @@
+[
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-2-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-3-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-4-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-4",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-7-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-8-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-8",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-10-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-12-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-12",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-14-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-15-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-16",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-18-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-19-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-20-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-22-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-23-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-24-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-24",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-27-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-28-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-28",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-30-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-32-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-32",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-34-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-35-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-36",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-38-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-39-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-40-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-42-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-43-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-44-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-44",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-47-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-48-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-48",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-50-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-52-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-52",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-54-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-55-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-56",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-58-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-59-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-60-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-62-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-63-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-64-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-64",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-67-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-68-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-68",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-70-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-72-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-72",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-74-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-75-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-76",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-78-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-79-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-80-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-82-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-83-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-84-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-84",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-87-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-88-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-88",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-90-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-92-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-92",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-94-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-95-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-96",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-98-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-99-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-100-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-102-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-103-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-104-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-104",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-107-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-108-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-DRAFT-108",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-110-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-112-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-112",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-114-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-115-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-116",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-118-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-119-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-120-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-122-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-123-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": null,
+    "displayRef": "POD-124-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-DRAFT-124",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": null,
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": "logged-out",
+    "handoffTarget": null,
+    "displayRef": "POD-127-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  },
+  {
+    "machineName": "Workstation",
+    "condition": null,
+    "handoffTarget": "Laptop",
+    "displayRef": "POD-128-A",
+    "readAt": null,
+    "unread": true,
+    "snoozedUntil": null
+  }
+]

@@ -100,7 +100,8 @@ export function createCommandLaunchViews(pool: MobxPool) {
         )
         sessionSnapshot = sessionSnapshotFromSlots()
       }
-      return sessionSnapshot
+      // Joined labels are read only while this displayed catalog is observed.
+      return { ...sessionSnapshot, sessions: sessionSnapshot.sessions.map(row => ({ ...row })) }
     },
     { equals: compareStructural },
   )
