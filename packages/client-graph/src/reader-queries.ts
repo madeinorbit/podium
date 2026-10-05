@@ -1037,7 +1037,9 @@ export class ReaderQueries {
     }
     let result = this.identities.get(key)
     if (!result) {
-      result = this.identityResult(question, index)
+      // watch() owns membership invalidation. Seeding must not leak a table
+      // membership dependency for every cold candidate into the caller.
+      result = untracked(() => this.identityResult(question, index))
       if (this.observed.has(key)) this.identities.set(key, result)
     }
     const ids = result.answer.snapshot()
