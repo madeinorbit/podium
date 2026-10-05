@@ -90,7 +90,8 @@ try {
         })
         await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
         const address = server.address() as { port: number }
-        const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
+        const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
+          env: { ...process.env, LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } })
         const loads: ReturnType<typeof host>[] = []
         let timer: ReturnType<typeof setInterval> | undefined
         try {
@@ -114,8 +115,9 @@ try {
           loads.push(host()); timer = setInterval(() => loads.push(host()), 1000)
           console.log(`SAMPLE ${surface} ${arm} ${index + 1}: start load=${JSON.stringify(loads[0])}`)
           const running = page.evaluate(() => window.__conversationStream.run())
+          const typingStarted = Date.now()
           for (let key = 0; key < 112; key++) {
-            await page.waitForTimeout(250)
+            await page.waitForTimeout(Math.max(0, typingStarted + (key + 1) * 250 - Date.now()))
             await page.keyboard.type('x')
           }
           const stream = await running
