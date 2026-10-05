@@ -414,6 +414,7 @@ describe('unpublished keyed answer construction', () => {
   })
 
   it('finishes at the first ordered read and preserves previously returned snapshots', () => {
+    expect(createKeyedAnswerBuilder<number>().finish().snapshot()).toEqual([])
     const builder = createKeyedAnswerBuilder<number>()
     builder.answer.set('b', 'b', 2)
     const before = builder.answer.snapshot()

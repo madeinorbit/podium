@@ -11,6 +11,7 @@ type Row = Readonly<Record<string, unknown>>
 const row = (n: number): Row => ({
   sessionId: `startup-${n}`, agentKind: n % 11 === 0 ? 'shell' : 'codex', status: 'live',
   cwd: `/repo/${n % 3}/child`, machineId: `m${n % 2}`, issueId: `i${n % 3}`,
+  displayRef: `POD-${n % 3}-A`,
   lastActiveAt: stamp, createdAt: stamp, archived: n % 13 === 0, headless: n % 17 === 0,
   snoozedUntil: n % 7 === 0 ? '2026-10-04T12:00:00Z' : '',
   agentState: { phase: n % 3 === 0 ? 'needs_user' : 'working' },
@@ -54,6 +55,7 @@ function view(q: SessionQuestions, ids: string[], time: number) {
     activity: q.activity(activity), exact: q.activity({ ...activity, match: 'exact' }),
     revisions: [q.recentRevision(), q.machineRevision(['m0', 'm1']), q.activityRevision(activity)],
     close: ['i0', 'i1', 'i2'].map(id => q.issueCloseCounts(id)),
+    references: ['POD-0-A', 'POD-1-A', 'POD-2-A', 'NEW'].map(ref => q.referenceId(ref)),
   }
 }
 
@@ -77,7 +79,7 @@ it('matches sequential seeding through replacements, duplicate ids, snooze clock
   replace(input)
   const fork = bulk.fork(id => collapsed.has(id), order), held = view(fork, ids, now)
   const edits: [string, Row | undefined][] = [
-    ['startup-1', { ...row(1), cwd: '/else', machineId: 'm1', lastActiveAt: '2028-01-01T00:00:00Z', issueId: 'i2' }],
+    ['startup-1', { ...row(1), cwd: '/else', machineId: 'm1', lastActiveAt: '2028-01-01T00:00:00Z', issueId: 'i2', displayRef: 'NEW' }],
     ['startup-4', undefined], ['startup-3', { ...row(3), snoozedUntil: '2030-01-01T00:00:00Z' }],
   ]
   for (const [id, value] of edits) { bulk.set(id, value); incremental.set(id, value); check() }
@@ -105,6 +107,7 @@ it('matches a final relation state and subsequent collapse winner flips after bo
       latest: index.latestMachineSession(['m0', 'm1']),
       activity: index.readerActivity({ kind: 'commandRootActivity', roots: ['/repo'] }),
       close: ['i0', 'i1', 'i2'].map(id => q.issueCloseCounts(id)),
+      references: ['POD-0-A', 'POD-1-A', 'POD-2-A'].map(ref => q.referenceId(ref)),
     }
   }
   expect(read(bulk)).toEqual(read(sequential))
