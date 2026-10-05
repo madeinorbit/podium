@@ -4,13 +4,18 @@ import type { HeaderRows } from './header-schema'
 import { createKeyedAnswer, type KeyedAnswer } from './query-result'
 
 type Identity = {
-  path: string; group: string; links: readonly string[]; arrival: number
-  machineId: string | undefined; repoId: string | undefined
+  path: string
+  group: string
+  links: readonly string[]
+  arrival: number
+  machineId: string | undefined
+  repoId: string | undefined
 }
 type Scope = { order: number; memberOrder: number; repoId: string | null }
 type RankedId = { id: string; rank: number }
 const scopeOrder = (a: Scope, b: Scope) => a.order - b.order || a.memberOrder - b.memberOrder
-const scopeKey = (path: string, machineId?: string) => JSON.stringify([path, 'machine', machineId ?? null])
+const scopeKey = (path: string, machineId?: string) =>
+  JSON.stringify([path, 'machine', machineId ?? null])
 const anyScopeKey = (path: string) => JSON.stringify([path, 'any'])
 const EMPTY: readonly string[] = []
 
@@ -29,7 +34,10 @@ export function createHeaderRepositoryRelations() {
   let arrival = 0
   const rank = (id: string) => positions?.get(id) ?? facts.get(id)!.arrival
   const active = (id: string) => !positions || positions.has(id)
-  const eligible = (group: string) => (groups.get(group)?.snapshot() ?? []).flatMap(({ id }) => linked.has(facts.get(id)!.path) ? [] : [id])
+  const eligible = (group: string) =>
+    (groups.get(group)?.snapshot() ?? []).flatMap(({ id }) =>
+      linked.has(facts.get(id)!.path) ? [] : [id],
+    )
   function scopeMember(key: string, id: string, value?: Scope) {
     let answer = scopeAnswers.get(key)
     if (!answer) {
@@ -52,10 +60,15 @@ export function createHeaderRepositoryRelations() {
     // that named group's lane relations once, after all its facts are current.
     for (const group of dirtyScopes) {
       for (const member of scopeMembers.get(group) ?? []) scopeMember(member.key, member.id)
-      const ids = eligible(group), first = ids[0]
-      if (first === undefined) { scopeMembers.delete(group); continue }
-      const repoId = ids.map(id => facts.get(id)!.repoId).find(id => id !== undefined) ?? null
-      const order = rank(first), members: { key: string; id: string }[] = []
+      const ids = eligible(group),
+        first = ids[0]
+      if (first === undefined) {
+        scopeMembers.delete(group)
+        continue
+      }
+      const repoId = ids.map((id) => facts.get(id)!.repoId).find((id) => id !== undefined) ?? null
+      const order = rank(first),
+        members: { key: string; id: string }[] = []
       for (const id of ids) {
         const fact = facts.get(id)!
         const value = { order, memberOrder: rank(id), repoId: repoId ?? fact.repoId ?? null }
@@ -72,7 +85,8 @@ export function createHeaderRepositoryRelations() {
     dirtyScopes.clear()
   }
   function member(table: typeof paths, key: string, id: string, present: boolean) {
-    const previous = table.get(key), before = previous?.get(id)
+    const previous = table.get(key),
+      before = previous?.get(id)
     const at = present ? rank(id) : undefined
     if (before?.rank === at) return
     const next = previous?.fork() ?? createKeyedAnswer<RankedId>((a, b) => a.rank - b.rank)
@@ -86,11 +100,13 @@ export function createHeaderRepositoryRelations() {
     member(paths, fact.path, id, delta === 1)
     member(groups, fact.group, id, delta === 1)
     for (const path of fact.links) {
-      const before = linked.get(path) ?? 0, count = before + delta
+      const before = linked.get(path) ?? 0,
+        count = before + delta
       if (count) linked.set(path, count)
       else linked.delete(path)
       if (!!before !== !!count)
-        for (const member of paths.get(path)?.snapshot() ?? []) dirtyScopes.add(facts.get(member.id)!.group)
+        for (const member of paths.get(path)?.snapshot() ?? [])
+          dirtyScopes.add(facts.get(member.id)!.group)
     }
   }
   return {
@@ -147,7 +163,10 @@ export function createHeaderRepositoryRelations() {
       return EMPTY
     },
     flush,
-    shippingScope(cwd: string, machineId?: string): { order: number; repoId: string | null } | undefined {
+    shippingScope(
+      cwd: string,
+      machineId?: string,
+    ): { order: number; repoId: string | null } | undefined {
       let first: Scope | undefined
       const take = (path: string) => {
         const exact = firstScopes.get(machineId ? scopeKey(path, machineId) : anyScopeKey(path))
