@@ -4,6 +4,7 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -198,7 +199,7 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
-  const pool = enabled.seen.findLast(pool => pool !== null)!
+  const pool = enabled.seen.findLast(pool => pool !== null) as MobxPool
   const roster = vi.spyOn(pool.settingsViews, 'sessions'), count = vi.spyOn(pool.settingsViews, 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)

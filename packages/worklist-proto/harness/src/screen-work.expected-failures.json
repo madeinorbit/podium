@@ -301,18 +301,6 @@
         }
       },
       {
-        "reader": "consumer:settings",
-        "actions": {
-          "heartbeat": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:settings/settings.setup",
-        "actions": {
-          "heartbeat": ["elements"]
-        }
-      },
-      {
         "reader": "consumer:workflows",
         "actions": {
           "select": ["elements"],
@@ -320,12 +308,6 @@
           "navigate-by-ref": ["elements"],
           "heartbeat": ["elements"],
           "lane-change": ["elements"]
-        }
-      },
-      {
-        "reader": "consumer:workflows/settings.sessions",
-        "actions": {
-          "heartbeat": ["elements"]
         }
       }
     ]

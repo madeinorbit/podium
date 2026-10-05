@@ -971,6 +971,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               `paneDrop`. What stays here is the chord and the paste. */}
           <div
             ref={setRootEl}
+            role="group"
             data-testid="cold-start-field"
             data-expanded={expanded ? 'true' : 'false'}
             className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"

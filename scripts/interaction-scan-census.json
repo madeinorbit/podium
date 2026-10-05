@@ -2536,43 +2536,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/screens/settings-readers.ts",
-      "holder": "readSettingsData/sessionCount",
-      "rule": "zero-arg:sessions",
-      "tokens": "02fc2ef7a451186f57425138ba198b71a0aafb9b01441780c29627ef5a48ca30",
-      "gate": [],
-      "origin": [
-        "2f6a5d6b6bf30ff347cc05b60521c0ef1aef41951a08b04640a49ff2fe045a22"
-      ],
-      "fingerprint": "12c3bae765ddc0200720e3f6dbeb229ee0acd6a063c8ccb43defdd40c836c17b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readSettingsData/sessionCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:sessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SettingsScreen.tsx",
-      "holder": "SettingsScreen",
-      "rule": "reader-summary",
-      "tokens": "4d4523d79b436e33e7a5c1b0a5c0f57843d0abff80801213dd300a232bce4603",
-      "gate": [],
-      "origin": [
-        "2f6a5d6b6bf30ff347cc05b60521c0ef1aef41951a08b04640a49ff2fe045a22",
-        "37630f6be0336bc75b9cb64fc2916097d725a25318a7672945c43b322ada81d7"
-      ],
-      "fingerprint": "9c6e4b4f5a95e454c0f1846edee30e893014dc4afbc091f784e86e3f911cd57a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SettingsScreen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/screens/SettingsScreen.tsx",
       "holder": "SettingsScreen",
       "rule": "consume:map",
@@ -17427,30 +17390,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "mock:callback/useWorklistPoolProjection/next",
-      "rule": "reader-summary",
-      "tokens": "1eb1b825368826f90e9dcb0466647abae41068fc208deacfdc7b1f01f63d8bce",
-      "gate": [],
-      "origin": [
-        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
-        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
-        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
-        "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
-        "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "6e11420ad7452b565c27df71e8bd0621fa32623d809c554e7e7cf802823ba6d5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches mock:callback/useWorklistPoolProjection/next",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
@@ -37999,144 +37938,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/session",
-      "rule": "consume:find",
-      "tokens": "77cffb7703a0c08202ff2bc434057e301afc418008eae9b7987d35191bf32f86",
-      "gate": [
-        "exit:then:f4756c0bf34c8698bca3afa864457a5271cd9b7f452affc1a8c9f60579a6c064"
-      ],
-      "origin": [
-        "bbac87fa5289668f99b08e6b2b62659243cef468c1c9375ab233ca61f97b18f3"
-      ],
-      "fingerprint": "3be10cc0f43d0fe925c44c81d7f85ff5d104875c56c21f7d72278c0a3970fe35",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/session",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/session",
-      "rule": "zero-arg:sessions",
-      "tokens": "02fc2ef7a451186f57425138ba198b71a0aafb9b01441780c29627ef5a48ca30",
-      "gate": [
-        "exit:then:f4756c0bf34c8698bca3afa864457a5271cd9b7f452affc1a8c9f60579a6c064"
-      ],
-      "origin": [
-        "bbac87fa5289668f99b08e6b2b62659243cef468c1c9375ab233ca61f97b18f3"
-      ],
-      "fingerprint": "eb4206e4dea9e4ff8d32fc4ca085b2bf1246c52c3db1f45ce07f34def3124525",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/session",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:sessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/summaries",
-      "rule": "zero-arg:sessions",
-      "tokens": "02fc2ef7a451186f57425138ba198b71a0aafb9b01441780c29627ef5a48ca30",
-      "gate": [],
-      "origin": [
-        "aed691f6809820b8025626c8af09a2446805dd941e4ae3dab28895f4bd753c34"
-      ],
-      "fingerprint": "86d7067b7242e06358b9dc3d71211fa6dd2da13b4a7a506b8b77cf4ca26f6fa3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/targets/memo:callback/summaries",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:sessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/usage/callback",
-      "rule": "loop:for-of",
-      "tokens": "48c0099cf14bd9e19f31f36c4f476033976002577bc40b58672930a0cb144308",
-      "gate": [
-        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
-      ],
-      "origin": [
-        "aed691f6809820b8025626c8af09a2446805dd941e4ae3dab28895f4bd753c34"
-      ],
-      "fingerprint": "3e9eaa300312a213ef4f5ce646c4aae66b6b9255515e151a517c0b79409e44b0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/targets/memo:callback/usage/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/usage/callback",
-      "rule": "consume:some",
-      "tokens": "7fae32607300248f1e881a2c2320bd018d556b2d0a037471411d52d837fa6eaa",
-      "gate": [
-        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
-      ],
-      "origin": [
-        "04a31027664f9244e4de2bbc36b29661302e154294c8f2dfcf3f0b1c1e03e4e5"
-      ],
-      "fingerprint": "be5ccd1629002a11e796a1602c90a719592432d4184f94b28c56bd36a598a195",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/targets/memo:callback/usage/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/usage/callback/roots",
-      "rule": "spread",
-      "tokens": "3c785da47b21db703115016ee72ba965decdd6fd2a7a2e2eb771aa8f733d9e6e",
-      "gate": [
-        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
-      ],
-      "origin": [
-        "04a31027664f9244e4de2bbc36b29661302e154294c8f2dfcf3f0b1c1e03e4e5"
-      ],
-      "fingerprint": "8d5dca52a8076813ca28da252d159ea1c9cf205a783359f907d13d9b12d276e2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/targets/memo:callback/usage/callback/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/usage/callback/roots",
-      "rule": "consume:map",
-      "tokens": "6cfd70bd12cf035257ec1fe67bf57b865739e1aa492be1254457d350434d9a62",
-      "gate": [
-        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
-      ],
-      "origin": [
-        "04a31027664f9244e4de2bbc36b29661302e154294c8f2dfcf3f0b1c1e03e4e5"
-      ],
-      "fingerprint": "bfa957b0d670c7f5d771d5faf875d3c8e51a38e58b7af7c95f584c1fb63249b0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createAutomationViews/targets/memo:callback/usage/callback/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/cached.ts",
       "holder": "liveCache/callback",
       "rule": "reader-summary",
@@ -46053,6 +45854,250 @@
       "bound": "The addressed issue relation bucket, not the whole issue catalogue.",
       "reason": "The query receiver is a keyed issue relation and passes the named issue id.",
       "guard": "Named relation receiver, id argument and current AST/control fingerprint; changing to a catalogue question creates a new entry."
+    },
+    {
+      "file": "apps/web/src/features/settings/readers.ts",
+      "holder": "useSettingsSetupSummary/paths/useMemo:callback",
+      "rule": "materialize:Set",
+      "tokens": "da5c44b8e39d449ca6c53b96e95df55a5616b1ec2e35d7f369614895d64d6378",
+      "gate": [],
+      "origin": [
+        "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
+      ],
+      "fingerprint": "1ee043429ab6f62745076480202bc247dd878540b8468ef5d6172d04407627b4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "apps/web/src/features/settings/readers.ts",
+      "holder": "useSettingsSetupSummary/paths/useMemo:callback",
+      "rule": "spread",
+      "tokens": "79d0ec29dca4167303fa0a60b73e798501293b757e3908164d065f02a75e9467",
+      "gate": [],
+      "origin": [
+        "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
+      ],
+      "fingerprint": "2db05d3244911a418fe661a64558456d4c264deb311ecba1edcb2894b64dbb89",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "apps/web/src/features/settings/readers.ts",
+      "holder": "useSettingsSetupSummary/paths/useMemo:callback/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "6cfd70bd12cf035257ec1fe67bf57b865739e1aa492be1254457d350434d9a62",
+      "gate": [],
+      "origin": [
+        "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
+      ],
+      "fingerprint": "89340b047c714a0341cc5ac59c8f2465b59505fb1fda357b43aa521a391193be",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "apps/web/src/features/settings/readers.ts",
+      "holder": "useSettingsSetupSummary/paths/useMemo:callback/flatMap:callback",
+      "rule": "spread",
+      "tokens": "3c785da47b21db703115016ee72ba965decdd6fd2a7a2e2eb771aa8f733d9e6e",
+      "gate": [],
+      "origin": [
+        "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
+      ],
+      "fingerprint": "6acf36a0bf434b07a2a6849ce7b501869bc12badebc4cd116f00ed323b5a17fc",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "mock:callback/useWorklistPoolProjection/next",
+      "rule": "reader-summary",
+      "tokens": "4b6b3212318f44bfd7e00f7fde892f6da62a4d599d7a6a80c2033daa22dacbbe",
+      "gate": [],
+      "origin": [
+        "47776711d88d27cd8fd54495821b9e898716649dd7965800364ccb537771a71a",
+        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
+        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
+        "757eafe20d8698bf2c9609f8290d66ddb72191822a6afee1c405b54109ee6933",
+        "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1",
+        "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "718c96a594aad0ec602e17ddf82049a4573e6cc508d77906680e85b0cc12ee09",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/activity/callback/usage",
+      "rule": "helper-consumer",
+      "tokens": "23c3c83bc7ab9da05f12a2dd5f55e73b271706fbe106585b98594450967fc033",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "987392b9c195b11ffbe013fa4e9cc8d90530b02cdd77768093621c36b0c1b023",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/activity/callback/usage",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "b49ede748f5855efc0636f72f23188226c09b7f18e69006e08c7fbfe4d8a2a84",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/setupDefaultAgent/callback",
+      "rule": "helper-consumer",
+      "tokens": "098815b7a51ae2ab45d65ba72740ef9cad0c3266a54e9deab77b9ce09e2c9fbd",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "5c082160f217123ef9a09be89af2bf4708a830d6aa59a49f47effec33e3b7973",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/setupDefaultAgent/callback",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "2bf14cbb56bf0505e4aaba0a3e0de130515e238bd795873679ebb28eacb5d400",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/setupSessionPresent/callback",
+      "rule": "consume:some",
+      "tokens": "01300bd9af794bc45a24253b74786aa1cce9da53f0425653d19f71d55c14a28a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "c4bc696a5e2d5a4883e9dddb2b07b37b3d90d77e61f0265712718e91ede8989a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "useFixturePool/useMemo:callback/pool/queries/setupSessionPresent/callback",
+      "rule": "reader-summary",
+      "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "b2f12c0e3f762d3e03baf1bbd4ec64286198b87f218c652a9b5d9644f38a23bb",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Hermetic mock reader invocation",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "guard": "apps/web/src/features/setup/ColdStartComposer.default-agent.test.tsx and ColdStartComposer.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "packages/client-graph/src/automation-views.ts",
+      "holder": "createAutomationViews/targets/memo:callback/roots",
+      "rule": "consume:map",
+      "tokens": "6cfd70bd12cf035257ec1fe67bf57b865739e1aa492be1254457d350434d9a62",
+      "gate": [
+        "then:4aace31fe8e9c149edca40c37c525db97c14203af5f8e43ccd46a489b5217ac5"
+      ],
+      "origin": [
+        "b8fbe7f52cd05c5782f7da081a98bfca12d9d4dc86faa7384fdf5faf60f0dc6f"
+      ],
+      "fingerprint": "a69ed1fbdf86236f752a9392aa55f4961939b8e632cde756871d50c39afad65c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/client-graph/src/automation-views.ts",
+      "holder": "createAutomationViews/targets/memo:callback/roots",
+      "rule": "spread",
+      "tokens": "3c785da47b21db703115016ee72ba965decdd6fd2a7a2e2eb771aa8f733d9e6e",
+      "gate": [
+        "then:4aace31fe8e9c149edca40c37c525db97c14203af5f8e43ccd46a489b5217ac5"
+      ],
+      "origin": [
+        "b8fbe7f52cd05c5782f7da081a98bfca12d9d4dc86faa7384fdf5faf60f0dc6f"
+      ],
+      "fingerprint": "73cc09c2b7956cd128d8aa932e7894e5885ff078f123353406a8f39e98b56e7b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     }
   ]
 }
