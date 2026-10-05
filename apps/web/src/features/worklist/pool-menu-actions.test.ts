@@ -86,8 +86,8 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
         work.push(rows.mock.calls.length)
       }
     } finally {
-      pool.dispose()
       vi.restoreAllMocks()
+      pool.dispose()
     }
   }
   expect(work[2]).toBe(work[0])

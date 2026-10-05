@@ -1,4 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
+import { issueReferenceModel } from '@podium/client-core/values'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MobxPool } from '@podium/client-graph'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
@@ -57,7 +58,7 @@ import {
   sessionWorkingIssueRef,
 } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
-import { LiveIssueReference } from './IssueReference'
+import { IssueReference } from './IssueReference'
 import { readReferenceSession, readRefMiniview } from './ref-miniview-readers'
 
 /**
@@ -119,7 +120,7 @@ function PoolRefMiniviewHost(): JSX.Element {
 function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | null {
   const parsed = parseAnyRef(token)
   if (!pool || parsed?.kind !== 'issue') return null
-  const id = pool.references.id(token)
+  const id = pool.queries.linkedIssueId(token)
   if (!id || typeof id === 'symbol') return null
   const row = pool.row('issue', id)
   return row && typeof row !== 'symbol'
@@ -400,7 +401,13 @@ export function RefCard({
                 same mono voice, and reads first. */}
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
-                {<LiveIssueReference token={refToken} showTitle={false} />}
+                <IssueReference
+                  model={target.issue.stage
+                    ? issueReferenceModel({ ...target.issue, stage: target.issue.stage, displayRef: refToken })
+                    : { ref: refToken, issueId: target.issue.id, title: target.issue.title, stage: null,
+                        availability: 'present', accessibleLabel: `Task ${refToken}: ${target.issue.title}` }}
+                  showTitle={false}
+                />
                 {target.issue.priority !== undefined && (
                   <span
                     className="flex flex-none items-center gap-1"

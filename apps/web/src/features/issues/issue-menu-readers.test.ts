@@ -35,8 +35,8 @@ it('requests no choice catalog for main, status or colour controls at 1x/4x hist
       readIssueMenuChoices(pool, 'duplicate')
       expect(ids).toHaveBeenCalledWith({ kind: 'pageIssues' })
     } finally {
-      pool.dispose()
       vi.restoreAllMocks()
+      pool.dispose()
     }
   }
 })

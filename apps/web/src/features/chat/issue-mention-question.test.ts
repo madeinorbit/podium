@@ -89,7 +89,7 @@ it('bounds ranked IDs and source candidate visits for empty/rare/missing mention
     const index = createIssueMentionIndex()
     for (let i = 0; i < size; i++)
       index.set(`other-${i}`, {
-        seq: i,
+        seq: i + 2000,
         title: 'Unrelated issue',
         repoId: 'repo',
         updatedAt: '2020-01-01T00:00:00Z',

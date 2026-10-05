@@ -71,7 +71,7 @@ vi.mock('./store', async () => {
     useReplicaIssues: () => fixture.issues,
     useSlice: () => ({ sections: { pinnedWorktrees: [], pinnedRepos: [], repos: [] } }),
     useRuntimeSelector: (selector: (store: unknown) => unknown) =>
-      selector({ ...fixture.store, sessions: fixture.sessions, paneA: fixture.paneA }),
+      selector({ ...fixture.store, issues: fixture.issues, sessions: fixture.sessions, paneA: fixture.paneA }),
   }
 })
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))

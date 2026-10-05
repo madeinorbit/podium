@@ -1,6 +1,7 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { issuePages } from '@podium/client-graph/issue-page'
+import { readAddressedIssueRef } from '@/lib/addressed-issue-ref'
 import type { IssueMenuSubmenu } from './issue-menu-config'
 
 /** Opening a main menu asks only for its selected issues and origin labels. */
@@ -16,11 +17,10 @@ export function readIssueMenuOrigins(pool: MobxPool, issues: readonly IssueNavig
     ...[...origins].flatMap((id) => {
       const row = pool.row('issue', id, 'summary-fields')
       if (!row || typeof row === 'symbol') return []
-      const ref = pool.references.readById(id)
       return [
         {
           ...row,
-          ...(ref && typeof ref !== 'symbol' ? { displayRef: ref.ref } : {}),
+          ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
         } as IssueNavigationModel,
       ]
     }),

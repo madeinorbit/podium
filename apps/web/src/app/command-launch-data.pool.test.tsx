@@ -18,6 +18,7 @@ import {
 } from './command-launch-data'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { CommandPalette } from './CommandPalette'
 import type { Trpc } from './trpc'
 
@@ -113,7 +114,7 @@ it('mounts the actual closed palette without issue/session demand at 1x/4x, then
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
         createReplicaFn={() => fixture.newReplica()} networkEnabled={false} onFatalError={fatal}
         attachRuntime={runtime => { fixture.bindHub(runtime.hub); return attachWorklistPool(runtime, fatal) }}>
-        <CommandPalette />{children}
+        <ConfirmProvider><CommandPalette />{children}</ConfirmProvider>
       </StoreProvider>
     }
     const hook = renderHook(() => ({ pool: useWorklistPool(), actions: useCommandLaunchActions() }), { wrapper: Wrapper })

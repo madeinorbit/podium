@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { parseAnyRef } from '@podium/protocol'
+import { readAddressedIssueRef } from '@/lib/addressed-issue-ref'
 import type { RefIssueLike } from '@/lib/ref-miniview'
 
 export function readReferenceSession(pool: MobxPool, ref: string) {
@@ -18,7 +19,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
   let loading = typeof session === 'symbol'
   const issueId =
     parsed?.kind === 'issue'
-      ? (pool.queries.linkedIssueId(ref) ?? pool.references.id(ref))
+      ? (pool.queries.linkedIssueId(ref))
       : sessions[0]?.issueId
   if (typeof issueId === 'symbol') loading = true
   let next = typeof issueId === 'symbol' ? undefined : issueId
@@ -32,15 +33,12 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
       break
     }
     if (!row) break
-    const model = pool.references.readById(next)
     const description = (row as { description?: string | { value?: string } }).description
     const issue = {
       ...row,
       description: typeof description === 'string' ? description : (description?.value ?? ''),
       ...pool.queries.issueChildCounts(next),
-      ...(model && typeof model !== 'symbol'
-        ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix }
-        : {}),
+      ...readAddressedIssueRef(pool, next, row as { seq: number; prefix?: string; displayRef?: string }),
     } as RefIssueLike
     issues.push(issue)
     if (parsed?.kind === 'issue' && !haveSeat) {

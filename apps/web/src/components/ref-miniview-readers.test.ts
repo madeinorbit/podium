@@ -102,8 +102,8 @@ it('addresses issue seats and nearest parent on first/repeated opens equally at 
       ])
       expect(readReferenceSession(pool, 'POD-99999-A')).toBeUndefined()
     } finally {
-      pool.dispose()
       vi.restoreAllMocks()
+      pool.dispose()
     }
   }
   expect(work[2]).toBe(work[0])
