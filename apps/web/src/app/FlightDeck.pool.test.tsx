@@ -219,11 +219,13 @@ describe('rendered mission pane parity', () => {
     state.replica = ctx.engine.replica
     state.selectedIssueId = scale === 1 ? 'i1766' : 'i13916'
     state.paneA = 's0'
+    const errors = vi.spyOn(console, 'error')
     try {
       const current = mount('full')
       await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-scroller"]')).not.toBeNull(), { timeout: 10_000 })
       const root = missionView(pool).issue(state.selectedIssueId)
       expect(root && typeof root !== 'symbol' ? current.container.querySelector('.deck-header')?.textContent : '').toContain(root && typeof root !== 'symbol' ? root.displayRef : 'missing root')
+      expect(errors.mock.calls.filter(([message]) => String(message).includes('same key'))).toEqual([])
     } finally {
       cleanup()
       handle.dispose()

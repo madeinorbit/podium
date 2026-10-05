@@ -1639,7 +1639,7 @@ export const TaskRow = observer(
           into its full strip rather than snapping (§7c). */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the strip; its buttons provide keyboard actions. */}
         <div
-          ref={deckWindow?.enabled ? deckWindow.measure(deckTaskKey(row.issue.id)) : undefined}
+          ref={deckWindow?.enabled ? deckWindow.measure(deckTaskKey(row.key)) : undefined}
           className={cn(
             'deck-strip group/task relative flex items-center gap-1 rounded-row border pr-1.5 transition-[border-color,min-height] duration-200 ease-out motion-reduce:transition-none',
             context ? 'bg-transparent' : 'bg-tabstrip',
