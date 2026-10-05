@@ -8659,6 +8659,106 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/web/src/features/files/table-file-search.ts",
+      "holder": "TableFileSearch/callback",
+      "rule": "consume:some",
+      "tokens": "257b09f5a3c2af146d472f9e1eb00b56d1d496cbabd27b981a491abff50feb9f",
+      "gate": [
+        "exit:then:3f90f9f7654b6e55ee3fef494ee6328d3c131ab728aa7c24265f2205ed0937c1",
+        "loop:a61c463eb7649a7aabbfc09a330921649b2f90066a6865a0f571a713c624a1c0"
+      ],
+      "origin": [
+        "5882967fd7a631aabb5faa7dd67b1bbceb455c496b84e10b1452315509c439ac"
+      ],
+      "fingerprint": "1611cafd95f9911b1118cb41a8c6b879dd8849b34afdfd189aa3f5407035f800",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5647",
+      "trigger": "Parsed table-file or normalized query replacement",
+      "bound": "One parsed file: at most 5000 rows and 200 columns; text search and sort selection still scale with that file. Membership is one byte per row; retained ordinals and materialized rows <= W <= 500.",
+      "reason": "Whole-file search and sort selection are intentional file-scoped work, not constant-time arbitrary-text search. Keep residual scan classification while bounding wrappers and sort storage.",
+      "guard": "apps/web/src/features/files/table-file-search.test.ts and TableFilePanel.test.tsx: independent 1000/4000-row fixtures assert 500 projected rows, exact full-file counts, 4000/16000 search cell reads, and no text rescan on sort changes; table-window.test.ts protects row/column/cell caps."
+    },
+    {
+      "file": "apps/web/src/features/files/table-file-search.ts",
+      "holder": "TableFileSearch/callback",
+      "rule": "loop",
+      "tokens": "b2857eab312a6c18c328b5896cbf87acee4213d4cab358d456693e11314582b6",
+      "gate": [
+        "exit:then:3f90f9f7654b6e55ee3fef494ee6328d3c131ab728aa7c24265f2205ed0937c1"
+      ],
+      "origin": [
+        "5c6de79749b6709d9bdbac5631a76aed1b0c27a10f0ce66569c2859fc6b688ef",
+        "fc38cc0ee537f63306d6baf3073e967373ccb736a01351d33f8dbf25e8d04d42"
+      ],
+      "fingerprint": "3a757cbc3d6ac212613e070579f44538911b54a20c499dd829e02cdb5cb13998",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5647",
+      "trigger": "Parsed table-file or normalized query replacement",
+      "bound": "One parsed file: at most 5000 rows and 200 columns; text search and sort selection still scale with that file. Membership is one byte per row; retained ordinals and materialized rows <= W <= 500.",
+      "reason": "Whole-file search and sort selection are intentional file-scoped work, not constant-time arbitrary-text search. Keep residual scan classification while bounding wrappers and sort storage.",
+      "guard": "apps/web/src/features/files/table-file-search.test.ts and TableFilePanel.test.tsx: independent 1000/4000-row fixtures assert 500 projected rows, exact full-file counts, 4000/16000 search cell reads, and no text rescan on sort changes; table-window.test.ts protects row/column/cell caps."
+    },
+    {
+      "file": "apps/web/src/features/files/table-file-search.ts",
+      "holder": "TableFileSearch/callback",
+      "rule": "loop",
+      "tokens": "aed588735c55036106d470aba90367d7395d3913db091d56737c40cefae7e558",
+      "gate": [
+        "then:3f90f9f7654b6e55ee3fef494ee6328d3c131ab728aa7c24265f2205ed0937c1"
+      ],
+      "origin": [
+        "d49eb3f3439d949955771b56b3360c22cde95f024159fdff26248b57325e577e"
+      ],
+      "fingerprint": "8d4f750393a261c07d72ce4fe09fe7ff9e8408902addcd5ef74b749493646171",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5647",
+      "trigger": "Parsed table-file or normalized query replacement",
+      "bound": "Render-window calculation and first W ordinals, W <= 500; no file-row materialization",
+      "reason": "The scalar render budget and initial ordinal window are explicitly capped.",
+      "guard": "apps/web/src/features/files/table-file-search.test.ts and TableFilePanel.test.tsx: independent 1000/4000-row fixtures assert 500 projected rows, exact full-file counts, 4000/16000 search cell reads, and no text rescan on sort changes; table-window.test.ts protects row/column/cell caps."
+    },
+    {
+      "file": "apps/web/src/features/files/table-file-search.ts",
+      "holder": "TableFileSearch/callback/limit",
+      "rule": "reader-summary",
+      "tokens": "2584b43ae33ee48a28854b75c3514ce1cfb9d77842e67ce28311afc91f2368c3",
+      "gate": [],
+      "origin": [
+        "d49eb3f3439d949955771b56b3360c22cde95f024159fdff26248b57325e577e"
+      ],
+      "fingerprint": "baab025e529b59497c52c8ba0d9ff1fc681c6fd53f0d35ada350c665ca944c6e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5647",
+      "trigger": "Parsed table-file or normalized query replacement",
+      "bound": "Render-window calculation and first W ordinals, W <= 500; no file-row materialization",
+      "reason": "The scalar render budget and initial ordinal window are explicitly capped.",
+      "guard": "apps/web/src/features/files/table-file-search.test.ts and TableFilePanel.test.tsx: independent 1000/4000-row fixtures assert 500 projected rows, exact full-file counts, 4000/16000 search cell reads, and no text rescan on sort changes; table-window.test.ts protects row/column/cell caps."
+    },
+    {
+      "file": "apps/web/src/features/files/table-file-search.ts",
+      "holder": "TableFileSearch/window",
+      "rule": "loop",
+      "tokens": "6617e978bf8886501f0849958785ebbb84f84a68434196adda7f7ab2a2fd792e",
+      "gate": [
+        "exit:then:72e8d84fd292811c58ea8c1ba55b8ab9b9e7e2bbc5063a316618b19507da9102"
+      ],
+      "origin": [
+        "c9d3a65afab086c9b700b842d1a90e00e3d75fbdb4de2924c3ff68ca2eff9297"
+      ],
+      "fingerprint": "6de68f3ae990a6f96d5159ea4b52d312ab2d1dad2296f2bdf088cdbca6173d0b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5647",
+      "trigger": "Column sort or parsed file/query change",
+      "bound": "One parsed file: at most 5000 rows and 200 columns; text search and sort selection still scale with that file. Membership is one byte per row; retained ordinals and materialized rows <= W <= 500.",
+      "reason": "Whole-file search and sort selection are intentional file-scoped work, not constant-time arbitrary-text search. Keep residual scan classification while bounding wrappers and sort storage.",
+      "guard": "apps/web/src/features/files/table-file-search.test.ts and TableFilePanel.test.tsx: independent 1000/4000-row fixtures assert 500 projected rows, exact full-file counts, 4000/16000 search cell reads, and no text rescan on sort changes; table-window.test.ts protects row/column/cell caps."
+    },
+    {
       "file": "apps/web/src/features/files/TableFilePanel.tsx",
       "holder": "TablePreview",
       "rule": "consume:map",
@@ -8668,9 +8768,9 @@
       ],
       "origin": [
         "08eab99f3e59344b3ec2bf67a121d337d247a8fc0ec83a96add961c48d821b5f",
-        "f5e97b61901fb2d1ec5650c32d919b7f6e0bdfb6d8e469ccb2af8b8fee79f412"
+        "14bdc025a40f24d26723c9731a105485e728c01a11f1054c08b9e5722800f5fa"
       ],
-      "fingerprint": "187848b92a3c1efdf2d613e176eaaa358183fad8660e4eb9988f1f6eeda3c4f1",
+      "fingerprint": "6826cdebcd5f73ecd9e36de2adc0fa1953ac9a9ee8bb03570c4b03e890f69523",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8688,74 +8788,15 @@
         "else:0bdab2d3f42f76de726899a95db60cf6d8d96f2ed543a9ca8ebeba1b965a0125"
       ],
       "origin": [
-        "b6141559df2bdfd1b3b76d9ca9aaf2f64000f20f38eee6298a06c72315c764d7",
-        "f5e97b61901fb2d1ec5650c32d919b7f6e0bdfb6d8e469ccb2af8b8fee79f412"
+        "667082127aa5af02254fc005227e083b322625cf6afe1ffc71729fa5ba9bca59"
       ],
-      "fingerprint": "ebdc47d498d5719646624c39eab6878707e52dee6b77ace90404ccec4862d7d5",
+      "fingerprint": "9edea338399ff996bd2c2ea723fc4ee2b2a4643ae421d7f0a0cc1a5bbcdd9531",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of TablePreview",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/files/TableFilePanel.tsx",
-      "holder": "TablePreview/filtered/useMemo:callback",
-      "rule": "consume:sort",
-      "tokens": "d03b83bd45b61209d953ac2542cad54b0967d8f2aeb264022a18ddf1b295cf71",
-      "gate": [
-        "exit:then:c292f75a03f3df09ffc979f08142d449bdf5a697afd0a3c81ba2c284e095bf2e"
-      ],
-      "origin": [
-        "814f2cd0130b980d1718b5aa3446a8500c0db85312863ba48f4951e7481f6dec"
-      ],
-      "fingerprint": "b974d85acd01d7a1d331a371dc6c6777a1b8d3b7a98fea8800a1121fa1a5ddc3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TablePreview/filtered/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/files/TableFilePanel.tsx",
-      "holder": "TablePreview/filtered/useMemo:callback/indexed",
-      "rule": "consume:map",
-      "tokens": "677a9a1c29cf2babfaad21d2eef0bc99fc6ecd13926d95b4262fd5149b26bf92",
-      "gate": [],
-      "origin": [
-        "814f2cd0130b980d1718b5aa3446a8500c0db85312863ba48f4951e7481f6dec"
-      ],
-      "fingerprint": "d7e6ae511986f440eeae8f2623bacc89b957cda516f8c176c17aeb99fecd3a33",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TablePreview/filtered/useMemo:callback/indexed",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/files/TableFilePanel.tsx",
-      "holder": "TablePreview/filtered/useMemo:callback/matching",
-      "rule": "consume:filter",
-      "tokens": "eb5b89f879010350de5250d1c352a3074b8cfdd44093bbbd40444e18e5c54780",
-      "gate": [
-        "then:6cffd756ff86d940bb1c3c395030876c2edc629773f68b680a684cfdd11bd193"
-      ],
-      "origin": [
-        "814f2cd0130b980d1718b5aa3446a8500c0db85312863ba48f4951e7481f6dec"
-      ],
-      "fingerprint": "57eb3794a039fcab27fe9f1779083d949833764bc66aea5f63e90f3ba70c229e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TablePreview/filtered/useMemo:callback/matching",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -8768,9 +8809,9 @@
       ],
       "origin": [
         "08eab99f3e59344b3ec2bf67a121d337d247a8fc0ec83a96add961c48d821b5f",
-        "f5e97b61901fb2d1ec5650c32d919b7f6e0bdfb6d8e469ccb2af8b8fee79f412"
+        "14bdc025a40f24d26723c9731a105485e728c01a11f1054c08b9e5722800f5fa"
       ],
-      "fingerprint": "2fa6b862d09968b5deea019d3fb03ab5849d7e4fe452eb5e89a5d116f41d09a1",
+      "fingerprint": "74a2260f11454688f283ad4a45c41490958d1c29f0f8f8e49950dad67119d276",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8804,52 +8845,16 @@
       "tokens": "325724f19057422b47aa13b917f3a39c3e3898c24827589c8b273862789f0cea",
       "gate": [],
       "origin": [
-        "c170f19b35ab5a8492fd0a9af8c79f8e4be8c78e48596e09827056f982ca8645",
-        "f5e97b61901fb2d1ec5650c32d919b7f6e0bdfb6d8e469ccb2af8b8fee79f412"
+        "b658c9fe3a11d75a28c5b8e6695bbb4f461de0dbddd85d4dc8a4d658d208cff3",
+        "c170f19b35ab5a8492fd0a9af8c79f8e4be8c78e48596e09827056f982ca8645"
       ],
-      "fingerprint": "7f10f3ba8082cd150bbdd8ed07ed967511158e7aad78347844c0436c93d1528c",
+      "fingerprint": "d06c69231f0fdb354e1c9af51ea87e4d6c73e8588edfc434d6a37ab86bc3cb02",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of TablePreview/visibleHeaders/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/files/TableFilePanel.tsx",
-      "holder": "TablePreview/visibleRows",
-      "rule": "consume:slice",
-      "tokens": "2cd2c3d5b9f173762d735d3a87f1ab797f2266456944546b7a3a2ea94d21f038",
-      "gate": [],
-      "origin": [
-        "b6141559df2bdfd1b3b76d9ca9aaf2f64000f20f38eee6298a06c72315c764d7"
-      ],
-      "fingerprint": "14fa99fdffd8981d4625edd3ed09a60c6a48e9d637df54faa99de78efa6e1099",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TablePreview/visibleRows",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/files/TableFilePanel.tsx",
-      "holder": "TablePreview/window",
-      "rule": "reader-summary",
-      "tokens": "6521d7b9fea33a3034f62307dc035a1cc22ada901f67f248acc1725dd712b21b",
-      "gate": [],
-      "origin": [
-        "f5e97b61901fb2d1ec5650c32d919b7f6e0bdfb6d8e469ccb2af8b8fee79f412"
-      ],
-      "fingerprint": "0c0210c5141b5aeb63091a9dce57a220a560d882c77c40711c869b7af4016f1f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TablePreview/window",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -40027,7 +40032,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
