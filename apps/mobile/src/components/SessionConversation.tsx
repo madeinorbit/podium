@@ -433,9 +433,7 @@ export function SessionConversation({
     onInitialPendingSettled?.()
   }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
 
-  const latestOperatorPrompt = useMemo(() => {
-    return transcriptController.latestOperatorPrompt()
-  }, [items, transcriptController])
+  const latestOperatorPrompt = transcript.latestOperatorPrompt
   useEffect(() => {
     conversationController.updateContext({
       agentSince: session.agentState?.since,
@@ -585,10 +583,7 @@ export function SessionConversation({
   // the instant it has one, so this is consulted only while it has none.
   const need = session.agentState?.need
   const phase = session.agentState?.phase
-  const transcriptQuestion = useMemo(
-    () => transcriptController.latestPendingQuestion(),
-    [items, transcriptController],
-  )
+  const transcriptQuestion = transcript.pendingQuestion
   const pendingAsk = useMemo(
     () =>
       pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)

@@ -95,6 +95,8 @@ export function transcriptActivitySignal(session: {
 export interface TranscriptState {
   sessionId: SessionId
   items: TranscriptItem[]
+  latestOperatorPrompt: string | null
+  pendingQuestion: TranscriptItem | null
   head: string | undefined
   tail: string | undefined
   hasMoreOlder: boolean
@@ -346,6 +348,8 @@ export class TranscriptController {
     this.state = {
       sessionId: options.sessionId,
       items: [],
+      latestOperatorPrompt: null,
+      pendingQuestion: null,
       head: undefined,
       tail: undefined,
       hasMoreOlder: true,
@@ -757,7 +761,18 @@ export class TranscriptController {
       })
       this.indexedItems = patch.items
     }
-    this.state = { ...this.state, ...patch }
+    let facts: Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion'> | undefined
+    if (patch.items && patch.items !== this.state.items) {
+      const userId = this.userPrompts.latest(), questionId = this.questions.latest()
+      const userPosition = userId === undefined ? undefined : this.itemPositions.get(userId)
+      const questionPosition = questionId === undefined ? undefined : this.itemPositions.get(questionId)
+      const question = questionPosition === undefined ? undefined : patch.items[questionPosition]
+      facts = {
+        latestOperatorPrompt: userPosition === undefined ? null : patch.items[userPosition]?.text ?? null,
+        pendingQuestion: question && !question.toolResult ? question : null,
+      }
+    }
+    this.state = { ...this.state, ...patch, ...facts }
     for (const listener of this.listeners) listener()
   }
 }

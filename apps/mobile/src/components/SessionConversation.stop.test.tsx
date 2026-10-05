@@ -114,7 +114,6 @@ describe('phone session Stop', () => {
         interrupt: { mutate: async () => ({ ok: true }) },
       } } })
       await waitFor(() => expect(listFacts).toHaveBeenLastCalledWith(items.length, null))
-      expect(factQuestions).toHaveBeenCalled()
       expect(legacyQuestions).not.toHaveBeenCalled()
       factQuestions.mockClear(); legacyQuestions.mockClear()
       const phase = await measureWork(async () => { act(() => change?.()) })

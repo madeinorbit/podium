@@ -37,8 +37,10 @@ it('answers raw question, prompt and item facts without scanning retained rows a
       let prompt: string | null = null, question: TranscriptItem | null = null, found: TranscriptItem | undefined
       const promptRead = await measure(() => { prompt = f.controller.latestOperatorPrompt() })
       expect(prompt).toBe('  Original prompt\n')
+      expect(f.controller.getSnapshot().latestOperatorPrompt).toBe(prompt)
       const questionRead = await measure(() => { question = f.controller.latestPendingQuestion() })
       expect(question).toBe(items[1])
+      expect(f.controller.getSnapshot().pendingQuestion).toBe(question)
       const itemRead = await measure(() => { found = f.controller.getItem('prompt') })
       expect(found).toBe(items[0])
       const absent = await measure(() => { found = f.controller.getItem('absent') })
@@ -66,6 +68,7 @@ it('preserves answered latest questions, role edits, blank prompts and repeated 
     expect(f.controller.latestPendingQuestion()?.id).toBe('q2')
     f.emit([ask('q2', 4, true)])
     expect(f.controller.latestPendingQuestion()).toBeNull()
+    expect(f.controller.getSnapshot().pendingQuestion).toBeNull()
     f.emit([row('u2', 'user', 3, { text: '   ' }), row('q2', 'assistant', 4)])
     expect(f.controller.latestOperatorPrompt()).toBe('u1')
     expect(f.controller.latestPendingQuestion()?.id).toBe('q1')
@@ -74,6 +77,8 @@ it('preserves answered latest questions, role edits, blank prompts and repeated 
     f.emit([row('q3', 'user', 5, { text: '  New original\n' })])
     expect(f.controller.latestOperatorPrompt()).toBe('  New original\n')
     expect(f.controller.latestPendingQuestion()?.id).toBe('q1')
+    expect(f.controller.getSnapshot().latestOperatorPrompt).toBe('  New original\n')
+    expect(f.controller.getSnapshot().pendingQuestion?.id).toBe('q1')
   } finally { f.controller.dispose() }
 })
 
