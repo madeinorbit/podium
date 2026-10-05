@@ -1065,14 +1065,16 @@ export class ReaderQueries {
       this.counts.scalarVisits += questions.visits - before
       return answer ? [answer.id] : []
     }
+    // Preserve the resident-first candidate order when seeding the persistent
+    // answer. Predicate membership still comes from the maintained indexes.
     const ids = [
       ...new Set([
+        ...this.residents.ids(question),
         ...index
           .readerIds(question)
           .filter(
             (id) => !this.pool.tables[entity].has(id) || this.residents.contains(question, id),
           ),
-        ...this.residents.ids(question),
       ]),
     ]
     return entity === 'session' ? ids.sort() : ids
