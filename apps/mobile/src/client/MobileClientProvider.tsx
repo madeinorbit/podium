@@ -361,14 +361,12 @@ function DemoProvider({ children }: { children: ReactNode }) {
     }
     return progress
   }, [])
-  const createReplicaFn = useMemo(() => {
-    const replica = createDemoReplica()
-    return () => replica
-  }, [])
   // Publish the seeded slice once the pool has attached (POD-5277): the
   // pool's question indexes build from replica events, and the pool's
   // presence here means its row source has subscribed. StrictMode-safe —
   // re-installing the identical slice is a no-op downstream.
+  // (One instance behind the factory: the engine owns construction, and the
+  // publisher below reads the same one.)
   const [demoReplica] = useState(createDemoReplica)
   const createReplicaFn = useMemo(() => () => demoReplica, [demoReplica])
   return (
