@@ -1,5 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asSessionId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asShipOrderId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { legacyShellSnapshot } from '../diagnostics/shell-check'
@@ -27,17 +27,17 @@ function fixture(scale: 1 | 4) {
     type: 'update',
     rows: Array.from({ length: count }, (_, index) => ({
       kind: 'issue' as const,
-      id: `containing-${index}`,
+      id: asIssueId(`containing-${index}`),
       value: {
         ...f.issues[1]!,
-        id: `containing-${index}`,
+        id: asIssueId(`containing-${index}`),
         seq: index + 100,
         parentId: null,
       } as IssueViewModel,
     })) as never,
   })
   const root = f.state().repos[0]!
-  const order = { ...f.shipOrders[1]!, id: 'extra-0' }
+  const order = { ...f.shipOrders[1]!, id: asShipOrderId('extra-0') }
   f.change({
     repos: [
       { ...root, worktrees: [...root.worktrees, ...Array.from({ length: count }, (_, index) => ({
@@ -52,7 +52,7 @@ function fixture(scale: 1 | 4) {
     ],
     shipOrders: [...f.shipOrders, ...Array.from({ length: count }, (_, index) => ({
       ...order,
-      id: `extra-${index}`,
+      id: asShipOrderId(`extra-${index}`),
     }))],
   })
   return { ...f, count, order }
