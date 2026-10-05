@@ -1,4 +1,5 @@
 import { asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { SYNTHETIC_CODEX_KIND } from './fixture-kinds.fixtures'
 import type { SessionView } from '@podium/client-core/session-values'
 import { runInAction } from 'mobx'
 import type { PoolTransactions } from '../src/write/transactions'
@@ -29,7 +30,7 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', resumable: false },
     { status: 'starting' },
     { status: 'reconnecting' },
-    { condition: 'logged-out', agentKind: DEFAULT_HARNESS_AGENT, machineId: 'machine-b', machineName: 'Offline host' },
+    { condition: 'logged-out', agentKind: SYNTHETIC_CODEX_KIND, machineId: 'machine-b', machineName: 'Offline host' },
     { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
     { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },
     { observedModel: 'claude-opus-4-8', observedEffort: 'medium', requestedModel: 'gpt-6' },
