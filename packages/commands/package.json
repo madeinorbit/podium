@@ -25,7 +25,7 @@
   "dependencies": {
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "vitest": "5.0.0-beta.6"
