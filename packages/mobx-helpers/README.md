@@ -28,8 +28,15 @@ import { keyedComputed } from '@podium/mobx-helpers'
 const title = keyedComputed('issue.title', (id: string) => issues.get(id)?.title)
 ```
 
+`createDemandAtoms(name, options?)` retains one atom per observed key. Its
+`observe(key)` reports the read; `onObserved` and `onUnobserved` own demand
+acquisition and release. Imperative probes allocate nothing and cannot release
+another reader. `borrowAtom` lends an existing owner atom without a duplicate;
+its release listener detaches on `clear()`. One shared public admission atom
+preserves the zero-allocation cold-probe boundary.
+
 `DeadlineClock` and `nextUp` are the existing deadline clock, moved unchanged
-from client-graph. Demand helpers and a tracked `now` will follow in POD-5424.
+from client-graph. A tracked `now` will follow in POD-5424.
 Diagnostic `debugName`/`enableDebugNames` move with the clock and preserve its
 existing names and production switch. Run `bun run lint:mobx-private` to
 refuse private MobX imports, namespace calls and deep imports elsewhere.
