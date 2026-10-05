@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import '@/test-support/model-catalog-mock'
+import type { RowRecord } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import type { RowRecord } from '@podium/client-graph'
 import { act, cleanup, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -30,39 +30,67 @@ vi.mock('@/features/chat/use-chat-context', () => ({
   useChatReferenceMachines: () => [],
 }))
 vi.mock('@/lib/markdown-references', () => ({ setKnownRefPrefixes: state.prefixes }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); state.prefixes.mockClear(); state.listDetailed.mockClear() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  state.prefixes.mockClear()
+  state.listDetailed.mockClear()
+})
 
-const repo = (id: string, prefix: string, patch: object = {}): RowRecord => ({
-  kind: 'worktree', id, value: { prefix, ...patch },
-} as RowRecord)
+const repo = (id: string, prefix: string, patch: object = {}): RowRecord =>
+  ({
+    kind: 'worktree',
+    id,
+    value: { prefix, ...patch },
+  }) as RowRecord
 
 it('bounds the actual root-mounted prefix reader on mount, unrelated updates and prefix changes at 1x/4x', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     state.pool = pool
-    pool.apply({ type: 'replace', rows: Array.from({ length: 128 * scale }, (_, n) => repo(`r${n}`, `PREFIX${n}`)) })
-    const keys = vi.spyOn(pool.tables.repo, 'keys'), ids = vi.spyOn(pool.queries, 'ids')
-    const measure = (action: () => void) => measureWork(async () => {
-      act(action); await act(async () => {})
-    }, { pool })
+    pool.apply({
+      type: 'replace',
+      rows: Array.from({ length: 128 * scale }, (_, n) => repo(`r${n}`, `PREFIX${n}`)),
+    })
+    const keys = vi.spyOn(pool.tables.repo, 'keys'),
+      ids = vi.spyOn(pool.queries, 'ids')
+    const measure = (action: () => void) =>
+      measureWork(
+        async () => {
+          act(action)
+          await act(async () => {})
+        },
+        { pool },
+      )
     let view: ReturnType<typeof render> | undefined
     try {
-      const first = await measure(() => { view = render(<RefPrefixSync />) })
-      expect(state.prefixes.mock.lastCall?.[0]).toEqual(new Set(Array.from({ length: 128 * scale }, (_, n) => `PREFIX${n}`)))
+      const first = await measure(() => {
+        view = render(<RefPrefixSync />)
+      })
+      expect(state.prefixes.mock.lastCall?.[0]).toEqual(
+        new Set(Array.from({ length: 128 * scale }, (_, n) => `PREFIX${n}`)),
+      )
       state.prefixes.mockClear()
-      const metadata = await measure(() => pool.apply({ type: 'update', rows: [repo('r0', 'PREFIX0', { repoName: 'Renamed' })] }))
+      const metadata = await measure(() =>
+        pool.apply({ type: 'update', rows: [repo('r0', 'PREFIX0', { repoName: 'Renamed' })] }),
+      )
       expect(state.prefixes).not.toHaveBeenCalled()
       const rename = await measure(() => pool.apply({ type: 'update', rows: [repo('r0', 'NEW')] }))
       expect(state.prefixes.mock.lastCall?.[0].has('NEW')).toBe(true)
       expect(state.prefixes.mock.lastCall?.[0].has('PREFIX0')).toBe(false)
       expect(state.listDetailed).toHaveBeenCalledTimes(1)
-      expect(keys).not.toHaveBeenCalled(); expect(ids).not.toHaveBeenCalled()
+      expect(keys).not.toHaveBeenCalled()
+      expect(ids).not.toHaveBeenCalled()
       expect(first.work.rows).toBe(0)
       samples.push({ first: first.work, metadata: metadata.work, rename: rename.work })
     } finally {
-      view?.unmount(); keys.mockRestore(); ids.mockRestore(); pool.dispose()
-      state.prefixes.mockClear(); state.listDetailed.mockClear()
+      view?.unmount()
+      keys.mockRestore()
+      ids.mockRestore()
+      pool.dispose()
+      state.prefixes.mockClear()
+      state.listDetailed.mockClear()
     }
   }
   for (const action of ['first', 'metadata', 'rename'] as const)

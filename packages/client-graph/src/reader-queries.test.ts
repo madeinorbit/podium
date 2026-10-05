@@ -550,6 +550,13 @@ describe('readers behind declared cold questions', () => {
         const membership = vi.spyOn(pool.queries, 'ids').mockReturnValue([])
         const repos = vi.spyOn(pool.queries, 'repoIds').mockReturnValue([])
         const count = vi.spyOn(pool.queries, 'count').mockReturnValue(0)
+        const addressed = reader.name === 'phone prefix'
+          ? vi.spyOn(pool.queries, 'hasIssuePrefix').mockReturnValue(false)
+          : reader.name === 'settings'
+            ? vi.spyOn(pool.queries, 'setupSessionCount').mockReturnValue(0)
+            : reader.name === 'automation sessions'
+              ? vi.spyOn(pool.queries, 'setupSessionPresent').mockReturnValue(false)
+              : undefined
         const damaged = snapshot(
           reader.name,
           runInAction(() => reader.read(pool)),
@@ -558,6 +565,7 @@ describe('readers behind declared cold questions', () => {
         membership.mockRestore()
         repos.mockRestore()
         count.mockRestore()
+        addressed?.mockRestore()
         // A real registry walk is the scan counter, including walks hidden in
         // a helper. It is measured only during the reader, not test hydration.
         scans = 0
@@ -579,6 +587,25 @@ describe('readers behind declared cold questions', () => {
           pool.residency!.ids('issue')
           return originalRepos(path)
         })
+        if (reader.name === 'phone prefix') {
+          const originalPrefix = pool.queries.hasIssuePrefix.bind(pool.queries)
+          vi.spyOn(pool.queries, 'hasIssuePrefix').mockImplementation((...args) => {
+            pool.residency!.ids('issue')
+            return originalPrefix(...args)
+          })
+        } else if (reader.name === 'settings') {
+          const originalSetupCount = pool.queries.setupSessionCount.bind(pool.queries)
+          vi.spyOn(pool.queries, 'setupSessionCount').mockImplementation(() => {
+            pool.residency!.ids('session')
+            return originalSetupCount()
+          })
+        } else if (reader.name === 'automation sessions') {
+          const originalPresent = pool.queries.setupSessionPresent.bind(pool.queries)
+          vi.spyOn(pool.queries, 'setupSessionPresent').mockImplementation((id) => {
+            pool.residency!.ids('session')
+            return originalPresent(id)
+          })
+        }
         runInAction(() => reader.read(pool))
         expect(scans).toBeGreaterThan(0)
         census.mockRestore()

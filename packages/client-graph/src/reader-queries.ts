@@ -1,14 +1,19 @@
-import { createAtom, type IAtom, observe, reaction, untracked } from 'mobx'
-import { residentIds } from './enumerate'
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { parseSessionRef } from '@podium/protocol'
+import { createAtom, type IAtom, observe, reaction, untracked } from 'mobx'
+import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
-import type { IssueChildCounts, IssueQuestions } from './shared/issue-questions'
 import type { IssueIdentities } from './shared/issue-identities'
-import { createReaderIndex, type IssueScopeFacts, questionEntity, type ReaderQuestion } from './shared/reader-questions'
+import type { IssueChildCounts, IssueQuestions } from './shared/issue-questions'
+import {
+  createReaderIndex,
+  type IssueScopeFacts,
+  questionEntity,
+  type ReaderQuestion,
+} from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { SessionQuestions } from './shared/session-questions'
@@ -29,14 +34,23 @@ interface IdentityResult {
 export class ReaderQueries {
   private readonly sessionAtoms = new Map<string, IAtom>()
   private readonly issueScopeAtoms = new Map<string, { atom: IAtom; bits: number }>()
-  private readonly issueCloseAtoms = new Map<string, { atom: IAtom; value: IssueCloseMemberCounts }>()
+  private readonly issueCloseAtoms = new Map<
+    string,
+    { atom: IAtom; value: IssueCloseMemberCounts }
+  >()
   private readonly issueChildAtoms = new Map<string, { atom: IAtom; value: IssueChildCounts }>()
   private effectiveIssues: IssueQuestions | undefined
   private effectiveIssueSource: ColdQueries | undefined
   private effectiveIssueIdentities: IssueIdentities | undefined
   private effectiveIdentitySource: ColdQueries | undefined
-  private readonly linkedIssueAtoms = new Map<string, { atom: IAtom; value: string | undefined; identifier: string; referenceOnly: boolean }>()
-  private readonly issuePrefixAtoms = new Map<string, { atom: IAtom; value: boolean; prefix: string; includeDeleted: boolean }>()
+  private readonly linkedIssueAtoms = new Map<
+    string,
+    { atom: IAtom; value: string | undefined; identifier: string; referenceOnly: boolean }
+  >()
+  private readonly issuePrefixAtoms = new Map<
+    string,
+    { atom: IAtom; value: boolean; prefix: string; includeDeleted: boolean }
+  >()
   private readonly linkedAliases = new Map<string, Set<string>>()
   private readonly linkedPrefixes = new Map<string, Set<string>>()
   private readonly repoOverrides = new Map<string, string | undefined>()
@@ -45,7 +59,10 @@ export class ReaderQueries {
   private readonly repoPrefixes: string[] = []
   private readonly repoPrefixAtom = createAtom('history.repositoryPrefixKey')
   private repoPrefixValue = ''
-  private readonly sessionReferenceAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
+  private readonly sessionReferenceAtoms = new Map<
+    string,
+    { atom: IAtom; value: string | undefined }
+  >()
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
   private readonly worktrees = createWorktreeQuestions()
@@ -64,7 +81,10 @@ export class ReaderQueries {
    * maintained at ingestion, never discovered by walking resident history. */
   private readonly residents = createReaderIndex({ targetSearch: false, recent: false })
   private readonly residentIssueIds = new Set<string>()
-  private readonly residentOrder = { issue: new Map<string, number>(), session: new Map<string, number>() }
+  private readonly residentOrder = {
+    issue: new Map<string, number>(),
+    session: new Map<string, number>(),
+  }
   private residentSequence = 0
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
@@ -89,26 +109,42 @@ export class ReaderQueries {
           this.updateIdentity(entity, change.name)
         }),
       )
-    this.stopTables.push(observe(pool.tables.repo, change => {
-      if (change.type === 'delete') {
-        this.repoStops.get(change.name)?.(); this.repoStops.delete(change.name)
-        this.changeRepoIdentity(change.name, undefined)
-      } else if (change.type === 'add') {
-        this.repoStops.set(change.name, reaction(
-          () => {
-            const row = pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined
-            return row && typeof row.prefix === 'string' ? row.prefix : undefined
-          },
-          prefix => this.changeRepoIdentity(change.name, prefix),
-          { fireImmediately: true },
-        ))
-      }
-    }))
-    this.stopTables.push(observe(pool.tables.worktree, change => {
-      const row = pool.tables.worktree.get(change.name) as Readonly<Record<string, unknown>> | undefined
-      this.changeWorktree(change.name, row)
-      if (change.type === 'add' || change.type === 'delete') this.publishTopology({ reset: false, sessions: [] })
-    }))
+    this.stopTables.push(
+      observe(pool.tables.repo, (change) => {
+        if (change.type === 'delete') {
+          this.repoStops.get(change.name)?.()
+          this.repoStops.delete(change.name)
+          this.changeRepoIdentity(change.name, undefined)
+        } else {
+          // A directly fed pool may replace a resident map value. Rebind that
+          // address; production repo facades still observe their own fields.
+          this.repoStops.get(change.name)?.()
+          this.repoStops.set(
+            change.name,
+            reaction(
+              () => {
+                const row = pool.row('repo', change.name) as
+                  | Readonly<Record<string, unknown>>
+                  | undefined
+                return row && typeof row.prefix === 'string' ? row.prefix : undefined
+              },
+              (prefix) => this.changeRepoIdentity(change.name, prefix),
+              { fireImmediately: true },
+            ),
+          )
+        }
+      }),
+    )
+    this.stopTables.push(
+      observe(pool.tables.worktree, (change) => {
+        const row = pool.tables.worktree.get(change.name) as
+          | Readonly<Record<string, unknown>>
+          | undefined
+        this.changeWorktree(change.name, row)
+        if (change.type === 'add' || change.type === 'delete')
+          this.publishTopology({ reset: false, sessions: [] })
+      }),
+    )
   }
   private changeWorktree(id: string, row: Readonly<Record<string, unknown>> | undefined): void {
     const before = this.worktrees.first()
@@ -125,10 +161,13 @@ export class ReaderQueries {
   }
   /** Presence is independent of an activity timestamp, including epoch zero. */
   hasSessionWithin(path: string): boolean {
-    const value = this.sessionQuestions().hasWithin(path), state = this.sessionPathAtoms.get(path)
+    const value = this.sessionQuestions().hasWithin(path),
+      state = this.sessionPathAtoms.get(path)
     if (state) state.atom.reportObserved()
     else {
-      const atom = createAtom(`history.sessionPath:${path}`, undefined, () => this.sessionPathAtoms.delete(path))
+      const atom = createAtom(`history.sessionPath:${path}`, undefined, () =>
+        this.sessionPathAtoms.delete(path),
+      )
       if (atom.reportObserved()) this.sessionPathAtoms.set(path, { atom, value })
     }
     this.counts.scalarVisits++
@@ -139,7 +178,8 @@ export class ReaderQueries {
     if (!state) return
     const value = this.sessionQuestions().hasWithin(path)
     if (value === state.value) return
-    state.value = value; state.atom.reportChanged()
+    state.value = value
+    state.atom.reportChanged()
   }
   onTopology(listener: (delta: NavigationTopologyDelta) => void): () => void {
     // Fork the already maintained source roots before its next publication.
@@ -151,32 +191,56 @@ export class ReaderQueries {
     for (const listener of this.topologyListeners) listener(delta)
   }
   sessionTopology(id: string): NavigationTopologyDelta['sessions'][number]['after'] {
-    const questions = this.sessionQuestions(), fact = questions.fact(id)
-    return fact && questions.present(id) ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined
+    const questions = this.sessionQuestions(),
+      fact = questions.fact(id)
+    return fact && questions.present(id)
+      ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order }
+      : undefined
   }
   private updateResident(entity: 'issue' | 'session', id: string): void {
     const present = this.pool.tables[entity].has(id)
     if (!present) this.residentOrder[entity].delete(id)
-    else if (!this.residentOrder[entity].has(id)) this.residentOrder[entity].set(id, ++this.residentSequence)
+    else if (!this.residentOrder[entity].has(id))
+      this.residentOrder[entity].set(id, ++this.residentSequence)
     if (entity === 'issue') {
       if (present) this.residentIssueIds.add(id)
       else this.residentIssueIds.delete(id)
     }
     const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
-    this.residents.apply({ type: 'update', rows: [{ kind: entity, id,
-      value: row && row !== LOADING ? row : undefined } as RowSourceEvent['rows'][number]] })
+    this.residents.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: entity,
+          id,
+          value: row && row !== LOADING ? row : undefined,
+        } as RowSourceEvent['rows'][number],
+      ],
+    })
     if (entity === 'session') {
-      this.changeSessionFacts(id, questions => {
-        if (present) questions.set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+      this.changeSessionFacts(id, (questions) => {
+        if (present)
+          questions.set(
+            id,
+            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+          )
         else questions.setFacts(id, this.index().sessionQuestionFact(id))
       })
     } else {
-      this.changeIssueIdentity(id, identities => {
-        if (present) identities.set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+      this.changeIssueIdentity(id, (identities) => {
+        if (present)
+          identities.set(
+            id,
+            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+          )
         else identities.setFact(id, this.index().issueIdentityFact(id))
       })
-      this.changeIssueFacts(id, questions => {
-        if (present) questions.set(id, row && row !== LOADING ? row as Readonly<Record<string, unknown>> : undefined)
+      this.changeIssueFacts(id, (questions) => {
+        if (present)
+          questions.set(
+            id,
+            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+          )
         else questions.setFacts(id, this.index().issueQuestionFact(id))
       })
       this.publishIssueScope(id)
@@ -196,7 +260,8 @@ export class ReaderQueries {
     if (!this.effectiveSessions || this.effectiveSource !== index) {
       this.effectiveSource = index
       this.effectiveSessions = index.forkSessionQuestions(
-        id => this.index().sessionCollapsed(id), id => this.index().sessionOrderKey(id),
+        (id) => this.index().sessionCollapsed(id),
+        (id) => this.index().sessionOrderKey(id),
       )
     }
     return this.effectiveSessions
@@ -221,7 +286,8 @@ export class ReaderQueries {
     if (!this.effectiveIssueIdentities || this.effectiveIdentitySource !== source) {
       this.effectiveIdentitySource = source
       this.effectiveIssueIdentities = source.forkIssueIdentities()
-      for (const [id, prefix] of this.repoOverrides) this.effectiveIssueIdentities.setRepo(id, prefix)
+      for (const [id, prefix] of this.repoOverrides)
+        this.effectiveIssueIdentities.setRepo(id, prefix)
     }
     return this.effectiveIssueIdentities
   }
@@ -237,17 +303,22 @@ export class ReaderQueries {
   }
   private readIssueIdentity(identifier: string, referenceOnly: boolean): string | undefined {
     const identities = this.issueIdentities()
-    const value = referenceOnly ? identities.referenceId(identifier) : identities.resolve(identifier)
+    const value = referenceOnly
+      ? identities.referenceId(identifier)
+      : identities.resolve(identifier)
     const question = JSON.stringify([referenceOnly, identifier])
     const state = this.linkedIssueAtoms.get(question)
     if (state) state.atom.reportObserved()
     else {
       const keys = identities.aliasKeys(identifier)
-      const prefixes = keys.filter(key => !key.startsWith('#')).map(key => JSON.parse(key)[0] as string)
+      const prefixes = keys
+        .filter((key) => !key.startsWith('#'))
+        .map((key) => JSON.parse(key)[0] as string)
       const atom = createAtom(`history.linkedIssue:${identifier}`, undefined, () => {
         this.linkedIssueAtoms.delete(question)
         const remove = (map: Map<string, Set<string>>, key: string) => {
-          const ids = map.get(key); ids?.delete(question)
+          const ids = map.get(key)
+          ids?.delete(question)
           if (!ids?.size) map.delete(key)
         }
         for (const key of keys) remove(this.linkedAliases, key)
@@ -274,15 +345,21 @@ export class ReaderQueries {
     const state = this.linkedIssueAtoms.get(question)
     if (!state) return
     const identities = this.issueIdentities()
-    const value = state.referenceOnly ? identities.referenceId(state.identifier) : identities.resolve(state.identifier)
+    const value = state.referenceOnly
+      ? identities.referenceId(state.identifier)
+      : identities.resolve(state.identifier)
     if (value === state.value) return
-    state.value = value; state.atom.reportChanged()
+    state.value = value
+    state.atom.reportChanged()
   }
   private publishLinkedAlias(key: string | undefined): void {
-    if (key) for (const identifier of this.linkedAliases.get(key) ?? []) this.publishLinkedIssue(identifier)
+    if (key)
+      for (const identifier of this.linkedAliases.get(key) ?? [])
+        this.publishLinkedIssue(identifier)
   }
   private changeIssueIdentity(id: string, change: (identities: IssueIdentities) => void): void {
-    const identities = this.issueIdentities(), previous = identities.fact(id)
+    const identities = this.issueIdentities(),
+      previous = identities.fact(id)
     const before = identities.factAlias(previous)
     const beforePrefix = previous?.repoId ? identities.repoPrefix(previous.repoId) : undefined
     change(identities)
@@ -322,7 +399,8 @@ export class ReaderQueries {
       }
     }
     this.repoOverrides.set(id, prefix)
-    const identities = this.issueIdentities(), before = identities.repoPrefix(id)
+    const identities = this.issueIdentities(),
+      before = identities.repoPrefix(id)
     const bare = identities.setRepo(id, prefix)
     for (const key of bare) this.publishLinkedAlias(key)
     for (const key of new Set([before, prefix]))
@@ -332,7 +410,8 @@ export class ReaderQueries {
       }
   }
   private repoPrefixPosition(prefix: string): number {
-    let lo = 0, hi = this.repoPrefixes.length
+    let lo = 0,
+      hi = this.repoPrefixes.length
     while (lo < hi) {
       const at = (lo + hi) >>> 1
       if (this.repoPrefixes[at]! < prefix) lo = at + 1
@@ -351,11 +430,15 @@ export class ReaderQueries {
    * inbox references also admit deleted issue identities. No catalog demand. */
   hasIssuePrefix(prefix: string, includeDeleted = false): boolean {
     const key = JSON.stringify([includeDeleted, prefix])
-    const value = this.issueIdentities().hasPrefix(prefix, includeDeleted), state = this.issuePrefixAtoms.get(key)
+    const value = this.issueIdentities().hasPrefix(prefix, includeDeleted),
+      state = this.issuePrefixAtoms.get(key)
     if (state) state.atom.reportObserved()
     else {
-      const atom = createAtom(`history.issuePrefix:${key}`, undefined, () => this.issuePrefixAtoms.delete(key))
-      if (atom.reportObserved()) this.issuePrefixAtoms.set(key, { atom, value, prefix, includeDeleted })
+      const atom = createAtom(`history.issuePrefix:${key}`, undefined, () =>
+        this.issuePrefixAtoms.delete(key),
+      )
+      if (atom.reportObserved())
+        this.issuePrefixAtoms.set(key, { atom, value, prefix, includeDeleted })
     }
     this.counts.scalarVisits++
     return value
@@ -366,16 +449,21 @@ export class ReaderQueries {
       if (!state) continue
       const value = this.issueIdentities().hasPrefix(prefix, includeDeleted)
       if (state.value === value) continue
-      state.value = value; state.atom.reportChanged()
+      state.value = value
+      state.atom.reportChanged()
     }
   }
   sessionReferenceId(ref: string): string | undefined {
-    const questions = this.sessionQuestions(), before = questions.visits, value = questions.referenceId(ref)
+    const questions = this.sessionQuestions(),
+      before = questions.visits,
+      value = questions.referenceId(ref)
     this.counts.scalarVisits += questions.visits - before
     const state = this.sessionReferenceAtoms.get(ref)
     if (state) state.atom.reportObserved()
     else {
-      const atom = createAtom(`history.sessionReference:${ref}`, undefined, () => this.sessionReferenceAtoms.delete(ref))
+      const atom = createAtom(`history.sessionReference:${ref}`, undefined, () =>
+        this.sessionReferenceAtoms.delete(ref),
+      )
       if (atom.reportObserved()) this.sessionReferenceAtoms.set(ref, { atom, value })
     }
     return value
@@ -393,7 +481,8 @@ export class ReaderQueries {
     if (!state) return
     const value = this.sessionQuestions().referenceId(ref)
     if (value === state.value) return
-    state.value = value; state.atom.reportChanged()
+    state.value = value
+    state.atom.reportChanged()
   }
   private sourceOnly(question: ReaderQuestion): boolean {
     return (
@@ -423,19 +512,27 @@ export class ReaderQueries {
    * other presentation fields. Resident writes shadow the source by address. */
   issueScope(id: string): IssueScopeFacts | undefined {
     const value = this.issueScopeValue(id)
-    let state = this.issueScopeAtoms.get(id)
+    const state = this.issueScopeAtoms.get(id)
     if (!state) {
-      const atom = createAtom(`history.issueScope:${id}`, undefined, () => this.issueScopeAtoms.delete(id))
+      const atom = createAtom(`history.issueScope:${id}`, undefined, () =>
+        this.issueScopeAtoms.delete(id),
+      )
       if (atom.reportObserved()) this.issueScopeAtoms.set(id, { atom, bits: this.scopeBits(value) })
     } else state.atom.reportObserved()
     return value
   }
   private issueScopeValue(id: string): IssueScopeFacts | undefined {
-    return this.residentIssueIds.has(id) ? this.residents.issueScope(id) : this.index().issueScope(id)
+    return this.residentIssueIds.has(id)
+      ? this.residents.issueScope(id)
+      : this.index().issueScope(id)
   }
   private scopeBits(value: IssueScopeFacts | undefined): number {
-    return value === undefined ? -1 : Number(value.draft) | (Number(value.deleted) << 1) |
-      (Number(value.archived) << 2) | (Number(value.agent) << 3)
+    return value === undefined
+      ? -1
+      : Number(value.draft) |
+          (Number(value.deleted) << 1) |
+          (Number(value.archived) << 2) |
+          (Number(value.agent) << 3)
   }
   private publishIssueScope(id: string): void {
     const state = this.issueScopeAtoms.get(id)
@@ -452,7 +549,9 @@ export class ReaderQueries {
     const state = this.issueCloseAtoms.get(id)
     if (state) state.atom.reportObserved()
     else {
-      const atom = createAtom(`history.issueClose:${id}`, undefined, () => this.issueCloseAtoms.delete(id))
+      const atom = createAtom(`history.issueClose:${id}`, undefined, () =>
+        this.issueCloseAtoms.delete(id),
+      )
       if (atom.reportObserved()) this.issueCloseAtoms.set(id, { atom, value })
     }
     this.counts.scalarVisits++
@@ -467,8 +566,10 @@ export class ReaderQueries {
     state.atom.reportChanged()
   }
   private changeSessionFacts(id: string, change: (questions: SessionQuestions) => void): void {
-    const questions = this.sessionQuestions(), previous = questions.fact(id)
-    const before = previous?.issueId, beforeRef = previous?.displayRef
+    const questions = this.sessionQuestions(),
+      previous = questions.fact(id)
+    const before = previous?.issueId,
+      beforeRef = previous?.displayRef
     const beforePresent = previous !== undefined
     const beforeVisible = this.topologyListeners.size ? questions.present(id) : false
     change(questions)
@@ -486,27 +587,49 @@ export class ReaderQueries {
       for (const cwd of [previous?.cwd, next?.cwd]) {
         if (cwd === undefined) continue
         paths.add(cwd)
-        for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) paths.add(cwd.slice(0, at))
+        for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1))
+          paths.add(cwd.slice(0, at))
       }
       for (const path of paths) this.publishSessionPath(path)
     }
     if (this.topologyListeners.size) {
       const afterVisible = questions.present(id)
-      if (beforeVisible !== afterVisible || (beforeVisible && afterVisible && (
-        previous?.cwd !== next?.cwd || previous?.issueId !== next?.issueId || previous?.order !== next?.order
-      ))) this.publishTopology({ reset: false, sessions: [{ id,
-        before: previous && beforeVisible ? { cwd: previous.cwd, issueId: previous.issueId, order: previous.order } : undefined,
-        after: next && afterVisible ? { cwd: next.cwd, issueId: next.issueId, order: next.order } : undefined,
-      }] })
+      if (
+        beforeVisible !== afterVisible ||
+        (beforeVisible &&
+          afterVisible &&
+          (previous?.cwd !== next?.cwd ||
+            previous?.issueId !== next?.issueId ||
+            previous?.order !== next?.order))
+      )
+        this.publishTopology({
+          reset: false,
+          sessions: [
+            {
+              id,
+              before:
+                previous && beforeVisible
+                  ? { cwd: previous.cwd, issueId: previous.issueId, order: previous.order }
+                  : undefined,
+              after:
+                next && afterVisible
+                  ? { cwd: next.cwd, issueId: next.issueId, order: next.order }
+                  : undefined,
+            },
+          ],
+        })
     }
   }
   /** Raw parent edges count archived/deleted children, with only stage=done
    * contributing to the completed count, matching the issue close contract. */
   issueChildCounts(id: string): IssueChildCounts {
-    const value = this.issueQuestions().childCounts(id), state = this.issueChildAtoms.get(id)
+    const value = this.issueQuestions().childCounts(id),
+      state = this.issueChildAtoms.get(id)
     if (state) state.atom.reportObserved()
     else {
-      const atom = createAtom(`history.issueChildren:${id}`, undefined, () => this.issueChildAtoms.delete(id))
+      const atom = createAtom(`history.issueChildren:${id}`, undefined, () =>
+        this.issueChildAtoms.delete(id),
+      )
       if (atom.reportObserved()) this.issueChildAtoms.set(id, { atom, value })
     }
     this.counts.scalarVisits++
@@ -516,12 +639,17 @@ export class ReaderQueries {
     const state = this.issueChildAtoms.get(id)
     if (!state) return
     const value = this.issueQuestions().childCounts(id)
-    if (value.childCount === state.value.childCount && value.childDoneCount === state.value.childDoneCount) return
+    if (
+      value.childCount === state.value.childCount &&
+      value.childDoneCount === state.value.childDoneCount
+    )
+      return
     state.value = value
     state.atom.reportChanged()
   }
   private changeIssueFacts(id: string, change: (questions: IssueQuestions) => void): void {
-    const questions = this.issueQuestions(), before = questions.fact(id)?.parentId
+    const questions = this.issueQuestions(),
+      before = questions.fact(id)?.parentId
     change(questions)
     const after = questions.fact(id)?.parentId
     if (before) this.publishIssueChildren(before)
@@ -571,19 +699,31 @@ export class ReaderQueries {
     if (!state.atom.reportObserved() && created) this.observed.delete(key)
     return index
   }
-  private publicationTopologyBefore: Map<string, NavigationTopologyDelta['sessions'][number]['before']> | undefined
+  private publicationTopologyBefore:
+    | Map<string, NavigationTopologyDelta['sessions'][number]['before']>
+    | undefined
   /** Keep the named before facts before table observers can adopt a freshly
    * replaced source root. This is publication input, released at publish. */
   beginPublication(event: RowSourceEvent): void {
     this.publicationTopologyBefore = undefined
-    if (!this.topologyListeners.size || !this.effectiveSessions ||
-      (event.type !== 'replace' && (this.sourceSeen === undefined || this.sourceSeen === this.index()))) return
+    if (
+      !this.topologyListeners.size ||
+      !this.effectiveSessions ||
+      (event.type !== 'replace' &&
+        (this.sourceSeen === undefined || this.sourceSeen === this.index()))
+    )
+      return
     const before = new Map<string, NavigationTopologyDelta['sessions'][number]['before']>()
-    for (const row of event.rows) if (row.kind === 'session' && !before.has(row.id)) {
-      const fact = this.effectiveSessions.fact(row.id)
-      before.set(row.id, fact && this.effectiveSessions.present(row.id)
-        ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined)
-    }
+    for (const row of event.rows)
+      if (row.kind === 'session' && !before.has(row.id)) {
+        const fact = this.effectiveSessions.fact(row.id)
+        before.set(
+          row.id,
+          fact && this.effectiveSessions.present(row.id)
+            ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order }
+            : undefined,
+        )
+      }
     this.publicationTopologyBefore = before
   }
   publish(event: RowSourceEvent): void {
@@ -593,27 +733,42 @@ export class ReaderQueries {
     // A replacement carries every new identity. Compare those addressed
     // records against the prior persistent roots before forking the new roots;
     // new IDs have no before fact and remain first sight.
-    const beforeReplacement = this.publicationTopologyBefore ?? new Map<string, NavigationTopologyDelta['sessions'][number]['before']>()
+    const beforeReplacement =
+      this.publicationTopologyBefore ??
+      new Map<string, NavigationTopologyDelta['sessions'][number]['before']>()
     const captured = this.publicationTopologyBefore !== undefined
     this.publicationTopologyBefore = undefined
-    if (!captured && (event.type === 'replace' || fresh) && this.topologyListeners.size && this.effectiveSessions)
-      for (const row of event.rows) if (row.kind === 'session' && !beforeReplacement.has(row.id)) {
-        const fact = this.effectiveSessions.fact(row.id)
-        beforeReplacement.set(row.id, fact && this.effectiveSessions.present(row.id)
-          ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined)
-      }
-    for (const row of event.rows) if (row.kind === 'worktree')
-      this.changeWorktree(row.id, row.value as Readonly<Record<string, unknown>> | undefined)
+    if (
+      !captured &&
+      (event.type === 'replace' || fresh) &&
+      this.topologyListeners.size &&
+      this.effectiveSessions
+    )
+      for (const row of event.rows)
+        if (row.kind === 'session' && !beforeReplacement.has(row.id)) {
+          const fact = this.effectiveSessions.fact(row.id)
+          beforeReplacement.set(
+            row.id,
+            fact && this.effectiveSessions.present(row.id)
+              ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order }
+              : undefined,
+          )
+        }
+    for (const row of event.rows)
+      if (row.kind === 'worktree')
+        this.changeWorktree(row.id, row.value as Readonly<Record<string, unknown>> | undefined)
     if (event.type === 'replace' || fresh) {
       this.effectiveSource = index
       this.effectiveSessions = index.forkSessionQuestions(
-        id => this.index().sessionCollapsed(id), id => this.index().sessionOrderKey(id),
+        (id) => this.index().sessionCollapsed(id),
+        (id) => this.index().sessionOrderKey(id),
       )
       this.effectiveIssueSource = index
       this.effectiveIssues = index.forkIssueQuestions()
       this.effectiveIdentitySource = index
       this.effectiveIssueIdentities = index.forkIssueIdentities()
-      for (const [id, prefix] of this.repoOverrides) this.effectiveIssueIdentities.setRepo(id, prefix)
+      for (const [id, prefix] of this.repoOverrides)
+        this.effectiveIssueIdentities.setRepo(id, prefix)
       for (const id of residentIds(this.pool, 'issue')) this.updateResident('issue', id)
       for (const id of residentIds(this.pool, 'session')) this.updateResident('session', id)
       for (const entity of ['issue', 'session'] as const) {
@@ -622,12 +777,15 @@ export class ReaderQueries {
       }
     } else {
       for (const id of index.issueIdentityRepoChanges(event)) {
-        const row = untracked(() => this.pool.row('repo', id)) as Readonly<Record<string, unknown>> | undefined
+        const row = untracked(() => this.pool.row('repo', id)) as
+          | Readonly<Record<string, unknown>>
+          | undefined
         this.changeRepoIdentity(id, row && typeof row.prefix === 'string' ? row.prefix : undefined)
       }
       const delta = index.changes(event)
       for (const [entity, id] of [...delta.flips, ...delta.orders])
-        if (entity === 'session') this.changeSessionFacts(id, questions => questions.visibilityChanged(id))
+        if (entity === 'session')
+          this.changeSessionFacts(id, (questions) => questions.visibilityChanged(id))
     }
     // Replacement counts were rebuilt from residents above. Observed identity
     // answers are rebuilt below from the new source catalog. Updating every
@@ -639,11 +797,17 @@ export class ReaderQueries {
           this.updateIdentity(row.kind, row.id)
         }
         if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
-          this.changeSessionFacts(row.id, questions => questions.setFacts(row.id, index.sessionQuestionFact(row.id)))
+          this.changeSessionFacts(row.id, (questions) =>
+            questions.setFacts(row.id, index.sessionQuestionFact(row.id)),
+          )
         if (row.kind === 'issue') {
           if (!this.pool.tables.issue.has(row.id)) {
-            this.changeIssueIdentity(row.id, identities => identities.setFact(row.id, index.issueIdentityFact(row.id)))
-            this.changeIssueFacts(row.id, questions => questions.setFacts(row.id, index.issueQuestionFact(row.id)))
+            this.changeIssueIdentity(row.id, (identities) =>
+              identities.setFact(row.id, index.issueIdentityFact(row.id)),
+            )
+            this.changeIssueFacts(row.id, (questions) =>
+              questions.setFacts(row.id, index.issueQuestionFact(row.id)),
+            )
           }
           this.publishIssueScope(row.id)
         }
@@ -659,7 +823,11 @@ export class ReaderQueries {
       const sessions: NavigationTopologyDelta['sessions'][number][] = []
       for (const [id, before] of beforeReplacement) {
         const after = this.sessionTopology(id)
-        if (before?.cwd !== after?.cwd || before?.issueId !== after?.issueId || before?.order !== after?.order)
+        if (
+          before?.cwd !== after?.cwd ||
+          before?.issueId !== after?.issueId ||
+          before?.order !== after?.order
+        )
           sessions.push({ id, before, after })
       }
       this.publishTopology({ reset: true, sessions })
@@ -728,11 +896,18 @@ export class ReaderQueries {
   }
   ids(question: ReaderQuestion): string[] {
     const key = JSON.stringify(question)
-    const index = this.watch(key, (value) => question.kind === 'headerRecentSession'
-      ? this.sessionQuestions().recentRevision()
-      : value.readerRevision(question) + (this.sourceOnly(question) ? 0 : this.residents.revision(question)))
+    const index = this.watch(key, (value) =>
+      question.kind === 'headerRecentSession'
+        ? this.sessionQuestions().recentRevision()
+        : value.readerRevision(question) +
+          (this.sourceOnly(question) ? 0 : this.residents.revision(question)),
+    )
     // Ranked windows stay bounded in the source's existing index.
-    if (question.kind === 'issueMentionMatches' || question.kind === 'mobileIssueTargets' || question.kind === 'headerRecentSession') {
+    if (
+      question.kind === 'issueMentionMatches' ||
+      question.kind === 'mobileIssueTargets' ||
+      question.kind === 'headerRecentSession'
+    ) {
       const ids = this.initialIds(question, index)
       this.counts.questions++
       this.counts.returnedIds += ids.length
@@ -758,17 +933,26 @@ export class ReaderQueries {
     if (this.sourceOnly(question)) return index.readerIds(question)
     if (question.kind === 'residentIssues') return [...this.residentIssueIds]
     if (question.kind === 'headerRecentSession') {
-      const excluded = question.excluded && 'has' in question.excluded ? question.excluded : new Set(question.excluded)
-      const questions = this.sessionQuestions(), before = questions.visits
+      const excluded =
+        question.excluded && 'has' in question.excluded
+          ? question.excluded
+          : new Set(question.excluded)
+      const questions = this.sessionQuestions(),
+        before = questions.visits
       const answer = questions.recent(excluded)
       this.counts.scalarVisits += questions.visits - before
       return answer ? [answer.id] : []
     }
-    const ids = [...new Set([
-      ...index.readerIds(question).filter(id =>
-        !this.pool.tables[entity].has(id) || this.residents.contains(question, id)),
-      ...this.residents.ids(question),
-    ])]
+    const ids = [
+      ...new Set([
+        ...index
+          .readerIds(question)
+          .filter(
+            (id) => !this.pool.tables[entity].has(id) || this.residents.contains(question, id),
+          ),
+        ...this.residents.ids(question),
+      ]),
+    ]
     return entity === 'session' ? ids.sort() : ids
   }
   /** A declared question's demanded row answers, maintained by changed key.
@@ -832,14 +1016,18 @@ export class ReaderQueries {
         ? value.issueRepoRevision + this.residents.repoRevision
         : value.issueRepoPathRevision(repoPath) + this.residents.repoPathRevision(repoPath),
     )
-    return [...new Set([...index.issueRepoIds(repoPath), ...this.residents.repoIds(repoPath)])].sort()
+    return [
+      ...new Set([...index.issueRepoIds(repoPath), ...this.residents.repoIds(repoPath)]),
+    ].sort()
   }
   activity(question: SessionActivityQuestion): number {
-    const key = JSON.stringify({ ...question,
+    const key = JSON.stringify({
+      ...question,
       ...(question.excluded ? { excluded: [...question.excluded] } : {}),
     })
     this.watch(`activity:${key}`, () => this.sessionQuestions().activityRevision(question))
-    const questions = this.sessionQuestions(), before = questions.activityVisits
+    const questions = this.sessionQuestions(),
+      before = questions.activityVisits
     const answer = questions.activity(question)
     this.counts.scalarVisits += questions.activityVisits - before
     return answer
@@ -851,15 +1039,22 @@ export class ReaderQueries {
   /** One successor in attention order; absence starts at the first agent.
    * The source includes pending overlays; resident edits shadow changed keys. */
   nextTriageSession(id: string): string | undefined {
-    const questions = this.sessionQuestions(), now = this.pool.clock.current, before = questions.visits
+    const questions = this.sessionQuestions(),
+      now = this.pool.clock.current,
+      before = questions.visits
     const after = questions.triageFact(id, now)
     const answer = questions.next(after, now) ?? questions.next(undefined, now)
     this.counts.scalarVisits += questions.visits - before
     return answer?.id === id ? undefined : answer?.id
   }
-  latestMachineSession(machineIds: readonly string[]): { machineId: string; createdAt: string } | undefined {
-    this.watch(`latestMachine:${JSON.stringify(machineIds)}`, () => this.sessionQuestions().machineRevision(machineIds))
-    const questions = this.sessionQuestions(), before = questions.visits
+  latestMachineSession(
+    machineIds: readonly string[],
+  ): { machineId: string; createdAt: string } | undefined {
+    this.watch(`latestMachine:${JSON.stringify(machineIds)}`, () =>
+      this.sessionQuestions().machineRevision(machineIds),
+    )
+    const questions = this.sessionQuestions(),
+      before = questions.visits
     const answer = questions.latest(machineIds)
     this.counts.scalarVisits += questions.visits - before
     return answer && { machineId: answer.machineId, createdAt: answer.createdAt }
@@ -888,7 +1083,7 @@ export class ReaderQueries {
   }
   private observeSession(kind: 'collapsed' | 'order' | 'presence', id: string): void {
     const key = `${kind}:${id}`
-    let atom = this.sessionAtoms.get(key)
+    const atom = this.sessionAtoms.get(key)
     if (!atom) {
       const created = createAtom(`history.${key}`, undefined, () => this.sessionAtoms.delete(key))
       if (!created.reportObserved()) return

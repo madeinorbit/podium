@@ -1,6 +1,6 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { issueReferenceModel } from '@podium/client-core/values'
 import { shallowEqual } from '@podium/client-core/store'
+import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
@@ -29,10 +29,7 @@ import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
-import {
-  useChatReferenceMachines,
-  useChatRepositoryKey,
-} from '@/features/chat/use-chat-context'
+import { useChatReferenceMachines, useChatRepositoryKey } from '@/features/chat/use-chat-context'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
@@ -137,7 +134,9 @@ function OpenPoolRefMiniview({
 }): JSX.Element {
   const read = useCallback((pool: MobxPool) => readRefMiniview(pool, state.ref), [state.ref])
   const data = useWorklistPoolProjection(read, {
-    issues: [] as RefIssueLike[], sessions: [] as RefSessionLike[], loading: true,
+    issues: [] as RefIssueLike[],
+    sessions: [] as RefSessionLike[],
+    loading: true,
   })
   return (
     <RefMiniviewContents
@@ -402,10 +401,22 @@ export function RefCard({
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold tracking-[0.04em] text-muted-foreground">
                 <IssueReference
-                  model={target.issue.stage
-                    ? issueReferenceModel({ ...target.issue, stage: target.issue.stage, displayRef: refToken })
-                    : { ref: refToken, issueId: target.issue.id, title: target.issue.title, stage: null,
-                        availability: 'present', accessibleLabel: `Task ${refToken}: ${target.issue.title}` }}
+                  model={
+                    target.issue.stage
+                      ? issueReferenceModel({
+                          ...target.issue,
+                          stage: target.issue.stage,
+                          displayRef: refToken,
+                        })
+                      : {
+                          ref: refToken,
+                          issueId: target.issue.id,
+                          title: target.issue.title,
+                          stage: null,
+                          availability: 'present',
+                          accessibleLabel: `Task ${refToken}: ${target.issue.title}`,
+                        }
+                  }
                   showTitle={false}
                 />
                 {target.issue.priority !== undefined && (
