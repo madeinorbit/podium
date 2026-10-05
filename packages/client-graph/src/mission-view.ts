@@ -5,7 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { issueDisplayRef as joinedIssueRef } from '@podium/client-graph/diagnostics/reference/issue-views'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
-  motionPhase, nativeSubagentRows, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
+  motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, sessionNeedsHuman, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
   type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
@@ -150,8 +150,10 @@ const MODES = ['full', 'working', 'needs-you'] as const
 type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
 const paneValues = Object.fromEntries(MODES.map(mode => [mode,
   cachedGroup(`missionPane.${mode}`, (node: MissionNode) => {
+    const deck = node.view.deck(node.id, mode)
+    requireLoaded(deck.rowIds(mode))
     node.view.stats.values++
-    return node.view.deckValues(node.view.deck(node.id, mode))
+    return node.view.deckValues(deck)
   }),
 ])) as PaneGroups<MissionViewValues>
 const archiveCountValue = cachedGroup('missionArchiveCount', (deck: MissionDeckModel) => deck.view.readArchiveCount(deck))
@@ -267,9 +269,6 @@ export class MissionViewReader {
   })
   readonly sessionAsking = keyedComputed('MissionSession.asking', (id: string) => {
     const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && sessionNeedsHuman(session))
-  })
-  readonly sessionHeight = keyedComputed('MissionSession.height', (id: string) => {
-    const session = requireLoaded(this.rawSession(id)); return 46 + (session ? nativeSubagentRows(session).length * 22 : 0)
   })
   readonly sessionOpen = keyedComputed('MissionSession.open', (id: string) => {
     const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && session.status !== 'exited')

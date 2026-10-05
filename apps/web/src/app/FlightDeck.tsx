@@ -51,6 +51,7 @@ import type {
 } from '@podium/client-graph/mission-view'
 import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { requireLoaded } from '@podium/client-graph/mission-deck-model'
+import { cachedKey } from '@podium/client-graph/cached'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
@@ -1630,13 +1631,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   const anyFoldable = foldable.length > 0
   const allFolded = anyFoldable && foldable.every(row => row.folded(folds))
   const { arrivals, settle } = useArrivals(sessionKeys)
+  const sessionHeight = useMemo(() => cachedKey('FlightDeck', 'sessionHeight', id => {
+    const session = requireLoaded(deck?.view.rawSession(id))
+    return 46 + (session ? nativeSubagentRows(session).length * 22 : 0)
+  }), [deck])
   // The virtual list owns estimates and measurements. Presentation text is
   // read only by the row or searchable placeholder that actually draws it.
   const spineGeometry = useMemo(() => {
     const leaves: DeckWindowRow[] = [{ key: 'spine:pad', size: 6 }]
     const blocks = new Map<string, DeckWindowRow[]>()
     const sessionLeaf = (row: MissionDeckIssueModel, id: string): DeckWindowRow => ({
-      key: deckSessionKey(row.id, id), get size() { return row.view.sessionHeight(id) },
+      key: deckSessionKey(row.id, id), get size() { return sessionHeight(id) },
       get text() {
         const session = requireLoaded(row.view.rawSession(id))
         if (!session) return ''
@@ -1666,7 +1671,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       blocks.set(row.id, block); leaves.push(...block)
     }
     return { leaves, blocks }
-  }, [root?.id, rootRow, rootSessions, visibleRows, folds, mode, missionSessionIds, nameOf])
+  }, [root?.id, rootRow, rootSessions, visibleRows, folds, mode, missionSessionIds, nameOf, sessionHeight])
   const spineWindow = useFlightDeckWindow(
     spineView ? spineGeometry.leaves : [],
     deckScrollerRef,

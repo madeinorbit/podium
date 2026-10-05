@@ -183,14 +183,23 @@ const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = cachedGroup
   }
   return candidates
 })
-const kindsOf = cachedGroup('deck.kinds', (row: MissionDeckIssueModel) => {
+const kindCodes: (row: MissionDeckIssueModel) => string = cachedGroup('deck.kindCodes', (row: MissionDeckIssueModel): string => {
   const kinds = new Set<SessionView['agentKind']>()
-  for (const id of [row.id, ...row.descendantIds]) for (const session of row.deck.model(id).sessions) {
+  const shape = requireLoaded(row.deck.topology)
+  const ownCrew = shape.overlap ? [row.id, ...row.descendantIds].flatMap(id => row.deck.model(id).sessions) : row.sessions
+  for (const session of ownCrew) {
     if (sessionPresentOnTask(session)) kinds.add(session.agentKind)
-    if (kinds.size === 2) return [...kinds]
+    if (kinds.size === 2) return JSON.stringify([...kinds])
   }
-  return [...kinds]
+  if (!shape.overlap) for (const id of requireLoaded(row.deckChildren)) {
+    for (const kind of JSON.parse(kindCodes(row.deck.model(id))) as SessionView['agentKind'][]) {
+      kinds.add(kind)
+      if (kinds.size === 2) return JSON.stringify([...kinds])
+    }
+  }
+  return JSON.stringify([...kinds])
 })
+const kindsOf = cachedGroup('deck.kinds', (row: MissionDeckIssueModel) => JSON.parse(kindCodes(row)) as SessionView['agentKind'][])
 const latestBelow = cachedGroup('deck.updatedBelow', (row: MissionDeckIssueModel): string => {
   const shape = requireLoaded(row.deck.topology)
   if (shape.overlap) return [row.id, ...row.descendantIds].reduce((at, id) => row.view.facts(id).updatedAt > at ? row.view.facts(id).updatedAt : at, '')
