@@ -45,7 +45,7 @@ it('keeps facade creation, first chip and named updates flat with cold and resid
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })
     let stop = () => {}
     try {
-      const constructor = await measure('reference facade construction', () => { void f.pool.references })
+      const creation = await measure('reference facade construction', () => { void f.pool.references })
       expect(row).not.toHaveBeenCalled()
       const paint = vi.fn(), view = createPoolProjection(f.pool, pool => pool.references.read(' POD-01 '))
       const first = await measure('reference first chip', () => {
@@ -65,7 +65,7 @@ it('keeps facade creation, first chip and named updates flat with cold and resid
       expect(ids).not.toHaveBeenCalled(); expect(repos).not.toHaveBeenCalled()
       for (const walk of walks) expect(walk).not.toHaveBeenCalled()
       expect(f.load).not.toHaveBeenCalled(); expect(f.authority).not.toHaveBeenCalled()
-      return Object.fromEntries(Object.entries({ constructor, first, repeat, unrelated, target, closed }).map(([name, value]) => [name, value.work]))
+      return Object.fromEntries(Object.entries({ creation, first, repeat, unrelated, target, closed }).map(([name, value]) => [name, value.work]))
     } finally { stop(); for (const walk of walks) walk.mockRestore(); row.mockRestore(); ids.mockRestore(); repos.mockRestore(); f.pool.dispose() }
   }
   for (const resident of [false, true]) {
