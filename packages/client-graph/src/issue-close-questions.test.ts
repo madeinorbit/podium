@@ -56,8 +56,10 @@ it('maintains canonical web session concerns without counting archives, shells o
     session('z-twin', { status: 'hibernated', lastActiveAt: '2020-01-02', resume: { kind: 'codex-thread', value: 'twins' } }),
   ])
   try {
-    const expected = issuePages(f.pool).memberSessions('target')
-    expect(expected).not.toBe(LOADING)
+    expect(f.pool.queries.collapsed('a-twin')).toBe(true)
+    expect(f.pool.queries.collapsed('z-twin')).toBe(false)
+    expect(issuePages(f.pool).closeFacts('target')).not.toBe(LOADING)
+    expect(issuePages(f.pool).closeFacts('absent')).toBeUndefined()
     // Only live working + headless are green; offers and parked phases are not.
     expect(f.pool.queries.issueCloseCounts('target')).toEqual({ offers: 1, working: 2 })
     f.publish({ type: 'update', rows: [session('a-twin', { status: 'live', resume: { kind: 'codex-thread', value: 'twins' } })] })
@@ -111,6 +113,29 @@ it('counts raw direct children and only stage=done across parent moves and local
     f.fresh([issue('target')])
     expect(seen).toEqual({ childCount: 0, childDoneCount: 0 })
   } finally { stop(); f.pool.dispose() }
+})
+
+it('keeps question and git payloads out of the structurally compared close answer', () => {
+  for (const scale of [1, 4]) {
+    const payload = () => ({
+      needsHuman: true,
+      asked: { question: 'Ship?', history: Array.from({ length: 128 * scale }, (_, n) => ({ n })) },
+      gitState: { shared: true, dirtyOwn: 2, dirtyFiles: 9, merged: false,
+        commits: Array.from({ length: 128 * scale }, (_, n) => ({ sha: String(n), files: [String(n)] })),
+      },
+    })
+    const f = fixture([issue('target', payload())])
+    let runs = 0, seen: unknown
+    const stop = autorun(() => { runs++; seen = issuePages(f.pool).closeFacts('target') })
+    try {
+      expect(seen).toEqual({ subject: { needsHuman: true, asked: { question: 'Ship?' },
+        git: { dirty: 2, delivery: 128 * scale, shared: true, merged: false },
+        parentBranch: 'main', childCount: 0, childDoneCount: 0,
+      }, members: { offers: 0, working: 0 } })
+      f.publish({ type: 'update', rows: [issue('target', payload())] })
+      expect(runs).toBe(1)
+    } finally { stop(); f.pool.dispose() }
+  }
 })
 
 it('keeps first/repeated close reads and unrelated updates flat as target history grows 1x/4x', async () => {

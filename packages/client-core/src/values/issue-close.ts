@@ -78,9 +78,19 @@ export interface IssueCloseMemberCounts {
   readonly offers: number
   readonly working: number
 }
+/** A close reader needs counts and attributed git totals, never commit/file
+ * payloads or the rest of a question object. */
+export interface IssueCloseScalarSubject {
+  needsHuman: boolean
+  asked?: { question?: string } | null
+  childCount: number
+  childDoneCount: number
+  parentBranch: string
+  git?: { dirty: number; delivery: number; shared: boolean; merged?: boolean }
+}
 
 export function issueCloseConcernsFromCounts(
-  issue: IssueCloseSubject,
+  issue: IssueCloseSubject | IssueCloseScalarSubject,
   members: IssueCloseMemberCounts,
 ): IssueCloseConcern[] {
   const concerns: IssueCloseConcern[] = []
@@ -125,9 +135,15 @@ export function issueCloseConcernsFromCounts(
     })
   }
 
-  const git = issue.gitState
+  const fullGit = 'gitState' in issue ? issue.gitState : undefined
+  const git = fullGit ? {
+    dirty: fullGit.dirtyOwn ?? (!fullGit.shared && !fullGit.fallback ? fullGit.dirtyFiles : 0),
+    delivery: fullGit.shared ? (fullGit.commits?.length ?? 0) : (fullGit.ahead ?? 0),
+    shared: !!fullGit.shared,
+    merged: fullGit.merged,
+  } : 'git' in issue ? issue.git : undefined
   if (git) {
-    const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
+    const attributedDirty = git.dirty
     if (attributedDirty > 0) {
       concerns.push({
         key: 'dirty',
@@ -137,7 +153,7 @@ export function issueCloseConcernsFromCounts(
         icon: 'git',
       })
     }
-    const delivery = git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0)
+    const delivery = git.delivery
     if (delivery > 0 && git.merged !== true) {
       concerns.push({
         key: 'delivery',

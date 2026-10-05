@@ -4,6 +4,7 @@ import {
   groupRelations,
   isEmptyDraftVessel,
   type IssueCloseMemberCounts,
+  type IssueCloseScalarSubject,
   type IssueCloseSubject,
   issueDisplayTitle,
   type MissionSessionIndex,
@@ -81,15 +82,22 @@ export function createIssuePageViews(pool: MobxPool) {
     if (disposed) return LOADING
     return roster(id, 'pageSessions').get()
   }
-  function closeFacts(id: string): Loaded<{ subject: IssueCloseSubject; members: IssueCloseMemberCounts }> {
+  function closeFacts(id: string): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
     return memo(`close:${id}`, () => {
       const raw = pool.row('issue', id, 'summary-fields') as Loaded<Readonly<Record<string, unknown>>>
       if (!raw || raw === LOADING) return raw
+      const git = raw.gitState as IssueCloseSubject['gitState']
+      const question = (raw.asked as IssueCloseSubject['asked'])?.question
       return {
         subject: {
           needsHuman: !!raw.needsHuman,
-          asked: raw.asked as IssueCloseSubject['asked'],
-          gitState: raw.gitState as IssueCloseSubject['gitState'],
+          asked: question === undefined ? undefined : { question },
+          git: git ? {
+            dirty: git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0),
+            delivery: git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0),
+            shared: !!git.shared,
+            merged: git.merged,
+          } : undefined,
           parentBranch: String(raw.parentBranch ?? 'main'),
           ...pool.queries.issueChildCounts(id),
         },
