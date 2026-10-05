@@ -640,7 +640,7 @@ it('borrows each shared source once and keeps the conversation bridge across dra
 it('keeps the original mutation owner when the pool conversation edits its draft and sends', async () => {
   const enabled = await mount()
   fireEvent.change(enabled.view.getByLabelText('Draft'), { target: { value: 'Draft by operator' } })
-  await waitFor(() => expect(referenceState(enabled.runtime).drafts[SID]).toBe('Draft by operator'))
+  await waitFor(() => expect(enabled.runtime.drafts.get(SID)).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
   await waitFor(() =>
     expect(enabled.runtime.outbox.pending()).toContainEqual(

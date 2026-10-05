@@ -55,7 +55,7 @@ vi.mock('./TranscriptList', async () => {
   return {
     TranscriptList: observer(({
       transcript,
-    items = transcript?.items ?? [],
+    items = transcript?.ids.map(id => transcript.byId.get(id)!) ?? [],
       onLoadOlder,
       onFollowChange,
       onSearchChange,

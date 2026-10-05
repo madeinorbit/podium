@@ -4,7 +4,7 @@ import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
 import { action, observable, reaction } from 'mobx'
-import { useEffect, useLayoutEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import { AppState } from 'react-native'
 import { humanizeSendFailure } from '../lib/send-failure'
 import { superagentTurnChoice, type SuperagentBackend } from '../lib/superagent-backend'
@@ -83,8 +83,7 @@ export function useThreadConversation(backend: SuperagentBackend, history: { fol
       },
       interrupt: () => owner.access.trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID }).then(() => {}),
     },
-  }), { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null })
+  }), { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && !superagentState(pool).loading })
   const podiumSid = readSid()
-  useEffect(() => { if (podiumSid) void conversation?.restoreFailure() }, [conversation, podiumSid])
   return { conversation, podiumSid, binding: thread }
 }

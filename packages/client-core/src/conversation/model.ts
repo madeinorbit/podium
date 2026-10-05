@@ -80,6 +80,8 @@ export class Conversation {
   private previewDoneEpoch = -Infinity
   private previewTimer: ReturnType<typeof setTimeout> | undefined
   private activityVersion = 0
+  private restoringFailure = false
+  private failureRestored = false
 
   constructor(private readonly options: ConversationOptions) {
     this.sessionId = options.sessionId
@@ -225,15 +227,18 @@ export class Conversation {
   }
 
   async restoreFailure(): Promise<void> {
-    if (!this.options.headless || !this.options.latestTurnFailure || this.activityVersion > 0) return
+    if (!this.options.headless || !this.options.latestTurnFailure || this.activityVersion > 0 || this.restoringFailure || this.failureRestored) return
+    this.restoringFailure = true
     const version = this.activityVersion
     try {
       await this.startPromise
       if (this.disposed || version !== this.activityVersion || this.turnRunning) return
       const failure = await this.options.latestTurnFailure()
+      this.failureRestored = true
       if (!this.disposed && version === this.activityVersion)
         runInAction(() => { this.restoredFailure = failure ? freezePlain(failure) : null })
     } catch { /* A failed read leaves the live conversation usable. */ }
+    finally { this.restoringFailure = false }
   }
 
   clear(): void {
