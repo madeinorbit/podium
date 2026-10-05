@@ -39,8 +39,8 @@ import {
 } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { usePoolMachine } from '@/app/header-data'
+import { useRuntimeSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -530,7 +530,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // addressed source row proves membership for the selected thread. The
   // route needs only this membership, so a foreign or pending ID is refused.
   const ownThreadIds = useMemo(
-    () => superThread ? new Set(superThreadRow ? [superThreadRow.id] : []) : undefined,
+    () => (superThread ? new Set(superThreadRow ? [superThreadRow.id] : []) : undefined),
     [superThread, superThreadRow],
   )
 

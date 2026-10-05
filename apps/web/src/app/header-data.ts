@@ -1,6 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
-import type { MachineId } from '@podium/model/browser'
+import type { MachineId, MachineWire } from '@podium/model/browser'
 import { useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
@@ -72,7 +72,8 @@ export function usePoolMachines() {
 }
 export function usePoolMachine(id: string | undefined) {
   const read = useMemo(
-    () => (pool: MobxPool) => (id ? pool.headerViews.row('machine', id) : undefined),
+    () => (pool: MobxPool) =>
+      id ? (pool.row('machine', id) as MachineWire | undefined) : undefined,
     [id],
   )
   return useWorklistPoolProjection(read, undefined)
