@@ -25,9 +25,10 @@ export function shellFixture(count = 40) {
   })) as unknown as IssueViewModel[]
   const sessions = issues.map((issue, index) => ({ sessionId: asSessionId(`shell-session-${String(index).padStart(4, '0')}`), issueId: issue.id,
     cwd: index === 0 ? '/synthetic/project/w1/deep' : `/synthetic/project/w${index}`, machineId,
+    refRepoId: repoId, refSeq: index + 1, refLetter: 'A',
     name: `Synthetic agent ${index}`, title: `Synthetic session ${index}`, archived: index >= 20,
     status: index >= 20 ? 'exited' : 'live', agentKind: 'codex', headless: false, createdAt: stamp,
-    lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}A`, agentState: { phase: 'idle', since: stamp },
+    lastActiveAt: index < 2 ? '2026-10-01T12:00:00Z' : stamp, displayRef: `SYN-${index + 1}-A`, agentState: { phase: 'idle', since: stamp },
   })) as unknown as SessionView[]
   const approvals = [0, 1].map(index => ({ id: `shell-approval-${index}`, machineId, machineName: 'Synthetic host', sessionId: sessions[index]!.sessionId,
     issueId: issues[index]!.id, issueSeq: index + 1, issueDisplayRef: `SYN-${index + 1}`, issueTitle: `Synthetic task ${index}`, op: { kind: 'channel', target: 'dev' },
@@ -56,7 +57,7 @@ export function shellFixture(count = 40) {
   const pool = new MobxPool({ coarseNow: SHELL_NOW, selectedIssueId: state.selectedIssueId }, undefined, { summaries: SHELL_SUMMARIES, schedule: () => () => {},
     load: (entity, id) => { loads.push(`${entity}:${id}`); return entity === 'issue' ? issues.find(row => row.id === id) : entity === 'session' ? sessions.find(row => row.sessionId === id) : undefined } })
   pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: repoId, value: { id: repoId, prefix: 'SYN' } },
+    { kind: 'repo', id: repoId, value: { id: repoId, prefix: 'SYN', repoPath: '/synthetic/project' } },
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })), ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
   ] as never })
   const syncHeader = () => {
