@@ -1,3 +1,4 @@
+import { joinedFields, storedFields } from './joined-fields'
 /**
  * POD-5405 — THE COLD INDEX: the residency rule's inputs for every row the
  * feed carries, held outside the pool, behind declared questions.
@@ -216,6 +217,7 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
 }
 
 export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = {}): ColdIndex {
+  const companions = new Map<string, Row>()
   const readers = createReaderIndex()
   const issueQuestions = createIssueQuestions()
   const relations = createRelationIndex(schema)
@@ -246,14 +248,14 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   const extraOf = new Map(
     entities.map((entity) => {
       const rule = new Set(fieldsOf.get(entity))
-      return [entity, [...new Set(summaries[entity] ?? [])].filter((field) => !rule.has(field))]
+      return [entity, storedFields(entity, summaries[entity] ?? []).filter((field) => !rule.has(field))]
     }),
   )
   const extraAt = new Map(
     [...extraOf].map(([entity, fields]) => [entity, new Map(fields.map((field, at) => [field, at]))]),
   )
   const heldOf = new Map(
-    entities.map((entity) => [entity, new Set([...fieldsOf.get(entity)!, ...extraOf.get(entity)!])]),
+    entities.map((entity) => [entity, new Set([...fieldsOf.get(entity)!, ...extraOf.get(entity)!, ...(summaries[entity] ?? [])])]),
   )
   /** Cold-capable entity → id → rule row. */
   const rules = new Map<EntityName, Map<string, Row>>(entities.map((entity) => [entity, new Map()]))
@@ -470,6 +472,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   // ------------------------------------------------------------- apply
 
   function ingest(record: RowRecord): void {
+    if (record.kind === 'machine') return
     const entity = record.kind as EntityName
     const row = record.value as Row | undefined
     const roots = plain.get(entity)
@@ -656,12 +659,12 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       const values = extras.get(entity)?.get(id)
       const at = extraAt.get(entity)!
       const out: Record<string, unknown> = {}
-      for (const field of fields) {
+      for (const field of storedFields(entity, fields)) {
         const index = at.get(field)
         const value = index === undefined ? row[field] : values?.[index]
         if (value !== undefined) out[field] = value
       }
-      return out
+      return joinedFields(entity, out, fields, (kind, id) => companions.get(`${kind}:${id}`))
     },
     position: (_entity, id) => positions.get(id),
     get positionVersion() {
@@ -691,6 +694,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       version += 1
       topologyMoved = event.type === 'replace'
       if (event.type === 'replace') {
+        companions.clear()
         clear()
         issueQuestions.clear()
         positions.clear()
@@ -705,6 +709,12 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
           positions.set(record.id, ++positionSeq)
           positionVersion += 1
         }
+      }
+      for (const record of event.rows) {
+        if (record.kind !== 'repo' && record.kind !== 'machine') continue
+        const key = `${record.kind}:${record.id}`
+        if (record.value) companions.set(key, record.value as Row)
+        else companions.delete(key)
       }
       relations.begin()
       for (const record of event.rows) ingest(record)

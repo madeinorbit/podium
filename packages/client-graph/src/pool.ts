@@ -1,3 +1,4 @@
+import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import { createSessionPaneReader } from './session-pane'
 import {
   isSettingsEntity,
@@ -320,6 +321,7 @@ export class MobxPool {
   private emptyIndex: ColdIndex | undefined
   private referenceReader: IssueReferences | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
+  private readonly joinedRows = new WeakMap<object, object>()
   private disposed = false
 
   /** A reference borrows the source's keyed identity answer and one named
@@ -780,6 +782,17 @@ export class MobxPool {
             : residency.read(core, id)
       if (server === undefined) return undefined
     }
+    if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)) {
+      let view = this.joinedRows.get(server)
+      if (!view) {
+        view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
+          const companion = this.row(kind, key)
+          return companion === LOADING ? undefined : companion as Readonly<Record<string, unknown>> | undefined
+        })
+        this.joinedRows.set(server, view)
+      }
+      return view
+    }
     return server
   }
 
@@ -1021,6 +1034,8 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
+      const machineRows = event.rows.filter(record => record.kind === 'machine')
+      if (machineRows.length) this.header.apply(machineRows as never)
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()

@@ -83,6 +83,7 @@ export function reseed(
   // Only a feed without its own index hands the cold-capable rows over here.
   let carried: Map<string, StoredRow> | null = null
   for (const record of rows) {
+    if (record.kind === 'machine') continue
     if (residency?.capable(record.kind) === true) {
       if (record.value === undefined) continue
       carried ??= new Map()

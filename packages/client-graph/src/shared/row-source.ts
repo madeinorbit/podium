@@ -283,7 +283,8 @@ export function createRowSource(
       userStatesLoaded: replica.sessionUserStatesLoaded?.() ?? true,
       userState: userState as { readAt: string | null; snoozedUntil?: string | null } | undefined,
     })
-    return { ...value, readAt, unread, snoozedUntil }
+    const { machineName: _machineName, condition: _condition, handoffTarget: _handoffTarget, displayRef: _displayRef, ...own } = value
+    return { ...own, readAt, unread, snoozedUntil }
 
   }
 
@@ -571,16 +572,6 @@ export function createRowSource(
     return pending.issueUserStates.has(id) || pending.issueProjections.has(id)
   }
 
-  function prefixOf(repoId: string): string | null {
-    let row: AnyRow | undefined
-    try {
-      row = readRow('repos', repoId)
-    } catch {
-      row = undefined
-    }
-    return typeof row?.prefix === 'string' ? (row.prefix as string) : null
-  }
-
   function laneFor(
     path: string,
     repoId: string | null,
@@ -593,8 +584,7 @@ export function createRowSource(
     projectRoot?: boolean,
   ): SliceWorktree {
     const repoName = name ?? repoNameOf(repoPath)
-    const prefix = repoId !== null ? prefixOf(repoId) : null
-    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}|${projectRoot ?? ''}`
+    const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${branch ?? ''}|${isMain ?? ''}|${projectIndex ?? ''}|${projectAliases?.join(',') ?? ''}|${projectRoot ?? ''}`
     const cached = laneCache.get(path)
     if (cached !== undefined && cached.sig === sig) return cached.lane
     const lane: SliceWorktree = {
@@ -607,7 +597,6 @@ export function createRowSource(
       projectIndex,
       projectAliases,
       projectRoot,
-      ...(prefix !== null ? { prefix } : {}),
     }
     laneCache.set(path, { sig, lane })
     return lane
@@ -814,21 +803,6 @@ export function createRowSource(
     return out
   }
 
-  /** Repo facts already persisted before discovery has supplied any lanes.
-   *  Only snapshots and replaces enumerate these; ordinary updates keep the
-   *  keyed `resolveReposFanout` path. Raw rows never enter the lane diff. */
-  function unscannedRepos(): RowRecord[] {
-    const index = indexFor(currentRepos())
-    const out: RowRecord[] = []
-    for (const raw of replica.rows('repos')) {
-      const id = idOf(raw)
-      if (id === null || index.byId.has(id)) continue
-      stats.rowsVisited += 1
-      out.push({ kind: 'worktree', id, value: raw as unknown as SliceWorktree })
-    }
-    return out
-  }
-
   function flush(): RowSourceEvent | null {
     if (disposed) return null
     const recovering = diagnostics.resyncPending
@@ -870,7 +844,6 @@ export function createRowSource(
           ...enumerate('session', pending),
           ...enumerate('issue', pending),
           ...lanes,
-          ...unscannedRepos(),
           ...companions('repo'),
           ...companions('machine'),
         ],
@@ -1026,7 +999,7 @@ export function createRowSource(
     }
     stats.enumerations += 1
     if (kind === 'repo' || kind === 'machine') return companions(kind)
-    if (kind === 'worktree') return [...allLanes(), ...unscannedRepos()]
+    if (kind === 'worktree') return allLanes()
     return enumerate(kind, readPending())
   }
 

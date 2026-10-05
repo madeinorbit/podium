@@ -52,7 +52,8 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
     }
   }
   const { userState, repo, machine, handoffMachine } = homes
-  const readAt = userState?.readAt ?? null
+  const joined = session as SessionValueInput & Partial<SessionValues>
+  const readAt = Object.hasOwn(homes, 'userState') ? userState?.readAt ?? null : joined.readAt ?? null
   let displayRef: string | undefined
   if (repo?.prefix) {
     if (session.refSeq !== undefined && session.refLetter) {
@@ -70,13 +71,11 @@ export function sessionValues(session: SessionValueInput, homes: SessionHomes = 
     // No personal source row means no read cursor, just as an explicit null does.
     unread: (userState !== undefined || homes.userStatesLoaded !== false)
       && activityAfterRead(readAt, session.lastActiveAt ?? ''),
-    snoozedUntil: userState?.snoozedUntil,
-    displayRef,
-    machineName: machine?.name ?? '',
-    condition: machine?.loggedOutHarnesses.includes(session.agentKind ?? '')
-      ? 'logged-out'
-      : undefined,
-    handoffTarget: handoffMachine?.name,
+    snoozedUntil: Object.hasOwn(homes, 'userState') ? userState?.snoozedUntil : joined.snoozedUntil,
+    displayRef: Object.hasOwn(homes, 'repo') ? displayRef : joined.displayRef,
+    machineName: Object.hasOwn(homes, 'machine') ? machine?.name ?? '' : joined.machineName ?? '',
+    condition: Object.hasOwn(homes, 'machine') ? machine?.loggedOutHarnesses.includes(session.agentKind ?? '') ? 'logged-out' : undefined : joined.condition,
+    handoffTarget: Object.hasOwn(homes, 'handoffMachine') ? handoffMachine?.name : joined.handoffTarget,
   }
 }
 

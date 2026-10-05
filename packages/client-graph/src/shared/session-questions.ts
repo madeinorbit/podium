@@ -1,3 +1,4 @@
+import { sessionReferenceKey } from './session-reference'
 import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
@@ -30,7 +31,7 @@ export interface SessionQuestionFacts {
   issueId?: string
   closeOffers: boolean
   closeWorking: boolean
-  displayRef?: string
+  referenceKey?: string
   agentKind: string
   headless: boolean
   setupOrder: number
@@ -104,7 +105,7 @@ function same(a: SessionQuestionFacts | undefined, b: SessionQuestionFacts | und
   return a === b || (!!a && !!b && a.rank === b.rank && a.at === b.at &&
     a.activity === b.activity && a.createdAt === b.createdAt && a.machineId === b.machineId &&
     a.cwd === b.cwd && a.snooze === b.snooze && a.archived === b.archived && a.order === b.order &&
-    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.displayRef === b.displayRef &&
+    a.issueId === b.issueId && a.closeOffers === b.closeOffers && a.closeWorking === b.closeWorking && a.referenceKey === b.referenceKey &&
     a.agentKind === b.agentKind && a.headless === b.headless && a.setupOrder === b.setupOrder)
 }
 
@@ -196,7 +197,7 @@ export function createSessionQuestions(
     fileClose(value.id, value)
     fileSetup(value.id, value)
     const visible = !collapsed(value.id)
-    if (value.displayRef) bucket(references, `ref:${value.displayRef}`, value.id,
+    if (value.referenceKey) bucket(references, `ref:${value.referenceKey}`, value.id,
       visible ? { id: value.id, order: value.order } : undefined, compareReference)
     const next = value.rank === null || !visible ? undefined : {
       id: value.id, rank: value.rank, createdAt: value.createdAt, at: value.at,
@@ -228,8 +229,8 @@ export function createSessionQuestions(
   function setFacts(id: string, next: SessionQuestionFacts | undefined) {
     const before = facts.get(id)
     if (same(before, next)) return
-    if (before?.displayRef && before.displayRef !== next?.displayRef)
-      bucket(references, `ref:${before.displayRef}`, id, undefined, compareReference)
+    if (before?.referenceKey && before.referenceKey !== next?.referenceKey)
+      bucket(references, `ref:${before.referenceKey}`, id, undefined, compareReference)
     if (before?.machineId && before.machineId !== next?.machineId)
       bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
     const nextPaths = next ? new Set(activityPaths(next)) : undefined
@@ -312,7 +313,7 @@ export function createSessionQuestions(
         issueId: typeof row.issueId === 'string' ? row.issueId : undefined,
         closeOffers: !row.archived && row.agentKind !== 'shell' && !!row.offer,
         closeWorking: !row.archived && row.agentKind !== 'shell' && isSessionWorking(row as unknown as SessionView),
-        displayRef: typeof row.displayRef === 'string' ? row.displayRef : undefined,
+        referenceKey: sessionReferenceKey(row),
         agentKind: String(row.agentKind ?? ''), headless: !!row.headless,
         setupOrder: setupOrder(id),
       })

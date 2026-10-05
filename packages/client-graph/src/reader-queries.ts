@@ -1,7 +1,8 @@
+import { referenceKey } from './shared/session-reference'
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { parseSessionRef } from '@podium/protocol'
-import { createAtom, type IAtom, observe, reaction, untracked } from 'mobx'
+import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
 import { createKeyedAnswer, createQueryResult } from './query-result'
@@ -54,7 +55,6 @@ export class ReaderQueries {
   private readonly linkedAliases = new Map<string, Set<string>>()
   private readonly linkedPrefixes = new Map<string, Set<string>>()
   private readonly repoOverrides = new Map<string, string | undefined>()
-  private readonly repoStops = new Map<string, () => void>()
   private readonly repoPrefixCounts = new Map<string, number>()
   private readonly repoPrefixes: string[] = []
   private readonly repoPrefixAtom = createAtom('history.repositoryPrefixKey')
@@ -111,28 +111,9 @@ export class ReaderQueries {
       )
     this.stopTables.push(
       observe(pool.tables.repo, (change) => {
-        if (change.type === 'delete') {
-          this.repoStops.get(change.name)?.()
-          this.repoStops.delete(change.name)
-          this.changeRepoIdentity(change.name, undefined)
-        } else {
-          // A directly fed pool may replace a resident map value. Rebind that
-          // address; production repo facades still observe their own fields.
-          this.repoStops.get(change.name)?.()
-          this.repoStops.set(
-            change.name,
-            reaction(
-              () => {
-                const row = pool.row('repo', change.name) as
-                  | Readonly<Record<string, unknown>>
-                  | undefined
-                return row && typeof row.prefix === 'string' ? row.prefix : undefined
-              },
-              (prefix) => this.changeRepoIdentity(change.name, prefix),
-              { fireImmediately: true },
-            ),
-          )
-        }
+        const row = change.type === 'delete' ? undefined : pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined
+        this.changeRepoIdentity(change.name, typeof row?.prefix === 'string' ? row.prefix : undefined)
+
       }),
     )
     this.stopTables.push(
@@ -402,6 +383,10 @@ export class ReaderQueries {
     const identities = this.issueIdentities(),
       before = identities.repoPrefix(id)
     const bare = identities.setRepo(id, prefix)
+    for (const token of this.sessionReferenceAtoms.keys()) {
+      const key = parseSessionRef(token)?.prefix
+      if (key === before || key === prefix) this.publishSessionReference(token)
+    }
     for (const key of bare) this.publishLinkedAlias(key)
     for (const key of new Set([before, prefix]))
       if (key) {
@@ -453,10 +438,21 @@ export class ReaderQueries {
       state.atom.reportChanged()
     }
   }
+  private referenceWinner(ref: string, questions: SessionQuestions): string | undefined {
+    const parsed = parseSessionRef(ref)
+    if (!parsed) return undefined
+    const ids = this.issueIdentities().repoIds(parsed.prefix)
+    let first: string | undefined
+    for (const repoId of ids) {
+      const id = questions.referenceId(referenceKey(repoId, ref)!)
+      if (id && (first === undefined || this.index().sessionOrderKey(id) < this.index().sessionOrderKey(first))) first = id
+    }
+    return first
+  }
   sessionReferenceId(ref: string): string | undefined {
     const questions = this.sessionQuestions(),
       before = questions.visits,
-      value = questions.referenceId(ref)
+      value = this.referenceWinner(ref, questions)
     this.counts.scalarVisits += questions.visits - before
     const state = this.sessionReferenceAtoms.get(ref)
     if (state) state.atom.reportObserved()
@@ -478,8 +474,14 @@ export class ReaderQueries {
   private publishSessionReference(ref: string | undefined): void {
     if (!ref) return
     const state = this.sessionReferenceAtoms.get(ref)
-    if (!state) return
-    const value = this.sessionQuestions().referenceId(ref)
+    if (!state) {
+      for (const token of this.sessionReferenceAtoms.keys()) {
+        const parsed = parseSessionRef(token)
+        if (parsed && this.issueIdentities().repoIds(parsed.prefix).some(id => referenceKey(id, token) === ref)) this.publishSessionReference(token)
+      }
+      return
+    }
+    const value = this.referenceWinner(ref, this.sessionQuestions())
     if (value === state.value) return
     state.value = value
     state.atom.reportChanged()
@@ -569,7 +571,7 @@ export class ReaderQueries {
     const questions = this.sessionQuestions(),
       previous = questions.fact(id)
     const before = previous?.issueId,
-      beforeRef = previous?.displayRef
+      beforeRef = previous?.referenceKey
     const beforePresent = previous !== undefined
     const beforeVisible = this.topologyListeners.size ? questions.present(id) : false
     change(questions)
@@ -580,7 +582,7 @@ export class ReaderQueries {
     if (before) this.publishIssueClose(before)
     if (after && after !== before) this.publishIssueClose(after)
     this.publishSessionReference(beforeRef)
-    const afterRef = next?.displayRef
+    const afterRef = next?.referenceKey
     if (afterRef !== beforeRef) this.publishSessionReference(afterRef)
     if (this.sessionPathAtoms.size) {
       const paths = new Set<string>()
@@ -1092,8 +1094,6 @@ export class ReaderQueries {
   }
   dispose(): void {
     for (const stop of this.stopTables) stop()
-    for (const stop of this.repoStops.values()) stop()
-    this.repoStops.clear()
     this.repoOverrides.clear()
     this.repoPrefixCounts.clear()
     this.repoPrefixes.length = 0

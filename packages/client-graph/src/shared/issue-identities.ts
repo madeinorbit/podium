@@ -17,6 +17,7 @@ interface Seed {
   liveByRepo: KeyedAnswer<Bucket>
   lanes: KeyedAnswer<Lane>
   holders: KeyedAnswer<Lane>
+  records: KeyedAnswer<Lane>
 }
 export interface IssueIdentities {
   fork(): IssueIdentities
@@ -25,6 +26,7 @@ export interface IssueIdentities {
   set(id: string, row: Row | undefined): void
   setFact(id: string, fact: IssueIdentityFact | undefined): void
   fact(id: string): IssueIdentityFact | undefined
+  repoIds(prefix: string): readonly string[]
   repoPrefix(id: string): string | undefined
   setRepo(id: string, prefix: string | undefined): ReadonlySet<string>
   resolve(identifier: string): string | undefined
@@ -53,6 +55,7 @@ export function createIssueIdentities(
   let liveByRepo = seed?.liveByRepo.fork() ?? createKeyedAnswer<Bucket>()
   let lanes = seed?.lanes.fork() ?? createKeyedAnswer<Lane>()
   let holders = seed?.holders.fork() ?? createKeyedAnswer<Lane>()
+  let records = seed?.records.fork() ?? createKeyedAnswer<Lane>()
   const prefixOf = (fact: IssueIdentityFact) => fact.repoId ? repos.get(fact.repoId) : undefined
   function file(collection: KeyedAnswer<Bucket>, key: string, id: string, present: boolean) {
     const before = collection.get(key)
@@ -109,13 +112,13 @@ export function createIssueIdentities(
     return at > 0 ? prefixed(token.slice(0, at), token.slice(at + 1)) : undefined
   }
   return {
-    fork: () => createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, liveByRepo, lanes, holders }),
+    fork: () => createIssueIdentities(members, { facts, repos, prefixes, pairs, bare, byRepo, liveByRepo, lanes, holders, records }),
     clear() {
       facts = createKeyedAnswer<IssueIdentityFact>(); repos = createKeyedAnswer<string>()
       prefixes = createKeyedAnswer<Bucket>(); pairs = createKeyedAnswer<Bucket>()
       bare = createKeyedAnswer<Bucket>(); byRepo = createKeyedAnswer<Bucket>()
       liveByRepo = createKeyedAnswer<Bucket>()
-      lanes = createKeyedAnswer<Lane>(); holders = createKeyedAnswer<Lane>()
+      lanes = createKeyedAnswer<Lane>(); holders = createKeyedAnswer<Lane>(); records = createKeyedAnswer<Lane>()
     },
     apply(event) {
       if (event.type === 'replace') this.clear()
@@ -138,14 +141,21 @@ export function createIssueIdentities(
           repoWorktreeMembers: members,
         }, record.id, value)
       }
+      for (const record of event.rows) if (record.kind === 'repo') {
+        const row = record.value as Row | undefined
+        if (row) records.set(record.id, record.id, row as Lane)
+        else records.delete(record.id)
+        affected.add(record.id)
+      }
       // Complete composition before filing aliases, including on replacement.
-      for (const id of affected) setRepo(id, holders.get(id)?.prefix)
+      for (const id of affected) setRepo(id, records.get(id)?.prefix ?? holders.get(id)?.prefix)
       for (const record of event.rows) if (record.kind === 'issue') this.set(record.id, record.value as unknown as Row | undefined)
       return affected
     },
     set(id, row) { setFact(id, row ? { repoId: typeof row.repoId === 'string' && row.repoId ? row.repoId : undefined, seq: String(row.seq), ...(row.deletedAt ? { deleted: true } : {}) } : undefined) },
     setFact,
     fact: id => facts.get(id),
+    repoIds: prefix => prefixes.get(prefix)?.answer.snapshot() ?? [],
     repoPrefix: id => repos.get(id),
     setRepo,
     resolve(identifier) {

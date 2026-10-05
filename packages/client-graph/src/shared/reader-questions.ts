@@ -1,3 +1,5 @@
+import { parseSessionRef } from '@podium/protocol'
+import { referenceKey, sessionReferenceKey } from './session-reference'
 import { isFinished } from './predicates'
 /** History questions, answered by the row source. Results contain identities,
  * never rows or a map. The same questions can later be answered from storage. */
@@ -81,6 +83,16 @@ const referenceText = (text: string) => text.toLocaleLowerCase().replace(/[^a-z0
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
   const mentions = options.targetSearch === false ? undefined : createIssueMentionIndex()
+  const repoPaths = new Map<string, string>()
+  const reposAtPath = new Map<string, Set<string>>()
+  const pathKeys = (path: string) => [`issue:path:${path}`, ...[...(reposAtPath.get(path) ?? [])].map(id => `issue:repo:${id}`)]
+  const pathMembers = (path: string) => new Set(pathKeys(path).flatMap(key => [...bucket(key)]))
+  const repoPrefixes = new Map<string, string>()
+  const prefixRepos = new Map<string, Set<string>>()
+  const referenceKeys = (ref: string) => {
+    const prefix = parseSessionRef(ref)?.prefix
+    return prefix ? [...(prefixRepos.get(prefix) ?? [])].map(id => `session:ref:${referenceKey(id, ref)}`) : []
+  }
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
   const filed = new Map<string, Set<string>>()
@@ -102,7 +114,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const touch = (key: string) => revisions.set(key, ++version)
   const compareTargets = (a: string, b: string) =>
     (targetDetails.get(b)?.seq ?? 0) - (targetDetails.get(a)?.seq ?? 0) || byId(a, b)
-  const orderedTargetKey = (key: string) => key.startsWith('issue:path:')
+  const orderedTargetKey = (key: string) => key.startsWith('issue:path:') || key.startsWith('issue:repo:')
   function removeTarget(key: string, id: string) {
     const ids = targetPostings.get(key)
     if (!ids) return
@@ -185,12 +197,13 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         if (!deletedAt && isFinished({ stage, closedReason })) out.add('issue:reclaim')
       }
     } else if (kind === 'session') {
-      const { archived, headless, agentKind, status, displayRef, issueId } = row
+      const { archived, headless, agentKind, status, issueId } = row
       if (!archived) out.add('session:unarchived')
       if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
       if (['live', 'starting', 'reconnecting'].includes(status as string))
         out.add('session:host')
-      if (typeof displayRef === 'string') out.add(`session:ref:${displayRef}`)
+      const reference = sessionReferenceKey(row)
+      if (reference) out.add(`session:ref:${reference}`)
       if (typeof issueId === 'string') {
         out.add(`session:commandIssueWithShells:${issueId}`)
         if (agentKind !== 'shell') out.add(`session:commandIssue:${issueId}`)
@@ -277,7 +290,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           before.size !== after.size || [...before].some((key) => !after.has(key))
         )
           for (const key of new Set([...before, ...after]))
-            if (key.startsWith('issue:path:')) touch(`mobileTargets:${key}`)
+            if (orderedTargetKey(key)) touch(`mobileTargets:${key}`)
       }
     }
     for (const key of before)
@@ -360,7 +373,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'mobileIssueTargets':
           return Math.max(
             replacement,
-            revisions.get(`mobileTargets:issue:path:${question.repoPath}`) ?? 0,
+            revisions.get(`issueRepoPath:${question.repoPath}`) ?? 0,
+            ...pathKeys(question.repoPath).map(key => revisions.get(`mobileTargets:${key}`) ?? 0),
           )
         case 'proposedIssues':
           keys.push('issue:proposed')
@@ -379,7 +393,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('session:recent')
           break
         case 'sessionReference':
-          keys.push(`session:ref:${question.ref}`)
+          keys.push(...referenceKeys(question.ref), `session:prefix:${parseSessionRef(question.ref)?.prefix}`)
           break
         case 'commandIssueSessions':
           keys.push(commandIssueKey(question))
@@ -414,6 +428,10 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     apply(event: RowSourceEvent) {
       if (event.type === 'replace') {
+        repoPaths.clear()
+        reposAtPath.clear()
+        repoPrefixes.clear()
+        prefixRepos.clear()
         mentions?.clear()
         buckets.clear()
         repos.clear()
@@ -428,11 +446,34 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         replacement = ++version
         repoRevision++
       }
-      for (const record of event.rows)
-        if (record.kind !== 'worktree') set(record.kind, record.id, record.value as Row | undefined)
+      for (const record of event.rows) {
+        if (record.kind === 'repo' || record.kind === 'worktree') {
+          const row = record.value as Row | undefined
+          const id = record.kind === 'repo' || typeof row?.path !== 'string' ? record.id : row.repoId
+          if (typeof id !== 'string') continue
+          const oldPath = repoPaths.get(id), newPath = typeof row?.repoPath === 'string' ? row.repoPath : undefined
+          if (oldPath !== newPath) {
+            if (oldPath !== undefined) { reposAtPath.get(oldPath)?.delete(id); touch(`issueRepoPath:${oldPath}`) }
+            if (newPath !== undefined) {
+              let ids = reposAtPath.get(newPath)
+              if (!ids) reposAtPath.set(newPath, ids = new Set())
+              ids.add(id); repoPaths.set(id, newPath); touch(`issueRepoPath:${newPath}`)
+            } else repoPaths.delete(id)
+          }
+          const before = repoPrefixes.get(id), next = typeof row?.prefix === 'string' ? row.prefix : undefined
+          if (before !== next) {
+            if (before) { prefixRepos.get(before)?.delete(id); touch(`session:prefix:${before}`) }
+            if (next) {
+              let ids = prefixRepos.get(next)
+              if (!ids) prefixRepos.set(next, ids = new Set())
+              ids.add(id); repoPrefixes.set(id, next); touch(`session:prefix:${next}`)
+            } else repoPrefixes.delete(id)
+          }
+        } else if (record.kind === 'session' || record.kind === 'issue') set(record.kind, record.id, record.value as Row | undefined)
+      }
     },
     repoIds(path?: string): string[] {
-      return [...(path === undefined ? repos : (targetRepos.get(path)?.keys() ?? []))].sort(byId)
+      return [...(path === undefined ? repos : new Set([...(targetRepos.get(path)?.keys() ?? []), ...[...(reposAtPath.get(path) ?? [])].filter(id => bucket(`issue:repo:${id}`).size)]))].sort(byId)
     },
     contains(question: ReaderQuestion, id: string): boolean {
       const has = (key: string) => bucket(key).has(id)
@@ -449,7 +490,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'inboxSessions': return has('session:inbox')
         case 'headerSessions':
         case 'headerOccupancy': return has('session:host')
-        case 'sessionReference': return has(`session:ref:${question.ref}`)
+        case 'sessionReference': return referenceKeys(question.ref).some(has)
         case 'commandIssueSessions': return has(commandIssueKey(question))
         case 'boardCounts': return has('issue:live')
         case 'spawnIssues':
@@ -467,7 +508,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (question.priority != null && !has(`issue:priority:${question.priority}`)) return false
           if (question.stage && !has(`issue:status:${question.stage}`)) return false
           if (['open', 'closed', 'blocked'].includes(question.status ?? '') && !has(`issue:${question.status}`)) return false
-          if (question.projectPaths?.length && !question.projectPaths.some(path => has(`issue:path:${path}`))) return false
+          if (question.projectPaths?.length && !question.projectPaths.some(path => pathKeys(path).some(has))) return false
           if (question.explorerTab !== undefined && !question.searching) {
             if (!has('issue:live')) return false
             if (question.explorerTab === 'needs') return has('issue:open')
@@ -485,7 +526,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       switch (question.kind) {
         case 'issueMentionMatches': return mentions?.ids(question) ?? []
         case 'mobileIssueTargets': {
-          const ids = targetPostings.get(`issue:path:${question.repoPath}`) ?? []
+          const keys = pathKeys(question.repoPath)
+          const postings = keys.map(key => targetPostings.get(key) ?? []).filter(ids => ids.length)
+          const ids = postings.length <= 1 ? postings[0] ?? [] : [...new Set(postings.flat())].sort(compareTargets)
           const needle = question.query.trim().toLocaleLowerCase()
           const refNeedle = referenceText(needle)
           // The old reference lanes were admitted only by a digit. Preserve
@@ -543,7 +586,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           return []
         }
         case 'sessionReference':
-          return [...bucket(`session:ref:${question.ref}`)]
+          return referenceKeys(question.ref).flatMap(key => [...bucket(key)])
         case 'commandIssueSessions':
           return [...bucket(commandIssueKey(question))]
         case 'containingIssues': {
@@ -583,7 +626,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
             sets.push(bucket(`issue:${question.status}`))
           if (question.projectPaths?.length)
             sets.push(
-              new Set(question.projectPaths.flatMap((path) => [...bucket(`issue:path:${path}`)])),
+              new Set(question.projectPaths.flatMap((path) => [...pathMembers(path)])),
             )
           // Text searches also admit an archived exact reference. The reader
           // resolves that exception through its declared summary, on demand.

@@ -72,15 +72,17 @@ type RepoInputs = { id: unknown; prefix: unknown; repoPath: unknown }
 interface RepoState {
   readonly inputs: Map<string, ReturnType<typeof createFieldInputs<RepoInputs>>>
   holders: Map<string, StoredRow>
+  records: Map<string, StoredRow>
 }
 function repoState(table: WritableTable): RepoState {
-  if (!table.repoState) table.repoState = { inputs: new Map(), holders: new Map() }
+  if (!table.repoState) table.repoState = { inputs: new Map(), holders: new Map(), records: new Map() }
   return table.repoState
 }
 
 /** Replace staging transfers only its resident repo ownership bookkeeping. */
 export function replaceRepoHolders(from: WritableTable, to: WritableTable): void {
   repoState(to).holders = new Map(repoState(from).holders)
+  repoState(to).records = new Map(repoState(from).records)
 }
 
 /** The write surface ingest needs; a MobX map and a plain `Map` both have it. */
@@ -185,8 +187,9 @@ export function put(
   }
   if (entity === 'repo' && isObservableMap(target.write.repo)) {
     const table = target.write.repo
+    const companion = repoState(table).records.get(id) as Readonly<Record<string, unknown>> | undefined
     const read = (key: keyof RepoInputs) =>
-      key === 'id' ? id : repoFieldOf(row, key === 'repoPath' ? 'path' : key)
+      key === 'id' ? id : companion && Object.hasOwn(companion, key) ? companion[key] : repoFieldOf(row, key === 'repoPath' ? 'path' : key)
     const fields = repoState(table).inputs
     let inputs = previous && fields.get(id)
     if (inputs) {
@@ -230,7 +233,18 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
 
 /** Apply one feed record. */
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
+  if (record.kind === 'machine') return
   const value = record.value as StoredRow | undefined
+  if (record.kind === 'repo') {
+    if (value) {
+      repoState(target.write.repo).records.set(record.id, value)
+      put(target, 'repo', record.id, value, out)
+    } else {
+      repoState(target.write.repo).records.delete(record.id)
+      drop(target, 'repo', record.id, out)
+    }
+    return
+  }
   if (record.kind === 'worktree') {
     const holders = repoState(target.write.repo).holders
     // Repo-from-lane is the shared feed-layer composition (POD-4695): the
