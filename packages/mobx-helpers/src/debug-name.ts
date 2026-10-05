@@ -16,7 +16,9 @@ function requested(): boolean {
   // NODE_ENV for mobile builds, so its production path also omits names.
   else if (process.env.NODE_ENV !== 'production') return true
   try {
-    if (typeof location === 'undefined') return false
+    // No DOM types in this package: read the browser location defensively.
+    const location = (globalThis as { location?: { search: string } }).location
+    if (location === undefined) return false
     const params = new URLSearchParams(location.search)
     return params.get('mobxSidebarCheck') === '1'
   } catch {

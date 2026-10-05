@@ -30,7 +30,7 @@ describe('lean memory prototype', () => {
     const row = observable.box({ title: 'first' }, { deep: false })
     vi.spyOn(pool.filing, 'get').mockImplementation(() => ({
       order: ['one'], views: new Map([['one', row.get()]]),
-    }) as ReturnType<typeof pool.filing.get>)
+    }) as unknown as ReturnType<typeof pool.filing.get>)
     const census = startCensus()
     const value = pool.mountRow('one')
     expect(value.get()).toEqual({ title: 'first' })

@@ -46,5 +46,5 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
   }
   return Object.defineProperty(Object.assign(read, {
     clear: () => cache.clear(), keys: () => cache.keys(),
-  }), 'size', { get: () => cache.size }) as KeyedComputed<K, V, A>
+  }), 'size', { get: () => cache.size }) as unknown as KeyedComputed<K, V, A>
 }

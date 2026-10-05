@@ -60,6 +60,6 @@ export function createRowOverlay() {
       stable = Object.freeze(snapshot) as O
     }
     overridesByRow.set(row, stable)
-    return overlayRow(row, stable, omitted)
+    return overlayRow(row, stable, omitted) as T & O
   }
 }
