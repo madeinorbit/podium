@@ -1,5 +1,5 @@
 import type { SocketHub } from '../socket-transport/socket-hub'
-import type { ConversationConnection } from './controller'
+import type { ConversationConnection } from './contracts'
 
 /** The link to the server, from the socket hub: when it comes back up, the
  *  conversation catches up on its own messages by id (POD-4811). */

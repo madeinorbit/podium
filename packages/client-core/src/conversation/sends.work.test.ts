@@ -1,7 +1,7 @@
 import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
 import { expect, it, vi } from 'vitest'
 import { insideArm, measureWork } from '../../../worklist-proto/harness/src/work-meter'
-import { createSendsFixture as createConversationController } from './model-test-support'
+import { createSendsFixture } from './model-test-support'
 import { projectConversation } from './projection'
 
 // Count calls to the actual pure projection without replacing its behavior.
@@ -52,7 +52,7 @@ it('keeps context, offer and retract work independent of transcript size and sus
       status: 'stored',
     }
     const records = source<readonly MessageRecordWire[]>([record])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('chat'),
       transcript: feed.port,
       records: records.port,

@@ -23,7 +23,6 @@ import type { MobileTrpc, TranscriptPage } from './trpc'
 
 export {
   useSessionContextBooting as useBooting,
-  useSessionContextDraft as useSessionDraft,
   useSessionContextIssue as useIssue,
   useSessionContextIssues as useIssues,
   useSessionContextSession as useSession,

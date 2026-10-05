@@ -26,18 +26,18 @@ import {
   runInAction,
 } from 'mobx'
 import type {
-  ConversationControllerOptions,
+  ConversationSendOptions,
   ConversationContext,
   ConversationClock,
   ConversationSendInput,
-} from './controller'
-import { CATCH_UP_BATCH, NOT_STORED } from './controller'
+} from './contracts'
+import { CATCH_UP_BATCH, NOT_STORED } from './contracts'
 import type { DraftStore } from './draft-store'
 import type { TranscriptChange, TranscriptLog } from './transcript-log'
 import { freezePlain } from './frozen'
 
 export interface SendsOptions
-  extends Omit<ConversationControllerOptions, 'transcript' | 'initialDraft' | 'onDraftChange'> {
+  extends Omit<ConversationSendOptions, 'transcript' | 'initialDraft' | 'onDraftChange'> {
   transcript: TranscriptLog
   drafts: Pick<DraftStore, 'get' | 'set'>
   /** Reads the observable pool session row; no updateContext pushes. */
@@ -159,6 +159,8 @@ export class Sends {
       dismissOffer: action,
       interrupt: action,
       markInterrupted: action,
+      finishTurn: action,
+      clear: action,
       patch: action,
       observeRecords: actionBound,
       observeOutbox: actionBound,
@@ -268,6 +270,18 @@ export class Sends {
       return { ...turn, state: 'failed' as const, error: failure }
     })
     if (changed) this.patch({ pending })
+  }
+
+  clear(): void {
+    this.endOpenSend()
+    this.pending.clear()
+  }
+
+  /** An accepted headless turn can fail after the send request has resolved. */
+  finishTurn(error: string | null): void {
+    this.endOpenSend()
+    if (!error) return
+    this.pending.replace(this.pending.map(turn => turn.state === 'failed' ? turn : freezePlain({ ...turn, state: 'failed' as const, error })))
   }
 
   async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {

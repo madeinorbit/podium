@@ -6,7 +6,7 @@ import {
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { OutboxChatSend } from '../engine/chat-send'
-import { createSendsFixture as createConversationController } from './model-test-support'
+import { createSendsFixture } from './model-test-support'
 import type { ConversationPendingTurn } from './projection'
 
 function deferred<T>() {
@@ -82,7 +82,7 @@ describe('MobX sends over synced records', () => {
   it('does not publish transcript freshness or assistant text changes as conversation changes', () => {
     const feed = transcript()
     feed.set([user('u1', 'prompt'), { id: 'a1', role: 'assistant', text: 'partial' }])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'local',
@@ -102,7 +102,7 @@ describe('MobX sends over synced records', () => {
     const synced = records([
       record('sent', { status: 'typed', transcriptItem: { id: 'native', cursor: 'c1' } }),
     ])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       records: synced.port,
@@ -122,7 +122,7 @@ describe('MobX sends over synced records', () => {
   it('hands a send over to its record, and drops it when the named history entry arrives', async () => {
     const feed = transcript()
     const synced = records()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       records: synced.port,
@@ -157,7 +157,7 @@ describe('MobX sends over synced records', () => {
   it('never retires a bubble on matching text', async () => {
     const feed = transcript()
     const synced = records([record('msg-1', { body: 'same words', status: 'typed' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       records: synced.port,
@@ -172,7 +172,7 @@ describe('MobX sends over synced records', () => {
 
   it('shows a message sent from another device, with the status its record carries', () => {
     const synced = records([record('msg-other', { status: 'dispatched' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -192,7 +192,7 @@ describe('MobX sends over synced records', () => {
 
   it('says the agent has a message its program accepted, still on its way, too late to retract (POD-4885)', () => {
     const synced = records([record('msg-a', { status: 'accepted' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -222,7 +222,7 @@ describe('MobX sends over synced records', () => {
   it('reads a record whose status this build does not know as on its way, and does not throw', () => {
     const unknownToThisBuild = 'a-status-from-a-newer-server' as MessageRecordWire['status']
     const synced = records([record('msg-new-status', { status: unknownToThisBuild })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -246,7 +246,7 @@ describe('MobX sends over synced records', () => {
   })
 
   it('shows no bubble for a record first seen confirmed — that is history', () => {
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records([record('msg-old', { status: 'confirmed', transcriptItem: { id: 'e1' } })])
@@ -261,7 +261,7 @@ describe('MobX sends over synced records', () => {
 
   it('lets a confirmed record that names no history entry go: there is no id to wait for', () => {
     const synced = records([record('msg-1', { status: 'typed' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -276,7 +276,7 @@ describe('MobX sends over synced records', () => {
 
   it('drops a send whose record came and went (cancelled, dismissed, out of the window)', async () => {
     const synced = records()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -300,7 +300,7 @@ describe('MobX sends over synced records', () => {
     const synced = records([record('msg-1', { status: 'dispatched' })])
     const answer = deferred<MessageRecordWire['status']>()
     const retract = vi.fn(() => answer.promise)
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -326,7 +326,7 @@ describe('MobX sends over synced records', () => {
 
   it('a retract that came too late says so, from the record, on every device', async () => {
     const synced = records([record('msg-1', { status: 'dispatched' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -356,7 +356,7 @@ describe('MobX sends over synced records', () => {
 
   it('a retract that fails says why on the bubble, and the bubble stays retractable', async () => {
     const synced = records([record('msg-1', { status: 'stored' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -390,7 +390,7 @@ describe('MobX sends over synced records', () => {
       'failed',
     ]
     const synced = records(statuses.map((status, index) => record(`msg-${index}`, { status })))
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -423,7 +423,7 @@ describe('MobX sends over synced records', () => {
       )
     })
     const retract = vi.fn()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -471,7 +471,7 @@ describe('MobX sends over synced records', () => {
       },
     ]
     const retract = vi.fn(async () => 'cancelled' as const)
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -498,7 +498,7 @@ describe('MobX sends over synced records', () => {
       synced.set([])
     })
     const deliver = vi.fn()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: synced.port,
@@ -532,7 +532,7 @@ describe('MobX sends over synced records', () => {
         }),
       )
       .mockResolvedValueOnce({ state: 'sent' })
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -561,7 +561,7 @@ describe('MobX sends over synced records', () => {
 
   it('lets a failed send go when the outbox no longer holds it', async () => {
     const sends = source<readonly OutboxChatSend[]>([])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -581,7 +581,7 @@ describe('MobX sends over synced records', () => {
 
   it('retires a send with no record by the next user entry, whatever its text', async () => {
     const feed = transcript()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       reconcile: 'next-user-item',
@@ -604,7 +604,7 @@ describe('MobX sends contract', () => {
       .fn()
       .mockRejectedValueOnce(new Error('not sent'))
       .mockResolvedValueOnce({ state: 'queued' })
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       initialDraft: 'remembered',
@@ -640,7 +640,7 @@ describe('MobX sends contract', () => {
     const delivered = new Promise<void>((_resolve, no) => {
       reject = no
     })
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'msg-1',
@@ -661,7 +661,7 @@ describe('MobX sends contract', () => {
   it('owns interrupt capability, draft recall, and refusal state', async () => {
     const feed = transcript()
     const interrupt = vi.fn().mockRejectedValue(new Error('agent is idle'))
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'msg-1',
@@ -690,7 +690,7 @@ describe('MobX sends contract', () => {
   it('correlates a successful interrupt to the open delivery and keeps its bubble', async () => {
     const feed = transcript()
     const interrupt = vi.fn(async (_messageId?: string) => {})
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'msg-1',
@@ -717,7 +717,7 @@ describe('MobX sends contract', () => {
     // it keeps up stayed on screen that long after a Stop that had worked.
     const feed = transcript()
     const timers: Array<() => void> = []
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'msg-1',
@@ -742,7 +742,7 @@ describe('MobX sends contract', () => {
 
   it('a refused Stop leaves "just sent" to the send it did not stop', async () => {
     const feed = transcript()
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       createDeliveryId: () => 'msg-1',
@@ -787,7 +787,7 @@ describe('MobX sends over a durable send', () => {
   it('follows a send it was seeded with, once, and takes its state from the outcome', async () => {
     const outcome = deferred<{ state: 'queued' }>()
     const deliver = vi.fn(() => outcome.promise)
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       initialPending: [held],
@@ -817,7 +817,7 @@ describe('MobX sends over a durable send', () => {
   it('keeps a send `sending` for as long as it is — no timer relabels it', async () => {
     vi.useFakeTimers()
     try {
-      const controller = createConversationController({
+      const controller = createSendsFixture({
         sessionId: asSessionId('s1'),
         transcript: transcript().port,
         createDeliveryId: () => 'msg-1',
@@ -841,7 +841,7 @@ describe('MobX sends over a durable send', () => {
       throw refused
     })
     const discard = vi.fn(async () => {})
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       createDeliveryId: () => 'msg-refused',
@@ -872,7 +872,7 @@ describe('MobX sends over a durable send', () => {
         Object.assign(new Error("not sent — couldn't reach the server"), { retryable: true }),
       )
       .mockResolvedValueOnce({ state: 'sent' })
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       createDeliveryId: () => 'msg-once',
@@ -957,7 +957,7 @@ describe('MobX sends catching up by id', () => {
             }),
       ),
     )
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       records: records().port,
@@ -988,7 +988,7 @@ describe('MobX sends catching up by id', () => {
 
   it('asks at start for the sends a reload seeded, and follows what the server holds', async () => {
     const lookup = vi.fn(async () => [record('msg_held', { status: 'stored' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1005,7 +1005,7 @@ describe('MobX sends catching up by id', () => {
 
   it('never asks for what the feed carries', () => {
     const lookup = vi.fn(async () => [])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records([record('msg-1', { status: 'dispatched' })]).port,
@@ -1029,7 +1029,7 @@ describe('MobX sends catching up by id', () => {
       heldSend('msg-parked', 'failed'),
     ])
     const ids = ['msg-gone']
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1073,7 +1073,7 @@ describe('MobX sends catching up by id', () => {
     const answer = deferred<MessageRecordWire[]>()
     const sent = deferred<{ state: 'sent' }>()
     const lookup = vi.fn(() => answer.promise)
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1098,7 +1098,7 @@ describe('MobX sends catching up by id', () => {
     const lookup = vi.fn(async () => [
       record('msg-1', { status: 'failed', noticeDismissedAt: '2026-09-29T11:00:00.000Z' }),
     ])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1117,7 +1117,7 @@ describe('MobX sends catching up by id', () => {
     const discard = vi.fn(async () => {
       outbox.set([])
     })
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1143,7 +1143,7 @@ describe('MobX sends catching up by id', () => {
       .fn()
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce([record('msg-1', { status: 'confirmed' })])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1163,7 +1163,7 @@ describe('MobX sends catching up by id', () => {
   })
 
   it('keeps going when the read cannot even start (a client without the procedure)', () => {
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: transcript().port,
       records: records().port,
@@ -1184,7 +1184,7 @@ describe('composer draft work', () => {
   it('keeps 60 keys out of conversation projections and surface publications', () => {
     const feed = transcript()
     const synced = records([record('held')])
-    const controller = createConversationController({
+    const controller = createSendsFixture({
       sessionId: asSessionId('s1'),
       transcript: feed.port,
       records: synced.port,

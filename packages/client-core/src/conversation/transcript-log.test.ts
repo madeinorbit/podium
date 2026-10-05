@@ -9,7 +9,7 @@ import {
   TRANSCRIPT_LIVE_HEARTBEAT_MS,
   type TranscriptPage,
   type TranscriptReadRequest,
-} from '../transcript/controller'
+} from '../transcript/contracts'
 
 function item(id: string, cursor: string, text = id): TranscriptItem {
   return { id, cursor, role: 'assistant', text }

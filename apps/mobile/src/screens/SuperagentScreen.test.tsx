@@ -72,14 +72,18 @@ vi.mock('../components/BottomSheet', () => ({
       </div>
     ) : null,
 }))
-vi.mock('../components/TranscriptList', () => ({
-  TranscriptList: ({
-    items = [],
+vi.mock('../components/TranscriptList', async () => {
+  const { observer } = await import('mobx-react-lite')
+  return {
+  TranscriptList: observer(({
+    transcript,
+    items = transcript?.items ?? [],
     liveItem,
     tail,
     pendingTurns = [],
     transcriptQuestion,
   }: {
+    transcript?: import('@podium/client-core/conversation').TranscriptLog
     items?: { text: string }[]
     liveItem?: { text: string }
     tail?: { label: string; tone: string }
@@ -108,8 +112,8 @@ vi.mock('../components/TranscriptList', () => ({
         ) : null}
       </div>
     )
-  },
-}))
+  }),
+}})
 vi.mock('../components/Composer', () => ({
   Composer: ({
     leading,
@@ -885,4 +889,15 @@ describe('SuperagentScreen chrome', () => {
     act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }))
     expect(screen.queryByText('Current live failure')).toBeNull()
   })
+})
+
+it('does not poll the thread every five seconds while a turn is running', async () => {
+  const interval = vi.spyOn(globalThis, 'setInterval')
+  try {
+    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(async () => null))
+    await screen.findByText('transcript')
+    act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' }))
+    await waitFor(() => expect(screen.getByTestId('superagent-working-indicator')).toBeTruthy())
+    expect(interval.mock.calls.filter(([, delay]) => delay === 5000)).toEqual([])
+  } finally { interval.mockRestore() }
 })

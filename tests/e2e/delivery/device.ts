@@ -8,7 +8,7 @@
  *    device's process, so a RELOAD finds what the last life queued;
  *  - `sendChatThroughOutbox` under an id minted before the first attempt, the
  *    one chat send path both apps take since POD-4762;
- *  - a `ConversationController` per session, wired as `use-chat-send.ts` wires
+ *  - a `Conversation` per session, wired as `use-chat-send.ts` wires
  *    it (deliver through the outbox, retract, discard, dismiss, and the
  *    catch-up by id on start and on every reconnect, POD-4811), fed by a real
  *    `/client` socket: `transcriptDelta` frames for the history, and the
@@ -25,10 +25,12 @@
 import { randomUUID } from 'node:crypto'
 import {
   type ConversationBubbleState,
-  ConversationController,
+  Conversation,
   type ConversationPendingTurn,
   type ConversationRecords,
-  type ConversationState,
+  DraftStore,
+  type Sends,
+  type TranscriptLog,
 } from '@podium/client-core/conversation'
 import {
   discardChatThroughOutbox,
@@ -85,34 +87,6 @@ const MESSAGE_ID_IN_TEXT = /\[(msg_[0-9a-f-]+)\]/g
 
 export function messageIdsIn(text: string): string[] {
   return [...text.matchAll(MESSAGE_ID_IN_TEXT)].map((match) => match[1] as string)
-}
-
-class TranscriptView {
-  items: TranscriptItem[] = []
-  private readonly listeners = new Set<() => void>()
-  readonly port = {
-    getSnapshot: (): { items: readonly TranscriptItem[] } => ({ items: this.items }),
-    subscribe: (listener: () => void): (() => void) => {
-      this.listeners.add(listener)
-      return () => this.listeners.delete(listener)
-    },
-  }
-
-  apply(items: readonly TranscriptItem[], reset: boolean): void {
-    if (reset) {
-      this.items = [...items]
-    } else {
-      const byId = new Map(this.items.map((item, index) => [item.id, index]))
-      const next = [...this.items]
-      for (const item of items) {
-        const at = byId.get(item.id)
-        if (at === undefined) next.push(item)
-        else next[at] = item
-      }
-      this.items = next
-    }
-    for (const listener of this.listeners) listener()
-  }
 }
 
 /** One change row as either wire spells it: v1 keys the target `id`, v2
@@ -205,8 +179,9 @@ export class Device {
   private readonly connectionListeners = new Set<(connected: boolean) => void>()
   private readonly settlements = new OutboxSettlements()
   private outbox: EngineOutbox | undefined
-  private readonly transcripts = new Map<SessionId, TranscriptView>()
-  private readonly controllers = new Map<SessionId, ConversationController>()
+  private readonly transcripts = new Map<SessionId, TranscriptLog>()
+  private readonly controllers = new Map<SessionId, Conversation>()
+  private drafts: DraftStore | undefined
   private records = new RecordsView()
   private socket: WebSocket | undefined
   private socketTimer: ReturnType<typeof setTimeout> | undefined
@@ -277,9 +252,11 @@ export class Device {
     })
     outbox.attach()
     this.outbox = outbox
+    this.drafts = new DraftStore({
+      storage: { get: () => null, set: () => {} },
+      hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'down', since: Date.now() }) } as never,
+    })
     for (const sessionId of this.options.sessionIds) {
-      const transcript = new TranscriptView()
-      this.transcripts.set(sessionId, transcript)
       // What a reload restores (use-chat-send.ts): every send the outbox still
       // holds comes back as the bubble it was, and the controller waits on it.
       const held: ConversationPendingTurn[] = outboxChatSends(outbox, sessionId).map(
@@ -294,9 +271,17 @@ export class Device {
           ...(send.failure ? { error: send.failure.message } : {}),
         }),
       )
-      const controller = new ConversationController({
+      const controller = new Conversation({
         sessionId,
-        transcript: transcript.port,
+        drafts: this.drafts,
+        connection: { connected: () => this.connected, subscribe: listener => { this.connectionListeners.add(listener); return () => { this.connectionListeners.delete(listener) } } },
+        transcript: {
+          source: {
+            read: request => this.api.sessions.transcriptRead.query(request),
+            subscribe: () => () => {},
+          },
+        },
+        sends: {
         initialPending: held,
         createDeliveryId: () => {
           const id = this.nextId ?? `msg_${randomUUID()}`
@@ -325,7 +310,9 @@ export class Device {
           this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
         discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),
         dismissNotice: (id) => this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
+        },
       })
+      this.transcripts.set(sessionId, controller.transcript)
       this.controllers.set(sessionId, controller)
       controller.start()
     }
@@ -400,7 +387,7 @@ export class Device {
       }
       if (frame.type !== 'transcriptDelta' || !frame.sessionId || !Array.isArray(frame.items))
         return
-      this.transcripts.get(frame.sessionId as SessionId)?.apply(frame.items, frame.reset === true)
+      this.transcripts.get(frame.sessionId as SessionId)?.merge(frame.items, { reset: frame.reset === true })
     })
     const lost = (): void => {
       if (this.socket !== ws) return
@@ -459,7 +446,7 @@ export class Device {
     const controller = this.controller(sessionId)
     const id = `msg_${randomUUID()}`
     this.nextId = id
-    const settled = controller.submit({ text: messageText(id, label) }).then(
+    const settled = controller.sends.submit({ text: messageText(id, label) }).then(
       () => undefined,
       () => undefined,
     )
@@ -470,7 +457,7 @@ export class Device {
   async retry(sessionId: SessionId, messageId: string): Promise<void> {
     const bubble = this.bubble(sessionId, messageId)
     if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retry`)
-    await this.controller(sessionId)
+    await this.controller(sessionId).sends
       .retry(bubble.id)
       .catch(() => undefined)
   }
@@ -491,14 +478,13 @@ export class Device {
         `${this.name}: no bubble for ${messageId} to retract (frames: ${JSON.stringify([...this.socketFrames])}, records: ${this.records.all().length})`,
       )
     }
-    await this.controller(sessionId)
+    await this.controller(sessionId).sends
       .retract(bubble.id)
       .catch(() => undefined)
   }
 
   private bubble(sessionId: SessionId, messageId: string) {
-    return this.controller(sessionId)
-      .getSnapshot()
+    return this.controller(sessionId).sends
       .bubbles.find((candidate) => candidate.deliveryId === messageId)
   }
 
@@ -514,7 +500,7 @@ export class Device {
     await this.boot()
   }
 
-  controller(sessionId: SessionId): ConversationController {
+  controller(sessionId: SessionId): Conversation {
     const controller = this.controllers.get(sessionId)
     if (!controller) throw new Error(`${this.name}: no conversation for ${sessionId}`)
     return controller
@@ -539,7 +525,7 @@ export class Device {
   /** Every message id this device shows for a session, and how. */
   screen(sessionId: SessionId): Map<string, MessageOnScreen> {
     return bubblesOf(
-      this.controller(sessionId).getSnapshot(),
+      this.controller(sessionId).sends,
       this.transcripts.get(sessionId)?.items ?? [],
     )
   }
@@ -557,6 +543,8 @@ export class Device {
     // controllers catch up on (they also catch up as they start).
     this.connected = false
     for (const controller of this.controllers.values()) controller.dispose()
+    this.drafts?.dispose()
+    this.drafts = undefined
     this.controllers.clear()
     this.transcripts.clear()
     this.records = new RecordsView()
@@ -574,7 +562,7 @@ export class Device {
  * bubble no matter which two of these drew it.
  */
 export function bubblesOf(
-  state: ConversationState,
+  state: Pick<Sends, 'bubbles'>,
   transcript: readonly TranscriptItem[],
 ): Map<string, MessageOnScreen> {
   const drawn = new Map<string, MessageOnScreen>()
