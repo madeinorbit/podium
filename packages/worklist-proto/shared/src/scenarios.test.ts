@@ -468,6 +468,38 @@ describe('seeded kernel rows reach the replica (POD-4624)', () => {
 })
 
 describe('scenario server writes build on server truth (POD-4551)', () => {
+  it('defers eager mark-read until a writer attaches and pauses it after detach', async () => {
+    const ctx = await startScenarioEngine(1)
+    let rows: ReturnType<typeof createRowSource> | undefined
+    const readAt = (id: string) =>
+      referenceState(ctx.engine).issueUserStates.find(row => row.entityId === id)?.readAt
+    try {
+      const id = ctx.targets.visibleRootId
+      const before = readAt(id)
+      referenceState(ctx.engine).setSelectedIssueId(asIssueId(id))
+      await new Promise(resolve => setTimeout(resolve, ctx.settleMs))
+      expect(readAt(id), 'selection waits for its transaction owner').toBe(before)
+      expect(ctx.engine.outbox.pending()).toHaveLength(0)
+
+      rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
+      await new Promise(resolve => setTimeout(resolve, ctx.settleMs))
+      expect(readAt(id), 'attachment marks the already selected issue read').toEqual(expect.any(String))
+      expect(readAt(id)).not.toBe(before)
+
+      rows.dispose()
+      rows = undefined
+      const next = ctx.targets.stageMoveId
+      const nextBefore = readAt(next)
+      referenceState(ctx.engine).setSelectedIssueId(asIssueId(next))
+      await new Promise(resolve => setTimeout(resolve, ctx.settleMs))
+      expect(readAt(next), 'detached navigation cannot write').toBe(nextBefore)
+      expect(ctx.engine.outbox.pending()).toHaveLength(0)
+    } finally {
+      rows?.dispose()
+      ctx.dispose()
+    }
+  }, 60_000)
+
   it('a server write on another field of a row with a pending edit keeps the server value', async () => {
     // A server that never answers keeps the title edit pending, so the
     // runtime snapshot paints it while the server cache does not have it.
