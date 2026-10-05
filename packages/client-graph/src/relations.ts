@@ -33,7 +33,7 @@
  * through this reader and never themselves.
  */
 
-import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
+import { createAtom, type IAtom } from 'mobx'
 import { debugName } from './debug-name'
 import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
@@ -249,7 +249,6 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /** Make a slot read tracked: an atom for this slot, on the first read inside a derivation. */
   private observe(key: string): void {
-    if (!_isComputingDerivation()) return
     let atom = this.atoms.get(key)
     let fresh = false
     if (atom === undefined) {

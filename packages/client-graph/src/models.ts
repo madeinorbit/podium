@@ -74,7 +74,7 @@ import { cachedGroup } from './cached'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
 import type { Residence } from './pool'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
-import { overlayRow } from './shared/overlay-row'
+import { createRowOverlay } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
 import { FEED_SPELLING } from './shared/repo-from-lane'
 import {
@@ -85,6 +85,8 @@ import {
   type RowView,
   type RowViewField,
 } from './shared/row-view'
+
+const overlayRow = createRowOverlay()
 
 import { type EntityName, SCHEMA } from './shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession, SliceWorktree } from './shared/slice-types'

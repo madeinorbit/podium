@@ -1,6 +1,6 @@
 import { types } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { overlayRow } from './overlay-row'
+import { createRowOverlay, overlayRow } from './overlay-row'
 
 describe('frozen row overlays', () => {
   it('reuses exactly the same row, overrides and omission identities', () => {
@@ -80,5 +80,28 @@ describe('frozen row overlays', () => {
       expect(overlayRow(row, patch)).toBe(value)
     }
     expect(reads).toBe(1)
+  })
+})
+
+
+describe('addressed overlay values', () => {
+  it('reuses fresh equivalent overrides but changes with a field or borrowed row', () => {
+    const join = createRowOverlay(), row = { id: 'a', title: 'server' }
+    const first = join(row, { title: 'pending' })
+    expect(join(row, { title: 'pending' })).toBe(first)
+    expect(join(row, { title: 'different' })).not.toBe(first)
+    expect(join({ ...row }, { title: 'pending' })).not.toBe(first)
+  })
+  it('snapshots override fields and keeps omission policies distinct', () => {
+    const join = createRowOverlay(), row = { id: 'a', title: 'server' }, patch = { title: 'first' }
+    const first = join(row, patch)
+    patch.title = 'second'
+    const next = join(row, patch)
+    expect(first.title).toBe('first')
+    expect(next.title).toBe('second')
+    expect(next).not.toBe(first)
+    const omit = new Set<PropertyKey>(['id'])
+    expect(join(row, { title: 'second' }, omit)).not.toBe(next)
+    expect(join(row, { title: 'second' }, omit)).toBe(join(row, { title: 'second' }, omit))
   })
 })

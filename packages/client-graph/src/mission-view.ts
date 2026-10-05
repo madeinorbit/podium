@@ -16,8 +16,11 @@ import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import { type SeatRelation, sessionSeats } from './session-seats'
-import { overlayRow } from './shared/overlay-row'
+import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
+
+const issueRefOverlay = createRowOverlay()
+const issueNavigationOverlay = createRowOverlay()
 
 export interface MissionRowPresentation {
   state: ReturnType<typeof deckIssueState>
@@ -212,7 +215,7 @@ export class MissionViewReader {
     const row = raw as IssueNavigationModel
     const repoId = this.pool.graph.one('issue', id, 'repo')
     const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
-    return overlayRow(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
+    return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
   /** Every explicit mission sender, archived history included, in session
    * order. Only whole-list readers (menus) ask for it; mission derivations
@@ -409,7 +412,7 @@ export class MissionViewReader {
     unread ||= members.latest > Date.parse(readAt ?? '')
     const deferAt = row.deferUntil ? Date.parse(row.deferUntil) : NaN
     const deferred = Number.isFinite(deferAt) && !this.pool.clock.reached(deferAt)
-    return overlayRow(row, {
+    return issueNavigationOverlay(row, {
       description: typeof row.description === 'string' ? row.description : row.description?.value ?? '',
       notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       worktreePath: row.worktreePath ?? null, branch: row.branch ?? null,

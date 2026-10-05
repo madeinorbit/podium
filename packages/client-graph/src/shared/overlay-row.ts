@@ -43,3 +43,18 @@ export function overlayRow<T extends object, O extends object>(
 }
 
 const NO_OMISSIONS = Object.freeze({ has: () => false })
+
+/** One caller's latest override VALUE per borrowed row. Snapshot only the
+ * override fields, so immutable row views can reuse the identity memo above. */
+export function createRowOverlay() {
+  const overridesByRow = new WeakMap<object, object>()
+  return <T extends object, O extends object>(row: T, overrides: Readonly<O>, omitted: Omissions = NO_OMISSIONS): T & O => {
+    const previous = overridesByRow.get(row)
+    const keys = Reflect.ownKeys(overrides)
+    const same = previous !== undefined && keys.length === Reflect.ownKeys(previous).length &&
+      keys.every(key => Object.hasOwn(previous, key) && Object.is(Reflect.get(previous, key), Reflect.get(overrides, key)))
+    const stable = same ? previous as O : Object.freeze(Object.fromEntries(keys.map(key => [key, Reflect.get(overrides, key)]))) as O
+    overridesByRow.set(row, stable)
+    return overlayRow(row, stable, omitted)
+  }
+}

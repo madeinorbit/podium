@@ -1,15 +1,9 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
-import {
-  _isComputingDerivation,
-  compareStructural,
-  computed,
-  type IComputedValue,
-  onBecomeUnobserved,
-  reaction,
-} from 'mobx'
+import { compareStructural, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
@@ -50,7 +44,12 @@ const contains = (cwd: string, root: string) =>
 /** Views over one pool. Memos exist only while observed, and are released when
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */
 export function createHeaderViews(pool: MobxPool) {
-  const cache = new Map<string, IComputedValue<unknown>>()
+  // Header summaries allocate fresh records; compare their values explicitly.
+  const cache = keyedComputed(
+    (key: string) => debugName(() => `header.${key}`),
+    (key: string, read: () => unknown) => measureHeader(`pool.${key.split(':')[0]}`, read),
+    { equals: compareStructural },
+  )
   let sessions: HeaderSessions | undefined
   let offline: ReturnType<typeof createQueryResult<HeaderRows['machine']>> | undefined
   function offlineMachines(): HeaderRows['machine'][] {
@@ -90,19 +89,7 @@ export function createHeaderViews(pool: MobxPool) {
     sessions ??= new HeaderSessions(pool)
     return sessions
   }
-  function memo<T>(key: string, read: () => T): T {
-    if (!_isComputingDerivation()) return measureHeader(`pool.${key.split(':')[0]}`, read)
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(() => measureHeader(`pool.${key.split(':')[0]}`, read), {
-        equals: compareStructural,
-        name: debugName(() => `header.${key}`),
-      })
-      cache.set(key, value)
-      onBecomeUnobserved(value, () => cache.delete(key))
-    }
-    return value.get() as T
-  }
+  const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function row<E extends HeaderEntity>(entity: E, id: string): HeaderRows[E] | undefined {
     return pool.row(entity, id) as HeaderRows[E] | undefined
   }

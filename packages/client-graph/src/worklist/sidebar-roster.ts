@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 /** Resident roster candidates, maintained by existing ingest and issue filings.
  * No per-session reaction or full session/issue record is retained here.
  *
@@ -7,7 +8,7 @@
  * never be a retained seat; one only waiting for the load window is filed
  * when it arrives. The former cold lane summaries (one per history session,
  * built at every attach) are gone. */
-import { computed, compareStructural, observable, type IComputedValue, type ObservableSet } from 'mobx'
+import { compareStructural, observable, type ObservableSet } from 'mobx'
 import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
@@ -39,7 +40,13 @@ export class SidebarRosterIndex {
   private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projectCounts') })
   private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
-  private readonly bands = new Map<string, IComputedValue<{ readonly ids: readonly string[]; readonly label: string; readonly repoPath: string }>>()
+  // The lane snapshot and metadata record are freshly assembled on a change.
+  private readonly bands = keyedComputed((key: string) => debugName(() => `pool.sidebar.rosterBand.${key}`), (key: string) => {
+    const ids = [...this.paths.lane(key)]
+    const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
+    const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
+    return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
+  }, { equals: compareStructural })
   private readonly expiries = new Map<string, number>()
   private readonly due = new Map<number, Set<string>>()
   private readonly deadlines: number[] = []
@@ -59,17 +66,7 @@ export class SidebarRosterIndex {
   }
   band(key: string) {
     this.pool.worklist.need()
-    let band = this.bands.get(key)
-    if (!band) {
-      band = computed(() => {
-        const ids = [...this.paths.lane(key)]
-        const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
-        const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
-        return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
-      }, { name: debugName(() => `pool.sidebar.rosterBand.${key}`), equals: compareStructural })
-      this.bands.set(key, band)
-    }
-    return band.get()
+    return this.bands(key)
   }
   unpinnedProjectLanes(project: number | undefined, pinned: readonly string[]): number {
     let count = this.projectCounts.get(project) ?? 0

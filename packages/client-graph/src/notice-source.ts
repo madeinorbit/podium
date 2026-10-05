@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import { isMessageRecordAttention, type MessageRecordWire } from '@podium/model'
-import { _isComputingDerivation, compareStructural, createAtom, type IAtom, runInAction } from 'mobx'
+import { compareStructural, createAtom, type IAtom, runInAction } from 'mobx'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
 import { createKeyedAnswer } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -112,7 +112,6 @@ export class NoticeSource {
   }
 
   private watch(entity: NoticeEntity, id: string): boolean {
-    if (!_isComputingDerivation()) return false
     const key = `${entity}:${id}`
     let atom = this.watched.get(key)
     if (!atom) {

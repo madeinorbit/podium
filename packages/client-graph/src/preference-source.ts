@@ -1,5 +1,5 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { _isComputingDerivation, createAtom, type IAtom, runInAction } from 'mobx'
+import { createAtom, type IAtom, runInAction } from 'mobx'
 import { declarePreference, type PreferenceRow } from './preference-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -32,19 +32,16 @@ export class PreferenceSource {
     if (this.disposed) return LOADING
     // Validate the routing home before either observing or reading the owner.
     if (!this.homes.has(key)) this.homes.set(key, declarePreference(key))
-    if (_isComputingDerivation()) {
-      let atom = this.atoms.get(key)
-      if (!atom) {
-        atom = createAtom(`preference:${key}`, undefined, () => {
-          this.atoms.delete(key)
-          this.rows.delete(key)
-          this.homes.delete(key)
-          this.pending.delete(key)
-        })
-        this.atoms.set(key, atom)
-      }
-      atom.reportObserved()
+    let atom = this.atoms.get(key)
+    if (!atom) {
+      atom = createAtom(`preference:${key}`, undefined, () => {
+        this.atoms.delete(key)
+        this.rows.delete(key)
+        this.homes.delete(key)
+        this.pending.delete(key)
+      })
     }
+    if (atom.reportObserved()) this.atoms.set(key, atom)
     const row = this.rows.get(key)
     if (row !== undefined) return row
     this.pending.add(key)

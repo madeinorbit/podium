@@ -1,9 +1,11 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree, WorktreeView } from '@podium/client-core/values'
 import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
-import { compareStructural, computed } from 'mobx'
+import { compareStructural } from 'mobx'
+import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
 import { missionView } from './mission-view'
@@ -28,15 +30,13 @@ const contains = (cwd: string, root: string) =>
 /** Cached views over the pool's one reader. No replica, legacy array, peek or
  * cold-ID index lives here. A missing summary queues the existing batch. */
 export function createShellViews(pool: MobxPool) {
-  const cache = new Map<string, { get(): unknown }>()
-  function memo<T>(key: string, read: () => T): T {
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(read, { equals: compareStructural })
-      cache.set(key, value)
-    }
-    return value.get() as T
-  }
+  // Summaries build fresh arrays/records; equal answers must not wake consumers.
+  const cache = keyedComputed(
+    (key: string) => debugName(() => `shell.${key}`),
+    (_key: string, read: () => unknown) => read(),
+    { equals: compareStructural },
+  )
+  const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   const window = () => pool.row('shellWindow', 'window')
   const catalog = () => pool.row('shellCatalog', 'catalog')
   function records<E extends 'shellApproval' | 'shellFile' | 'shellShipLane'>(

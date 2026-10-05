@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -14,11 +15,7 @@ import {
 } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import {
-  _isComputingDerivation,
   compareStructural,
-  computed,
-  type IComputedValue,
-  onBecomeUnobserved,
 } from 'mobx'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
@@ -51,23 +48,15 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 /** Presentation helpers preserve the existing vocabulary. Every fact fed to
  * them comes through this pool's one reader and its declared relationships. */
 export function createIssuePageViews(pool: MobxPool) {
-  const cache = new Map<string, IComputedValue<unknown>>()
+  // TODO(POD-5575): fresh pane summaries still need explicit structural equality.
+  const cache = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
+  const identities = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read())
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const stats = { issues: 0, pages: 0, panels: 0 }
   let disposed = false
-  function memo<T>(
-    key: string,
-    read: () => T,
-    equals: (before: T, next: T) => boolean = compareStructural,
-  ): T {
+  function memo<T>(key: string, read: () => T, identity = false): T {
     if (disposed) return LOADING as T
-    const existing = cache.get(key)
-    if (existing) return existing.get() as T
-    if (!_isComputingDerivation()) return read()
-    const value = computed(read, { equals, name: `IssuePage@${key}` })
-    cache.set(key, value)
-    onBecomeUnobserved(value, () => cache.delete(key))
-    return value.get() as T
+    return (identity ? identities : cache)(key, read) as T
   }
   function session(id: string): Loaded<SessionView> {
     if (pool.graph.isCollapsed('session', id)) return undefined
@@ -155,7 +144,7 @@ export function createIssuePageViews(pool: MobxPool) {
         if (groups.some((group) => group === LOADING)) return LOADING
         return joinQueryResults(groups as SessionView[][])
       },
-      Object.is,
+      true,
     )
   }
   function pagePresence(
@@ -472,7 +461,7 @@ export function createIssuePageViews(pool: MobxPool) {
           exits,
         }
       },
-      Object.is,
+      true,
     )
   }
   function panel(args: {
@@ -505,7 +494,7 @@ export function createIssuePageViews(pool: MobxPool) {
         const id = pool.queries.containingIssueId(args.cwd)
         return id ? data(id) : undefined
       },
-      Object.is,
+      true,
     )
   }
   function destination(id: string): Loaded<IssueViewModel> {
@@ -555,6 +544,7 @@ export function createIssuePageViews(pool: MobxPool) {
     dispose() {
       disposed = true
       cache.clear()
+      identities.clear()
       for (const roster of rosters.values()) roster.dispose()
       rosters.clear()
     },

@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import {
   canonicalIssueRef,
   type IssueReferenceModel,
@@ -7,8 +8,6 @@ import {
 import { parseAnyRef } from '@podium/protocol'
 import {
   compareStructural,
-  computed,
-  type IComputedValue,
   observable,
   onBecomeUnobserved,
   runInAction,
@@ -41,7 +40,11 @@ export interface IssueReferenceReader {
 export class IssueReferences implements IssueReferenceReader {
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
   private readonly requestStops = new Map<string, () => void>()
-  private readonly values = new Map<string, IComputedValue<Loaded<IssueReferenceModel | null>>>()
+  // Reference projections construct a new record when their row changes.
+  private readonly values = keyedComputed('issueReference', (id: string): Loaded<IssueReferenceModel | null> => {
+    const row = this.source(id)
+    return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
+  }, { equals: compareStructural })
 
   /** A replacement changes the visible scope. Only unresolved demand keys
    * need a fresh replica answer; resident subscriptions stay untouched. */
@@ -145,19 +148,7 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   readById(id: string): Loaded<IssueReferenceModel | null> {
-    let value = this.values.get(id)
-    if (!value) {
-      value = computed(
-        () => {
-          const row = this.source(id)
-          return row === LOADING ? LOADING : row === undefined ? null : issueReferenceModel(row)
-        },
-        { equals: compareStructural },
-      )
-      this.values.set(id, value)
-      onBecomeUnobserved(value, () => this.values.delete(id))
-    }
-    return value.get()
+    return this.values(id)
   }
 
   /** The local replica supplies opaque ids. Displayed fields still come

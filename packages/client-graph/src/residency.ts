@@ -60,7 +60,7 @@
  * first access, applied to residency itself.
  */
 
-import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
+import { createAtom, type IAtom } from 'mobx'
 import { debugName } from './debug-name'
 import type { ColdQueries } from './shared/cold-index'
 import type { RelationDelta } from './shared/relation-index'
@@ -255,7 +255,7 @@ export class Residency {
    * partition check). Never every cold row: the index holds those.
    */
   ids(entity: EntityName, tracked = false): readonly string[] {
-    if (tracked && _isComputingDerivation()) {
+    if (tracked) {
       let atom = this.idAtoms.get(entity)
       let fresh = false
       if (!atom) {
@@ -699,9 +699,7 @@ export class Residency {
 
   /** Make "is `id` cold" a tracked read: an atom for this id, on first question. */
   private observe(entity: EntityName, id: string): void {
-    // Maintenance reads cannot acquire a subscription. Avoid creating an
-    // atom only to drop it immediately on every ingest probe.
-    if (!_isComputingDerivation()) return
+    // Public reportObserved admits only tracked demand to the registry.
     const key = `${entity}:${id}`
     let atom = this.atoms.get(key)
     let fresh = false

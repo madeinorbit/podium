@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -16,14 +17,10 @@ import {
 } from '@podium/client-core/values'
 import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
-  _isComputingDerivation,
   compareStructural,
-  computed,
   createAtom,
-  type IComputedValue,
   observable,
   observe,
-  onBecomeUnobserved,
   reaction,
   runInAction,
 } from 'mobx'
@@ -82,7 +79,9 @@ export function createIssueBoardSource(
     onLocals(keys: readonly 'openIssueId'[], listener: () => void): () => void
   },
 ) {
-  const cache = new Map<string, IComputedValue<unknown>>()
+  const cache = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read())
+  // Placement returns a fresh scalar record, so compare its fields by value.
+  const placements = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
   const buckets = observable.map<string, ReturnType<typeof observable.set<string>>>(undefined, {
     deep: false,
   })
@@ -122,19 +121,7 @@ export function createIssueBoardSource(
     ) ?? (() => {})
   function memo<T>(key: string, read: () => T): T {
     if (disposed) return LOADING as T
-    const existing = cache.get(key)
-    if (existing) return existing.get() as T
-    if (!_isComputingDerivation()) return read()
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(read, {
-        name: `IssueBoard@${key}`,
-        ...(key.startsWith('placement:') ? { equals: compareStructural } : {}),
-      })
-      cache.set(key, value)
-      onBecomeUnobserved(value, () => cache.delete(key))
-    }
-    return value.get() as T
+    return (key.startsWith('placement:') ? placements : cache)(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
     // Existing resident index observations own these small facts. Reuse them
@@ -901,6 +888,7 @@ export function createIssueBoardSource(
       rosters.clear()
       stops.clear()
       cache.clear()
+      placements.clear()
       runInAction(() => buckets.clear())
     },
   }

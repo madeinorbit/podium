@@ -1,6 +1,7 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { dedupeSessionsByResume } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
+import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
 import type { SetupSession } from './settings-schema'
@@ -9,17 +10,13 @@ import { LOADING } from './worklist/rollup'
 /** Observed summaries suspend when settings/setup unmounts. No full-session
  * mirror or cold-row index; every value is read through the pool's one reader. */
 export function createSettingsViews(pool: MobxPool) {
-  const cache = new Map<string, IComputedValue<unknown>>()
-  function memo<T>(key: string, read: () => T): T {
-    if (!_isComputingDerivation()) return read()
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(read, { equals: compareStructural, name: debugName(() => `settings.${key}`) })
-      cache.set(key, value)
-      onBecomeUnobserved(value, () => cache.delete(key))
-    }
-    return value.get() as T
-  }
+  // Summaries build fresh arrays/records; equal answers must not wake consumers.
+  const cache = keyedComputed(
+    (key: string) => debugName(() => `settings.${key}`),
+    (_key: string, read: () => unknown) => read(),
+    { equals: compareStructural },
+  )
+  const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function sessions() {
     return memo('sessions', () => {
       const rows: SetupSession[] = []

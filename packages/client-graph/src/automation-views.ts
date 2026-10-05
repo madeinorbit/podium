@@ -1,5 +1,6 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { agentExecutionRejection, structuralRejection, type MachineWire } from '@podium/model/browser'
-import { _isComputingDerivation, compareStructural, computed, onBecomeUnobserved, type IComputedValue } from 'mobx'
+import { compareStructural } from 'mobx'
 import type { MobxPool } from './pool'
 import type { AutomationRows } from './automation-schema'
 import type { SettingsRows } from './settings-schema'
@@ -16,17 +17,13 @@ const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
  * relations cover resident definitions/runs, and cold sessions contribute only
  * the existing declared summary. This layer owns no runtime or mutations. */
 export function createAutomationViews(pool: MobxPool) {
-  const cache = new Map<string, IComputedValue<unknown>>()
-  function memo<T>(key: string, read: () => T): T {
-    if (!_isComputingDerivation()) return read()
-    let value = cache.get(key)
-    if (!value) {
-      value = computed(read, { equals: compareStructural, name: debugName(() => `automations.${key}`) })
-      cache.set(key, value)
-      onBecomeUnobserved(value, () => cache.delete(key))
-    }
-    return value.get() as T
-  }
+  // Summaries build fresh arrays/records; equal answers must not wake consumers.
+  const cache = keyedComputed(
+    (key: string) => debugName(() => `automations.${key}`),
+    (_key: string, read: () => unknown) => read(),
+    { equals: compareStructural },
+  )
+  const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function list() {
     return memo('list', () => {
       const catalog = pool.row('automationCatalog', 'catalog')

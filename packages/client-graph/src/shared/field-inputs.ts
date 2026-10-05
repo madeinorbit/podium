@@ -1,4 +1,4 @@
-import { _isComputingDerivation, createAtom, type IAtom } from 'mobx'
+import { createAtom, type IAtom } from 'mobx'
 
 /** A stable, frozen read facade over keyed inputs. Reading a field subscribes
  * only to that field; publication never compares or traverses another value.
@@ -23,18 +23,9 @@ export function createFieldInputs<T extends object>(
           {
             enumerable: true,
             get() {
-              if (_isComputingDerivation()) {
-                let atom = atoms.get(key)
-                if (!atom) {
-                  atom =
-                    borrowAtom?.(key) ??
-                    createAtom(`${name}:${String(key)}`, undefined, () => {
-                      atoms.delete(key)
-                    })
-                  atoms.set(key, atom)
-                }
-                atom.reportObserved()
-              }
+              const atom = atoms.get(key) ?? borrowAtom?.(key) ??
+                createAtom(`${name}:${String(key)}`, undefined, () => { atoms.delete(key) })
+              if (atom.reportObserved()) atoms.set(key, atom)
               return valueAt(key)
             },
           },

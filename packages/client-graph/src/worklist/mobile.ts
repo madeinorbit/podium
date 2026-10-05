@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
  * worklist derivation, second runtime, row copies or new filing reactions. */
 import { compareStructural, computed, type IComputedValue } from 'mobx'
@@ -80,9 +81,39 @@ interface MobileLane {
 /** One computed per resident band, with independent row arrays. Membership
  * changes in one project cannot map/copy another project's native data. */
 class MobileSectionsView {
-  private readonly projects = new Map<string, IComputedValue<MobileLane>>()
-  private readonly headers = new Map<string, IComputedValue<{ label: string; worktreeIds: readonly string[] }>>()
-  private readonly displayed = new Map<string, IComputedValue<MobileWorkSection>>()
+  // TODO(POD-5575): fresh native band/row records still need structural equality.
+  private readonly header = keyedComputed(() => debugName(() => 'pool.mobileWork.header'), (key: string) => {
+    const value = this.pool.sidebar.band(this.state, key)
+    return { label: value?.label ?? '', worktreeIds: value?.worktreeIds ?? EMPTY_IDS }
+  }, { equals: compareStructural })
+  private readonly openRows = keyedComputed(() => debugName(() => 'pool.mobileWork.openRows'), (key: string) => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural })
+  private readonly snoozedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.snoozedRows'), (key: string) => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural })
+  private readonly closedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.closedRows'), (key: string) => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural })
+  private readonly allRows = keyedComputed(() => debugName(() => 'pool.mobileWork.allRows'), (key: string) => [...this.openRows(key), ...this.header(key).worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural })
+  private readonly split = keyedComputed(() => debugName(() => 'pool.mobileWork.split'), (key: string) => {
+    const live: MobileWorkRef[] = [], attention: MobileWorkRef[] = []
+    let pending = 0
+    for (const row of this.allRows(key)) {
+      const waiting = this.waiting(row)
+      pending += waiting.pending
+      ;(waiting.asking ? attention : live).push(row)
+    }
+    return { live, attention, pending }
+  }, { equals: compareStructural })
+  private readonly liveRows = keyedComputed(() => debugName(() => 'pool.mobileWork.liveRows'), (key: string) => this.split(key).live, { equals: compareStructural })
+  private readonly attentionRows = keyedComputed(() => debugName(() => 'pool.mobileWork.attentionRows'), (key: string) => this.split(key).attention, { equals: compareStructural })
+  private readonly section = keyedComputed(() => debugName(() => 'pool.mobileWork.section'), (key: string) => band(key, this.header(key).label, 'project', this.liveRows(key), this.snoozedRows(key), this.closedRows(key)), { equals: compareStructural })
+  private readonly ordering = keyedComputed(() => debugName(() => 'pool.mobileWork.ordering'), (key: string) => band(key, this.header(key).label, 'project', this.allRows(key), this.snoozedRows(key), this.closedRows(key)), { equals: compareStructural })
+  private readonly project = keyedComputed(() => debugName(() => 'pool.mobileWork.project'), (key: string): MobileLane => ({
+    section: this.section(key), ordering: this.ordering(key), attention: this.attentionRows(key),
+    issueCount: this.openRows(key).length, pending: this.split(key).pending,
+  }), { equals: compareStructural })
+  private readonly displayed = keyedComputed(() => debugName(() => 'pool.mobileWork.display'), (key: string) => {
+    const source = key === 'pinned' ? this.pinned.get().section : key === 'needs-you'
+      ? this.attention.get() : this.project(key).section
+    const collapsed = !this.state.searching && this.state.collapsed?.[source.foldKey] === true
+    return collapsed ? { ...source, collapsed, data: EMPTY_REFS, snoozedIds: EMPTY_IDS, closedIds: EMPTY_IDS } : source
+  }, { equals: compareStructural })
   private readonly pinned: IComputedValue<MobileLane>
   private readonly attention: IComputedValue<MobileWorkSection>
   readonly value: IComputedValue<MobileWorkSections>
@@ -100,7 +131,7 @@ class MobileSectionsView {
     }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinned') })
     this.attention = computed(() => band('needs-you', 'Needs you', 'attention', [
       ...this.pinned.get().attention,
-      ...this.projectKeys().flatMap(key => this.project(key).get().attention),
+      ...this.projectKeys().flatMap(key => this.project(key).attention),
     ]), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.attention') })
     this.value = computed(() => this.sections(), {
       name: debugName(() => 'pool.mobileWork.sections'),
@@ -125,54 +156,8 @@ class MobileSectionsView {
     return { asking: value !== undefined && value !== LOADING && value.waitingCount > 0, pending: value === LOADING ? 1 : 0 }
   }
 
-  private project(key: string): IComputedValue<MobileLane> {
-    let view = this.projects.get(key)
-    if (view === undefined) {
-      const header = computed(() => {
-        const value = this.pool.sidebar.band(this.state, key)
-        return { label: value?.label ?? '', worktreeIds: value?.worktreeIds ?? EMPTY_IDS }
-      }, { equals: compareStructural, name: debugName(() => `pool.mobileWork.header`) })
-      this.headers.set(key, header)
-      const openRows = computed(() => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.openRows') })
-      const snoozedRows = computed(() => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.snoozedRows') })
-      const closedRows = computed(() => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.closedRows') })
-      const allRows = computed(() => [...openRows.get(), ...header.get().worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural, name: debugName(() => 'pool.mobileWork.allRows') })
-      const split = computed(() => {
-        const live: MobileWorkRef[] = [], attention: MobileWorkRef[] = []
-        let pending = 0
-        for (const row of allRows.get()) {
-          const waiting = this.waiting(row)
-          pending += waiting.pending
-          ;(waiting.asking ? attention : live).push(row)
-        }
-        return { live, attention, pending }
-      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.split') })
-      const liveRows = computed(() => split.get().live, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.liveRows') })
-      const attentionRows = computed(() => split.get().attention, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.attentionRows') })
-      const section = computed(() => band(key, header.get().label, 'project', liveRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.section') })
-      const ordering = computed(() => band(key, header.get().label, 'project', allRows.get(), snoozedRows.get(), closedRows.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.ordering') })
-      view = computed(() => {
-        return { section: section.get(), ordering: ordering.get(),
-          attention: attentionRows.get(), issueCount: openRows.get().length, pending: split.get().pending }
-      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.project') })
-      this.projects.set(key, view)
-    }
-    return view
-  }
-
   private display(section: MobileWorkSection): MobileWorkSection {
-    let view = this.displayed.get(section.key)
-    if (view === undefined) {
-      const key = section.key
-      view = computed(() => {
-        const source = key === 'pinned' ? this.pinned.get().section : key === 'needs-you'
-          ? this.attention.get() : this.project(key).get().section
-        const collapsed = !this.state.searching && this.state.collapsed?.[source.foldKey] === true
-        return collapsed ? { ...source, collapsed, data: EMPTY_REFS, snoozedIds: EMPTY_IDS, closedIds: EMPTY_IDS } : source
-      }, { equals: compareStructural, name: debugName(() => 'pool.mobileWork.display') })
-      this.displayed.set(key, view)
-    }
-    return view.get()
+    return this.displayed(section.key)
   }
 
   private sections(): MobileWorkSections {
@@ -182,15 +167,11 @@ class MobileSectionsView {
     if (pinned.section.total > 0) { sections.push(this.display(pinned.section)); orderingSections.push(pinned.ordering) }
     if (attention.total > 0) sections.push(this.display(attention))
     for (const key of keys) {
-      const project = this.project(key).get()
+      const project = this.project(key)
       issueCount += project.issueCount; pending += project.pending
       const { section, ordering } = project
       if (ordering.total + ordering.snoozedIds.length + ordering.closedIds.length > 0) orderingSections.push(ordering)
       if (section.total + section.snoozedIds.length + section.closedIds.length > 0) sections.push(this.display(section))
-    }
-    const active = new Set(keys)
-    for (const key of this.projects.keys()) if (!active.has(key)) {
-      this.projects.delete(key); this.headers.delete(key); this.displayed.delete(key)
     }
     return { sections, orderingSections, issueCount, pinnedCount: pinned.section.total, attentionCount: attention.total, pending }
   }

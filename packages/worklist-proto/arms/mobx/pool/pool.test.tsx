@@ -6,7 +6,6 @@
 
 import { isDeepStrictEqual } from 'node:util'
 import {
-  _getGlobalState,
   autorun,
   getObserverTree,
   type IReactionDisposer,
@@ -25,7 +24,6 @@ import { SCHEMA, tableColdRule } from '@podium/client-graph/shared/schema'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
-import { ENFORCEMENT } from '../../../harness/src/mobx-enforce'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rowViewOf } from '@podium/client-graph/models'
 import { ENTITIES } from '@podium/client-graph/tables'
@@ -167,11 +165,6 @@ function issueRecord(id: string, patch: Partial<SliceIssue> = {}): RowRecord {
 
 describe('enforcement', () => {
   it('is configured, and an untracked read trips the trap', () => {
-    const state = _getGlobalState()
-    expect(state.enforceActions).toBe(ENFORCEMENT.enforceActions)
-    expect(state.computedRequiresReaction).toBe(true)
-    expect(state.observableRequiresReaction).toBe(true)
-    expect(state.reactionRequiresObservable).toBe(true)
     const r = rig()
     try {
       const id = openIssues[0]!.id
@@ -466,7 +459,6 @@ describe('dispose', () => {
     // finds empty.
     expect(poolPendingLoads(pool)).toBe(0)
     expect(ENTITIES.map((entity) => pool.residency?.ids(entity))).toEqual([[], [], [], []])
-    expect(_getGlobalState().pendingReactions.length).toBe(0)
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(models[1]!.id, { title: 'after dispose' })] })
     expect(tracked(() => pool.tables.issue.size)).toBe(0)

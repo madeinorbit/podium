@@ -11,6 +11,10 @@ export interface NavigationActivity {
   activityAt(id: string): Loaded<string>
 }
 
+// Fresh stamp records compare only their one scalar answer.
+const sameActivity = (a: Loaded<{ at: string | undefined }>, b: Loaded<{ at: string | undefined }>) =>
+  a === b || (a !== undefined && b !== undefined && a !== LOADING && b !== LOADING && a.at === b.at)
+
 const later = (a: string | undefined, b: string | undefined) =>
   b !== undefined && (a === undefined || b > a) ? b : a
 
@@ -71,7 +75,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     const archived = partition.archived.length || partition.unknown.length ? history(id) : undefined
     if (archived === LOADING) return LOADING
     return { at: later(latest, archived) }
-  })
+  }, sameActivity)
   /** The formal parent cycle through `id`, read from relations alone. */
   function cycleOf(id: string): Set<string> | undefined {
     const cycle = new Set<string>([id])
@@ -105,6 +109,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
       }
       return own(id) === undefined ? undefined : { at: latest }
     },
+    sameActivity,
   )
   /** A leaf's roll-up is its own stamp: no subtree cache is built for it. */
   const rolled = (id: string) =>

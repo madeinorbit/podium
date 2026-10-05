@@ -41,7 +41,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
     if (row === undefined || row === LOADING) return row
     const value = row as { parentId?: string | null; archived?: boolean; deletedAt?: string | null }
     return { hidden: Boolean(value.archived || value.deletedAt), resident: pool.row('issue', id, 'mark') !== LOADING }
-  })
+  }, (a, b) => a === b || (a !== undefined && b !== undefined && a !== LOADING && b !== LOADING && a.hidden === b.hidden && a.resident === b.resident))
 
   const roots = cachedKey('Mission', 'root', (id): Loaded<string> => {
     stats.roots++

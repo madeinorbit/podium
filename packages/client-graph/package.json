@@ -63,7 +63,8 @@
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "mobx": "7.0.3",
-    "mobx-react-lite": "5.0.3"
+    "mobx-react-lite": "5.0.3",
+    "@podium/mobx-helpers": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19",

@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
@@ -8,7 +9,6 @@ import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,
   computed,
-  type IComputedValue,
   observable,
   onBecomeObserved,
   onBecomeUnobserved,
@@ -229,12 +229,8 @@ export function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  const issueSummaries = new Map<string, IComputedValue<Loaded<IssueViewModel>>>()
-  function issueSummary(id: string): Loaded<IssueViewModel> {
-    let summary = issueSummaries.get(id)
-    if (!summary) {
-      summary = computed(
-        () => {
+  // Addressed summary objects are fresh; compare their values explicitly.
+  const issueSummary = keyedComputed('command.issueSummary', (id: string): Loaded<IssueViewModel> => {
           const value = pool.row('commandIssue', id)
           if (!value || value === LOADING) return value
           const row = Object.fromEntries(
@@ -252,13 +248,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
             displayRef:
               row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`),
           } as IssueViewModel
-        },
-        { equals: compareStructural },
-      )
-      issueSummaries.set(id, summary)
-    }
-    return summary.get()
-  }
+  }, { equals: compareStructural })
   const browsing = computed(
     (): Loaded<{ issues: IssueViewModel[]; pending: number }> => {
       const data = common.get()
@@ -422,7 +412,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
       return data && data !== LOADING ? data.sessions : data
     },
     counts,
-    dispose() { stopSessions(); stopSessionObservation(); stopSessionRelease() },
+    dispose() { stopSessions(); stopSessionObservation(); stopSessionRelease(); issueSummary.clear() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {

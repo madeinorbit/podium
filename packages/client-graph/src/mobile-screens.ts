@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 /** Mobile screen reads on the app-owned pool. No feed, replica, mutation owner,
  * world enumeration, peek reader, or independently maintained relationships. */
@@ -13,11 +14,7 @@ import {
 } from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import {
-  _isComputingDerivation,
   compareStructural,
-  computed,
-  type IComputedValue,
-  onBecomeUnobserved,
 } from 'mobx'
 import { type BoardQuery, ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
@@ -56,26 +53,17 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
 
 export function createMobileScreenReader(pool: MobxPool) {
   const mission = new MobileMissionReader(pool)
-  const cache = new Map<string, IComputedValue<unknown>>()
+  // TODO(POD-5575): fresh phone screen summaries need structural equality.
+  const cache = keyedComputed((key: string) => `MobileScreen@${key}`, (_key: string, read: () => unknown) => {
+    try { return read() } catch (error) {
+      if (error === LOADING) return LOADING
+      throw error
+    }
+  }, { equals: compareStructural })
   const stats = { tasks: 0, mission: 0, deck: 0 }
   let disposed = false
   function memo<T>(key: string, read: () => T): T | typeof LOADING {
-    if (disposed) return LOADING
-    const existing = cache.get(key)
-    if (existing) return existing.get() as T
-    const safeRead = () => {
-      try {
-        return read()
-      } catch (error) {
-        if (error === LOADING) return LOADING
-        throw error
-      }
-    }
-    if (!_isComputingDerivation()) return safeRead()
-    const value = computed(safeRead, { name: `MobileScreen@${key}`, equals: compareStructural })
-    cache.set(key, value)
-    onBecomeUnobserved(value, () => cache.delete(key))
-    return value.get()
+    return disposed ? LOADING : cache(key, read) as T | typeof LOADING
   }
   function query(options: BoardQuery) {
     const result = requireRow(pool.row('issueBoardQuery', JSON.stringify(options)))

@@ -1,5 +1,5 @@
 import type { Replica } from '@podium/client-core/replica'
-import { _isComputingDerivation, createAtom, type IAtom, runInAction } from 'mobx'
+import { createAtom, type IAtom, runInAction } from 'mobx'
 import type { IssuePageSourceRows } from './issue-page-schema'
 import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
@@ -29,7 +29,7 @@ export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Rep
     counts,
     read(_entity, id): Loaded<IssuePageSourceRows['issueExit']> {
       if (disposed) return LOADING
-      if (_isComputingDerivation()) {
+      {
         const known = demanded.get(id)
         const atom: IAtom = known ?? createAtom(`issueExit:${id}`, undefined, () => {
           if (demanded.get(id) === atom) demanded.delete(id)

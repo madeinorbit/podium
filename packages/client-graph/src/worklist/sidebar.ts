@@ -7,11 +7,13 @@ import { compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
 import type { ModelHost } from '../models'
 import type { MobxPool } from '../pool'
-import { overlayRow } from '../shared/overlay-row'
+import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { attentionGroup, LOADING } from './rollup'
 import { type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
+
+const overlayRow = createRowOverlay()
 
 export interface SidebarState {
   readonly projectOrder?: readonly string[]

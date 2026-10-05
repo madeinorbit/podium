@@ -1,6 +1,6 @@
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import {
-  _isComputingDerivation,
+  getAtom,
   compareStructural,
   type IObservableValue,
   observable,
@@ -44,9 +44,9 @@ export class SettingsSource {
     if (this.disposed) return LOADING
     // Imperative questions read the runtime's existing keyed inputs directly;
     // only an observed question needs a stored source row and subscription.
-    if (!_isComputingDerivation()) return this.lookup(entity, id)
     const key = `${entity}:${id}`
     let entry = this.rows.get(key)
+    const fresh = entry === undefined
     if (!entry) {
       const value = observable.box<Reading>(LOADING, { deep: false, name: `settingsSource.${key}` })
       entry = { entity, id, value, observed: false, release: () => {} }
@@ -65,6 +65,12 @@ export class SettingsSource {
         }
       })
       this.rows.set(key, entry)
+    }
+    if (!getAtom(entry.value).reportObserved()) {
+      if (!entry.observed) this.rows.delete(key)
+      return this.lookup(entity, id)
+    }
+    if (fresh) {
       this.pending.add(key)
       this.schedule()
     }
