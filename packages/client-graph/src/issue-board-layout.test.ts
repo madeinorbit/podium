@@ -43,6 +43,14 @@ function setup(scale: number) {
 it('keeps opening rich facts proportional to visible cards at 1x and 4x', () => {
   const measurements = [1, 4].map(scale => {
     const f = setup(scale), stops: (() => void)[] = []
+    // Visible parent cards may have a large offscreen closure. Counts and
+    // progress can read its scalars, but must not build those children's facts.
+    f.pool.apply({ type: 'update', rows: ISSUE_BOARD_STAGES.flatMap(stage =>
+      Array.from({ length: 8 }, (_, n) => `${stage}-${n}`).flatMap(parentId =>
+        Array.from({ length: 8 * scale }, (_, child) => {
+          const id = `${parentId}-child-${child}`
+          return { kind: 'issue' as const, id, value: row(id, { parentId }) }
+        }))) })
     issueBoardStats.enable()
     issueBoardStats.reset()
     try {

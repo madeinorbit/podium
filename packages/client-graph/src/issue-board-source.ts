@@ -544,7 +544,9 @@ export function createIssueBoardSource(
         const next = stack.pop()!
         if (seen.has(next)) continue
         seen.add(next)
-        const row = facts(next)
+        // Progress needs closure membership and terminal state, never a rich
+        // card's document, labels, reference or presentation fields.
+        const row = pool.row('issue', next, 'summary-fields') as Loaded<IssueViewModel>
         if (row === LOADING) return LOADING
         if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
         total++
@@ -593,14 +595,14 @@ export function createIssueBoardSource(
       const counts = new Map<IssueViewModel['stage'], number>()
       if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true)) {
         for (const childId of pool.graph.many('issue', row.id, 'treeChildren')) {
-          const child = facts(childId)
+          const child = pool.row('issue', childId, 'summary-fields') as Loaded<IssueViewModel>
           if (child === LOADING) return LOADING
           if (
             child &&
             child.id !== row.id &&
             !child.archived &&
             !child.deletedAt &&
-            scoped(child, options.agents ?? false, true)
+            scoped(child, options.agents ?? false, true, childId)
           )
             counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
         }
