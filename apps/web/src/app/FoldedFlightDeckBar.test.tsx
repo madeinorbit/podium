@@ -1,49 +1,65 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { IssueNavigationModel } from '@podium/client-core/values'
+import type { SessionView } from '@podium/client-core/session-values'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 
-const state = {
-  rows: [{ liveAgentCount: 3, workingAgentCount: 1, actionableCount: 2 }],
-  progress: { total: 5, done: 1, run: 2, review: 0, stall: 0, block: 0, wait: 2 },
-}
+const state = vi.hoisted(() => ({ pool: null as unknown }))
 
 vi.mock('./store', () => ({
   useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
     select({ sessions: [], selectedIssueId: 'root' }),
-  useReplicaIssues: () => [],
+}))
+vi.mock('./store-worklist-pool', () => ({
+  useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {
+    const pool = state.pool as MobxPool
+    const projection = useMemo(() => createPoolProjection(pool, read), [pool, read])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
+  },
 }))
 
-// `selectedMissionRoot` is what the bar reads (the mission it is folded over);
-// `missionRootFor` stays because the module is replaced wholesale and other
-// call sites in the render path still reach for it.
-vi.mock('@podium/client-core/values', () => ({
-  selectedMissionRoot: () => ({
-    id: 'root',
-    seq: 710,
-    linearIdentifier: 'POD-710',
-    title: 'Mission',
-  }),
-  missionRootFor: () => ({ id: 'root', seq: 710, linearIdentifier: 'POD-710', title: 'Mission' }),
-  buildFlightDeckRows: () => state.rows,
-  missionProgress: () => state.progress,
-  missionCrewLabel: (live: number, working: number) =>
-    working > 0 ? `${working} working` : `${live} agent${live === 1 ? '' : 's'}`,
-}))
+async function mount(onExpand = vi.fn(), options: { stages?: string[]; crew?: string[]; needs?: boolean; stage?: string } = {}) {
+  const stamp = '2026-10-01T12:00:00Z'
+  const stages = options.stages ?? ['done', 'shipping', 'shipping', 'backlog', 'backlog']
+  const needs = options.needs ?? true
+  const issues = [
+    { id: 'root', seq: 710, title: 'Mission', parentId: null, stage: options.stage ?? 'in_progress', needsHuman: needs },
+    ...stages.map((stage, index) => ({ id: `child-${index}`, seq: 711 + index, title: `Child ${index}`,
+      parentId: 'root', stage, needsHuman: needs && index === 3 })),
+  ].map(issue => ({ ...issue, description: '', repoPath: '/fixture', deps: [], createdAt: stamp,
+    updatedAt: stamp, readAt: stamp })) as unknown as IssueNavigationModel[]
+  const sessions = (options.crew ?? ['working', 'idle', 'idle']).map((phase, index) => ({
+    sessionId: `seat-${index}`, issueId: 'root', cwd: '/fixture', title: `Agent ${index}`, agentKind: 'codex',
+    status: 'live', archived: false, createdAt: stamp, lastActiveAt: stamp, agentState: { phase },
+  })) as unknown as SessionView[]
+  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined,
+    { load: () => undefined, worklist: 'demand' })
+  pool.apply({ type: 'replace', rows: [
+    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
+    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+  ] })
+  state.pool = pool
+  render(<FoldedFlightDeckBar onExpand={onExpand} />)
+  await waitFor(() => expect(screen.getByTestId('issue-id-square').getAttribute('data-number')).toBe('710'))
+}
 
 afterEach(() => {
-  state.rows = [{ liveAgentCount: 3, workingAgentCount: 1, actionableCount: 2 }]
-  state.progress = { total: 5, done: 1, run: 2, review: 0, stall: 0, block: 0, wait: 2 }
   cleanup()
+  ;(state.pool as MobxPool | null)?.dispose()
+  state.pool = null
 })
 
 const ticks = (): string[] =>
   screen.getAllByTestId('deck-tick').map((tick) => tick.getAttribute('data-s') ?? '')
 
 describe('folded Flight Deck', () => {
-  it('reports the mission on the closed rail: identity, gauge, foot', () => {
+  it('reports the mission on the closed rail: identity, gauge, foot', async () => {
     const onExpand = vi.fn()
-    render(<FoldedFlightDeckBar onExpand={onExpand} />)
+    await mount(onExpand)
 
     // The mission's own ID square, not a column label.
     expect(screen.getByTestId('issue-id-square').getAttribute('data-number')).toBe('710')
@@ -68,18 +84,15 @@ describe('folded Flight Deck', () => {
     expect(onExpand).toHaveBeenCalledTimes(3)
   })
 
-  it('draws no attention stack when nothing is asking', () => {
-    state.rows = [{ liveAgentCount: 1, workingAgentCount: 0, actionableCount: 0 }]
-    render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
+  it('draws no attention stack when nothing is asking', async () => {
+    await mount(vi.fn(), { needs: false, crew: ['idle'] })
 
     expect(screen.queryByTestId('flight-deck-attention')).toBeNull()
     expect(screen.getByTestId('flight-deck-activity')).not.toBeNull()
   })
 
-  it('reports a zero-agent review root as review, not underway', () => {
-    state.rows = [{ liveAgentCount: 0, workingAgentCount: 0, actionableCount: 1 }]
-    state.progress = { total: 1, done: 0, run: 0, review: 1, stall: 0, block: 0, wait: 0 }
-    render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
+  it('reports a zero-agent review root as review, not underway', async () => {
+    await mount(vi.fn(), { stages: [], stage: 'review', crew: [] })
 
     const gauge = screen.getByTestId('flight-deck-gauge')
     expect(ticks()).toEqual(['review'])
@@ -91,9 +104,8 @@ describe('folded Flight Deck', () => {
     expect(screen.getByTestId('flight-deck-attention').textContent).toContain('1')
   })
 
-  it('keeps the reading when a mission outgrows one tick per task', () => {
-    state.progress = { total: 60, done: 30, run: 10, review: 0, stall: 0, block: 0, wait: 20 }
-    render(<FoldedFlightDeckBar onExpand={vi.fn()} />)
+  it('keeps the reading when a mission outgrows one tick per task', async () => {
+    await mount(vi.fn(), { stages: [...Array(30).fill('done'), ...Array(10).fill('shipping'), ...Array(20).fill('backlog')] })
 
     const gauge = screen.getByTestId('flight-deck-gauge')
     expect(gauge.getAttribute('data-resolution')).toBe('share')
