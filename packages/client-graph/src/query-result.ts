@@ -85,6 +85,17 @@ function replace<T>(root: Node<T> | undefined, before: Item<T> | undefined,
   if (before && (!after || compareItems(before, after) !== 0)) root = remove(root, before, compareItems)
   return after ? put(root, after, compareItems) : root
 }
+/** Initial demand has no published root to preserve. Sort its entries once
+ * and construct each immutable node once; subsequent edits use persistent paths. */
+function build<T>(items: Item<T>[]): Node<T> | undefined {
+  items.sort(compare<T>)
+  function range(start: number, end: number): Node<T> | undefined {
+    if (start === end) return undefined
+    const middle = (start + end) >>> 1
+    return node(items[middle]!, range(start, middle), range(middle + 1, end))
+  }
+  return range(0, items.length)
+}
 function itemAt<T>(root: Node<T> | undefined, index: number): Item<T> | undefined {
   while (root) {
     const left = size(root.left)
@@ -315,6 +326,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     pending = 0
   let stopMembership: (() => void) | undefined
   let started = false
+  let seeding = false
   const observed = new Set<IAtom>()
   const makeAtom = (name: string) => {
     const atom = createAtom(
@@ -335,6 +347,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     root: undefined as Node<T> | undefined,
   }))
   function replaceItem(before: Item<T> | undefined, after: Item<T> | undefined) {
+    if (seeding) return
     root = replace(root, before, after)
     for (const match of matches) {
       const previous = at(match.root, 0)
@@ -415,7 +428,14 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     if (started) return
     started = true
     untracked(() => {
-      for (const id of spec.ids()) sync(id)
+      seeding = true
+      try {
+        for (const id of spec.ids()) sync(id)
+      } finally { seeding = false }
+      const items: Item<T>[] = []
+      for (const entry of entries.values()) if (entry.item) items.push(entry.item)
+      root = build(items)
+      for (const match of matches) match.root = build(items.filter(item => match.test(item.value)))
     })
     stopMembership = spec.subscribe((id) => {
       if (id !== undefined) sync(id)

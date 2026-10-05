@@ -52,6 +52,54 @@ function fixture(prefix = '') {
 }
 
 describe('maintained query answers', () => {
+  it.each([256, 1024])('builds initial ordered demand without replaying insertion paths (%i entries)', (count) => {
+    let comparisons = 0
+    const ids = Array.from({ length: count }, (_, rank) => String(rank).padStart(5, '0'))
+    const result = createQueryResult({
+      name: 'startup ordered demand', ids: () => ids, has: () => true,
+      read: id => ({ id }),
+      // Count comparisons through the ordering scalar, without instrumenting
+      // the tree implementation. Sorted bootstrap input should take linear work.
+      order: id => ({ [Symbol.toPrimitive]() { comparisons++; return id } }) as unknown as string,
+      subscribe: () => () => {},
+    })
+    try {
+      const values = result.get()
+      expect(values && values !== LOADING ? values.map(value => value.id) : values).toEqual(ids)
+      expect(comparisons).toBeGreaterThan(0)
+      expect(comparisons).toBeLessThanOrEqual(count * 6)
+      console.info('startup initial-order comparisons', JSON.stringify({ count, comparisons }))
+    } finally { result.dispose() }
+  })
+
+  it('bulk initial answers equal insertion-built trees including ties and match counts', () => {
+    for (const ranks of [[], [0], Array.from({ length: 37 }, (_, rank) => rank),
+      Array.from({ length: 37 }, (_, rank) => 36 - rank),
+      Array.from({ length: 37 }, (_, rank) => (rank * 17) % 37)]) {
+      const rows = new Map(ranks.map(rank => {
+        const id = String(rank).padStart(3, '0')
+        return [id, { id, rank, order: String(rank % 5) }]
+      }))
+      const inserted = createKeyedAnswer<{ id: string; rank: number; order: string }>()
+      const matched = createKeyedAnswer<{ id: string; rank: number; order: string }>()
+      for (const [id, row] of rows) {
+        inserted.set(id, row.order, row)
+        if (row.rank % 2 === 0) matched.set(id, row.order, row)
+      }
+      const result = createQueryResult({
+        name: 'bulk equivalence', ids: () => rows.keys(), has: id => rows.has(id),
+        read: id => rows.get(id), order: id => rows.get(id)!.order,
+        matches: [row => row.rank % 2 === 0], subscribe: () => () => {},
+      })
+      const stop = autorun(() => { result.get(); result.firstMatch(0); result.countMatch(0) })
+      try {
+        expect(result.get()).toEqual(inserted.snapshot())
+        expect(result.firstMatch(0)).toEqual(matched.first())
+        expect(result.countMatch(0)).toBe(matched.snapshot().length)
+      } finally { stop(); result.dispose() }
+    }
+  })
+
   it.each([1024, 4096])('replaces startup index revisions in one ordered path (%i entries)', (count) => {
     type Value = { id: string; rank: number; revision: number; deadline: number }
     const compare = vi.fn((a: Value, b: Value) => a.rank - b.rank)
