@@ -1,8 +1,9 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { reposToViews } from '@podium/client-core/values'
-import { asMachineId, asRepoId, handoffAvailability } from '@podium/model/browser'
+import { asMachineId, asRepoId, handoffAvailability, handoffSource } from '@podium/model/browser'
 import type { HeaderRows } from './header-schema'
+import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
@@ -108,42 +109,65 @@ it('does not demand handoff catalogs or the attached issue when the feature is h
   } finally { menu.stop() }
 })
 
-it('reads only the sender repository group and keeps handoff targets exact as unrelated repositories grow', () => {
-  const work: number[] = []
-  for (const scale of [1, 4]) {
-    const { pool, view } = fixture(scale)
+it('keeps source lanes and targets exact without reading hidden repositories or worktrees, including headless and cwd drift', async () => {
+  const work: Array<{ rows: number; elements: number }> = []
+  for (const headless of [false, true]) for (const scale of [1, 4]) {
+    const { pool, view, input } = fixture(scale)
     const repoId = asRepoId('menu-repo')
     const target: HeaderRows['repository'] = { kind: 'repository', path: '/target', repoId,
-      worktrees: [{ path: '/menu', branch: 'issue' }] }
+      machineId: asMachineId('source'),
+      worktrees: [{ path: '/menu', branch: 'issue' }, ...Array.from({ length: 128 * scale }, (_, i) => ({ path: `/target/history-${i}` }))] }
     const clone: HeaderRows['repository'] = { kind: 'repository', path: '/clone', repoId,
-      machineId: asMachineId('destination'), worktrees: [] }
+      machineId: asMachineId('destination'), worktrees: Array.from({ length: 128 * scale }, (_, i) => ({ path: `/clone/history-${i}` })) }
     const others: HeaderRows['repository'][] = Array.from({ length: 128 * scale }, (_, i) => ({
       kind: 'repository', path: `/other/${i}`, worktrees: [], originUrl: `https://example.test/other-${i}`,
     }))
-    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId, repoName: 'Menu' } }] })
+    const picked = { ...input.get('session:picked'), cwd: '/menu', machineId: asMachineId('source'), headless } as SessionView
+    const chosen = { ...input.get('issue:chosen'), worktreePath: '/menu' } as IssueNavigationModel
+    input.set('session:picked', picked); input.set('issue:chosen', chosen)
+    pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'picked', value: picked }, { kind: 'issue', id: 'chosen', value: chosen },
+      { kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId, repoName: 'Menu' } },
+      { kind: 'worktree', id: '/target', value: { path: '/target', repoPath: '/target', repoId, repoName: 'Menu', isMain: true } },
+    ] })
     pool.header.apply([
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
       { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
     ])
     const row = vi.spyOn(pool, 'row'), ids = vi.spyOn(pool.headerViews, 'ids')
-    const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
-    try {
+    let menu!: ReturnType<typeof observe<ReturnType<typeof readMissionActionInputs>>>
+    const measured = await measureWork(async () => insideReader('menu', () => {
+      menu = observe(() => readMissionActionInputs(view, [], 'picked'))
       pool.hydrate()
+    }), { pool })
+    try {
       const value = menu.value
       expect(value).not.toBe(LOADING)
       if (value === LOADING || !value.session) throw new Error('Menu did not load')
-      expect(value.repos).toEqual([target, clone])
+      expect(value.repos.map(repo => [repo.path, repo.worktrees.map(tree => tree.path)]))
+        .toEqual([['/target', ['/menu']], ['/clone', []]])
       expect(handoffAvailability(value.session, reposToViews(value.repos), value.machines, value.issue))
         .toEqual(handoffAvailability(value.session, reposToViews([target, clone, ...others]), value.machines, value.issue))
       expect(value.machines).toHaveLength(1)
       expect(ids).not.toHaveBeenCalled()
       expect(row.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
-      work.push(row.mock.calls.length)
+      work.push({ rows: measured.work.rows ?? 0, elements: measured.work.elements })
       row.mockClear()
       pool.header.apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
       expect(row).not.toHaveBeenCalled()
+      const drift = { ...picked, cwd: '/target/src' }
+      input.set('session:picked', drift)
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: drift }] })
+      const drifted = menu.value
+      if (drifted === LOADING || !drifted.session) throw new Error('Drifted menu did not load')
+      const boundedSource = handoffSource(drifted.session, reposToViews(drifted.repos), drifted.issue)
+      const fullSource = handoffSource(drifted.session, reposToViews([target, clone, ...others]), drifted.issue)
+      expect(boundedSource?.worktreePath).toBe('/menu')
+      expect(boundedSource?.via).toBe('issue')
+      expect(boundedSource?.worktreePath).toBe(fullSource?.worktreePath)
     } finally { menu.stop() }
   }
-  expect(work[1]).toBe(work[0])
+  expect(work[1]).toEqual(work[0])
+  expect(work[3]).toEqual(work[2])
 })

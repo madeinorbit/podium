@@ -17,6 +17,7 @@ import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
+import type { SliceWorktree } from './shared/slice-types'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -1579,15 +1580,19 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const handoff = handoffEnabled && !sessionId && selected.length === 1 ? view.menuHandoff(selected[0]!.id) : undefined
   if (handoff === LOADING) return LOADING
   const subject = handoffEnabled ? session ?? (handoff && 'session' in handoff ? handoff.session : undefined) : undefined
-  // Handoff checks the sender's containing repository, not every registered
-  // repository. The declared lane owns normal seats; the header's existing
-  // cwd question also covers headless senders and header-only consumers.
-  const laneId = subject ? view.pool.graph.one('session', subject.sessionId, 'worktree') : null
-  const lane = laneId ? view.pool.row('worktree', laneId) as { repoPath?: string } | undefined : undefined
+  // Handoff needs its containing lane and the issue's drift fallback. Other
+  // worktrees in the same repository are hidden and remain unread.
+  const laneId = subject ? view.pool.graph.one('session', subject.sessionId, 'handoffWorktree') : null
+  const lane = laneId ? view.pool.row('worktree', laneId) as SliceWorktree | undefined : undefined
+  const anchorId = subject && selected[0]?.worktreePath
+  const anchor = anchorId && anchorId !== laneId ? view.pool.row('worktree', anchorId) as SliceWorktree | undefined : undefined
   const repoPath = subject ? lane?.repoPath ?? view.pool.header.shippingScope(subject.cwd, subject.machineId)?.repoPath : undefined
   const repos = repoPath ? view.pool.header.repositoryGroup(repoPath).flatMap(id => {
     const repo = view.pool.headerViews.row('repository', id)
-    return repo ? [repo] : []
+    if (!repo) return []
+    const worktrees = [lane, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.path !== repo.path &&
+      (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.path }] : [])
+    return [{ ...repo, worktrees }]
   }) : []
   const needsTargets = subject && !handoffAvailability(subject, reposToViews(repos), [], selected[0]).blocker
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
