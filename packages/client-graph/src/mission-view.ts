@@ -258,7 +258,13 @@ export class MissionViewReader {
     return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
   }
   sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
-  rawSession(id: string): Loaded<SessionView> { return this.pool.row('session', id) as Loaded<SessionView> }
+  rawSession(id: string): Loaded<SessionView> {
+    const resident = this.pool.row('session', id, 'mark')
+    if (resident !== LOADING) return resident as Loaded<SessionView>
+    const summary = this.pool.row('session', id, 'summary')
+    if (summary && summary !== LOADING && ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) return summary as SessionView
+    return this.pool.row('session', id) as Loaded<SessionView>
+  }
   readonly sessionRoster = keyedComputed('MissionSession.roster', (id: string) => {
     const session = requireLoaded(this.rawSession(id))
     return Boolean(session && !session.archived && !session.headless && session.agentKind !== 'shell')
@@ -275,7 +281,7 @@ export class MissionViewReader {
   })
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
-    const row = this.pool.row('session', id)
+    const row = this.rawSession(id)
     return row as Loaded<SessionView>
   }
   /** The seated or archived side's ids, and the cold ones whose summary
@@ -291,7 +297,7 @@ export class MissionViewReader {
     return pending ? LOADING : ids
   }
   private readonly archivedSession = keyedComputed('MissionSession.archived', (id: string) => {
-    const row = this.pool.row('session', id) as Loaded<SessionView>
+    const row = this.rawSession(id)
     return row === LOADING || row === undefined ? row : Boolean(row.archived)
   })
   private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
