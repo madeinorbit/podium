@@ -220,7 +220,7 @@ const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => s
  * The handle holds no row, geometry, retained computed or presentation map. */
 export class MissionDeckIssueModel implements FlightDeckRow {
   constructor(readonly id: string, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
-  private get canonical() { return this.path ? this.deck.model(this.id) : this }
+  private get canonical(): MissionDeckIssueModel { return this.path ? this.deck.model(this.id) : this }
   get view() { return this.deck.view }
   get facts() { return this.view.facts(this.id) }
   get issue() { return requireLoaded(this.view.issue(this.id))! }
