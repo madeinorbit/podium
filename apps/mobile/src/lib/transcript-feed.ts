@@ -249,37 +249,59 @@ export interface MobileTranscriptSearch {
   total: number
 }
 
+export interface MobileTranscriptMatches {
+  matches: number[]
+  matchingRows: Set<number>
+  firstRowByBlock: ReadonlyMap<number, number>
+}
+
+/** The demanded search answer; cursor movement does not repeat this work. */
+export function matchMobileTranscript(
+  model: MobileTranscriptModel,
+  query: string,
+): MobileTranscriptMatches {
+  if (!query.trim())
+    return { matches: [], matchingRows: new Set(), firstRowByBlock: new Map() }
+  const matches = searchBlocks(model.blocks, query)
+  const matchingRows = new Set<number>()
+  const firstRowByBlock = new Map<number, number>()
+  if (matches.length === 0) return { matches, matchingRows, firstRowByBlock }
+  const matchingBlocks = new Set(matches)
+  for (let index = 0; index < model.rows.length; index++) {
+    const row = model.rows[index]!
+    for (const blockIndex of row.blockIndices) {
+      if (!matchingBlocks.has(blockIndex)) continue
+      matchingRows.add(index)
+      if (!firstRowByBlock.has(blockIndex)) firstRowByBlock.set(blockIndex, index)
+    }
+  }
+  return { matches, matchingRows, firstRowByBlock }
+}
+
+/** Answer which matched row is selected through the demanded match relation. */
+export function positionMobileTranscriptSearch(
+  answer: MobileTranscriptMatches,
+  cursor: number,
+): MobileTranscriptSearch {
+  const { matches, matchingRows, firstRowByBlock } = answer
+  const position =
+    matches.length > 0 ? (((cursor % matches.length) + matches.length) % matches.length) + 1 : 0
+  const activeMatch = matches[position - 1]
+  return {
+    matches,
+    matchingRows,
+    activeRow: activeMatch === undefined ? undefined : firstRowByBlock.get(activeMatch),
+    position,
+    total: matches.length,
+  }
+}
+
 export function searchMobileTranscript(
   model: MobileTranscriptModel,
   query: string,
   cursor: number,
 ): MobileTranscriptSearch {
-  const matches = searchBlocks(model.blocks, query)
-  const matchingRows = new Set<number>()
-  let activeRow: number | undefined
-  const activeMatch =
-    matches.length > 0
-      ? matches[((cursor % matches.length) + matches.length) % matches.length]
-      : undefined
-
-  model.rows.forEach((row, index) => {
-    if (row.blockIndices.some((blockIndex) => matches.includes(blockIndex))) matchingRows.add(index)
-    if (
-      activeMatch !== undefined &&
-      row.blockIndices.includes(activeMatch) &&
-      activeRow === undefined
-    )
-      activeRow = index
-  })
-
-  return {
-    matches,
-    matchingRows,
-    activeRow,
-    position:
-      matches.length > 0 ? (((cursor % matches.length) + matches.length) % matches.length) + 1 : 0,
-    total: matches.length,
-  }
+  return positionMobileTranscriptSearch(matchMobileTranscript(model, query), cursor)
 }
 
 export function quoteTranscriptText(text: string): string {

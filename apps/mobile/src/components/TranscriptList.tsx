@@ -48,7 +48,8 @@ import {
   machineContextLabel,
   parseAskQuestions,
   quoteTranscriptText,
-  searchMobileTranscript,
+  matchMobileTranscript,
+  positionMobileTranscriptSearch,
   transcriptItemKey,
 } from '../lib/transcript-feed'
 import {
@@ -1101,9 +1102,13 @@ export function TranscriptList({
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
   const rows = visibleModel.rows
+  const matches = useMemo(
+    () => matchMobileTranscript(visibleModel, findOpen ? query : ''),
+    [findOpen, query, visibleModel],
+  )
   const search = useMemo(
-    () => searchMobileTranscript(visibleModel, findOpen ? query : '', cursor),
-    [cursor, findOpen, query, visibleModel],
+    () => positionMobileTranscriptSearch(matches, cursor),
+    [cursor, matches],
   )
   const listRef = useRef<TranscriptViewportHandle>(null)
   const seenKeys = useRef<Set<string> | null>(null)
