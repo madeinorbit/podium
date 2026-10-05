@@ -44,7 +44,7 @@ function fixture(scale: 1 | 4, attention = false) {
   ])
   const listeners = new Set<(batch: ReplicaAddressedBatch) => void>(), outboxListeners = new Set<() => void>()
   let parked = noticeFixture().deadLetters
-  const rows = vi.fn((kind: string) => Array.from((kind === 'messageRecords' ? messages : asks).values()))
+  const rows = vi.fn((kind: string) => kind === 'messageRecords' ? Array.from(messages.values()) : Array.from(asks.values()))
   const row = vi.fn((kind: string, id: string) => kind === 'messageRecords' ? messages.get(id) : asks.get(id))
   const deadLetters = vi.fn(() => parked)
   const runtime = {
