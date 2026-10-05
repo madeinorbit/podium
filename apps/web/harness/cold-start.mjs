@@ -16,6 +16,7 @@ const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = 
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const query = arg('query', '')
 const paired = process.argv.includes('--paired')
+const profileSamples = process.argv.includes('--no-profile') ? 0 : 1
 const variantQueries = {
   control: '', memo:'coldStartFlatMemo=1', reader:'coldStartNoIssueReaderIndex=1',
   attach:'coldStartNoDormantAttach=1', hydrate:'coldStartNoDiscardedHydrate=1',
@@ -75,7 +76,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   durationTimeDomain:'threadTicks',
   startupBoundary:surface==='web'?'sidebar-issue-row':'phone-issue-row',
   httpCache:'disabled by bootstrap request routing',
-  warmStartup:'Reload with retained durable data and preferences; full augmented bootstrap replay',
+  warmStartup:'Reload with retained durable data and preferences; cursor resume without augmented snapshot',
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,query,variants,paired,
   build:JSON.parse(readFileSync('apps/web/dist/podium-build.json','utf8')),
@@ -405,7 +406,7 @@ try {
     // Each cold sample owns a new browser context; the paired warm sample
     // reloads it, retaining durable rows and preferences. Bootstrap request
     // routing disables HTTP cache; this is a warm-data reload.
-    for(let i=0;i<samples+1;i++) {
+    for(let i=0;i<samples+profileSamples;i++) {
       if (paired) {
         const step = resolve(out,`step-${i}.go`)
         while (!existsSync(step)) await pause(100)

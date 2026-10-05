@@ -11,6 +11,8 @@ import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--arm', required=True)
+parser.add_argument('--checkout')
+parser.add_argument('--no-profile', action='store_true')
 parser.add_argument('--checkout-arm', choices=['old', 'new', 'experiments'])
 parser.add_argument('--comparison-arm')
 parser.add_argument('--surface', choices=['web', 'phone'], default='web')
@@ -23,12 +25,15 @@ parser.add_argument('--query', default='')
 parser.add_argument('--control-only', action='store_true')
 parser.add_argument('--background-only', action='store_true')
 args=parser.parse_args()
-checkout=f'podium-test-5513-{args.checkout_arm or args.arm}'
+checkout=args.checkout or f'podium-test-5513-{args.checkout_arm or args.arm}'
+if not re.fullmatch(r'podium-test-[a-z0-9-]+', checkout):
+    raise ValueError('Checkout must be an issue-owned podium-test directory')
 relative=f'.artifacts/old-vs-new/{args.mode}-{args.arm}-{args.surface}-{args.scale}x-r{args.round}'
 name='bench:flatblock' if args.mode=='timing' else 'meter:flatblock'
 argv=['--external-lease',f'--mode={args.mode}',f'--arm={args.arm}',f'--surface={args.surface}',f'--scale={args.scale}',f'--round={args.round}',f'--samples={args.samples}',f'--comparison-arm={args.comparison_arm or ("new" if args.arm=="old" else args.arm)}',f'--out={relative}']
 if args.control_only:argv.append('--control-only')
 if args.background_only:argv.append('--background-only')
+if args.no_profile:argv.append('--no-profile')
 if args.variants:argv.append('--variants='+args.variants)
 if args.query:argv.append('--query='+args.query)
 command=f'cd "$HOME/{checkout}" && export PATH="$PWD/.toolchain:$PATH" && export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && exec .toolchain/bun --conditions=@podium/source apps/web/harness/cold-start.mjs '+shlex.join(argv)
