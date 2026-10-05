@@ -252,6 +252,9 @@ export function createIssueBoardSource(
   function track(id: string) {
     if (stops.has(id)) return
     let previous = new Set<string>()
+    // Approved reverse-index exception: rebuilding buckets per query would
+    // visit every board row. Keep the addressed index and its demand lifetime.
+    // eslint-disable-next-line derivations/no-reaction-writes -- Approved board reverse lookup (POD-5542).
     const stop = reaction(
       () => {
         const row = facts(id)

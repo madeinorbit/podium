@@ -22,6 +22,8 @@ interface OfflineMachine {
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
 export function createHeaderEntities() {
+  // Approved applying-action indexes (POD-5542): these reverse lookups and
+  // scalar totals avoid rebuilding all rows for each header question.
   const repositories = createHeaderRepositoryRelations()
   const tables = Object.fromEntries(
     Object.keys(HEADER_SCHEMA).map((entity) => [

@@ -290,6 +290,8 @@ export class SeatVerdicts {
 
   /** Record `seat`'s verdict (undefined: it left) and publish the summary when it moved. */
   private set(issueId: string, seat: string, verdict: Verdict | undefined): void {
+    // Approved applying-action aggregate (POD-5542): this bucket summary
+    // changes one seat; deriving it anew would visit the owner's full roster.
     const entry = this.issues.get(issueId)
     if (entry === undefined) return
     const before = entry.verdicts.get(seat) ?? OUT

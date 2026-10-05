@@ -5,6 +5,7 @@
  * filing (which re-files only the seats it owns), never on the issue row.
  */
 import { expect, it, vi } from 'vitest'
+import { autorun, runInAction } from 'mobx'
 import { MobxPool } from '../pool'
 
 const NOW = Date.parse('2026-10-03T12:00:00Z')
@@ -115,4 +116,39 @@ it('re-files none of an issue’s session history when the issue row is publishe
   expect(at1x.after).toEqual(at1x.before)
   // Before POD-5423: 64 → 256 (every cold and unseated member, per publication).
   expect({ at1x: at1x.synced, at4x: at4x.synced }).toEqual({ at1x: 0, at4x: 0 })
+})
+
+it('derives sidebar ownership inside the applying action without refiling seats', () => {
+  const owner = {
+    id: 'owner', seq: 1, title: 'Owner', repoPath: LANE,
+    stage: 'in_progress', audience: 'human', deps: [],
+    createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+  }
+  const seat = {
+    sessionId: 'seat', issueId: owner.id, headless: true, agentKind: 'codex',
+    cwd: LANE, title: 'Seat', status: 'live', archived: false,
+    lastActiveAt: new Date(NOW).toISOString(),
+  }
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'worktree', id: LANE, value: { path: LANE, repoPath: LANE, repoName: 'Lane' } as never },
+    { kind: 'issue', id: owner.id, value: owner as never },
+    { kind: 'session', id: seat.sessionId, value: seat as never },
+  ] })
+  const stop = autorun(() => { pool.sidebarRosters.candidates(LANE) })
+  const file = vi.spyOn(pool.sidebarRosters as unknown as { fileSeat(id: string): void }, 'fileSeat')
+  try {
+    expect(pool.issueObject(owner.id).placed).toBe(true)
+    expect([...pool.sidebarRosters.candidates(LANE)]).toEqual([])
+    runInAction(() => {
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: { ...owner, audience: 'agent', stage: 'backlog' } as never }] })
+      expect(pool.issueObject(owner.id).placed).toBe(false)
+      expect([...pool.sidebarRosters.candidates(LANE)]).toEqual(['seat'])
+    })
+    expect(file).not.toHaveBeenCalled()
+    stop()
+    file.mockClear()
+    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: owner as never }] })
+    expect(file).not.toHaveBeenCalled()
+  } finally { file.mockRestore(); stop(); pool.dispose() }
 })

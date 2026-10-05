@@ -151,7 +151,9 @@ describe('incremental header sessions', () => {
           },
         },
       ])
-      // Attachment maintains the roster; the question must only read its size.
+      // Establish header demand outside the measurement. A count reads
+      // resident flags and cold deadline totals, never the roster values.
+      const warm = autorun(() => { f.pool.headerViews.workingCount() })
       expect(f.pool.headerViews.workingCount()).toBe(32 + 128 * scale)
       const roster = vi.spyOn(HeaderSessions.prototype, 'working')
       let count = 0,
@@ -184,6 +186,7 @@ describe('incremental header sessions', () => {
         expect(paints).toBe(beforeRename + 1)
         expect(roster).not.toHaveBeenCalled()
         stop()
+        warm()
         const closed = await measure('closed header count', () =>
           f.change('resident-1', { agentState: state('idle') }),
         )
@@ -205,6 +208,7 @@ describe('incremental header sessions', () => {
         })
       } finally {
         stop()
+        warm()
         roster.mockRestore()
         f.dispose()
       }
@@ -214,6 +218,47 @@ describe('incremental header sessions', () => {
       for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
         expect(samples[1]![name][counter], `${name}:${counter}`).toBe(samples[0]![name][counter])
     expect(samples[1]!.control.elements).toBeGreaterThan(samples[0]!.control.elements)
+  })
+
+  it('derives the new resident contribution inside the applying action', () => {
+    const f = fixture(1)
+    const stop = autorun(() => {
+      f.pool.headerViews.working()
+      f.pool.headerViews.workingCount()
+      f.pool.headerViews.aggregate(HOSTS[0])
+    })
+    try {
+      runInAction(() => {
+        f.change('resident-0', { agentState: state('working') })
+        expect(f.pool.headerViews.workingCount()).toBe(1)
+        expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['resident-0'])
+        expect(f.pool.headerViews.aggregate(HOSTS[0]).phases.working).toBe(1)
+      })
+    } finally { stop(); f.dispose() }
+  })
+
+  it('releases header demand at the last reader and leaves untracked reads unsubscribed', () => {
+    const f = fixture(1)
+    const dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
+    const cold = vi.spyOn(HeaderSessions.prototype as unknown as { cold(id: string): void }, 'cold')
+    try {
+      expect(f.pool.headerViews.workingCount()).toBe(0)
+      expect(dispose).toHaveBeenCalledTimes(1)
+      const first = autorun(() => { f.pool.headerViews.workingCount() })
+      const second = autorun(() => { f.pool.headerViews.aggregate(HOSTS[0]) })
+      first()
+      expect(dispose).toHaveBeenCalledTimes(1)
+      second()
+      expect(dispose).toHaveBeenCalledTimes(2)
+      cold.mockClear()
+      f.change('cold-0', { status: 'live', agentState: state('working') })
+      f.change('resident-0', { agentState: state('working') })
+      f.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + 1000 }, new Set(['coarseNow']))
+      expect(cold).not.toHaveBeenCalled()
+      const stop = autorun(() => { expect(f.pool.headerViews.workingCount()).toBe(2) })
+      stop()
+      expect(dispose).toHaveBeenCalledTimes(3)
+    } finally { cold.mockRestore(); dispose.mockRestore(); f.dispose() }
   })
 
   it('reads painted fields of a working cold session without hydrating it', () => {

@@ -15,6 +15,7 @@ import { fenceConfig } from '../worklist-proto/harness/lint/fence-plugin.mjs'
 import babelParser from '@babel/eslint-parser'
 import mobx from 'eslint-plugin-mobx'
 import { createRequire } from 'node:module'
+import { noReactionWrites } from './reaction-writes-rule.mjs'
 
 // Resolved from this package, not by bare name: Babel resolves a bare plugin
 // name from its own install location, which Bun's isolated linker does not
@@ -43,10 +44,11 @@ export default [
         ecmaFeatures: { jsx: true },
       },
     },
-    plugins: { mobx },
+    plugins: { mobx, derivations: { rules: { 'no-reaction-writes': noReactionWrites } } },
     rules: {
       'mobx/missing-observer': 'error',
       'mobx/exhaustive-make-observable': 'error',
+      'derivations/no-reaction-writes': 'error',
     },
   },
   {
