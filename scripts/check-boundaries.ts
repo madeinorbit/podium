@@ -2753,6 +2753,30 @@ const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; deriv
         derivedBy: 'apps/server/src/store/machines-sentinel-scan.test.ts',
       },
     ],
+    // The shipping active-order term (POD-5612): `queuedDependentsOf` repeats
+    // the partial index's own WHERE as a module constant, because SQLite takes
+    // a partial index only for a query that repeats that term literally — a
+    // bound parameter would not match and would scan shipped/cancelled history.
+    // The deriving test reads the index SQL out of sqlite_master, asserts it
+    // contains the constant, and asserts the EXPLAIN plan for the constant's
+    // shape uses the index; any drift on either side fails it.
+    [
+      'apps/server/src/store/shipping.ts',
+      {
+        token: 'CONSTANT-IDENTIFIER STATEMENT POD-5612',
+        derivedBy: 'apps/server/src/store/shipping-lane-reads.test.ts',
+      },
+    ],
+    // The same test's own plan probe (POD-5612): the EXPLAIN interpolates the
+    // verified constant to prove the index serves that exact shape. Derived by
+    // the assertions around it in the same file.
+    [
+      'apps/server/src/store/shipping-lane-reads.test.ts',
+      {
+        token: 'CONSTANT-IDENTIFIER STATEMENT POD-5612',
+        derivedBy: 'apps/server/src/store/shipping-lane-reads.test.ts',
+      },
+    ],
   ])
 
 export function checkSqlRawLiteral(file: string, source: string): Violation[] {

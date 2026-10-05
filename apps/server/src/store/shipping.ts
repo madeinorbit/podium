@@ -810,7 +810,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       .from(shipOrders)
       .where(
         and(
-          sql.raw(ACTIVE_SHIP_ORDER_TERM),
+          // CONSTANT-IDENTIFIER STATEMENT POD-5612 — the term is the
+          // `ACTIVE_SHIP_ORDER_TERM` source constant, never user input, and
+          // `shipping-lane-reads.test.ts` derives it from the schema (index
+          // SQL out of sqlite_master plus the EXPLAIN plan) and fails on drift.
+          sql.raw(ACTIVE_SHIP_ORDER_TERM), // CONSTANT-IDENTIFIER STATEMENT POD-5612
           eq(shipOrders.state, 'queued'),
           sql`EXISTS (SELECT 1 FROM json_each(${shipOrders.deliveryDependsOn}) WHERE json_each.value IN (${sql.join(
             unique.map((id) => sql`${id}`),

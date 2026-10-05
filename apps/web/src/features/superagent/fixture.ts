@@ -1,13 +1,16 @@
 /** Synthetic metadata for the real StoreProvider. No backend or operator rows. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { SuperThreadView } from '@podium/client-core/values'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { asSessionId, issueEventRowId } from '@podium/model'
 import { createHeaderFixture } from '../../../test/header-fixture'
 
 export function createSuperagentFixture(issues = 32, sessions = 32) {
   const base = createHeaderFixture(issues, sessions)
   let threads: SuperThreadView[] = [
-    { id: 'global', kind: 'global', podiumSessionId: asSessionId('synthetic-session-0'), harnessSessionId: 'synthetic-harness', turnRunning: false, agentKind: 'codex' },
+    // The synthetic thread runs the product default harness, as an identifier:
+    // the value is arbitrary fixture data, never vendor behaviour (POD-5613).
+    { id: 'global', kind: 'global', podiumSessionId: asSessionId('synthetic-session-0'), harnessSessionId: 'synthetic-harness', turnRunning: false, agentKind: DEFAULT_HARNESS_AGENT },
     { id: 'btw-private', kind: 'btw', podiumSessionId: asSessionId('synthetic-session-1'), originSessionId: asSessionId('synthetic-session-2') },
   ]
   for (const eventId of [100, 9, 99]) {
