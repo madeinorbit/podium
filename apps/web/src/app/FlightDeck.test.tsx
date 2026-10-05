@@ -1,6 +1,7 @@
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { DraftStore } from '@podium/client-core/conversation'
 import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -13,7 +14,7 @@ import {
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-context'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
@@ -123,7 +124,13 @@ const uiState = {
   },
 }
 
+const drafts = new DraftStore({
+  storage: { get: () => null, set: () => {} },
+  hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'ok' }) } as never,
+})
+afterAll(() => drafts.dispose())
 const owner = withKeyedInputs({
+  drafts,
   getSnapshot: () =>
     fixtureStoreSnapshot(
       selectFixtureSnapshot((state) => state),
@@ -150,7 +157,6 @@ vi.mock('./store', () => ({
       paneA: harness.paneA,
       paneB: null,
       split: false,
-      drafts: {},
       coarseNow: harness.coarseNow,
       uiState,
       setSelectedWorktree: vi.fn(),
