@@ -1,5 +1,5 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { outboxChatSends } from '@podium/client-core/engine'
+import { outboxChatSends } from '@podium/client-core/chat-values'
 import { asSessionId } from '@podium/model'
 import { compareStructural, computed, type IComputedValue, type IObservableValue, observable, runInAction } from 'mobx'
 import { CHAT_ORDER_KINDS, type ChatContextRows } from './chat-context-schema'

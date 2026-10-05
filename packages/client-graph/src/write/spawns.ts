@@ -4,8 +4,9 @@
 import { asIssueId, asMutationId, asSessionId, IssueProjection,
   type AgentKind, type IssueId, type MutationId, type SessionId,
   type SessionMeta, type UserId } from '@podium/model'
-import { type PodiumClientApi, assertSpawnPlacement, createDraftAgent, createIssueAgent,
-  type SpawnDraftAgentArgs, type SpawnTarget, type TaskSpawnOutcome } from '@podium/client-core'
+import type { PodiumClientApi } from '@podium/client-core/api'
+import { assertSpawnPlacement, createDraftAgent, createIssueAgent,
+  type SpawnDraftAgentArgs, type SpawnTarget, type TaskSpawnOutcome } from '@podium/client-core/spawn-agent'
 import { randomUUID } from '@podium/client-core/id'
 import { insertOverlay, type OverlayTarget, type PendingOverlay } from '@podium/client-core/command-reducers'
 import type { StoreNotices, SpawnPlaceholderEvent } from '@podium/client-core/engine'

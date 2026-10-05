@@ -9,6 +9,7 @@ import {
   applyHarnessBoundaryAllowlist,
   checkBrowserGraphAll,
   checkCacheTableAnnouncement,
+  checkClientGraphBoundaries,
   checkConsoleOwnership,
   checkDeclaredDeps,
   checkDrizzleImportHome,
@@ -58,6 +59,133 @@ import {
 } from './harness-boundary-allowlist'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+describe('pool runtime boundaries', () => {
+  const graph = 'packages/client-graph/src/new-source.ts'
+  const app = 'apps/web/src/features/new-reader.ts'
+  const rules = (file: string, source: string) =>
+    checkFile(file, source).filter(
+      (v) => v.rule === 'client-graph-engine-values' || v.rule === 'apps-client-graph-diagnostics',
+    )
+
+  it.each([
+    "import { ClientRuntime } from '@podium/client-core/engine'",
+    "import { type Store, ClientRuntime } from '@podium/client-core/engine'",
+    "import * as engine from '@podium/client-core/engine'",
+    "export * from '@podium/client-core/engine'",
+    "import '@podium/client-core/engine'",
+    "const engine = await import('@podium/client-core/engine/runtime')",
+    'const engine = await import(`@podium/client-core/engine/runtime`)',
+    "const read = <T>(value: T) => value; const engine = await import('@podium/client-core/engine')",
+    "const engine = require('@podium/client-core/engine')",
+    "import engine = require('@podium/client-core/engine')",
+    "import { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import { ClientRuntime } from '@podium/client-core'",
+    "import { type Store, ClientRuntime } from '@podium/client-core'",
+    "export * from '@podium/client-core'",
+    "const core = await import('@podium/client-core')",
+    "import { ClientRuntime } from '../../client-core/src/index.js'",
+    "import { ClientRuntime } from '../../client-core/src'",
+  ])('plants an engine value and stops the gate: %s', (source) => {
+    const violations = rules(graph, source)
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.rule).toBe('client-graph-engine-values')
+    expect(applyAllowlist(violations, []).errors).toEqual(violations)
+  })
+
+  it.each([
+    "import type { ClientRuntime } from '@podium/client-core/engine'",
+    "import { type Store, type ClientRuntime } from '@podium/client-core/engine'",
+    "export type * from '@podium/client-core/engine'",
+    "export { type Store } from '@podium/client-core/engine'",
+    "type Runtime = import('@podium/client-core/engine').ClientRuntime",
+    "import type { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import type { ClientRuntime } from '@podium/client-core'",
+    "type Runtime = import('@podium/client-core').ClientRuntime",
+    "import type { ClientRuntime } from '../../client-core/src/index.js'",
+    "import { loadingNavigationProvider } from '@podium/client-core/navigation-provider'",
+    "import { outboxChatSends } from '@podium/client-core/chat-values'",
+    "import { createDraftAgent } from '@podium/client-core/spawn-agent'",
+    "// import { ClientRuntime } from '@podium/client-core/engine'",
+  ])('allows engine types and neutral values: %s', (source) => {
+    expect(rules(graph, source)).toEqual([])
+  })
+
+  it.each([
+    "import { referenceState } from '@podium/client-graph/diagnostics/reference-state'",
+    "import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'",
+    "export * from '@podium/client-graph/diagnostics/reference-state'",
+    "const oracle = await import('@podium/client-graph/diagnostics/reference-state')",
+    'const oracle = await import(`@podium/client-graph/diagnostics/reference-state`)',
+    "const oracle = require('@podium/client-graph/diagnostics/reference-state')",
+    "type Oracle = import('@podium/client-graph/diagnostics/reference-state').ReferenceState",
+    "import { referenceState } from '../../../../packages/client-graph/diagnostics/reference-state.js'",
+  ])('plants an app diagnostics dependency and stops the gate: %s', (source) => {
+    const violations = rules(app, source)
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.rule).toBe('apps-client-graph-diagnostics')
+    expect(applyAllowlist(violations, []).errors).toEqual(violations)
+  })
+
+  it('keeps test wiring and harnesses separate from product exemptions', () => {
+    const source =
+      "import { referenceState } from '@podium/client-graph/diagnostics/reference-state'"
+    for (const file of [
+      'apps/web/src/reader.test.ts',
+      'apps/mobile/src/reader.test.tsx',
+      'apps/web/src/test-support/reader.ts',
+      'apps/web/harness/reader.ts',
+      'apps/web/test/reader.ts',
+    ])
+      expect(rules(file, source), file).toEqual([])
+    expect(rules('apps/mobile/src/reader.ts', source)).toHaveLength(1)
+    expect(rules(app, "import { MobxPool } from '@podium/client-graph'")).toEqual([])
+  })
+
+  it('checks dynamic imports after JSX as well as TypeScript generic functions', () => {
+    expect(
+      rules(
+        'packages/client-graph/src/new-source.tsx',
+        "const view = <div />; const engine = await import('@podium/client-core/engine')",
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('counts existing diagnostics exceptions, refuses growth and refuses stale counts', () => {
+    const allowed = BOUNDARY_ALLOWLIST.filter(
+      (entry) => entry.rule === 'apps-client-graph-diagnostics',
+    )
+    const existing = allowed.flatMap((entry) => {
+      expect(entry.phase).toBe('POD-5544')
+      return checkClientGraphBoundaries(
+        entry.file,
+        readFileSync(join(REPO_ROOT, entry.file), 'utf8'),
+      )
+    })
+    expect(applyAllowlist(existing, allowed)).toEqual({ warnings: existing, errors: [], stale: [] })
+    const extra = rules(
+      allowed[0]!.file,
+      "import { probe } from '@podium/client-graph/diagnostics/probe'",
+    )
+    expect(applyAllowlist([...existing, ...extra], allowed).errors).toEqual(extra)
+    expect(applyAllowlist(existing.slice(1), allowed).stale).toHaveLength(1)
+  })
+
+  it('has no engine value dependency in the real product pool', () => {
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(dir, entry.name)
+        return entry.isDirectory() ? walk(path) : /\.tsx?$/.test(entry.name) ? [path] : []
+      })
+    const violations = walk(join(REPO_ROOT, 'packages/client-graph/src')).flatMap((path) =>
+      checkClientGraphBoundaries(
+        relative(REPO_ROOT, path).split(sep).join('/'),
+        readFileSync(path, 'utf8'),
+      ),
+    )
+    expect(violations).toEqual([])
+  })
+})
 
 /**
  * Every violation the STORE BOUNDARY family reports on the real tree, computed

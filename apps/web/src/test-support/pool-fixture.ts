@@ -1,3 +1,4 @@
+import { createHeaderPollingService } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
@@ -215,7 +216,11 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
         onConnectionHealth: () => () => {},
       },
     })
-    stopHeader = attachHeaderSource(pool, owner as never)
+    const polling = createHeaderPollingService({ api: fixtureState.trpc, replica: owner.replica })
+    Object.assign(owner, { headerInputs: polling.inputs })
+    const detach = attachHeaderSource(pool, owner as never)
+    polling.start()
+    stopHeader = () => { detach(); polling.destroy() }
   }
   return pool
 }

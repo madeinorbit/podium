@@ -1,4 +1,4 @@
-import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
+import { createHeaderPollingService, type ClientRuntime, type KeyedListChange } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
@@ -60,6 +60,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
           }
         },
       },
+      headerInputs: { read: () => undefined, onInput: () => () => {} },
       access: {
         trpc: {
           quota: { summary: { query: async () => [] } },
@@ -221,13 +222,16 @@ function pollingFixture() {
     },
   } as unknown as ClientRuntime
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const reportError = vi.fn()
+  const polling = createHeaderPollingService({ api: runtime.access.trpc, replica: runtime.replica, reportError })
+  Object.assign(runtime, { headerInputs: polling.inputs })
   return {
-    pool,
-    quota,
-    history,
-    lifecycle,
-    reading,
-    start: () => attachHeaderSource(pool, runtime),
+    pool, quota, history, lifecycle, reading, polling, reportError, runtime,
+    start: () => {
+      const detach = attachHeaderSource(pool, runtime)
+      polling.start()
+      return () => { detach(); polling.destroy() }
+    },
   }
 }
 
@@ -236,13 +240,36 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it('consumes cached keyed samples without starting timers or touching the network', async () => {
+  vi.useFakeTimers()
+  const f = pollingFixture()
+  f.polling.start()
+  await Promise.resolve()
+  Object.defineProperty(f.runtime, 'access', { get() { throw new Error('pool reached transport') } })
+  const timer = vi.spyOn(globalThis, 'setInterval')
+  const detach = attachHeaderSource(f.pool, f.runtime)
+  try {
+    expect(f.pool.header.received.history).toBe(f.reading)
+    expect(f.pool.header.received.quotas).toEqual([])
+    expect(timer).not.toHaveBeenCalled()
+    expect(f.quota).toHaveBeenCalledTimes(1)
+    detach()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(f.quota).toHaveBeenCalledTimes(2)
+    expect(f.pool.header.received.quotas).toEqual([])
+  } finally {
+    detach()
+    f.polling.destroy()
+    f.pool.dispose()
+  }
+})
+
 it('counts quota failures, logs once, keeps the last reading, and recovers on the next poll', async () => {
   vi.useFakeTimers()
   const f = pollingFixture()
   const before = { machineId: 'before' } as HeaderRows['quota']
   const after = { machineId: 'after' } as HeaderRows['quota']
   const error = new Error('quota unavailable')
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
   f.quota
     .mockResolvedValueOnce([before])
     .mockRejectedValueOnce(error)
@@ -254,9 +281,9 @@ it('counts quota failures, logs once, keeps the last reading, and recovers on th
     await vi.advanceTimersByTimeAsync(120_000)
     expect(f.pool.header.received.quotas).toEqual([before])
     expect(f.pool.header.get('quota', 'before')).toBe(before)
-    expect(f.pool.diagnostics.counts['header:quota']).toBe(2)
-    expect(log).toHaveBeenCalledTimes(1)
-    expect(log).toHaveBeenCalledWith('[pool feed] header:quota failed', error)
+    expect(f.polling.diagnostics.counts.quota).toBe(2)
+    expect(f.reportError).toHaveBeenCalledTimes(1)
+    expect(f.reportError).toHaveBeenCalledWith('quota', error)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.pool.header.received.quotas).toEqual([after])
     expect(f.pool.header.get('quota', 'before')).toBeUndefined()
@@ -303,7 +330,6 @@ it('counts and retries history and lifecycle failures independently', async () =
   const f = pollingFixture()
   const historyError = new Error('history unavailable')
   const lifecycleError = new Error('settings unavailable')
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
   f.history
     .mockRejectedValueOnce(historyError)
     .mockRejectedValueOnce(historyError)
@@ -312,17 +338,17 @@ it('counts and retries history and lifecycle failures independently', async () =
   const stop = f.start()
   try {
     await Promise.resolve()
-    expect(f.pool.diagnostics.counts).toEqual({ 'header:history': 1, 'header:lifecycle': 1 })
+    expect(f.polling.diagnostics.counts).toEqual({ history: 1, lifecycle: 1 })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.pool.header.received.lifecycle).toEqual({})
     expect(f.lifecycle).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(9 * 60_000)
     expect(f.pool.header.received.history).toBe(f.reading)
-    expect(f.pool.diagnostics.counts).toEqual({ 'header:history': 2, 'header:lifecycle': 1 })
+    expect(f.polling.diagnostics.counts).toEqual({ history: 2, lifecycle: 1 })
     expect(f.lifecycle).toHaveBeenCalledTimes(2)
-    expect(log.mock.calls).toEqual([
-      ['[pool feed] header:lifecycle failed', lifecycleError],
-      ['[pool feed] header:history failed', historyError],
+    expect(f.reportError.mock.calls).toEqual([
+      ['lifecycle', lifecycleError],
+      ['history', historyError],
     ])
   } finally {
     stop()
@@ -349,6 +375,8 @@ it('ignores late polling failures after detaching the principal', async () => {
     await Promise.resolve()
     await vi.advanceTimersByTimeAsync(10 * 60_000)
     expect(f.pool.diagnostics.errors).toBe(0)
+    expect(f.polling.diagnostics.errors).toBe(0)
+    expect(f.reportError).not.toHaveBeenCalled()
     expect(log).not.toHaveBeenCalled()
     expect(f.quota).toHaveBeenCalledTimes(1)
     expect(f.lifecycle).toHaveBeenCalledTimes(1)

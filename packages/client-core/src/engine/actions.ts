@@ -545,6 +545,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     }
   }
 
+  // Runtime-owned writes (POD-5426 §5): pins, tab order and personal settings
+  // are deliberately non-optimistic for pool rows. Their local runtime paint
+  // stays here; enqueue failure restores it, and settlement refetches truth in
+  // reconcileActionState. These calls use the same durable outbox as rt.write,
+  // with no second queue or PoolTransactions reducer. Archive's pin cleanup
+  // below follows the same rule. Entity edits always use rt.write.
   return {
     replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
@@ -1012,6 +1018,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.write('setArchived', { sessionId, archived })
       if (archived) rt.write('setWorkState', { sessionId, workState: 'done' })
       if (archived) {
+        // Runtime-owned pin cleanup; see the write ownership block above.
         const pins = rt.state().pins
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
@@ -1052,6 +1059,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     restoreIssue: async (id) => rt.write('issueRestore', { id }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
     setSidebarSettings: async (next) => {
+      // Runtime-owned personal settings; see the write ownership block above.
       const previous = rt.state().sidebarSettings
       rt.apply({ sidebarSettings: { ...previous, ...next } })
       const values = Object.fromEntries(

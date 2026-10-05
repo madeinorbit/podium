@@ -199,6 +199,21 @@
       "@podium/source": "./test-support/keyed-inputs.ts",
       "types": "./test-support/keyed-inputs.ts",
       "import": "./test-support/keyed-inputs.ts"
+    },
+    "./navigation-provider": {
+      "@podium/source": "./src/navigation-provider.ts",
+      "types": "./src/navigation-provider.ts",
+      "import": "./src/navigation-provider.ts"
+    },
+    "./chat-values": {
+      "@podium/source": "./src/chat-values.ts",
+      "types": "./src/chat-values.ts",
+      "import": "./src/chat-values.ts"
+    },
+    "./spawn-agent": {
+      "@podium/source": "./src/spawn-agent.ts",
+      "types": "./src/spawn-agent.ts",
+      "import": "./src/spawn-agent.ts"
     }
   },
   "scripts": {

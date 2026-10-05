@@ -122,6 +122,11 @@
  *     carries deltas only. Defined beside `checkFile` below as
  *     `history-from-disk`.
  *
+ *  22. Pool runtime boundaries (POD-5546, epic POD-4286 §4): client-graph
+ *     imports no client-core engine values, including its root barrel;
+ *     product apps import no pool
+ *     diagnostics, including types. See checkClientGraphBoundaries.
+ *
  * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
  * definition) sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
@@ -169,6 +174,7 @@ import {
   MANIFEST,
   PLANE_SPLIT_ENTRIES,
   partitionAllowlist,
+  resolveModulePath,
   stripComments,
   tagsFor,
   type Violation,
@@ -3647,12 +3653,116 @@ export function checkWorldIndexBoundary(file: string, source: string): Violation
   })
 }
 
+/** The pool takes runtime ports, never engine values. App product code takes
+ * pool APIs, never fixture oracles. Tests and explicitly separate harnesses
+ * can wire those implementations; known product leaks are counted in the
+ * legacy allowlist until POD-5544 removes them. */
+export function checkClientGraphBoundaries(file: string, source: string): Violation[] {
+  if (isTestFile(file) || /\/harness\//.test(file)) return []
+  const graph = file.startsWith('packages/client-graph/src/')
+  const app = file.startsWith('apps/')
+  if (!graph && !app) return []
+  const ast = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const refs: ImportRef[] = []
+  function visit(node: ts.Node): void {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const clause = node.importClause
+      const named = clause?.namedBindings
+      refs.push({
+        specifier: node.moduleSpecifier.text,
+        typeOnly:
+          !!clause?.isTypeOnly ||
+          (!!clause &&
+            !clause.name &&
+            !!named &&
+            ts.isNamedImports(named) &&
+            named.elements.length > 0 &&
+            named.elements.every((element) => element.isTypeOnly)),
+      })
+    } else if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      const named = node.exportClause
+      refs.push({
+        specifier: node.moduleSpecifier.text,
+        typeOnly:
+          node.isTypeOnly ||
+          (!!named &&
+            ts.isNamedExports(named) &&
+            named.elements.length > 0 &&
+            named.elements.every((element) => element.isTypeOnly)),
+      })
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression &&
+      ts.isStringLiteral(node.moduleReference.expression)
+    ) {
+      refs.push({ specifier: node.moduleReference.expression.text, typeOnly: node.isTypeOnly })
+    } else if (ts.isImportTypeNode(node)) {
+      // An import() type is erased. Apps still may not name diagnostics types.
+      if (ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal))
+        refs.push({ specifier: node.argument.literal.text, typeOnly: true })
+    } else if (
+      ts.isCallExpression(node) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      const arg = node.arguments[0]
+      if (arg && ts.isStringLiteralLike(arg)) refs.push({ specifier: arg.text, typeOnly: false })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  const violations: Violation[] = []
+  for (const ref of refs) {
+    const path = resolveModulePath(file, ref.specifier)
+    // The root barrel re-exports the engine. Neutral values must name their
+    // own subpath so a barrel cannot hide an engine value dependency.
+    if (
+      graph &&
+      !ref.typeOnly &&
+      (/^@podium\/client-core(?:$|\/engine(?:\/|$))/.test(ref.specifier) ||
+        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/engine(?:\/|$))/.test(path)))
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'client-graph-engine-values',
+        message: `${file}: the pool may not import engine values or the client-core root barrel ('${ref.specifier}'). Take a runtime port or use a neutral client-core subpath; engine types are allowed (POD-4286 §4).`,
+      })
+    }
+    if (
+      app &&
+      (/^@podium\/client-graph\/diagnostics(?:\/|$)/.test(ref.specifier) ||
+        (path !== null && /^packages\/client-graph\/(?:src\/)?diagnostics(?:\/|$)/.test(path)))
+    ) {
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: 'apps-client-graph-diagnostics',
+        message: `${file}: product apps may not import pool diagnostics ('${ref.specifier}'), including types. Use the pool's product API; fixture oracles belong in tests or harnesses (POD-4286 §4).`,
+      })
+    }
+  }
+  return violations
+}
+
 export function checkFile(
   file: string,
   source: string,
   ownAdapterCtx?: HarnessOwnAdapterCtx,
 ): Violation[] {
   return [
+    ...checkClientGraphBoundaries(file, source),
     ...checkIssuePredicates(file, source),
     ...checkHarnessOwnAdapter(file, source, ownAdapterCtx),
     ...checkTerminalObjectsProcess(file, source),

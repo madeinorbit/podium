@@ -177,6 +177,7 @@ function makeApi(): any {
         mutate: vi.fn(async () => ({ repositories: [KNOWN_REPO], diagnostics: [], machines: [] })),
       },
     },
+    quota: { summary: { query: vi.fn(async () => []) } },
     pins: {
       list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) },
       set: { mutate: async () => ({ panels: [], worktrees: [], repos: [] }) },
@@ -278,6 +279,7 @@ function makeEngine(
     draftSendDebounceMs?: number
     draftPersistDebounceMs?: number
     principal?: string
+    networkEnabled?: boolean
     coarseClock?: CoarseClock
     info?: (title: string, destination?: string) => void
   } = {},
@@ -291,6 +293,7 @@ function makeEngine(
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
+    ...(opts.networkEnabled !== undefined ? { networkEnabled: opts.networkEnabled } : {}),
     notices: { error: (m) => errors.push(m), info: opts.info ?? (() => {}) },
     createReplicaFn: () =>
       opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
@@ -1411,5 +1414,43 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
     engine.dispose()
     document.dispatchEvent(new Event('visibilitychange'))
     expect(hub.connectNowCount).toBe(1)
+  })
+})
+
+
+describe('runtime-owned header inputs', () => {
+  it('polls without a pool, restarts once, and stops permanently at principal destruction', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    const changed = vi.fn()
+    engine.headerInputs.onInput('quota', changed)
+    try {
+      engine.start()
+      engine.start()
+      await settle()
+      expect(api.quota.summary.query).toHaveBeenCalledTimes(1)
+      expect(changed).toHaveBeenCalledTimes(1)
+      engine.dispose()
+      engine.start()
+      await settle()
+      expect(api.quota.summary.query).toHaveBeenCalledTimes(2)
+      expect(changed).toHaveBeenCalledTimes(2)
+      engine.destroy()
+      expect(engine.headerInputs.read('quota')).toBeUndefined()
+      engine.start()
+      await settle()
+      expect(api.quota.summary.query).toHaveBeenCalledTimes(2)
+    } finally { engine.destroy() }
+  })
+
+  it('does not poll an offline runtime even while its inputs are observed', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api, networkEnabled: false })
+    engine.headerInputs.onInput('quota', () => {})
+    try {
+      engine.start()
+      await settle()
+      expect(api.quota.summary.query).not.toHaveBeenCalled()
+    } finally { engine.destroy() }
   })
 })

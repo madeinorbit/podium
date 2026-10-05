@@ -915,11 +915,13 @@ describe('partitionAllowlist', () => {
     expect(legacy.map((e) => e.rule)).toEqual(['agent-host-consumers'])
   })
 
-  it('the REAL allowlist is EMPTY, and every manifest rule is error-level', () => {
+  it('the REAL manifest allowlist is EMPTY, and every manifest rule is error-level', () => {
     // POD-335's end state, asserted rather than described. The two clauses are
-    // separate obligations: an empty array today is a state, and the error-level
-    // set is what stops the next entry from silently restoring the ratchet.
-    expect(BOUNDARY_ALLOWLIST).toEqual([])
+    // separate obligations: the manifest partition is empty today, and the
+    // error-level set stops an entry from silently restoring its ratchet.
+    // Legacy rules retain their own counted exceptions and removal owners.
+    const [manifest] = partitionAllowlist(BOUNDARY_ALLOWLIST)
+    expect(manifest).toEqual([])
     for (const rule of MANIFEST_RULES) {
       expect(ERROR_LEVEL_MANIFEST_RULES.has(rule), `${rule} is not error-level`).toBe(true)
     }

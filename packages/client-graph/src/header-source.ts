@@ -1,6 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
-import { observe, reaction, runInAction } from 'mobx'
+import type { ClientRuntime, HeaderInputKey, KeyedListChange } from '@podium/client-core/engine'
+import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
 import {
   HEADER_SCHEMA,
@@ -12,8 +12,8 @@ import type { MobxPool } from './pool'
 import { createFieldInputs } from './shared/field-inputs'
 
 /** Read-side bridge owned by the existing StoreProvider attachment. The metric
- * channel never subscribes to snapshots. Polling has one owner per principal,
- * and late replies cannot enter a disposed pool. */
+ * channels never subscribe to snapshots. Network samples arrive from the
+ * runtime service; this adapter owns neither network calls nor timers. */
 export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
@@ -25,7 +25,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     const next = new Set(entries.map(([id]) => id))
     const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
     // A previous apply may have thrown after writing some rows. Reconcile
-    // the actual table so its next successful poll removes those leftovers.
+    // the actual table so its next successful sample removes those leftovers.
     for (const id of pool.header.tables[entity].keys()) {
       if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
     }
@@ -77,24 +77,27 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
     )
   }
-  const api = runtime.access.trpc
-  let quotaPending = false
-  async function quota(): Promise<void> {
-    if (quotaPending || disposed) return
-    quotaPending = true
+  function sample(key: HeaderInputKey): void {
+    if (disposed) return
     try {
-      const rows = await api.quota.summary.query()
-      if (disposed) return
-      replace(
-        'quota',
-        rows.map((row) => [row.machineId, row]),
-      )
-      pool.header.received.quotas = rows
+      if (key === 'quota') {
+        const rows = runtime.headerInputs.read('quota')
+        if (!rows) return
+        replace('quota', rows.map(row => [row.machineId, row]))
+        pool.header.received.quotas = rows
+      } else if (key === 'history') {
+        const reading = runtime.headerInputs.read('history')
+        if (!reading) return
+        replace('history', [['fleet', reading]])
+        pool.header.received.history = reading
+      } else {
+        const settings = runtime.headerInputs.read('lifecycle')
+        if (!settings) return
+        replace('lifecycle', [['hosts', settings]])
+        pool.header.received.lifecycle = settings
+      }
     } catch (error) {
-      if (!disposed) pool.diagnostics.report('header:quota', error)
-      // Keep the last successful reading; the next poll replaces it.
-    } finally {
-      quotaPending = false
+      pool.diagnostics.report(`header:${key}`, error)
     }
   }
   runInAction(() => {
@@ -140,83 +143,13 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     runtime.hostMetrics.subscribe(metrics),
     runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]])),
   ]
-  void quota()
-  let lifecyclePending = false
-  let lifecycleReceived = false
-  async function lifecycle(): Promise<void> {
-    if (disposed || lifecyclePending || lifecycleReceived) return
-    lifecyclePending = true
-    try {
-      const settings = await api.settings.get.query()
-      if (disposed) return
-      replace('lifecycle', [['hosts', settings]])
-      pool.header.received.lifecycle = settings
-      lifecycleReceived = true
-    } catch (error) {
-      if (!disposed) pool.diagnostics.report('header:lifecycle', error)
-    } finally {
-      lifecyclePending = false
-    }
+  for (const key of ['quota', 'history', 'lifecycle'] as const) {
+    stops.push(runtime.headerInputs.onInput(key, () => sample(key)))
+    sample(key)
   }
-  void lifecycle()
-  // This endpoint is optional on the structural client API; the web supplies it.
-  const historyApi = (
-    api.sessions as
-      | (typeof api.sessions & {
-          concurrencyHistory?: { query(): Promise<import('./header-schema').HeaderRows['history']> }
-        })
-      | undefined
-  )?.concurrencyHistory
-  let historyPending = false
-  async function history(): Promise<void> {
-    if (!historyApi || disposed || historyPending) return
-    historyPending = true
-    try {
-      const reading = await historyApi.query()
-      if (disposed) return
-      if (
-        reading.buckets.length === 24 &&
-        Number.isFinite(reading.bucketMs) &&
-        reading.bucketMs > 0 &&
-        Number.isInteger(reading.peak) &&
-        reading.peak >= 0 &&
-        reading.buckets.every(
-          (bucket) =>
-            Number.isInteger(bucket.count) &&
-            bucket.count >= 0 &&
-            Number.isFinite(Date.parse(bucket.start)),
-        )
-      ) {
-        replace('history', [['fleet', reading]])
-        pool.header.received.history = reading
-      }
-    } catch (error) {
-      if (!disposed) pool.diagnostics.report('header:history', error)
-    } finally {
-      historyPending = false
-    }
-  }
-  stops.push(
-    reaction(
-      () => pool.headerViews.workingCount(),
-      () => {
-        void history()
-      },
-    ),
-  )
-  void history()
-  const historyTimer = setInterval(() => {
-    void history()
-  }, 5 * 60_000)
-  const timer = setInterval(() => {
-    void quota()
-    void lifecycle()
-  }, 60_000)
   return () => {
     if (disposed) return
     disposed = true
-    clearInterval(timer)
-    clearInterval(historyTimer)
     for (const stop of stops) stop()
     known.clear()
   }

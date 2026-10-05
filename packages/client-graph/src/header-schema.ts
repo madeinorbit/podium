@@ -1,4 +1,5 @@
 import type { Store } from '@podium/client-core/engine'
+import type { AgentConcurrencyHistoryResult } from '@podium/client-core/api'
 import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import type { HostMetricsWire, MachineQuotaWire, MachineWire } from '@podium/model/browser'
 import type { ShipOrderProjection } from '@podium/model/shipping-projection'
@@ -13,12 +14,7 @@ export interface HeaderRows {
   quota: MachineQuotaWire
   connection: ConnectionHealth
   shipOrder: ShipOrderProjection
-  history: {
-    sampledAt: string
-    bucketMs: number
-    peak: number
-    buckets: { start: string; count: number }[]
-  }
+  history: AgentConcurrencyHistoryResult
   lifecycle: Awaited<ReturnType<Store['trpc']['settings']['get']['query']>>
   window: Pick<Store, 'view' | 'paneA' | 'fileTabs' | 'outboxSize'>
 }
@@ -51,7 +47,7 @@ export const HEADER_SCHEMA = {
   },
   quota: {
     key: 'machineId',
-    source: 'api:quota.summary',
+    source: 'runtime:headerInputs.quota',
     model: 'MachineQuotaWire',
     cold: 'never',
   },
@@ -66,8 +62,8 @@ export const HEADER_SCHEMA = {
       decision: 'needs_you',
     },
   },
-  history: { key: 'fleet', source: 'api:sessions.concurrencyHistory', cold: 'never' },
-  lifecycle: { key: 'hosts', source: 'api:settings.get', cold: 'never' },
+  history: { key: 'fleet', source: 'runtime:headerInputs.history', cold: 'never' },
+  lifecycle: { key: 'hosts', source: 'runtime:headerInputs.lifecycle', cold: 'never' },
   connection: {
     key: 'server',
     source: 'hub:connectionHealth',

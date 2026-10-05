@@ -86,6 +86,7 @@ import { createEngineActions, type EngineActionRuntime, type EngineActions } fro
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
 import { createHostMetricsStore } from './host-metrics'
+import { createHeaderPollingService, type HeaderInputs } from './header-polling'
 import {
   createKeyedInputs,
   type KeyedInputStats,
@@ -365,6 +366,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     subscribe: this.hostMetricsStore.subscribe,
     getSnapshot: this.hostMetricsStore.getSnapshot,
   }
+  private readonly headerPolling: ReturnType<typeof createHeaderPollingService>
+  readonly headerInputs: HeaderInputs
 
   private readonly state: EngineState
   private stopNavigationWatch: (() => void) | undefined
@@ -467,6 +470,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         : {}),
     })
     this.onFeed = init.feed !== undefined
+    this.headerPolling = createHeaderPollingService({ api: this.api, replica: this.replica })
+    this.headerInputs = this.headerPolling.inputs
     this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
       api: this.api,
       replica: this.replica,
@@ -646,6 +651,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (this.started || this.destroyed) return
     this.started = true
     const offs = this.offs
+    if (this.networkEnabled) this.headerPolling.start()
 
     // Router changes fan in through one subscription; RouterUiState owns every
     // URL write and the state mirror.
@@ -884,6 +890,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
   dispose(): void {
+    this.headerPolling.stop()
     this.lastMachinesMaterial = undefined
     this.started = false
     bindSwitchTraceUi(null)
@@ -949,6 +956,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.poolWriter = null
     this.inputs.dispose()
     this.hostMetricsStore.destroy()
+    this.headerPolling.destroy()
   }
 
   /** True once {@link destroy} has run. The provider asserts on this so a
@@ -1565,9 +1573,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  /** Kinds whose truth is a tRPC read rather than a replicated row: the drain
-   *  outcome re-fetches instead of holding an overlay. Returns null for the
-   *  kinds whose truth and optimism the pool owns. */
+  /** Runtime-owned kinds are non-optimistic for pool rows (POD-5426 §5).
+   * Their local paint belongs to actions/the layout controller; settlement
+   * refetches their truth instead of retaining a pool transaction overlay.
+   * Returns null for entity kinds whose optimism the pool owns. */
   private reconcileActionState(entry: OutboxEntry, outcome: 'applied' | 'dropped'): boolean | null {
     if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
       if (outcome === 'dropped') {

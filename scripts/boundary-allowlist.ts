@@ -1,6 +1,6 @@
 /**
- * Architecture-manifest violation allowlist (POD-296) — EMPTY, and required to
- * stay that way (POD-335).
+ * Architecture-manifest entries stay EMPTY (POD-335). The legacy rules also
+ * use this ledger; the counted diagnostics debt below is owned by POD-5544.
  *
  * WHAT THIS FILE WAS. A phase-mapped ledger of known violations: each entry
  * recorded a rule, a file, how many times it occurred there, and the phase that
@@ -8,8 +8,8 @@
  * count, or left slack FAILED. That ratchet did its job — it froze the debt at
  * its measured size while the rewrite ran, and the counts only ever went down.
  *
- * WHAT IT IS NOW. Phase 7 paid the last of it, so the array is empty and the
- * emptiness is DEFENDED rather than merely current:
+ * WHAT IT IS NOW. Phase 7 paid the last manifest violation, so that partition
+ * is empty and its emptiness is DEFENDED rather than merely current:
  * `ERROR_LEVEL_MANIFEST_RULES` is the whole manifest rule set, and
  * `applyManifestPolicy` reports any entry naming an error-level rule as a
  * FORBIDDEN entry. So adding a row here does not quietly re-open the ratchet —
@@ -34,4 +34,20 @@
 
 import type { AllowlistEntry } from './architecture-manifest'
 
-export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = []
+export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
+  ...(
+    [
+      ['apps/web/src/features/chat/chat-context-test-fixture.ts', 2],
+      ['apps/web/src/features/chat/chat-context-check.ts', 2],
+      ['apps/web/src/features/superagent/operator-replay.ts', 2],
+      ['apps/web/src/features/superagent/acceptance.browser.tsx', 2],
+      ['apps/web/src/features/files/file-viewer-check.ts', 1],
+    ] as const
+  ).map(([file, count]) => ({
+    rule: 'apps-client-graph-diagnostics',
+    file,
+    count,
+    phase: 'POD-5544',
+    note: 'Existing pilot fixture/oracle import; POD-5544 removes it. New imports and stale counts fail.',
+  })),
+]

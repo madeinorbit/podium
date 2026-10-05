@@ -277,7 +277,21 @@ E7 incremental hot aggregate.
 
 ## 4. Rules for every sub-issue
 
-- One mutation owner: nothing new writes to the replica or queues commands.
+- One queue and one durable record: nothing new adds a queue or writes the replica.
+  The pool owns optimistic entity edits through `rt.write`/`pool.mutate` and
+  `PoolTransactions`, which index the existing kernel outbox. Runtime-owned
+  `pinSet`, `tabSetOrder`, `settingsUpdatePersonal`, `layoutSet`/`layoutClear`, and
+  chat sends use that same outbox directly and are non-optimistic for pool rows.
+  Pins, tab order and settings retain their existing local paint and restore it
+  on enqueue failure; settlement refetches truth. Layout's controller owns its
+  temporary paint and truth/refusal reconciliation. The composer owns chat
+  bubbles; the outbox owns delivery, retry and settlement. None of these writes
+  paints replica entities or adds a second queue (POD-5426 §5).
+- Transport belongs to the runtime. Header quota, concurrency history and
+  lifecycle samples arrive through keyed runtime inputs; the header adapter
+  makes no network calls or polling timers. `lint:boundaries` rejects engine
+  value imports (including the root barrel) in `client-graph` and diagnostics
+  imports in product app code.
 - No lost semantics: optimistic edits, rejection/rollback, evict vs delete, readmission, atomic
   rescope, offline hydration, principal isolation, draft-ledger policy.
 - Every fix ships with: focused tests, before/after counts from A2/A3, a disable or revert path.

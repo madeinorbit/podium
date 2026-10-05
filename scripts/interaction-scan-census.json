@@ -18120,7 +18120,7 @@
       "tokens": "86528c5aab36712c7a56d755bd0defdb4cae348b65a43bd9c691924c2132b79d",
       "gate": [],
       "origin": [
-        "0e12b25aae4e6d180d5f70c4e59d60f35752a87923c05cf882ed1ef90b449d36",
+        "1f52831a4d5c9e3a3bdd5d7c2eb23c1b4e9f018249a1211d72b4b4076539f03f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "39e29c1e80b9c26542ce8ac9a6cb464661b490e11bd0a729b52fd629c8d34e6b",
@@ -18131,11 +18131,12 @@
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
+        "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061",
         "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
       ],
-      "fingerprint": "93c9cc3287d3597445b17d70241c51b564ed0bf92da5ab63bebecc2a415fdc19",
+      "fingerprint": "1b6d52ed088fcee00c9d7ae98ad5807d86913371043f3b612892dcab89045802",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18151,7 +18152,7 @@
       "tokens": "eb19aa25e653920104b2eab71c6e3336a8329f6f44be692a47fd065b18de4d18",
       "gate": [],
       "origin": [
-        "0e12b25aae4e6d180d5f70c4e59d60f35752a87923c05cf882ed1ef90b449d36",
+        "1f52831a4d5c9e3a3bdd5d7c2eb23c1b4e9f018249a1211d72b4b4076539f03f",
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "39e29c1e80b9c26542ce8ac9a6cb464661b490e11bd0a729b52fd629c8d34e6b",
@@ -18162,11 +18163,12 @@
         "b8acefbfd479a9d30488941c28b0bfbee2b5c12262c758d33711f20f844df269",
         "b96acfd84b2033370088de370a18d23b05dd7a705e36f9f0bfe0d4451ba4f632",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd",
+        "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f35fbf75a9191b6b6b2796aba1314c0b716360ad6ffbe40bb2a13c777d8a0061",
         "f93aa13da0f1f7720f5336c279a26727bc13489fae0591afa6056757f3907e4b"
       ],
-      "fingerprint": "4410d654b72feb0d174a5e2ba34a7374d552cac5872c8fd697892e493e62d49c",
+      "fingerprint": "ae96d23280c5dd1b29e21fc192c726474c2b5471148682b967cf03060e0f8834",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39128,12 +39130,12 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "createHeaderEntities/apply/runInAction:callback",
       "rule": "loop:for-of",
-      "tokens": "f50cee229793a5f900ab8721eed84a1ebb5a13ba92b6d66d5e6fc826a05ab0e2",
+      "tokens": "a3e32df49933ab88f83df668877fc3ae2b18fb343a6806b688a21df149ac9b55",
       "gate": [],
       "origin": [
         "69071382a5594fda4d2bde35ce2c843ecb216f33aa7d8ab62c368713dd9cbd5d"
       ],
-      "fingerprint": "95baf169c955dd70efa98c110b0438daa3c9c32c5f220915220d29a48024a4af",
+      "fingerprint": "e2ea49a1cb7373e021ae1a8eb25c9a25061146cb1a859f41315aa837cd1dc19d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39160,50 +39162,6 @@
       "trigger": "Invocation of attachHeaderSource/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/history",
-      "rule": "consume:every",
-      "tokens": "2cb90c8ed0be6f6810390e9dae6f421718b4e253b8f318c5f41f4684bf4f7844",
-      "gate": [
-        "exit:then:e226f8345d066f30d70f70c717748abbc8ad899292f52fd4b9a9a6be79a6f9ea",
-        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8",
-        "&&:90618e83554b2ec42ebcf7e768478942bc3350888611474007b0cbd930078230"
-      ],
-      "origin": [
-        "0e12b25aae4e6d180d5f70c4e59d60f35752a87923c05cf882ed1ef90b449d36"
-      ],
-      "fingerprint": "5ec69d7894bfa2d68954fea3024eb671942942d72a2f57ce2a5d7cd90d46d7c6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of attachHeaderSource/history",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/history",
-      "rule": "helper-consumer",
-      "tokens": "cf73ed45bcd01d9c841db75768c30369948e40657e37ad946ad1518b6a98226b",
-      "gate": [
-        "exit:then:e226f8345d066f30d70f70c717748abbc8ad899292f52fd4b9a9a6be79a6f9ea",
-        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8",
-        "then:d029e9c180795a4a26a2de56f43a3d75d1af7e19fe714c32a0de45b8370cf37d"
-      ],
-      "origin": [
-        "0e12b25aae4e6d180d5f70c4e59d60f35752a87923c05cf882ed1ef90b449d36"
-      ],
-      "fingerprint": "4e3b40b1363b47aba5776cdfd2cfdf62fc250e3083248e2eb9f0189fd94ae68c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of attachHeaderSource/history",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -45851,6 +45809,46 @@
       "bound": "Only the changed record, its own linked paths and its named path/group memberships; no other repository group or catalog is read.",
       "reason": "Incremental identity relations are maintained inside the existing header owner. Point questions compose only the addressed canonical group.",
       "guard": "packages/client-graph/src/header-repository-question.test.ts: 128/512 unrelated repositories, rows/derivations/elements/visits flat across branch, origin, selection and linked-path changes; planted old catalog lookup grows. Actual phone hook guard in apps/mobile/src/client/use-launch-inputs.point.test.tsx."
+    },
+    {
+      "file": "packages/client-core/src/engine/header-polling.ts",
+      "holder": "createHeaderPollingService/start/resetWorking/callback",
+      "rule": "collection:rows",
+      "tokens": "755482bbf392925b20c8f17b9408a63a7b2692cadb83baf2aff09437a38ebe5a",
+      "gate": [
+        "exit:then:880a7542081e9da6901cfbfb3c9583dd71568b5c734f433e98497c7ceb705c39"
+      ],
+      "origin": [
+        "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb"
+      ],
+      "fingerprint": "624f2fb95802a2da7ca77abeb9e4ed2379e1c6c054773e6a6d93d86da95c93be",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5546",
+      "trigger": "Runtime service start or addressed bootstrap/rescope replacement.",
+      "bound": "One session-scope pass only at bootstrap/rescope; ordinary batches read only their session ids.",
+      "reason": "Seed the runtime-owned computing deadlines that trigger concurrency-history refreshes; no pool reads or per-delta fleet scan.",
+      "guard": "header-polling.test.ts asserts zero collection reads on session/title/unrelated deltas and exactly one on rescope."
+    },
+    {
+      "file": "packages/client-core/src/engine/header-polling.ts",
+      "holder": "createHeaderPollingService/start/resetWorking/callback",
+      "rule": "loop:for-of",
+      "tokens": "6e2b61fc427bd1ee1080a6448dcc7ce97ca8c42165f2bdb66d51fa01619d5383",
+      "gate": [
+        "exit:then:880a7542081e9da6901cfbfb3c9583dd71568b5c734f433e98497c7ceb705c39"
+      ],
+      "origin": [
+        "e4247fa405a7f70a46a5182cd7a0455e1d17c7a3c9ba67126437cb9ed1125efb"
+      ],
+      "fingerprint": "0380db5660f0c5dcbcc64d21a0e9f4687711e4e7c3abdfc7f931b48fbec1090e",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5546",
+      "trigger": "Runtime service start or addressed bootstrap/rescope replacement.",
+      "bound": "One session-scope pass only at bootstrap/rescope; ordinary batches read only their session ids.",
+      "reason": "Seed the runtime-owned computing deadlines that trigger concurrency-history refreshes; no pool reads or per-delta fleet scan.",
+      "guard": "header-polling.test.ts asserts zero collection reads on session/title/unrelated deltas and exactly one on rescope."
     }
   ]
 }

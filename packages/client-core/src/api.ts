@@ -57,6 +57,14 @@ export interface ApiQuery<I, O> {
   query(input: I): Promise<O>
 }
 
+/** Fleet history is an optional runtime input on structural clients. */
+export interface AgentConcurrencyHistoryResult {
+  sampledAt: string
+  bucketMs: number
+  peak: number
+  buckets: { start: string; count: number }[]
+}
+
 export interface ApiMutation<I, O = unknown> {
   mutate(input: I): Promise<O>
 }
@@ -153,6 +161,7 @@ export interface PodiumClientApi {
     descriptors: ApiQuery<{ machineId: MachineId }, HarnessDescriptorWire[]>
   }
   sessions: {
+    concurrencyHistory?: ApiQuery<void, AgentConcurrencyHistoryResult>
     create: ApiMutation<
       {
         sessionId?: SessionId

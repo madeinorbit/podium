@@ -1,4 +1,4 @@
-import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/engine'
+import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/navigation-provider'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'

@@ -22,6 +22,8 @@ import type { MutationId, SessionId } from '@podium/model'
 import { asMutationId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { randomUUID } from '../id'
+import { ChatNotSentError, chatNotSent } from '../chat-values'
+export { ChatNotSentError, outboxChatSends, type OutboxChatSend } from '../chat-values'
 import type { OutboxSettlement } from '../outbox'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -39,34 +41,6 @@ export interface ChatSendOutcome {
   readonly state: 'queued' | 'sent'
   /** The server's 1-based FIFO position, when it returned one. */
   readonly position?: number
-}
-
-/**
- * The send gave up: the outbox parked it. `retryable` is false when the server
- * REFUSED the message — sending the same bytes again would be refused the same
- * way — and true when it simply never got through in time.
- */
-export class ChatNotSentError extends Error {
-  readonly retryable: boolean
-  constructor(message: string, retryable: boolean) {
-    super(message)
-    this.name = 'ChatNotSentError'
-    this.retryable = retryable
-  }
-}
-
-/** One message the outbox still holds for a session — how a conversation that
- *  was reloaded finds its unconfirmed bubbles again. */
-export interface OutboxChatSend {
-  readonly mutationId: MutationId
-  readonly sessionId: SessionId
-  readonly text: string
-  readonly attachments?: readonly RuntimeAttachmentRef[]
-  readonly wake: boolean
-  readonly queuedAt: number
-  /** `sending` — still trying; `failed` — gave up (parked for the user). */
-  readonly state: 'sending' | 'failed'
-  readonly failure?: ChatNotSentError
 }
 
 /**
@@ -104,21 +78,6 @@ export class OutboxSettlements {
     this.waiters.delete(mutationId)
     for (const resolve of waiting) resolve(settlement)
   }
-}
-
-const CHAT_KINDS = new Set<string>(['sendText', 'resumeAndSend'])
-
-/** Why a message the server never refused did not go: it could not get there
- *  inside `CHAT_SEND_MAX_AGE_MS`. */
-const GAVE_UP = "couldn't reach the server"
-
-function notSent(settlement: Extract<OutboxSettlement, { kind: 'not-sent' }>): ChatNotSentError {
-  if (settlement.reason.code === 'max-age') {
-    return new ChatNotSentError(`not sent — ${GAVE_UP}`, true)
-  }
-  const cause = settlement.cause
-  const said = cause instanceof Error && cause.message !== '' ? cause.message : undefined
-  return new ChatNotSentError(said ? `not sent — ${said}` : 'not sent', false)
 }
 
 function outcomeOf(reply: unknown, wake: boolean): ChatSendOutcome {
@@ -184,6 +143,9 @@ export async function sendChatThroughOutbox(
       await outbox.retry(mutationId, { reissue: true })
     } else if (!outbox.pending().some((entry) => entry.mutationId === mutationId)) {
       const { kind, payload } = payloadOf(input)
+      // Chat delivery is non-optimistic for pool rows: the runtime/composer
+      // owns its bubble and settlement. The same durable outbox owns retries
+      // and message identity; PoolTransactions never paints a chat send.
       await outbox.enqueue(kind, payload, { mutationId })
     }
     // Otherwise it is already on its way (a reloaded conversation asking
@@ -193,7 +155,7 @@ export async function sendChatThroughOutbox(
     throw error
   }
   const settlement = await wait.settled
-  if (settlement.kind === 'not-sent') throw notSent(settlement)
+  if (settlement.kind === 'not-sent') throw chatNotSent(settlement)
   return outcomeOf(settlement.reply, input.wake)
 }
 
@@ -213,37 +175,4 @@ export async function discardChatThroughOutbox(
 /** A fresh message id, in the form the server's message ledger uses. */
 export function newChatMessageId(): MutationId {
   return asMutationId(`msg_${randomUUID()}`)
-}
-
-/** The chat messages the outbox holds for one session, oldest first. */
-export function outboxChatSends(outbox: EngineOutbox, sessionId: SessionId): OutboxChatSend[] {
-  const sends: OutboxChatSend[] = []
-  const add = (
-    entry: { mutationId: MutationId; kind: string; input: unknown; queuedAt: number },
-    state: OutboxChatSend['state'],
-    failure?: ChatNotSentError,
-  ): void => {
-    if (!CHAT_KINDS.has(entry.kind)) return
-    const payload = entry.input as OutboxKinds['sendText']
-    if (payload.sessionId !== sessionId) return
-    sends.push({
-      mutationId: entry.mutationId,
-      sessionId,
-      text: payload.text,
-      ...(payload.attachments?.length ? { attachments: payload.attachments } : {}),
-      wake: entry.kind === 'resumeAndSend',
-      queuedAt: entry.queuedAt,
-      state,
-      ...(failure ? { failure } : {}),
-    })
-  }
-  for (const entry of outbox.pending()) add(entry, 'sending')
-  for (const parked of outbox.deadLetters()) {
-    add(
-      parked.entry,
-      'failed',
-      notSent({ kind: 'not-sent', reason: parked.reason, cause: undefined }),
-    )
-  }
-  return sends.sort((a, b) => a.queuedAt - b.queuedAt)
 }

@@ -1,4 +1,5 @@
-import { type ClientRuntime, loadingNavigationProvider } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/engine'
+import { loadingNavigationProvider } from '@podium/client-core/navigation-provider'
 import type { PoolScreen } from './host'
 import { NAVIGATION_SUMMARIES } from './navigation-schema'
 

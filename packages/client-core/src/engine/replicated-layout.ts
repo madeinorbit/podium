@@ -286,6 +286,9 @@ export function createReplicatedLayoutController(init: {
   }
 
   const enqueue = (operation: LayoutOperation): void => {
+    // Layout is non-optimistic for pool rows. This runtime controller owns its
+    // temporary paint and covering-truth/refusal reconciliation; the ordinary
+    // durable outbox remains the only queue (POD-5426 §5).
     const token = nextToken++
     temporary = [...temporary, { token, operation }]
     emit(keysOf(operation))
