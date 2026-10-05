@@ -8,6 +8,9 @@ import {
   toolRunFailures,
   toolVerdict,
 } from '@podium/client-core/values'
+import type { TranscriptLog } from '@podium/client-core/conversation'
+import { untracked } from 'mobx'
+import { observer } from 'mobx-react-lite'
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
@@ -423,6 +426,9 @@ function FeedRowFrame({
   children,
 }: {
   row: Row
+  transcript?: TranscriptLog
+  collapseContext?: boolean
+  sourceIds?: readonly string[]
   arrived: boolean
   highlighted: boolean
   dimmed: boolean
@@ -503,6 +509,9 @@ function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
 
 interface TranscriptFeedRowProps {
   row: Row
+  transcript?: TranscriptLog
+  collapseContext?: boolean
+  sourceIds?: readonly string[]
   arrived: boolean
   highlighted: boolean
   dimmed: boolean
@@ -555,6 +564,27 @@ function sameRow(previous: Row, next: Row): boolean {
       block.item === nextBlocks[index]?.item && block.result === nextBlocks[index]?.result,
   )
 }
+
+/** Each settled row tracks only the map entries that make up its message/tool run. */
+const ObservedTranscriptRow = observer(function ObservedTranscriptRow({
+  transcript,
+  collapseContext,
+  sourceIds,
+  row: seed,
+  ...props
+}: TranscriptFeedRowProps) {
+  if (!transcript || seed.kind === 'pending') return <TranscriptFeedRow row={seed} {...props} />
+  const ids = new Set(sourceIds ?? [seed.item.id])
+  for (const block of seed.blocks ?? []) {
+    ids.add(block.item.id)
+  }
+  const items = [...ids]
+    .map((id) => transcript.byId.get(id))
+    .filter((item): item is TranscriptItem => item !== undefined)
+  const model = buildMobileTranscript(items, { collapseContext })
+  const row = model.rows.find((row) => row.key === seed.key)
+  return row ? <TranscriptFeedRow row={row} {...props} /> : null
+})
 
 const TranscriptFeedRow = memo(
   function TranscriptFeedRow({
@@ -898,8 +928,9 @@ function JumpToNewest({
   )
 }
 
-export const TranscriptList = memo(function TranscriptList({
-  items,
+export const TranscriptList = observer(function TranscriptList({
+  items: suppliedItems,
+  transcript,
   transcriptQuestion,
   liveItem,
   live,
@@ -931,7 +962,8 @@ export const TranscriptList = memo(function TranscriptList({
   findRequest = 0,
   pinRequest = 0,
 }: {
-  items: TranscriptItem[]
+  items?: TranscriptItem[]
+  transcript?: TranscriptLog
   /** Source-owned raw-order answer; every host supplies its addressed fact. */
   transcriptQuestion: TranscriptItem | null
   /** In-progress assistant prose, kept outside the stable settled item array. */
@@ -1002,6 +1034,12 @@ export const TranscriptList = memo(function TranscriptList({
    */
   pinRequest?: number
 }) {
+  // Order is the list's subscription. Message versions belong to row observers.
+  const order = transcript ? JSON.stringify(transcript.ids.slice()) : undefined
+  const items = useMemo(
+    () => (transcript ? untracked(() => transcript.items) : (suppliedItems ?? [])),
+    [transcript, order, suppliedItems],
+  )
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1051,10 +1089,35 @@ export const TranscriptList = memo(function TranscriptList({
     () =>
       buildMobileTranscript(items, {
         collapseContext,
+        includeEmpty: transcript !== undefined,
         hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined,
       }),
-    [collapseContext, hidePendingQuestion, items, pendingKey],
+    [collapseContext, hidePendingQuestion, items, pendingKey, transcript],
   )
+  const rowSources = useMemo(() => {
+    const sources = new Map<string, string[]>()
+    if (!transcript) return sources
+    const calls = new Map<string, string[]>()
+    const users = new Map<string, string[]>()
+    for (const row of model.rows) {
+      const ids = [...new Set([row.item.id, ...(row.blocks ?? []).map((block) => block.item.id)])]
+      sources.set(row.key, ids)
+      for (const block of row.blocks ?? [])
+        if (block.item.toolUseId) calls.set(block.item.toolUseId, ids)
+      if (row.item.role === 'user') users.set(row.item.id, ids)
+    }
+    let previousUser: string | undefined
+    for (const item of items) {
+      if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId)
+        calls.get(item.toolUseId)?.push(item.id)
+      if (item.role === 'user') {
+        if (item.text === '' && item.toolPaths?.length && previousUser)
+          users.get(previousUser)?.push(item.id)
+        else previousUser = item.id
+      } else previousUser = undefined
+    }
+    return sources
+  }, [items, model, transcript])
   const liveRow = useMemo(
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],
@@ -1099,9 +1162,16 @@ export const TranscriptList = memo(function TranscriptList({
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
   const rows = visibleModel.rows
+  const searchModel =
+    searching && transcript
+      ? buildMobileTranscript(
+          transcript.ids.map((id) => transcript.byId.get(id)!),
+          { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined },
+        )
+      : visibleModel
   const matches = useMemo(
-    () => matchMobileTranscript(visibleModel, findOpen ? query : ''),
-    [findOpen, query, visibleModel],
+    () => matchMobileTranscript(searchModel, findOpen ? query : ''),
+    [findOpen, query, searchModel],
   )
   const search = useMemo(() => positionMobileTranscriptSearch(matches, cursor), [cursor, matches])
   const listRef = useRef<TranscriptViewportHandle>(null)
@@ -1279,7 +1349,10 @@ export const TranscriptList = memo(function TranscriptList({
           </>
         }
         renderItem={({ item: row, index }) => (
-          <TranscriptFeedRow
+          <ObservedTranscriptRow
+            transcript={transcript}
+            collapseContext={collapseContext}
+            sourceIds={rowSources.get(row.key)}
             row={row}
             arrived={arrivedKeys.has(row.key)}
             highlighted={search.activeRow === index}

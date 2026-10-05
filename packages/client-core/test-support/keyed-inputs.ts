@@ -1,4 +1,9 @@
-import { createKeyedInputs, type KeyedInputs, type LocalKey, type LocalsListener } from '../src/engine/keyed-inputs'
+import {
+  createKeyedInputs,
+  type KeyedInputs,
+  type LocalKey,
+  type LocalsListener,
+} from '../src/engine/keyed-inputs'
 import type { EngineState } from '../src/engine/state'
 
 /**
@@ -24,20 +29,13 @@ export function keyedInputsOverStore(store: {
   const publication = () => {
     const next = state()
     const changed = new Set<LocalKey>()
-    const drafts = new Set<string>()
     for (const key of followed.keys()) {
       const value = next[key]
       if (previous.has(key) && Object.is(previous.get(key), value)) continue
-      if (key === 'drafts') {
-        const before = (previous.get(key) ?? {}) as Record<string, string>
-        const after = (value ?? {}) as Record<string, string>
-        for (const id of new Set([...Object.keys(before), ...Object.keys(after)]))
-          if (before[id] !== after[id]) drafts.add(id)
-      }
       previous.set(key, value)
       changed.add(key)
     }
-    if (changed.size > 0) channel.emit(changed, drafts)
+    if (changed.size > 0) channel.emit(changed)
   }
   const follow = (keys: readonly LocalKey[], stop: () => void): (() => void) => {
     for (const key of keys) {
@@ -76,7 +74,6 @@ export function keyedInputsOverStore(store: {
       if (!previous.has(name)) previous.set(name, state()[name])
       return channel.listRow(name, id)
     },
-    onDraft: (listener) => follow(['drafts'], channel.onDraft(listener)),
     dispose() {
       off?.()
       off = null
@@ -87,18 +84,30 @@ export function keyedInputsOverStore(store: {
 }
 
 /** Give a fixture's whole-snapshot runtime the keyed surface, in place. */
-export function withKeyedInputs<T extends { getSnapshot(): object; subscribe(listener: () => void): () => void }>(
-  fake: T,
-): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
+export function withKeyedInputs<
+  T extends { getSnapshot(): object; subscribe(listener: () => void): () => void },
+>(fake: T): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
-  const fixture = fake as T & { services?: object; replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] } }
+  const fixture = fake as T & {
+    services?: object
+    replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] }
+  }
   if (!fixture.services) {
     let services: object | undefined
-    Object.defineProperty(fixture, 'services', { get: () => {
-      const snapshot = fake.getSnapshot()
-      return snapshot ? services ??= Object.fromEntries(Object.entries(snapshot).filter(([, value]) => typeof value === 'function')) : {}
-    } })
+    Object.defineProperty(fixture, 'services', {
+      get: () => {
+        const snapshot = fake.getSnapshot()
+        return snapshot
+          ? (services ??= Object.fromEntries(
+              Object.entries(snapshot).filter(([, value]) => typeof value === 'function'),
+            ))
+          : {}
+      },
+    })
   }
-  if (fixture.replica && !fixture.replica.rowCount) fixture.replica.rowCount = kind => fixture.replica!.rows(kind).length
-  return Object.defineProperty(Object.assign(fake, inputs), 'access', { get: () => fake.getSnapshot() }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
+  if (fixture.replica && !fixture.replica.rowCount)
+    fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
+  return Object.defineProperty(Object.assign(fake, inputs), 'access', {
+    get: () => fake.getSnapshot(),
+  }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
 }

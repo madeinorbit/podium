@@ -299,7 +299,12 @@ export const COARSE_CLOCK_MS = 60_000
 
 const log = createLogger('client-core:runtime')
 
-export { DRAFT_SEND_DEBOUNCE_MS, DRAFT_PERSIST_DEBOUNCE_MS, DRAFT_KEEP_LIMIT, DRAFTS_UI_KEY } from '../conversation/draft-store'
+export {
+  DRAFT_SEND_DEBOUNCE_MS,
+  DRAFT_PERSIST_DEBOUNCE_MS,
+  DRAFT_KEEP_LIMIT,
+  DRAFTS_UI_KEY,
+} from '../conversation/draft-store'
 
 export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The one principal this runtime serves. Read-only for its whole lifetime. */
@@ -383,8 +388,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
-  /** Sessions whose draft this batch painted, for {@link onDraft}. */
-  private pendingDrafts = new Set<string>()
   /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
   private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof EngineState>()
@@ -532,12 +535,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts = new DraftStore({
       storage: this.ui,
       hub: this.hub,
-      onChange: (sessionId, text) => this.applyDraftToStore(sessionId, text),
-      onStorageError: err => log.warn('could not cache this device drafts', { err }),
+      onStorageError: (err) => log.warn('could not cache this device drafts', { err }),
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.state.drafts = Object.fromEntries(this.drafts.values)
     this.inputs = createKeyedInputs(() => this.state)
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
@@ -551,11 +552,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     ) as Store<TApi>
   }
 
-
   /** The provider supplies addressed pool ports once, for this principal. */
   readonly ownConversations = (options: ConversationCacheOptions): ConversationCache => {
     if (this.destroyed) throw new Error('The conversation owner has changed')
-    return this.conversationCache ??= new ConversationCache(options)
+    return (this.conversationCache ??= new ConversationCache(options))
   }
 
   // ------------------------------------------------------------------ read seam
@@ -574,9 +574,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly listIds = (name: KeyedListName): readonly string[] => this.inputs.listIds(name)
   readonly listRow = <N extends KeyedListName>(name: N, id: string): KeyedListRow<N> | undefined =>
     this.inputs.listRow(name, id)
-  /** The one session whose draft a batch painted. */
-  readonly onDraft = (listener: (sessionId: string) => void): (() => void) =>
-    this.inputs.onDraft(listener)
   /** Wake and diff counters of the keyed inputs (adapter meters). */
   get keyedInputStats(): KeyedInputStats {
     return this.inputs.stats
@@ -894,9 +891,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           this.pendingWorktreeMoves.set(id, { ...previous, after: provider.topologySession(id) })
       for (const change of delta?.sessions ?? []) {
         const previous = this.pendingWorktreeMoves.get(change.id)
-        this.pendingWorktreeMoves.set(change.id, previous
-          ? { id: change.id, before: previous.before, after: change.after }
-          : change)
+        this.pendingWorktreeMoves.set(
+          change.id,
+          previous ? { id: change.id, before: previous.before, after: change.after } : change,
+        )
       }
       this.pendingNavigationTopology = true
       this.queueNavigationWake(provider)
@@ -930,7 +928,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       !this.state.openIssueId &&
       !this.pendingSessionNavigation &&
       !this.pendingNavigation &&
-      this.pendingWorktreeMoves.size === 0 && !this.pendingWorktreeFallback && !this.pendingNavigationTopology
+      this.pendingWorktreeMoves.size === 0 &&
+      !this.pendingWorktreeFallback &&
+      !this.pendingNavigationTopology
     ) {
       previous?.()
       return
@@ -957,12 +957,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         return [
           this.pendingNavigationTopology
             ? [...this.pendingWorktreeMoves.values()]
-                .filter(change => change.before && change.after && change.before.cwd !== change.after.cwd)
-                .map(change => provider.worktreeSession?.(change.id))
+                .filter(
+                  (change) =>
+                    change.before && change.after && change.before.cwd !== change.after.cwd,
+                )
+                .map((change) => provider.worktreeSession?.(change.id))
             : undefined,
-          (this.pendingNavigationTopology || this.pendingWorktreeFallback) && provider.registeredWorktree
+          (this.pendingNavigationTopology || this.pendingWorktreeFallback) &&
+          provider.registeredWorktree
             ? st.selectedWorktree
-              ? [provider.registeredWorktree(st.selectedWorktree), provider.hasWorktreeSession?.(st.selectedWorktree)]
+              ? [
+                  provider.registeredWorktree(st.selectedWorktree),
+                  provider.hasWorktreeSession?.(st.selectedWorktree),
+                ]
               : provider.firstWorktree?.()
             : undefined,
           !provider.onTopology && (this.pendingNavigationTopology || this.pendingWorktreeFallback)
@@ -1027,7 +1034,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           if (this.pendingNavigationTopology) {
             const followed = this.reactions.worktreeFollow([...this.pendingWorktreeMoves.values()])
             if (followed) this.pendingWorktreeMoves.clear()
-            if (followed && this.reactions.worktreeFallback() && this.reactions.sessionIssueFollow()) {
+            if (
+              followed &&
+              this.reactions.worktreeFallback() &&
+              this.reactions.sessionIssueFollow()
+            ) {
               this.pendingNavigationTopology = false
               this.pendingWorktreeFallback = false
               this.reactions.pruneWorkspaces()
@@ -1110,11 +1121,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.batchDepth === 0) {
           const changed = this.pendingChanges
           this.pendingChanges = new Set()
-          const drafts = this.pendingDrafts
-          this.pendingDrafts = new Set()
           // Clear bookkeeping before notifying: listeners may write again.
           if (changed.size > 0 && !this.destroyed) {
-            this.inputs.emit(changed, drafts)
+            this.inputs.emit(changed)
           }
         }
       }
@@ -1368,12 +1377,20 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       if (!canShow && st.navigation.registeredWorktree && st.navigation.hasWorktreeSession) {
         const known = st.navigation.registeredWorktree(route.worktree)
         const anchored = known === true ? false : st.navigation.hasWorktreeSession(route.worktree)
-        canShow = known === true || anchored === true || known === NAVIGATION_LOADING || anchored === NAVIGATION_LOADING
+        canShow =
+          known === true ||
+          anchored === true ||
+          known === NAVIGATION_LOADING ||
+          anchored === NAVIGATION_LOADING
       } else if (!canShow) {
         const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
         const crew = st.navigation.worktreeSessions?.()
-        canShow = worktrees.some(w => w.path === route.worktree) || crew === NAVIGATION_LOADING ||
-          (crew ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
+        canShow =
+          worktrees.some((w) => w.path === route.worktree) ||
+          crew === NAVIGATION_LOADING ||
+          (crew ?? []).some(
+            (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
+          )
       }
       if (canShow) patch.selectedWorktree = route.worktree
     }
@@ -1519,15 +1536,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   // ------------------------------------------------------------------- actions
-
-  /** Paint a draft. The ONLY writer of `state.drafts`, and it decides nothing —
-   *  every caller has already asked the ledger who wins. */
-  private applyDraftToStore(sessionId: SessionId, text: string): void {
-    const d = this.state.drafts
-    if (d[sessionId] === text) return
-    this.pendingDrafts.add(sessionId)
-    this.apply({ drafts: { ...d, [sessionId]: text } })
-  }
 
   /** Preserve the last keystroke and wait only for local queue durability.
    * Delivery and awaiting-truth entries are already durable and resume after reload. */

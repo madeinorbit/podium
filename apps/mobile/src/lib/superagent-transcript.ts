@@ -21,78 +21,13 @@
 
 import type { TranscriptItem } from '@podium/model'
 
-/** Structural twin of the screen's `PendingTurn` — declared here so this module
- *  stays free of the component graph. */
-interface EchoableTurn {
-  text: string
-  files?: readonly { path: string }[]
-}
-
-/** Structural twin of `PendingTurn`'s failure marking (POD-346): a rejected or
- *  dead turn keeps its words on screen, reads "not sent", and offers a retry. */
-interface FailableTurn extends EchoableTurn {
-  failed?: string
-}
-
 /**
  * The in-progress assistant text as a separate feed item. Keeping it separate
  * from the settled item array preserves the settled transcript's identity, so
  * each streaming paint shapes only this row instead of the complete history.
  * Blank live text adds nothing (the spinner covers that beat).
  */
-export function liveTranscriptItem(
-  liveText: string,
-  running: boolean,
-): TranscriptItem | undefined {
+export function liveTranscriptItem(liveText: string, running: boolean): TranscriptItem | undefined {
   const text = liveText.trim()
   return running && text ? { id: 'super:live', role: 'assistant', text } : undefined
-}
-
-/**
- * Drop optimistic turns the transcript has echoed back. Returns the ORIGINAL
- * array when nothing changed, so the caller's `setState` is a no-op instead of
- * a re-render loop.
- */
-export function dropEchoedTurns<T extends EchoableTurn>(
-  pending: readonly T[],
-  items: readonly TranscriptItem[],
-): readonly T[] {
-  if (pending.length === 0) return pending
-  const echoed = items.filter((item) => item.role === 'user')
-  const next = pending.filter((turn) => {
-    const paths = (turn.files ?? []).map((file) => file.path)
-    return !echoed.some((item) => {
-      const itemPaths = item.toolPaths ?? []
-      if (paths.length > 0) {
-        return itemPaths.length === paths.length && paths.every((path, i) => itemPaths[i] === path)
-      }
-      return item.text.trim() === turn.text.trim()
-    })
-  })
-  return next.length === pending.length ? pending : next
-}
-
-/**
- * Mark still-pending turns as failed when a DISPATCHED turn dies (POD-344).
- *
- * POD-346 already covers the send the server REJECTS: that mutation's catch
- * marks its own row. It cannot cover this one. A turn that is accepted and then
- * dies — harness crash, spawn failure — RESOLVES the mutation, so no catch
- * runs, and it writes no transcript for `dropEchoedTurns` to match against. The
- * row would claim "sending…" until the screen was remounted.
- *
- * Everything still pending belongs to the turn that just died: the writer lock
- * is released at turn-end and the server refuses a second concurrent turn on a
- * thread. Marking rather than dropping keeps POD-346's grammar — the words stay
- * on screen, the row reads "not sent" with the reason, and retry is one tap.
- * Already-failed rows keep their original reason, and the ORIGINAL array comes
- * back when nothing changed, so the caller's `setState` stays a no-op.
- */
-export function markTurnsFailed<T extends FailableTurn>(
-  pending: readonly T[],
-  reason: string,
-): readonly T[] {
-  if (pending.length === 0) return pending
-  if (pending.every((turn) => turn.failed !== undefined)) return pending
-  return pending.map((turn) => (turn.failed === undefined ? { ...turn, failed: reason } : turn))
 }
