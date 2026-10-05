@@ -86,6 +86,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import {
   type CoarseClock,
   createClientRuntime,
+  loadingNavigationProvider,
   openKernelEngineOutbox,
 } from '@podium/client-core/engine'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
@@ -825,17 +826,35 @@ export async function startEngineOnCorpus(
     return { engine, hub }
   }
   const install = async (ctx: ScenarioEngine): Promise<void> => {
-    // POD-5669: POD-5497 moved rows out of engine state — mark-read-on-view
-    // now reads the navigation port. Install the fixture port so selection
-    // paints its eager mark-read. (Writes route through the pool writer the
-    // row source attaches in runWithSource; see scenarios.test.ts.)
-    ctx.engine.setNavigationProvider(
-      fixtureNavigation({
-        issues: () => referenceState(ctx.engine).issueProjections,
-        sessions: () => referenceState(ctx.engine).sessions,
-        markers: () => referenceState(ctx.engine).issueUserStates,
-      }),
-    )
+    // The real host keeps navigation pending until its writer is attached.
+    // A fixture can select a row before opening a feed, so exposing readable
+    // navigation sooner would fire mark-read without a transaction owner.
+    const engine = ctx.engine
+    const navigation = fixtureNavigation({
+      issues: () => referenceState(engine).issueProjections,
+      sessions: () => referenceState(engine).sessions,
+      markers: () => referenceState(engine).issueUserStates,
+    })
+    const attachWriter = engine.attachPoolWriter
+    Object.assign(engine, {
+      attachPoolWriter(writer: Parameters<typeof engine.attachPoolWriter>[0]) {
+        const detach = attachWriter(writer)
+        try {
+          engine.setNavigationProvider(navigation)
+        } catch (error) {
+          detach()
+          throw error
+        }
+        let attached = true
+        return () => {
+          if (!attached) return
+          attached = false
+          engine.setNavigationProvider(loadingNavigationProvider)
+          detach()
+        }
+      },
+    })
+    engine.setNavigationProvider(loadingNavigationProvider)
     ctx.engine.start()
     await settle(ctx.settleMs)
     ctx.replica.onKernelEvent({
