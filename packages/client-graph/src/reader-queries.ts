@@ -83,7 +83,7 @@ export class ReaderQueries {
       } else if (change.type === 'add') {
         this.repoStops.set(change.name, reaction(
           () => {
-            const row = pool.row('repo', change.name)
+            const row = pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined
             return row && row !== LOADING && typeof row.prefix === 'string' ? row.prefix : undefined
           },
           prefix => this.changeRepoIdentity(change.name, prefix),
@@ -417,7 +417,7 @@ export class ReaderQueries {
       }
     } else {
       for (const id of index.issueIdentityRepoChanges(event)) {
-        const row = untracked(() => this.pool.row('repo', id))
+        const row = untracked(() => this.pool.row('repo', id)) as Readonly<Record<string, unknown>> | undefined
         this.changeRepoIdentity(id, row && row !== LOADING && typeof row.prefix === 'string' ? row.prefix : undefined)
       }
       const delta = index.changes(event)

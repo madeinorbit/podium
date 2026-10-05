@@ -78,7 +78,7 @@ it('keeps cold first-ID precedence through resident edits, eviction and same/fre
 })
 
 it('keeps the first optimistic identity in a pool with no prior source publication', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, { worklist: 'demand', schedule: () => () => {} })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, { load: () => undefined, worklist: 'demand', schedule: () => () => {} })
   try {
     runInAction(() => pool.tables.issue.set('first', issue('first', 3, { repoId: null }).value as never))
     expect(pool.queries.linkedIssueId('first')).toBe('first')

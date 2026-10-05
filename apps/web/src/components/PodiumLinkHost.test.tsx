@@ -89,8 +89,12 @@ const appMainSource = readFileSync(join(__dirname, '../app/main.tsx'), 'utf8')
 describe('PodiumLinkHost native delivery', () => {
   let container: HTMLDivElement
   let root: Root
+  const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  let previousActEnvironment: boolean | undefined
 
   beforeEach(() => {
+    previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     vi.useFakeTimers()
     vi.clearAllMocks()
     hostStore.readIssues.mockImplementation(() => hostStore.issues)
@@ -112,6 +116,7 @@ describe('PodiumLinkHost native delivery', () => {
     delete nativeWindow.__PODIUM_NATIVE_OPEN_ACK__
     delete nativeWindow.__PODIUM_NATIVE_OPEN_READY__
     vi.useRealTimers()
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
   })
 
   it('does not acquire either roster while idle and reads fresh issues on activation', () => {

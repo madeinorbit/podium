@@ -41,7 +41,7 @@ const context = namedContext()
 describe('resolvePodiumTarget', () => {
   it('does not demand data for files, views or unsupported details', () => {
     const named = { issue: vi.fn(), session: vi.fn() }
-    resolvePodiumTarget({ kind: 'file', path: 'a.ts', root: '/w' }, named)
+    resolvePodiumTarget({ kind: 'file', path: 'a.ts', root: '/w', machineId: null }, named)
     resolvePodiumTarget({ kind: 'view', path: '/usage', search: '', hash: '' }, named)
     resolvePodiumTarget({ kind: 'issue', issue: 'POD-1', hash: '#detail' }, named)
     resolvePodiumTarget({ kind: 'session', session: 'POD-1-A', search: '?server=elsewhere' }, named)

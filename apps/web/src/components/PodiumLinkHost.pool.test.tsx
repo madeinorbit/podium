@@ -56,7 +56,11 @@ function fixture(scale: 1 | 4, target = true) {
 
 let root: Root, container: HTMLDivElement
 const pools: MobxPool[] = []
+const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+let previousActEnvironment: boolean | undefined
 beforeEach(() => {
+  previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
   vi.useFakeTimers(); vi.clearAllMocks(); setKnownPodiumOrigins([])
   container = document.createElement('div'); document.body.appendChild(container)
   root = createRoot(container)
@@ -65,6 +69,7 @@ afterEach(() => {
   act(() => root.unmount()); container.remove()
   for (const pool of pools.splice(0)) pool.dispose()
   owner.pool = null; vi.restoreAllMocks(); vi.useRealTimers()
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment
 })
 
 it('keeps idle demand zero and first issue/session/artifact activation flat at 1x/4x', async () => {
@@ -128,7 +133,7 @@ it('does not read issue/session rows for file or view queue targets', async () =
   const rows = vi.spyOn(f.pool, 'row')
   await act(async () => {
     window.dispatchEvent(new CustomEvent(PODIUM_NATIVE_OPEN_EVENT, { detail: 'podium://usage' }))
-    activatePodiumHref(podiumTargetPath({ kind: 'file', path: 'a.ts', root: '/w' }))
+    activatePodiumHref(podiumTargetPath({ kind: 'file', path: 'a.ts', root: '/w', machineId: null }))
   })
   expect(rows).not.toHaveBeenCalled()
 })
