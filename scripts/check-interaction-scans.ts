@@ -12,20 +12,21 @@ export const INTERACTION_ROOTS = [
   'packages/client-graph/src', 'packages/client-core/src',
 ] as const
 export const MANIFEST = 'scripts/interaction-scan-census.json'
-const DOMAIN = /(?:issue|session|lane|worktree|transcript|message|record|tab)s?/i
-const COLLECTION = /^(?:all|known|resident).*(?:issue|session|lane|worktree|transcript|message|record|tab)|^(?:issues|sessions|lanes|worktrees|transcripts|messages|records|tabs)$/i
+const DOMAIN = /(?:issue|session|lane|worktree|transcript|message|tab)s?/i
+const ENUMERATOR = /^(?:all|known|resident).*(?:Ids|Rows|Items|Issues|Sessions|Lanes|Worktrees|Tabs|Transcripts|Records|Messages|Relations|Keys|Values|Entries)|^(?:knownIds|residentIds|headerIds)$/i
+const COLLECTION = /^(?:all|known|resident).*(?:Ids|Rows|Items|Issues|Sessions|Lanes|Worktrees|Tabs|Transcripts|Records|Messages)|^(?:issues|sessions|lanes|worktrees|transcripts|messages|records|tabs)$/i
 const CONSUMERS = new Set(['find', 'findIndex', 'filter', 'some', 'every', 'reduce', 'reduceRight', 'sort', 'toSorted', 'map', 'flatMap', 'forEach'])
 // These return an addressed answer, a scalar, or an explicitly capped window.
 // Other literal questions (including boardIssues) and unknown/dynamic questions
 // remain acquisitions: an indexed identity list is still collection work.
 const ADDRESSED = new Set(['issueMentionMatches', 'mobileIssueTargets', 'headerRecentSession', 'sessionReference', 'commandIssueSessions', 'containingIssues', 'spawnIssues'])
-const SCALARS = new Set(['count', 'counts', 'activity', 'has', 'contains', 'revision', 'readerRevision', 'readerContains', 'linkedIssueId', 'nextSession', 'row', 'get', 'session', 'issue'])
+const SCALARS = new Set(['count', 'counts', 'activity', 'has', 'contains', 'revision', 'readerRevision', 'readerContains', 'linkedIssueId', 'issueReferenceId', 'knownIssue', 'knownSession', 'nextSession', 'row', 'get', 'session', 'issue'])
 
 type Fn = ts.FunctionLikeDeclaration & { body: ts.ConciseBody }
 type Scope = { parent?: Scope; bindings: Map<string, Binding>; fn?: Fn }
 type Binding = { node: ts.Node; init?: ts.Expression; writes?: ts.Expression[]; path?: string[]; imported?: { file: string; name: string }; namespace?: string }
 type Origin = { file: string; holder: string; rule: string; tokens: string; gate: string[] }
-type Value = { origins: Set<string>; fields: Map<string, Value>; callable?: Fn; closure?: Context; literal?: ts.Expression }
+type Value = { tableRoot?: boolean; origins: Set<string>; fields: Map<string, Value>; callable?: Fn; closure?: Context; literal?: ts.Expression }
 type Context = Map<ts.Node, Value>
 export type Scan = Origin & { fingerprint: string; origin: string[]; count: number; lines: number[] }
 export type Classification = 'ingest' | 'visible output' | 'bounded local work' | 'REQUIRED REPAIR'
@@ -37,6 +38,7 @@ const empty = (): Value => ({ origins: new Set(), fields: new Map() })
 function merge(...values: Value[]): Value {
   const out = empty()
   for (const value of values) {
+    if (value.tableRoot) out.tableRoot = true
     for (const origin of value.origins) out.origins.add(origin)
     for (const [key, field] of value.fields) out.fields.set(key, merge(out.fields.get(key) ?? empty(), field))
     if (value.callable) { out.callable = value.callable; out.closure = value.closure }
@@ -62,15 +64,23 @@ function access(node: ts.Expression): { base: ts.Expression; key: string } | und
   return undefined
 }
 /** Token tuples retain literal values and predicates; comments/positions vanish. */
+const tokenCache = new WeakMap<ts.Node, string>()
 export function normalized(node: ts.Node): string {
+  const cached = tokenCache.get(node)
+  if (cached) return cached
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.JSX, node.getText())
   const tokens: [number, string][] = []
   for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
     tokens.push([token, [ts.SyntaxKind.Identifier, ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NumericLiteral, ts.SyntaxKind.NoSubstitutionTemplateLiteral, ts.SyntaxKind.TemplateHead, ts.SyntaxKind.TemplateMiddle, ts.SyntaxKind.TemplateTail].includes(token) ? scanner.getTokenValue() : scanner.getTokenText()])
   }
-  return JSON.stringify(tokens)
+  const digest = createHash('sha256').update(JSON.stringify(tokens)).digest('hex')
+  tokenCache.set(node, digest)
+  return digest
 }
+const holderCache = new WeakMap<ts.Node, string>()
 function holder(node: ts.Node): string {
+  const cached = holderCache.get(node)
+  if (cached) return cached
   const names: string[] = []
   for (let at: ts.Node | undefined = node; at && !ts.isSourceFile(at); at = at.parent) {
     if (ts.isFunctionLike(at) || ts.isClassDeclaration(at) || ts.isVariableDeclaration(at) || ts.isPropertyAssignment(at)) {
@@ -83,7 +93,9 @@ function holder(node: ts.Node): string {
       }
     }
   }
-  return names.join('/') || '<module>'
+  const label = names.join('/') || '<module>'
+  holderCache.set(node, label)
+  return label
 }
 function exits(node: ts.Node): boolean {
   if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) return true
@@ -92,7 +104,10 @@ function exits(node: ts.Node): boolean {
 /** Gates include branch polarity, loop bounds, switches, and preceding exits.
  * This deliberately prefers review noise over treating removal of a gate as safe.
  */
+const gateCache = new WeakMap<ts.Node, string[]>()
 function gates(node: ts.Node): string[] {
+  const cached = gateCache.get(node)
+  if (cached) return cached
   const out: string[] = []
   for (let child = node, parent = child.parent; parent; child = parent, parent = parent.parent) {
     if (ts.isConditionalExpression(parent)) out.unshift(`${child === parent.whenFalse ? 'else' : 'then'}:${normalized(parent.condition)}`)
@@ -106,10 +121,11 @@ function gates(node: ts.Node): string[] {
     if (ts.isBlock(parent) || ts.isSourceFile(parent)) {
       for (const statement of parent.statements) {
         if (statement === child || statement.end > child.pos) break
-        if (ts.isIfStatement(statement) && (exits(statement.thenStatement) || (statement.elseStatement && exits(statement.elseStatement)))) out.unshift(`exit:${normalized(statement)}`)
+        if (ts.isIfStatement(statement) && (exits(statement.thenStatement) || (statement.elseStatement && exits(statement.elseStatement)))) out.unshift(`exit:${exits(statement.thenStatement) ? 'then' : 'else'}:${normalized(statement.expression)}`)
       }
     }
   }
+  gateCache.set(node, out)
   return out
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -227,20 +243,69 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     }
     writes(ast)
   }
+  const mayScan = new Set<Fn>()
+  const dependents = new Map<Fn, Set<Fn>>()
+  const functionBindingCache = new Map<Binding, Fn | undefined>()
+  const asFunction = (binding: Binding | undefined, seen = new Set<Binding>()): Fn | undefined => {
+    if (!binding || seen.has(binding)) return undefined
+    if (functionBindingCache.has(binding)) return functionBindingCache.get(binding)
+    seen.add(binding)
+    if (binding.imported) { const found = asFunction(exported(binding.imported.file, binding.imported.name), seen); functionBindingCache.set(binding, found); return found }
+    let node = binding.init ? unwrap(binding.init) : binding.node
+    if (ts.isCallExpression(node) && ['useCallback', 'useMemo'].includes(name(node.expression)) && node.arguments[0]) node = unwrap(node.arguments[0])
+    const found = ts.isFunctionLike(node) && 'body' in node && node.body ? node as Fn : ts.isIdentifier(node) ? asFunction(lookup(node, node.text), seen) : undefined
+    functionBindingCache.set(binding, found)
+    return found
+  }
+  const ownerFunction = (node: ts.Node): Fn | undefined => {
+    let scope = scopes.get(node)
+    while (scope && !scope.fn) scope = scope.parent
+    return scope?.fn
+  }
+  for (const [node] of scopes) {
+    const owner = ownerFunction(node)
+    if (!owner) continue
+    if (ts.isIdentifier(node)) {
+      const dependency = asFunction(lookup(node, node.text))
+      if (dependency && dependency !== owner) {
+        const parents = dependents.get(dependency) ?? new Set<Fn>()
+        parents.add(owner); dependents.set(dependency, parents)
+      }
+    }
+    if (ts.isFunctionLike(node) && 'body' in node && node.body) {
+      const parents = dependents.get(node as Fn) ?? new Set<Fn>()
+      parents.add(owner); dependents.set(node as Fn, parents)
+    }
+    const field = (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) ? access(node) : undefined
+    if (field && (COLLECTION.test(field.key) || ['tables', 'collections', 'store'].includes(field.key))) mayScan.add(owner)
+    if (ts.isCallExpression(node)) {
+      const method = access(node.expression)?.key ?? name(node.expression)
+      if (['ids', 'readerIds', 'queryIds', 'issues', 'sessions', 'collection', 'rows', 'subscribeRows', 'table'].includes(method) || ENUMERATOR.test(method)) mayScan.add(owner)
+    }
+    if (ts.isParameter(node) && (COLLECTION.test(node.name.getText()) || (node.type && DOMAIN.test(node.type.getText()) && /(?:\[\]|Array|Map|Set|Record)/.test(node.type.getText())))) mayScan.add(owner)
+  }
+  const queue = [...mayScan]
+  for (let at = 0; at < queue.length; at++) for (const parent of dependents.get(queue[at]!) ?? []) if (!mayScan.has(parent)) { mayScan.add(parent); queue.push(parent) }
+  const hookOrigins = new Map<Fn, Set<string>>()
+  const originFunctions = new Map<string, Fn>()
   const originDetails = new Map<string, Origin>()
   const hits = new Map<string, Scan>()
   const emitted = new Set<string>()
+
+
   const acquisition = (node: ts.Node, rule: string): Value => {
     const detail = { file: node.getSourceFile().fileName, holder: holder(node), rule, tokens: normalized(node), gate: gates(node) }
     const key = hash(detail)
     originDetails.set(key, detail)
+    const owner = ownerFunction(node)
+    if (owner && /^(?:zero-arg:|question:|dynamic-question|enumerator:|collection:)/.test(rule)) originFunctions.set(key, owner)
     record(node, rule, [key])
     return { ...empty(), origins: new Set([key]) }
   }
-  const record = (node: ts.Node, rule: string, taint: Iterable<string>): void => {
+  const record = (node: ts.Node, rule: string, taint: Iterable<string>, helper?: Fn): void => {
     const origin = [...taint].filter(id => originDetails.has(id)).sort()
     if (!origin.length) return
-    const detail = { file: node.getSourceFile().fileName, holder: holder(node), rule, tokens: normalized(node), gate: gates(node), origin }
+    const detail = { file: node.getSourceFile().fileName, holder: holder(node), rule, tokens: helper ? hash([normalized(node), normalized(helper.body)]) : normalized(node), gate: gates(node), origin }
     const fingerprint = identity(detail)
     const occurrence = `${fingerprint}:${node.pos}:${node.end}`
     if (emitted.has(occurrence)) return
@@ -252,8 +317,19 @@ export function scanSources(sources: Record<string, string>): Scan[] {
   const busy = new Set<ts.Node>()
   const bindingBusy = new Set<Binding>()
   const memo = new Map<ts.Node, Value>()
+  const rootContext: Context = new Map()
+  const nodeIds = new Map<ts.Node, number>()
+  const id = (node: ts.Node) => { if (!nodeIds.has(node)) nodeIds.set(node, nodeIds.size); return nodeIds.get(node)! }
+  const signature = (value: Value): string => JSON.stringify([
+    [...value.origins].sort(), [...value.fields].map(([key, field]) => [key, signature(field)]),
+    value.callable ? id(value.callable) : '', value.literal ? normalized(value.literal) : '',
+  ])
+  const invocationCache = new Map<Fn, Map<string, Value>>()
   const evalBinding = (binding: Binding | undefined, context: Context): Value => {
     if (!binding) return empty()
+    let defining = scopes.get(binding.node)
+    while (defining?.parent && !defining.fn) defining = defining.parent
+    if (!defining?.fn && !ts.isParameter(binding.node)) context = rootContext
     const supplied = context.get(binding.node)
     if (supplied) return supplied
     if (bindingBusy.has(binding)) return empty()
@@ -262,18 +338,36 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     if (binding.imported) value = evalBinding(exported(binding.imported.file, binding.imported.name), context)
     else if (binding.init) value = evaluate(binding.init, context)
     else if (ts.isFunctionLike(binding.node) && 'body' in binding.node && binding.node.body) value = { ...empty(), callable: binding.node as Fn, closure: context }
+    else if (ts.isClassDeclaration(binding.node)) {
+      value = empty()
+      for (const member of binding.node.members) {
+        if ((ts.isMethodDeclaration(member) || ts.isGetAccessorDeclaration(member)) && member.body) value.fields.set(name(member.name), { ...empty(), callable: member as Fn, closure: context })
+        else if (ts.isPropertyDeclaration(member) && member.initializer) value.fields.set(name(member.name), evaluate(member.initializer, context))
+      }
+    }
+    else if (ts.isParameter(binding.node) && /^(?:tables?|store|collections)$/.test(binding.node.name.getText())) value = { ...acquisition(binding.node, 'store-input'), tableRoot: true }
     else if (ts.isParameter(binding.node) && (COLLECTION.test(binding.node.name.getText()) || (binding.node.type && DOMAIN.test(binding.node.type.getText()) && /(?:\[\]|Array|Map|Set|Record)/.test(binding.node.type.getText())))) value = acquisition(binding.node, 'collection-input')
     else value = empty()
     for (const write of binding.writes ?? []) value = merge(value, evaluate(write, context))
-    for (const key of binding.path ?? []) value = value.fields.get(key) ?? { ...value, callable: undefined }
+    for (const key of binding.path ?? []) {
+      if (value.fields.has(key)) value = value.fields.get(key)!
+      else if (value.tableRoot && !['tables', 'collections', 'store'].includes(key)) value = acquisition(binding.node, 'destructured-table')
+      else value = { ...value, callable: undefined, tableRoot: ['tables', 'collections', 'store'].includes(key) || value.tableRoot }
+    }
     bindingBusy.delete(binding)
     return value
   }
   const invoke = (value: Value, args: Value[], context: Context): Value => {
     const fn = value.callable
     if (!fn || busy.has(fn)) return empty()
+    const closure = value.closure ?? context
+    if (!mayScan.has(fn) && !args.some(data => origins(data).size || data.callable) && ![...closure.values()].some(data => origins(data).size || data.callable)) return empty()
+    const key = JSON.stringify([args.map(signature), [...closure].map(([node, data]) => [id(node), signature(data)])])
+    const cache = invocationCache.get(fn) ?? new Map<string, Value>()
+    invocationCache.set(fn, cache)
+    if (cache.has(key)) return cache.get(key)!
     busy.add(fn)
-    const next = new Map(value.closure ?? context)
+    const next = new Map(closure)
     fn.parameters.forEach((parameter, index) => {
       const supplied = args[index] ?? (parameter.initializer ? evaluate(parameter.initializer, context) : empty())
       if (ts.isIdentifier(parameter.name)) next.set(parameter, supplied)
@@ -299,7 +393,14 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       visit(fn.body)
     }
     busy.delete(fn)
-    return merge(...returned)
+    const result = merge(...returned)
+    const label = name(fn.name) || (ts.isVariableDeclaration(fn.parent) ? name(fn.parent.name) : '')
+    const scalarType = fn.type && /^(?:string|number|boolean|void|undefined|null)$/.test(fn.type.getText())
+    if (/^use[A-Z]/.test(label) && !scalarType && !(result.literal && !ts.isObjectLiteralExpression(result.literal) && !ts.isArrayLiteralExpression(result.literal))) {
+      for (const origin of hookOrigins.get(fn) ?? []) result.origins.add(origin)
+    }
+    cache.set(key, result)
+    return result
   }
   const evaluate = (raw: ts.Expression, context: Context = new Map()): Value => {
     const node = unwrap(raw)
@@ -327,6 +428,7 @@ export function scanSources(sources: Record<string, string>): Scan[] {
     } else if (ts.isAwaitExpression(node)) value = evaluate(node.expression, context)
     else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       const field = access(node)!
+      if (ts.isElementAccessExpression(node)) { const literal = evaluate(node.argumentExpression, context).literal; if (literal && ts.isStringLiteralLike(literal)) field.key = literal.text }
       const base = evaluate(field.base, context)
       const namespace = ts.isIdentifier(field.base) ? lookup(field.base, field.base.text)?.namespace : undefined
       if (namespace) value = evalBinding(exported(namespace, field.key), context)
@@ -340,22 +442,30 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       else value = { ...base, callable: undefined }
       // tables[entity] and store rows remain broad even for a dynamic entity.
       const parentAccess = access(field.base)
-      if (parentAccess && ['tables', 'collections', 'store'].includes(parentAccess.key)) value = acquisition(node, 'table-property')
+      if (base.tableRoot || (parentAccess && ['tables', 'collections', 'store'].includes(parentAccess.key))) value = acquisition(node, 'table-property')
+      if (['tables', 'collections', 'store'].includes(field.key) && !base.fields.has(field.key)) value.tableRoot = true
     } else if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const field = access(node.expression)
+      const expression = unwrap(node.expression)
+      let dynamicMember = false
+      if (field && ts.isElementAccessExpression(expression)) {
+        const literal = evaluate(expression.argumentExpression, context).literal
+        if (literal && ts.isStringLiteralLike(literal)) field.key = literal.text
+        else dynamicMember = !ts.isStringLiteralLike(expression.argumentExpression)
+      }
       const method = field?.key ?? name(node.expression)
       const receiver = field ? evaluate(field.base, context) : empty()
       const callee = evaluate(node.expression, context)
       const args = [...node.arguments ?? []].map(argument => ts.isSpreadElement(argument) ? evaluate(argument.expression, context) : evaluate(argument, context))
       const question = args[0]?.literal
       const kindProperty = question && ts.isObjectLiteralExpression(question) ? question.properties.find(p => ts.isPropertyAssignment(p) && name(p.name) === 'kind') as ts.PropertyAssignment | undefined : undefined
-      const kindValue = kindProperty ? evaluate(kindProperty.initializer, context).literal : undefined
+      const kindValue = args[0]?.fields.get('kind')?.literal ?? (kindProperty ? evaluate(kindProperty.initializer, context).literal : undefined)
       const kind = kindValue ? name(kindValue) : ''
       if (['collection', 'rows', 'subscribeRows', 'table'].includes(method) && (DOMAIN.test(kindValue ? name(kindValue) : '') || (args[0]?.literal && DOMAIN.test(name(args[0].literal))))) value = acquisition(node, `collection:${method}`)
       else if (['ids', 'readerIds', 'queryIds'].includes(method) && !ADDRESSED.has(kind) && !callee.callable) value = acquisition(node, kind ? `question:${kind}` : 'dynamic-question')
-      else if (['issues', 'sessions'].includes(method) && !node.arguments?.length && (field || !callee.callable)) value = acquisition(node, `zero-arg:${method}`)
-      else if (/^(?:all|known|resident)/i.test(method) && DOMAIN.test(method) && !callee.callable) value = acquisition(node, `enumerator:${method}`)
-      else if (['keys', 'values', 'entries', 'forEach'].includes(method) && (origins(receiver).size || origins(callee).size)) value = merge(acquisition(node, `enumerate:${method}`), receiver, callee)
+      else if (['issues', 'sessions'].includes(method) && !node.arguments?.length && !callee.callable) value = acquisition(node, `zero-arg:${method}`)
+      else if (ENUMERATOR.test(method) && !callee.callable) value = acquisition(node, `enumerator:${method}`)
+      else if (['keys', 'values', 'entries', 'forEach'].includes(method) && (receiver.tableRoot || origins(receiver).size || origins(callee).size)) value = merge(acquisition(node, `enumerate:${method}`), receiver, callee)
       else if (field && ts.isIdentifier(field.base) && field.base.text === 'Object' && !lookup(field.base, 'Object') && ['keys', 'values', 'entries'].includes(method) && args[0] && origins(args[0]).size) value = merge(acquisition(node, `enumerate:Object.${method}`), args[0])
       else if (SCALARS.has(method) || (['ids', 'readerIds', 'queryIds'].includes(method) && ADDRESSED.has(kind))) value = empty()
       else if (callee.callable) value = invoke(callee, args, context)
@@ -369,14 +479,19 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       }
       const taint = origins(merge(receiver, callee))
       if (CONSUMERS.has(method)) record(node, `consume:${method}`, taint)
+      if (dynamicMember) record(node, 'consume:dynamic-member', taint)
       if ((ts.isNewExpression(node) && ['Map', 'Set'].includes(method) && !lookup(node.expression, method)) || (field?.key === 'from' && ts.isIdentifier(field.base) && field.base.text === 'Array' && !lookup(field.base, 'Array'))) record(node, `materialize:${method}`, args[0] ? origins(args[0]) : [])
-      if (!CONSUMERS.has(method) && !SCALARS.has(method)) for (const argument of args) record(node, 'forward-collection', origins(argument))
+      if (callee.callable && origins(value).size) record(node, 'reader-summary', origins(value))
+      if (callee.callable && args.some(argument => origins(argument).size)) record(node, 'helper-consumer', origins(merge(...args)), callee.callable)
       if (['find', 'findIndex', 'some', 'every', 'reduce', 'reduceRight'].includes(method)) value = empty()
     }
     if (!context.size) memo.set(node, value)
     return value
   }
-  // Visit all candidates, not only expressions reachable from exported returns.
+  // First pass seeds reader acquisitions; the sparse hook summary is then
+  // propagated across exports and callbacks. This catches existing hooks whose
+  // generic React subscription wrapper hides its return from local interpretation.
+  for (let pass = 0; pass < 2; pass++) {
   for (const node of candidates) {
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) evaluate(node)
     else if (ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) record(node, 'spread', origins(evaluate(node.expression)))
@@ -390,6 +505,19 @@ export function scanSources(sources: Record<string, string>): Scan[] {
       }
       walk(node); record(node, 'loop', origins(merge(...parts)))
     }
+  }
+  if (pass === 0) {
+    for (const [origin, fn] of originFunctions) {
+      const reached = new Set<Fn>([fn]), pending = [fn]
+      for (let at = 0; at < pending.length; at++) {
+        const owner = pending[at]!
+        const existing = hookOrigins.get(owner) ?? new Set<string>()
+        existing.add(origin); hookOrigins.set(owner, existing)
+        for (const parent of dependents.get(owner) ?? []) if (!reached.has(parent) && !parent.typeParameters?.length) { reached.add(parent); pending.push(parent) }
+      }
+    }
+    hits.clear(); emitted.clear(); memo.clear(); invocationCache.clear()
+  }
   }
   return [...hits.values()].sort((a, b) => a.file.localeCompare(b.file) || a.holder.localeCompare(b.holder) || a.fingerprint.localeCompare(b.fingerprint))
 }

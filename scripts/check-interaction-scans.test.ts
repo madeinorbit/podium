@@ -36,11 +36,20 @@ describe('interaction scan census', () => {
       'const raw=reader.sessions(); let alias; alias=raw; alias.some(i=>i.id==="x");',
       'const raw=store.tables["issue"]; const {values}=raw; const alias=values(); alias.find(i=>i.id==="x");',
       'const raw=reader.issues(); const {filter: scan}=raw; scan(i=>i.id==="x");',
+      'const {tables:t}=pool; const {issue:raw}=t; raw.values().filter(i=>i.live);',
+      'const method="filter"; const rows=reader.issues(); rows[method](i=>i.live);',
+      'const rows=reader.issues(); rows[dynamic](read);',
     ]) expect(hits(source).some(hit => hit.rule.startsWith('consume:')), source).toBe(true)
   })
   it('tracks generic helper returns and closures', () => {
     const source = 'function identity(x){return x;} const rows=reader.issues(); const read=()=>identity(rows); read().flatMap(i=>i.labels);'
     expect(hits(source).some(hit => hit.rule === 'consume:flatMap')).toBe(true)
+  })
+  it('fingerprints generic helper bodies even when consumers do not affect the return', () => {
+    const before = 'function consume(x){return 0;} const rows=reader.issues(); consume(rows);'
+    const after = 'function consume(x){x.filter(i=>i.stage==="open"); return 0;} const rows=reader.issues(); consume(rows);'
+    expect(changed(before, after).some(error => error.includes('NEW/CHANGED'))).toBe(true)
+    expect(changed(after, after.replace('"open"', '"done"')).some(error => error.includes('NEW/CHANGED'))).toBe(true)
   })
   it('carries old exported hook origins into a new cross-file consumer and re-export', () => {
     const shared = {
@@ -54,6 +63,13 @@ describe('interaction scan census', () => {
     const scans = scanSources(next)
     expect(scans.some(hit => hit.file === 'apps/mobile/app/index.tsx' && hit.rule === 'consume:find')).toBe(true)
     expect(checkCensus(scans, census(scanSources(old))).some(error => error.includes('NEW/CHANGED'))).toBe(true)
+  })
+  it('carries broad hook output through opaque React subscription state', () => {
+    const shared = {
+      'apps/mobile/src/client/hook.ts': 'const read=()=>reader.issues(); function subscribe(fn){fn(); return opaqueState;} export function useOldRows(){return subscribe(read);}',
+      'apps/mobile/app/index.tsx': 'import {useOldRows} from "../src/client/hook"; useOldRows().filter(i=>i.stage==="done");',
+    }
+    expect(scanSources(shared).some(hit => hit.file === 'apps/mobile/app/index.tsx' && hit.rule === 'consume:filter')).toBe(true)
   })
   it('resolves namespace imports, returned object methods and getters', () => {
     const scans = scanSources({
@@ -107,6 +123,7 @@ describe('interaction scan census', () => {
     for (const source of [
       'function issues(){return []} issues().map(read);',
       'function knownIds(){return [1,2]} knownIds().filter(read);',
+      'const reader={issues(){return []}, sessions(){return []}}; reader.issues().map(read); reader.sessions().filter(read);',
       'const rows=reader.issues(); function click(rows){return rows.map(read)}',
       'const rows=reader.sessions(); {const rows=[]; rows.filter(read)}',
       'const rows=reader.issues(); function click(){let rows=[]; rows.every(read)}',
@@ -119,7 +136,7 @@ describe('interaction scan census', () => {
     for (const source of [
       'pool.queries.ids({kind:"commandIssueSessions",issueId}).map(read);',
       'const q={kind:"sessionReference",ref}; pool.queries.ids(q);',
-      'pool.queries.count({kind:"commandIssues"}); pool.row("issue",id); table.get(id);',
+      'pool.queries.count({kind:"commandIssues"}); pool.row("issue",id); const table=new Map(); table.get(id); knownIssue(pool,id);',
       'const queue=[]; queue.push(work); while(queue.length<10) queue.shift();',
       'Object.keys(IssueWire.shape).filter(k=>k!=="id");',
       'const config={enabled:true}; Object.entries(config).map(read);',
