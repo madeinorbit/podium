@@ -247,7 +247,7 @@ describe('incremental header sessions', () => {
     expect(samples[1]!.control.elements).toBeGreaterThan(samples[0]!.control.elements)
   })
 
-  it('derives the new resident contribution inside the applying action', () => {
+  it('reads resident and cold contributions inside the applying action', () => {
     const f = fixture(1)
     const stop = autorun(() => {
       f.pool.headerViews.working()
@@ -260,6 +260,11 @@ describe('incremental header sessions', () => {
         expect(f.pool.headerViews.workingCount()).toBe(1)
         expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['resident-0'])
         expect(f.pool.headerViews.aggregate(HOSTS[0]).phases.working).toBe(1)
+        f.change('cold-0', { status: 'live', agentState: state('working') })
+        expect(f.pool.tables.session.has('cold-0')).toBe(false)
+        expect(f.pool.headerViews.workingCount()).toBe(2)
+        expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['cold-0', 'resident-0'])
+        expect(f.pool.headerViews.aggregate(HOSTS[0]).phases.working).toBe(2)
       })
     } finally { stop(); f.dispose() }
   })
