@@ -82,6 +82,42 @@ async function fixture() {
 }
 
 describe('declared command and launch targets', () => {
+  it('derives each session inside the applying action without waking catalog or other rows', async () => {
+    const f = await fixture(), views = commandLaunchViews(f.pool)
+    const ids = runInAction(() => views.sessionIds())
+    if (!ids || ids === LOADING) throw new Error('Session catalog did not settle')
+    const target = f.ctx.targets.phaseSessionId,
+      other = ids.find(id => id !== target)!
+    expect(ids).toContain(target)
+    expect(other).toBeTruthy()
+    const runs = { ids: 0, launch: 0, target: 0, other: 0 }
+    const stops = [
+      autorun(() => { views.sessionIds(); runs.ids++ }),
+      autorun(() => { views.launch(); runs.launch++ }),
+      autorun(() => { views.session(target); runs.target++ }),
+      autorun(() => { views.session(other); runs.other++ }),
+    ]
+    try {
+      const before = { ...runs }
+      const beforeIds = views.sessionIds()
+      const row = f.pool.row('session', target, 'summary-fields')
+      if (!row || row === LOADING) throw new Error('Target session did not settle')
+      runInAction(() => {
+        f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Addressed title' } }] })
+        expect(views.session(target)).toMatchObject({ name: 'Addressed title' })
+      })
+      expect(runs).toEqual({ ...before, target: before.target + 1 })
+      expect(views.sessionIds()).toBe(beforeIds)
+      for (const stop of stops) stop()
+      const afterRelease = { ...views.counts }
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Offscreen title' } }] })
+      expect(views.counts).toEqual(afterRelease)
+    } finally {
+      for (const stop of stops) stop()
+      f.close()
+    }
+  }, 120_000)
+
   it('matches the synthetic corpus through addressed writes, eviction, selection and rescope', async () => {
     const f = await fixture(),
       stop = autorun(() => poolCommandLaunchSnapshot(f.pool))

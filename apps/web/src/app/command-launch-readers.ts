@@ -7,6 +7,8 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 // Shared with the structural work harness: measure the app's actual consumers.
 export const readLaunch = (pool: MobxPool) => commandLaunchViews(pool).launch()
 export const readPalette = (pool: MobxPool) => commandLaunchViews(pool).palette()
+export const readSessions = (pool: MobxPool) => commandLaunchViews(pool).sessions()
+export const readSession = (pool: MobxPool, id: string) => commandLaunchViews(pool).session(id)
 export const readOpen = (pool: MobxPool) => {
   const value = commandLaunchViews(pool).window('paletteOpen')
   return value !== LOADING ? value ?? false : false

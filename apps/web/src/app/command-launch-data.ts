@@ -1,6 +1,7 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
 import type { CommandLaunchData } from '@podium/client-graph/command-launch-views'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import {
@@ -9,6 +10,8 @@ import {
   readLaunch,
   readOpen,
   readPalette,
+  readSession,
+  readSessions,
 } from './command-launch-readers'
 import type { Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
@@ -59,6 +62,14 @@ export function useCommandLaunchData(): Loaded<CommandLaunchData> {
 export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
   // The open dialog owns catalog demand and releases it on unmount.
   return useWorklistPoolProjection(readPalette, LOADING, active)
+}
+export function useCommandSessions(): Loaded<SessionView[]> {
+  return useWorklistPoolProjection(readSessions, LOADING)
+}
+export function useCommandSession(id: string | null): Loaded<SessionView> {
+  const read = useMemo(() => (pool: Parameters<typeof readSession>[0]) =>
+    id === null ? undefined : readSession(pool, id), [id])
+  return useWorklistPoolProjection(read, LOADING)
 }
 export function useCommandPaletteOpen() {
   return useWorklistPoolProjection(readOpen, false)

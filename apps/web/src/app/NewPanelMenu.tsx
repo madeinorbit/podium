@@ -47,6 +47,7 @@ import {
   useCommandLaunchActions,
   useCommandLaunchData,
   useCommandRecentFiles,
+  useCommandSessions,
 } from './command-launch-data'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
@@ -178,7 +179,9 @@ function NewPanelMenuBody({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { sessions, machines } = data
+  const { machines } = data
+  const choices = useCommandSessions()
+  const sessions = choices && choices !== LOADING ? choices : []
   const { trpc, setPanelMode } = useCommandLaunchActions()
   const repoViews = data.repoViews
   const runtimeDriversEnabled = useFeature('runtime-drivers')

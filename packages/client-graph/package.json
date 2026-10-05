@@ -61,6 +61,7 @@
     "@podium/client-core": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/model": "workspace:*",
+    "@podium/mobx-helpers": "workspace:*",
     "@podium/protocol": "workspace:*",
     "mobx": "7.0.3",
     "mobx-react-lite": "5.0.3",

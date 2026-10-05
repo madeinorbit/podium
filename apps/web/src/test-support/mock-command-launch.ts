@@ -14,6 +14,8 @@ import {
   readLaunch,
   readOpen,
   readPalette,
+  readSession,
+  readSessions,
 } from '@/app/command-launch-readers'
 import { useRuntimeSelector } from '@/app/store'
 
@@ -94,4 +96,6 @@ vi.mock('@/app/command-launch-data', async (original) => ({
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
   useCommandRecentFiles: () => useCommandFixture(readFiles),
+  useCommandSessions: () => useCommandFixture(readSessions),
+  useCommandSession: (id: string | null) => useCommandFixture(pool => id === null ? undefined : readSession(pool, id)),
 }))

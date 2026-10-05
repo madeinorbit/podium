@@ -2,6 +2,7 @@
  * reports contain counts and positions. */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import {
   lastUsedMaps,
@@ -26,13 +27,12 @@ function snapshot(
     | 'repos'
     | 'repoViews'
     | 'machines'
-    | 'sessions'
     | 'issues'
     | 'repoChoices'
     | 'initialRepoPath'
     | 'spawnTargets'
   > &
-    Partial<CommandLaunchData>,
+    Partial<CommandLaunchData> & { sessions: SessionView[] },
 ): SidebarSnapshot {
   const issueRows: CheckRow[] = data.issues.map((issue) => ({
     id: issue.id,
@@ -116,9 +116,13 @@ function snapshot(
   }
 }
 export function poolCommandLaunchSnapshot(pool: MobxPool): SidebarSnapshot {
-  const data = commandLaunchViews(pool).palette()
+  const views = commandLaunchViews(pool), data = views.palette()
   if (!data || data === LOADING) return { pending: 1, sections: [] }
-  return snapshot(data)
+  const rows = data.sessionIds.map(id => views.session(id))
+  return snapshot({ ...data,
+    sessions: rows.filter((row): row is SessionView => !!row && row !== LOADING),
+    pending: data.pending + rows.filter(row => row === LOADING).length,
+  })
 }
 export function legacyCommandLaunchSnapshot(store: Store<PodiumClientApi>): SidebarSnapshot {
   const legacy = legacyDerivationFromStore(store),

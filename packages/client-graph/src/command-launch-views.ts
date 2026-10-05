@@ -9,10 +9,6 @@ import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,
   computed,
-  observable,
-  onBecomeObserved,
-  onBecomeUnobserved,
-  runInAction,
   untracked,
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
@@ -23,7 +19,7 @@ export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
   repos: Store['repos']
   repoViews: RepoView[]
   machines: CommandLaunchRows['commandMachine'][]
-  sessions: SessionView[]
+  sessionIds: readonly string[]
   issues: IssueViewModel[]
   repoChoices: Store['repos']
   initialRepoPath: string
@@ -56,95 +52,34 @@ export function createCommandLaunchViews(pool: MobxPool) {
     const window = read('commandWindow', 'window')
     return window && window !== LOADING ? window[key] : window
   }
-  // Session metadata (notably mark-read) changes one value, not the global
-  // catalog or repository activity. Keep the ordered projection current from
-  // addressed publications, and still obtain every value through pool.row.
-  type SessionRows = { sessions: SessionView[]; pending: number; sessionIds: ReadonlySet<string> }
-  let sessionsObserved = false
-  let sessionOrder: readonly string[] | undefined
-  let sessionSlots: Loaded<SessionView>[] = []
-  const sessionPositions = new Map<string, number>()
-  const sessionValuePositions = new Map<string, number>()
-  const sessionVersion = observable.box(0)
-  let sessionSnapshot: SessionRows = { sessions: [], pending: 0, sessionIds: new Set() }
-  const readSession = (id: string) =>
-    pool.row('session', id, 'summary-fields') as Loaded<SessionView>
-  function sessionSnapshotFromSlots(): SessionRows {
+  // Membership observes only the declared catalog. Each displayed row owns
+  // its keyed value; metadata never needs a hand-maintained projection clock.
+  const sessionIds = computed((): Loaded<readonly string[]> => {
+    const catalog = read('commandCatalog', 'catalog')
+    return catalog && catalog !== LOADING ? catalog.sessions : catalog
+  }, { equals: compareStructural })
+  const session = keyedComputed('commands.session', (id: string): Loaded<SessionView> => {
+    counts.addressedSessionReads++
+    if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
+    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
+    // Snapshot joined getter fields inside this addressed derivation.
+    return row && row !== LOADING ? { ...row } : row
+  }, { equals: compareStructural })
+  // Search and launch choices explicitly license browsing summaries while the
+  // menu is open. The shared launch/window projection carries only their ids.
+  const sessions = computed(() => {
+    const ids = sessionIds.get()
+    if (!ids || ids === LOADING) return ids
     const sessions: SessionView[] = []
-    sessionValuePositions.clear()
-    for (const value of sessionSlots) {
-      if (!value || value === LOADING) continue
-      sessionValuePositions.set(value.sessionId, sessions.length)
-      sessions.push(value)
+    for (const id of ids) {
+      const row = session(id)
+      if (row && row !== LOADING) sessions.push(row)
     }
-    return {
-      sessions,
-      pending: sessionSlots.filter((value) => value === LOADING).length,
-      sessionIds: new Set(sessions.map((value) => value.sessionId)),
-    }
-  }
-  const sessionRows = computed(
-    (): Loaded<SessionRows> => {
-      sessionVersion.get()
-      const catalog = read('commandCatalog', 'catalog')
-      if (!catalog || catalog === LOADING) return catalog
-      if (!sessionsObserved || !sessionOrder || !compareStructural(sessionOrder, catalog.sessions)) {
-        sessionOrder = catalog.sessions
-        sessionPositions.clear()
-        sessionSlots = untracked(() =>
-          catalog.sessions.map((id, position) => {
-            sessionPositions.set(id, position)
-            if (!pool.tables.session.has(id)) counts.coldSessionVisits++
-            return readSession(id)
-          }),
-        )
-        sessionSnapshot = sessionSnapshotFromSlots()
-      }
-      // Joined labels are read only while this displayed catalog is observed.
-      return { ...sessionSnapshot, sessions: sessionSnapshot.sessions.map(row => ({ ...row })) }
-    },
-    { equals: compareStructural },
-  )
-  const stopSessionObservation = onBecomeObserved(sessionRows, () => { sessionsObserved = true })
-  const stopSessionRelease = onBecomeUnobserved(sessionRows, () => {
-    sessionsObserved = false
-    sessionOrder = undefined
-    sessionSlots = []
-    sessionPositions.clear()
-    sessionValuePositions.clear()
-    sessionSnapshot = { sessions: [], pending: 0, sessionIds: new Set() }
-  })
-  const stopSessions = pool.queries.onChange((event) => {
-    if (!sessionsObserved || !sessionOrder) return
-    if (event.type === 'replace') {
-      sessionOrder = undefined
-      runInAction(() => sessionVersion.set(sessionVersion.get() + 1))
-      return
-    }
-    let changed = false,
-      membershipChanged = false
-    let sessions: SessionView[] | undefined
-    for (const row of event.rows) {
-      if (row.kind !== 'session') continue
-      const position = sessionPositions.get(row.id)
-      if (position === undefined) continue
-      counts.addressedSessionReads++
-      const value = untracked(() => readSession(row.id))
-      const previous = sessionSlots[position]
-      if (compareStructural(previous, value)) continue
-      sessionSlots[position] = value
-      changed = true
-      if (previous && previous !== LOADING && value && value !== LOADING) {
-        sessions ??= sessionSnapshot.sessions.slice()
-        sessions[sessionValuePositions.get(row.id)!] = value
-      } else membershipChanged = true
-    }
-    if (changed) {
-      sessionSnapshot = membershipChanged
-        ? sessionSnapshotFromSlots()
-        : { ...sessionSnapshot, sessions: sessions! }
-      runInAction(() => sessionVersion.set(sessionVersion.get() + 1))
-    }
+    return sessions
+  }, { equals: compareStructural })
+  const sessionMembership = computed(() => {
+    const ids = sessionIds.get()
+    return ids && ids !== LOADING ? new Set(ids) : ids
   })
   const common = computed(
     (): Loaded<Common> => {
@@ -330,26 +265,26 @@ export function createCommandLaunchViews(pool: MobxPool) {
   )
   function projection(palette: boolean): Loaded<CommandLaunchData> {
     const data = common.get(),
-      sessionData = sessionRows.get(),
+      ids = sessionIds.get(),
       window = read('commandWindow', 'window'),
       spawnTargets = placement.get()
     if (
       data === LOADING ||
-      sessionData === LOADING ||
+      ids === LOADING ||
       window === LOADING ||
       spawnTargets === LOADING
     )
       return LOADING
-    if (!data || !sessionData || !window || !spawnTargets) return undefined
+    if (!data || !ids || !window || !spawnTargets) return undefined
     const { issueIds: _issueIds, ...values } = data
-    const { sessionIds, sessions } = sessionData
-    let pending = data.pending + sessionData.pending,
+    let pending = data.pending,
       issues: IssueViewModel[] = []
     if (palette) {
       const list = browsing.get()
       if (list === LOADING || !list) return list
       issues = list.issues
       pending += list.pending
+      const membership = sessionMembership.get()
       const id = window.openIssueId ?? window.selectedIssueId,
         position = issues.findIndex((issue) => issue.id === id)
       if (id && position >= 0) {
@@ -372,7 +307,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
           const members = pool.queries
             .ids({ kind: 'commandIssueSessions', issueId: id })
             .filter((sid) => {
-              if (pool.queries.collapsed(sid) || !sessionIds.has(sid)) return false
+              if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
               if (untracked(() => !pool.tables.session.has(sid))) return true
               const session = pool.row('session', sid, 'summary') as Loaded<SessionView>
               return (
@@ -399,7 +334,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
         }
       }
     }
-    return { ...window, ...values, sessions, issues, spawnTargets, pending }
+    return { ...window, ...values, sessionIds: ids, issues, spawnTargets, pending }
   }
   const launch = computed(() => projection(false), { equals: compareStructural }),
     palette = computed(() => projection(true), { equals: compareStructural })
@@ -407,12 +342,11 @@ export function createCommandLaunchViews(pool: MobxPool) {
     launch: () => launch.get(),
     palette: () => palette.get(),
     window: windowField,
-    sessions: () => {
-      const data = sessionRows.get()
-      return data && data !== LOADING ? data.sessions : data
-    },
+    sessionIds: () => sessionIds.get(),
+    session,
+    sessions: () => sessions.get(),
     counts,
-    dispose() { stopSessions(); stopSessionObservation(); stopSessionRelease(); issueSummary.clear() },
+    dispose() { session.clear(); issueSummary.clear() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {

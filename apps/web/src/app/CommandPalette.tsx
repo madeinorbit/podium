@@ -62,6 +62,8 @@ import {
   useCommandLaunchActions,
   useCommandPaletteData,
   useCommandPaletteOpen,
+  useCommandSession,
+  useCommandSessions,
 } from './command-launch-data'
 import {
   defaultHighlight,
@@ -250,7 +252,6 @@ function PaletteDialogBody({
 }): JSX.Element {
   const {
     repos,
-    sessions,
     machines,
     pins,
     paneA,
@@ -259,6 +260,8 @@ function PaletteDialogBody({
     issues,
     spawnTargets,
   } = data
+  const choices = useCommandSessions()
+  const sessions = choices && choices !== LOADING ? choices : []
   const {
     trpc,
     markIssueRead,
@@ -359,7 +362,8 @@ function PaletteDialogBody({
     [issues, openIssueId, selectedIssueId, sessions, repos, repoViews, machines, handoffEnabled],
   )
 
-  const focused = paneA ? sessions.find((s) => s.sessionId === paneA) : undefined
+  const focusedValue = useCommandSession(paneA)
+  const focused = focusedValue !== LOADING ? focusedValue : undefined
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
   const commands = useMemo((): PaletteCommand[] => {
@@ -947,6 +951,8 @@ function PaletteRow({
   onHover: () => void
   onRun: () => void
 }): JSX.Element {
+  const value = useCommandSession(cmd.session?.sessionId ?? null)
+  const session = value && value !== LOADING ? value : undefined
   const Icon = cmd.icon
   return (
     <button
@@ -974,10 +980,10 @@ function PaletteRow({
           <span className="cmdk-row-lead" aria-hidden="true">
             {Icon ? <Icon size={15} /> : null}
           </span>
-          <span className="cmdk-row-title">{cmd.label}</span>
+          <span className="cmdk-row-title">{session ? sessionDisplayName(session) : cmd.label}</span>
         </>
       )}
-      {cmd.session && <AgentStatusGlyph session={cmd.session} variant="row" />}
+      {session && <AgentStatusGlyph session={session} variant="row" />}
       {cmd.hint && <span className="cmdk-row-hint">{cmd.hint}</span>}
       <PaletteEnterCap />
     </button>
