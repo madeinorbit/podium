@@ -551,7 +551,6 @@ export class MobxPool {
     this.worklist = new VisibleCollection({
       issue: (id) => this.issueObject(id),
       fileGroups: (id, filing) => this.groups.file(id, filing),
-      fileSidebarOwner: (id, owner) => this.sidebarRosters.fileOwner(id, owner),
     })
     this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
       name: debugName(() => 'pool.foldLatch'),
@@ -1117,10 +1116,6 @@ export class MobxPool {
         : (this.row('issue', id, 'mark') as Readonly<Record<string, unknown>> | undefined)
     if (row === undefined || row['archived'] === true || row['deletedAt'] != null) {
       this.worklist.untrack(id)
-      const summary = row ?? this.hidden('issue', id)
-      if (summary && (summary['archived'] === true || summary['deletedAt'] != null)) {
-        this.sidebarRosters.fileOwner(id, { represented: false, excluded: true, unownedIds: [] })
-      }
     } else {
       this.worklist.track(id)
     }

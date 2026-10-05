@@ -1316,8 +1316,6 @@ export interface VisibleHost {
   issue(id: string): HeldIssue
   /** File one row into the groups' lanes (`WorklistGroups.file`). */
   fileGroups(id: string, filing: Filing | undefined): void
-  /** Existing filing reaction also supplies fallback-roster ownership. */
-  fileSidebarOwner?(id: string, owner: { readonly represented: boolean; readonly excluded: boolean; readonly unownedIds: readonly string[]; readonly finishAt?: number } | undefined): void
 }
 
 /** The order's one key. */
@@ -1450,7 +1448,6 @@ export class VisibleCollection {
     if (stop === null) return
     stop()
     this.file(id, undefined)
-    this.host.fileSidebarOwner?.(id, undefined)
   }
 
   /** Whether issue `id` is a filing candidate (maintenance: plain). */
@@ -1483,7 +1480,6 @@ export class VisibleCollection {
         stop()
         this.stops.set(id, null)
         this.file(id, undefined)
-        this.host.fileSidebarOwner?.(id, undefined)
       }
     })
   }
@@ -1492,27 +1488,8 @@ export class VisibleCollection {
   private start(id: string): () => void {
     const issue = this.host.issue(id)
     return reaction(
-      () => {
-        const filing = filingOf(issue)
-        if (this.host.fileSidebarOwner === undefined) return { filing }
-        const represented = issue.placed
-        const lane = represented ? issue.laneMemberIds : NONE
-        const retained = lane.length ? new Set(issue.retainedSeatIds) : undefined
-        const standing = issue.standing
-        return {
-          filing,
-          owner: {
-            represented,
-            excluded: standing?.excluded === true,
-            finishAt: standing?.finished ? standing.finishedMs : undefined,
-            unownedIds: retained === undefined ? NONE : lane.filter((seat) => retained.has(seat)),
-          },
-        }
-      },
-      ({ filing, owner }) => {
-        this.file(id, filing)
-        this.host.fileSidebarOwner?.(id, owner)
-      },
+      () => filingOf(issue),
+      (filing) => this.file(id, filing),
       {
         fireImmediately: true,
         equals: compareStructural,

@@ -1,11 +1,13 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
-import { compareStructural, observable, observe, reaction, runInAction, untracked } from 'mobx'
+import { compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
+import { cachedKey } from './cached'
 import { seedHeaderSessions } from './enumerate'
 import {
   EMPTY_HOST_AGGREGATE,
   type HeaderAggregate,
   headerHostSession,
+  headerWorkingDeadline,
   headerWorkingSession,
   type WorkingSession,
 } from './header-session'
@@ -41,161 +43,137 @@ function contribution(member: HostSession): Contribution | null {
   }
 }
 
-/** Resident models subscribe only to their own row. Unloaded sessions supply
- * declared summaries on registry deltas, without loading or building models.
- * Stored values are header contributions, never session payloads. */
+function adjust(aggregate: HeaderAggregate, value: Contribution, delta: 1 | -1): void {
+  aggregate.count += delta
+  aggregate.phases[value.phase] += delta
+  if (value.idle) {
+    aggregate.idleSplit.idle += delta
+    aggregate.idleSplit[value.idle] += delta
+  }
+}
+
+type ColdWorking = { working: WorkingSession; deadline: number }
+
+/** Resident contributions are keyed computeds over the declared machine
+ * relation. Cold contributions are filed in the applying feed action; only
+ * compact host values and working evidence are retained while demanded. */
 export class HeaderSessions {
-  private readonly roster = observable.map<string, WorkingSession>(undefined, { deep: false })
-  private readonly aggregates = observable.map<MachineId, HeaderAggregate>(undefined, {
-    deep: false,
-  })
-  private readonly contributions = new Map<string, Contribution>()
-  private readonly residents = new Map<string, () => void>()
-  private readonly coldDeadlines = new Map<string, () => void>()
+  private readonly coldHosts = observable.map<MachineId, HeaderAggregate>(undefined, { deep: false })
+  private readonly coldContributions = new Map<string, Contribution>()
+  private readonly coldWorking = observable.map<string, ColdWorking>(undefined, { deep: false })
+  /** Count evidence by deadline, so a count never enumerates roster values. */
+  private readonly coldCounts = observable.map<number, number>(undefined, { deep: false })
   private readonly stops: (() => void)[]
 
+  private readonly resident = cachedKey('pool.header', 'sessionContribution', (id) => {
+    const model = this.pool.model('session', id)
+    const host = model?.headerHost ?? null
+    return { working: host?.archived ? null : model?.headerWorking ?? null, host: contribution(host) }
+  }, compareStructural)
+  private readonly residentHost = cachedKey('pool.header', 'sessionHost', (id) => this.resident(id).host, compareStructural)
+  private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => this.resident(id).working !== null, Object.is)
+  private readonly machine = cachedKey('pool.header', 'machineAggregate', (id) => {
+    const aggregate = structuredClone(this.coldHosts.get(id as MachineId) ?? EMPTY_HOST_AGGREGATE)
+    for (const sessionId of this.pool.header.members('machine', id, 'sessions')) {
+      const value = this.residentHost(sessionId)
+      if (value) adjust(aggregate, value, 1)
+    }
+    return aggregate
+  }, compareStructural)
+  private readonly roster = computed(() => {
+    const values: WorkingSession[] = []
+    for (const id of this.pool.header.sessionOrder.get()) {
+      const value = this.resident(id).working
+      if (value) values.push(value)
+    }
+    for (const value of this.coldWorking.values()) {
+      if (!this.pool.clock.passed(value.deadline)) values.push(value.working)
+    }
+    return values.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
+  }, { equals: compareStructural })
+  private readonly count = computed(() => {
+    let count = 0
+    for (const id of this.pool.header.sessionOrder.get()) if (this.residentWorking(id)) count++
+    for (const [deadline, members] of this.coldCounts) if (!this.pool.clock.passed(deadline)) count += members
+    return count
+  })
+
   constructor(private readonly pool: MobxPool) {
-    this.stops = [
-      observe(pool.tables.session, (change) => {
-        if (change.type === 'add') this.track(change.name)
-        if (change.type === 'delete') this.untrack(change.name)
-      }),
-    ]
+    this.stops = [observe(pool.tables.session, (change) => {
+      // Promotion/eviction happens inside the row's applying action.
+      if (change.type === 'add' || change.type === 'delete') this.cold(change.name)
+    })]
     const stopCold = pool.residency?.onColdChange((entity, id) => {
       if (entity === 'session') this.cold(id)
     })
     if (stopCold) this.stops.push(stopCold)
-    this.stops.push(
-      pool.queries.onChange((event) => {
-        for (const record of event.rows)
-          if (record.kind === 'session' && !pool.tables.session.has(record.id)) this.cold(record.id)
-      }),
-    )
-    // Attachment is the only census, and must not become a read dependency.
-    untracked(() =>
-      seedHeaderSessions(
-        pool,
-        (id) => this.track(id),
-        (id) => this.cold(id),
-      ),
-    )
-  }
-
-  private track(id: string): void {
-    if (this.residents.has(id)) return
-    const read = () => {
-      const model = this.pool.model('session', id)
-      return {
-        working: model?.headerWorking ?? null,
-        host: contribution(model?.headerHost ?? null),
+    this.stops.push(pool.queries.onChange((event) => {
+      if (event.type === 'replace') {
+        this.clearCold()
+        this.seed()
+      } else {
+        for (const record of event.rows) if (record.kind === 'session') this.cold(record.id)
       }
-    }
-    // Seed synchronously even when first attached inside a derivation/action.
-    // The reaction then owns overlay, phase and activity-deadline changes.
-    const initial = untracked(read)
-    this.file(id, initial.working, initial.host)
-    this.residents.set(
-      id,
-      reaction(read, (value) => this.file(id, value.working, value.host), {
-        equals: compareStructural,
-      }),
-    )
+    }))
+    this.seed()
   }
 
-  private untrack(id: string): void {
-    this.residents.get(id)?.()
-    this.residents.delete(id)
-    this.file(id, null, null)
+  private seed(): void {
+    untracked(() => runInAction(() => seedHeaderSessions(this.pool, () => {}, (id) => this.cold(id))))
   }
 
   private cold(id: string): void {
-    this.coldDeadlines.get(id)?.()
-    this.coldDeadlines.delete(id)
-    const coldSummary = () => {
-      if (untracked(() => this.pool.row('session', id, 'mark')) !== LOADING) return undefined
-      const value = this.pool.row('session', id, 'summary') as
-        | SessionView
-        | typeof LOADING
-        | undefined
+    const summary = untracked(() => {
+      if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
+      const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
       return value === LOADING ? undefined : value
-    }
-    const summary = untracked(coldSummary)
-    const read = () => {
-      const value = coldSummary()
-      return value && !value.archived
-        ? headerWorkingSession(value, (at) => this.pool.clock.passed(at))
-        : null
-    }
-    const working = summary?.status === 'live' && !summary.archived ? untracked(read) : null
-    this.file(id, working, contribution(headerHostSession(summary)))
-    if (summary?.status === 'live' && !summary.archived) {
-      // Expired evidence still observes the clock's rewind atom. Idle cold
-      // summaries have no deadline and need no persistent subscription.
-      if (summary.agentState?.phase === 'working' || summary.agentState?.phase === 'compacting') {
-        this.coldDeadlines.set(
-          id,
-          reaction(read, (value) => this.fileWorking(id, value), { equals: compareStructural }),
-        )
+    })
+    const host = contribution(headerHostSession(summary))
+    const deadline = summary?.archived ? undefined : headerWorkingDeadline(summary)
+    const working = deadline === undefined ? null : headerWorkingSession(summary, () => false)
+    runInAction(() => {
+      const previous = this.coldContributions.get(id)
+      if (!compareStructural(previous ?? null, host)) {
+        const apply = (value: Contribution, delta: 1 | -1) => {
+          const aggregate = structuredClone(this.coldHosts.get(value.machineId) ?? EMPTY_HOST_AGGREGATE)
+          adjust(aggregate, value, delta)
+          if (aggregate.count) this.coldHosts.set(value.machineId, aggregate)
+          else this.coldHosts.delete(value.machineId)
+        }
+        if (previous) apply(previous, -1)
+        if (host) { apply(host, 1); this.coldContributions.set(id, host) }
+        else this.coldContributions.delete(id)
       }
-    }
-  }
-
-  private fileWorking(id: string, value: WorkingSession | null): void {
-    runInAction(() => {
-      if (!value) this.roster.delete(id)
-      else if (!compareStructural(this.roster.get(id), value)) this.roster.set(id, value)
+      const before = this.coldWorking.get(id)
+      const after = working && deadline !== undefined ? { working, deadline } : undefined
+      if (before?.deadline !== after?.deadline) {
+        if (before) this.adjustCount(before.deadline, -1)
+        if (after) this.adjustCount(after.deadline, 1)
+      }
+      if (after) {
+        if (!compareStructural(before, after)) this.coldWorking.set(id, after)
+      } else this.coldWorking.delete(id)
     })
   }
 
-  private file(id: string, working: WorkingSession | null, next: Contribution | null): void {
-    runInAction(() => {
-      this.fileWorking(id, working)
-      const previous = this.contributions.get(id)
-      if (compareStructural(previous ?? null, next)) return
-      if (previous) this.adjust(previous, -1)
-      if (next) {
-        this.contributions.set(id, next)
-        this.adjust(next, 1)
-      } else this.contributions.delete(id)
-    })
+  private adjustCount(deadline: number, delta: 1 | -1): void {
+    const count = (this.coldCounts.get(deadline) ?? 0) + delta
+    if (count) this.coldCounts.set(deadline, count)
+    else this.coldCounts.delete(deadline)
   }
 
-  private adjust(value: Contribution, delta: 1 | -1): void {
-    const aggregate = structuredClone(this.aggregates.get(value.machineId) ?? EMPTY_HOST_AGGREGATE)
-    aggregate.count += delta
-    aggregate.phases[value.phase] += delta
-    if (value.idle) {
-      aggregate.idleSplit.idle += delta
-      aggregate.idleSplit[value.idle] += delta
-    }
-    if (aggregate.count) this.aggregates.set(value.machineId, aggregate)
-    else this.aggregates.delete(value.machineId)
-  }
-
-  working(): WorkingSession[] {
-    // Canonical UTF-16 id order, exactly as knownSessionIds; only working
-    // output members are enumerated, never the known-session catalog.
-    return [...this.roster.keys()].sort().map((id) => this.roster.get(id)!)
-  }
-
-  workingCount(): number {
-    return this.roster.size
-  }
-
+  working(): WorkingSession[] { return this.roster.get() }
+  workingCount(): number { return this.count.get() }
   aggregate(machineId: MachineId | undefined): HeaderAggregate {
-    return (machineId && this.aggregates.get(machineId)) || EMPTY_HOST_AGGREGATE
+    return machineId ? this.machine(machineId) : EMPTY_HOST_AGGREGATE
   }
 
+  private clearCold(): void {
+    this.coldContributions.clear()
+    runInAction(() => { this.coldHosts.clear(); this.coldWorking.clear(); this.coldCounts.clear() })
+  }
   dispose(): void {
     for (const stop of this.stops) stop()
-    for (const stop of this.residents.values()) stop()
-    for (const stop of this.coldDeadlines.values()) stop()
-    this.residents.clear()
-    this.coldDeadlines.clear()
-    this.contributions.clear()
-    runInAction(() => {
-      this.roster.clear()
-      this.aggregates.clear()
-    })
+    this.clearCold()
   }
 }

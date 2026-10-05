@@ -3,7 +3,7 @@ import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
-import { compareStructural, reaction } from 'mobx'
+import { compareStructural, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
@@ -85,9 +85,15 @@ export function createHeaderViews(pool: MobxPool) {
     const value = offline.get()
     return value === LOADING ? [] : (value ?? [])
   }
-  function sessionIndex() {
-    sessions ??= new HeaderSessions(pool)
-    return sessions
+  const sessionDemand = createAtom('pool.header.sessions.demand',
+    () => { sessions ??= new HeaderSessions(pool) },
+    () => { sessions?.dispose(); sessions = undefined })
+  function sessionIndex<T>(read: (index: HeaderSessions) => T): T {
+    sessionDemand.reportObserved()
+    if (sessions) return read(sessions)
+    // An untracked read must not leave the feed subscribed for the pool's life.
+    const index = new HeaderSessions(pool)
+    try { return read(index) } finally { index.dispose() }
   }
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function row<E extends HeaderEntity>(entity: E, id: string): HeaderRows[E] | undefined {
@@ -124,13 +130,13 @@ export function createHeaderViews(pool: MobxPool) {
     })
   }
   function workingRoster() {
-    return memo('workingRoster', () => sessionIndex().working())
+    return memo('workingRoster', () => sessionIndex((index) => index.working()))
   }
   function workingCount() {
-    return memo('workingCount', () => sessionIndex().workingCount())
+    return memo('workingCount', () => sessionIndex((index) => index.workingCount()))
   }
   function aggregate(machineId: MachineId | undefined): HeaderAggregate {
-    return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex().aggregate(machineId))
+    return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex((index) => index.aggregate(machineId)))
   }
   function occupancyKey(): string {
     return memo('occupancy', () =>

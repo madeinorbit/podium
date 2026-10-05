@@ -1,5 +1,5 @@
 import { keyedComputed } from '@podium/mobx-helpers'
-/** Resident roster candidates, maintained by existing ingest and issue filings.
+/** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
  *
  * POD-5407: only sessions in memory are filed. A session the rule keeps cold
@@ -10,17 +10,18 @@ import { keyedComputed } from '@podium/mobx-helpers'
  * built at every attach) are gone. */
 import { compareStructural, observable, type ObservableSet } from 'mobx'
 import { debugName } from '../debug-name'
+import { cachedKey } from '../cached'
 import type { MobxPool } from '../pool'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { LOADING } from './rollup'
 import { retains, retentionOf } from './visible'
 import { SortedLanes } from './sorted-lanes'
 import { nextUp } from '../clock'
+import { isExcluded } from '../shared/predicates'
 
 export interface SidebarOwner {
   readonly represented: boolean
   readonly excluded: boolean
-  readonly unownedIds: readonly string[]
   readonly finishAt?: number
 }
 interface SeatLocation { readonly owner: string | null; readonly path: string }
@@ -28,9 +29,6 @@ const EMPTY: readonly string[] = Object.freeze([])
 
 export class SidebarRosterIndex {
   private readonly seats = new Map<string, SeatLocation>()
-  private readonly owned = new Map<string, Set<string>>()
-  private readonly owners = new Map<string, SidebarOwner>()
-  private readonly representedUnowned = new Map<string, number>()
   private readonly dirty = new Set<string>()
   private readonly lanes = observable.map<string, ObservableSet<string>>(undefined, {
     deep: false, name: debugName(() => 'pool.sidebar.rosterCandidates'),
@@ -42,7 +40,7 @@ export class SidebarRosterIndex {
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
   // The lane snapshot and metadata record are freshly assembled on a change.
   private readonly bands = keyedComputed((key: string) => debugName(() => `pool.sidebar.rosterBand.${key}`), (key: string) => {
-    const ids = [...this.paths.lane(key)]
+    const ids = this.paths.lane(key).filter((path) => this.candidateIds(path).length > 0)
     const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
     const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
     return { ids, label: lane?.repoName ?? key, repoPath: lane?.repoPath ?? key }
@@ -52,13 +50,45 @@ export class SidebarRosterIndex {
   private readonly deadlines: number[] = []
   private now: number
 
+  /** Ownership is a read-time answer, independent of the filing reaction. */
+  private readonly owner = cachedKey('pool.sidebar', 'owner', (id): SidebarOwner => {
+    const issue = this.pool.knownIssue(id)
+    const standing = issue?.standing
+    const row = this.pool.row('issue', id, 'summary') as SliceIssue | typeof LOADING | undefined
+    return {
+      represented: issue?.placed === true,
+      excluded: standing?.excluded === true || (row !== undefined && row !== LOADING && isExcluded(row)),
+      finishAt: standing?.finished ? standing.finishedMs : undefined,
+    }
+  }, compareStructural)
+  private readonly laneOwners = cachedKey('pool.sidebar', 'laneOwners', (path) =>
+    [...this.pool.graph.many('worktree', path, 'issues')]
+      .map((id) => this.owner(id)).filter((owner) => owner.represented), compareStructural)
+  private readonly candidate = cachedKey('pool.sidebar', 'candidate', (id) => {
+    const row = this.pool.row('session', id, 'mark')
+    const retention = row === LOADING ? null : retentionOf(row as SliceSession | undefined)
+    if (!retention?.seat || retention.shell) return false
+    const owner = retention.issueId ? this.owner(retention.issueId) : undefined
+    if (owner?.represented || owner?.excluded) return false
+    const retainedBy = (value: SidebarOwner | undefined) => retains(retention,
+      value?.finishAt === undefined ? undefined : { updatedAt: new Date(value.finishAt).toISOString() },
+      { finished: value?.finishAt !== undefined }, this.pool.clock)
+    if (!retainedBy(owner)) return false
+    if (retention.issueId === undefined) {
+      const path = this.pool.graph.one('session', id, 'worktree')
+      if (path !== null && this.laneOwners(path).some(retainedBy)) return false
+    }
+    return true
+  }, Object.is)
+  private readonly candidateIds = cachedKey('pool.sidebar', 'candidateIds', (path) =>
+    [...(this.lanes.get(path) ?? EMPTY)].filter((id) => this.candidate(id)), compareStructural)
+
   constructor(private readonly pool: MobxPool) { this.now = pool.clock.current }
 
-  /** TRACKED. Owner facts come from the worklist's filing, so every read
-   * reports demand for it (POD-5423): without a reader, owners are absent. */
+  /** TRACKED. Only the path's resident seats and their owners are observed. */
   candidates(path: string): Iterable<string> {
     this.pool.worklist.need()
-    return this.lanes.get(path) ?? EMPTY
+    return this.candidateIds(path)
   }
   keys(): Iterable<string> {
     this.pool.worklist.need()
@@ -117,36 +147,8 @@ export class SidebarRosterIndex {
   }
   /** A session's own row, its table slot or its worktree link moved. These
    * are the only facts `sync` reads, so an issue publication queues nothing:
-   * its owner facts reach the seats it owns through `fileOwner` (POD-5423). */
+   * owner eligibility is derived when its path is read. */
   queueSession(id: string): void { this.dirty.add(id) }
-
-  /** Existing issue filing reaction supplies these narrow facts. A burst on
-   * a represented issue never invalidates its worktree's fallback roster. */
-  fileOwner(id: string, next: SidebarOwner | undefined): void {
-    const previous = this.owners.get(id)
-    const before = previous?.unownedIds ?? EMPTY
-    const after = new Set(next?.unownedIds ?? [])
-    for (const seat of before) if (!after.has(seat)) {
-      const n = (this.representedUnowned.get(seat) ?? 0) - 1
-      if (n > 0) this.representedUnowned.set(seat, n)
-      else this.representedUnowned.delete(seat)
-      this.fileSeat(seat)
-    }
-    const old = new Set(before)
-    for (const seat of after) if (!old.has(seat)) {
-      this.representedUnowned.set(seat, (this.representedUnowned.get(seat) ?? 0) + 1)
-      this.fileSeat(seat)
-    }
-    if (next === undefined) this.owners.delete(id)
-    else this.owners.set(id, next)
-    if (previous?.represented !== next?.represented || previous?.excluded !== next?.excluded || previous?.finishAt !== next?.finishAt) {
-      // Only seats already located under this owner read these facts. A
-      // member with no seat (cold, or with no worktree link) has no lane to
-      // enter until its own row or link moves, which queues it (POD-5423:
-      // never the owner's session history).
-      for (const seat of this.owned.get(id) ?? EMPTY) this.fileSeat(seat)
-    }
-  }
 
   /** After relation upkeep, within the publication's existing action. */
   flush(): void {
@@ -164,11 +166,6 @@ export class SidebarRosterIndex {
     if (previous?.path !== path || previous?.owner !== owner) {
       this.removeSeat(id)
       this.seats.set(id, { owner, path })
-      if (owner !== null) {
-        let members = this.owned.get(owner)
-        if (!members) { members = new Set(); this.owned.set(owner, members) }
-        members.add(id)
-      }
     }
     this.fileSeat(id)
   }
@@ -176,17 +173,13 @@ export class SidebarRosterIndex {
   private fileSeat(id: string): void {
     const seat = this.seats.get(id)
     if (!seat) return
-    const owner = seat.owner === null ? undefined : this.owners.get(seat.owner)
-    let candidate = seat.owner === null ? !this.representedUnowned.has(id) : !owner?.represented && !owner?.excluded
+    let candidate = true
     let deadline = Number.POSITIVE_INFINITY
     if (candidate) {
       const row = this.pool.row('session', id, 'mark')
       const retention = row === LOADING ? null : retentionOf(row as SliceSession | undefined)
-      let issue: Pick<SliceIssue, 'closedAt' | 'updatedAt'> | undefined
-      const standing = { finished: owner?.finishAt !== undefined }
-      if (owner?.finishAt !== undefined) issue = { updatedAt: new Date(owner.finishAt).toISOString() }
       const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.current > at }
-      candidate = retention !== null && retention.seat && !retention.shell && retains(retention, issue, standing, { passed })
+      candidate = retention !== null && retention.seat && !retention.shell && retains(retention, undefined, undefined, { passed })
     }
     this.schedule(id, candidate ? deadline : Number.POSITIVE_INFINITY)
     let lane = this.lanes.get(seat.path)
@@ -210,11 +203,6 @@ export class SidebarRosterIndex {
     if (lane) {
       lane.delete(id)
       if (!lane.size) this.lanes.delete(previous.path)
-    }
-    if (previous.owner !== null) {
-      const members = this.owned.get(previous.owner)
-      members?.delete(id)
-      if (!members?.size) this.owned.delete(previous.owner)
     }
     this.seats.delete(id)
     this.schedule(id, Number.POSITIVE_INFINITY)
@@ -252,8 +240,7 @@ export class SidebarRosterIndex {
   }
 
   clear(): void {
-    this.seats.clear(); this.owned.clear(); this.owners.clear()
-    this.representedUnowned.clear()
+    this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear(); this.bands.clear()
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0

@@ -10,14 +10,19 @@ export const EMPTY_HOST_AGGREGATE = {
 }
 export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
 
+export function headerWorkingDeadline(row: SessionView | undefined): number | undefined {
+  if (!row || row.status !== 'live' || !isAgentComputing(row)) return undefined
+  const activity = Math.max(...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
+    .map((stamp) => Date.parse(stamp ?? '')).filter(Number.isFinite))
+  return Number.isFinite(activity) ? activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS : undefined
+}
+
 /** Each resident session contributes independently. The deadline atom changes
  * only when evidence expires, so a minute tick never scans the idle fleet. */
 export function headerWorkingSession(row: SessionView | undefined, passed: (at: number) => boolean): WorkingSession | null {
   return measureHeader('pool.workingSession', () => {
-    if (!row || row.status !== 'live' || !isAgentComputing(row)) return null
-    const activity = Math.max(...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
-      .map((stamp) => Date.parse(stamp ?? '')).filter(Number.isFinite))
-    if (!Number.isFinite(activity) || passed(activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)) return null
+    const deadline = headerWorkingDeadline(row)
+    if (!row || deadline === undefined || passed(deadline)) return null
     return { sessionId: row.sessionId, title: row.title, name: row.name,
       displayRef: row.displayRef, agentKind: row.agentKind }
   })
