@@ -9,6 +9,14 @@ import { poolBackedScreens } from './pool-screens'
 it.each([1, 4] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
   const ctx = await startScenarioEngine(scale, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
+  const stackLimit = Error.stackTraceLimit
+  Error.stackTraceLimit = 45
+  const request = handle.pool.residency!.request.bind(handle.pool.residency!)
+  const requestCapture = vi.spyOn(handle.pool.residency!, 'request').mockImplementation((entity, id) => {
+    const added = request(entity, id)
+    if (added && ['i10128', 'i11660', 'i3980'].includes(id)) console.info('[late request]', entity, id, new Error().stack)
+    return added
+  })
   const steps: [string, string][][] = []
   const take = handle.pool.residency!.take.bind(handle.pool.residency!)
   const capture = vi.spyOn(handle.pool.residency!, 'take').mockImplementation(() => {
@@ -36,6 +44,8 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
     expect(pane.mission.root?.id).toBe(input.selectedIssueId)
     expect(pane.mission.rows.length).toBeGreaterThan(0)
   } finally {
+    requestCapture.mockRestore()
+    Error.stackTraceLimit = stackLimit
     capture.mockRestore()
     stop()
     projection.dispose()
