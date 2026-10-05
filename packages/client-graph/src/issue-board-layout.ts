@@ -4,9 +4,10 @@ import type { BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
 import { filterChips, issueRowsByStage } from '@podium/client-core/values'
 import { asIssueId, ISSUE_BOARD_STAGES, isFinished, type IssueStage } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
-import { compareStructural } from 'mobx'
+import { compareStructural, observe, untracked } from 'mobx'
 import type { BoardColumnOptions, BoardOptions, BoardQuery, PoolBoardData } from './issue-board-schema'
 import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const byId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
@@ -116,6 +117,14 @@ export function createBoardLayout(pool: MobxPool) {
   }, { equals: compareStructural })
   const columnKey = (options: BoardColumnOptions) => JSON.stringify({ filter: options.filter,
     ordering: options.ordering, showAgentTasks: options.showAgentTasks, stage: options.stage })
+  const columnResults = new Map<string, ReturnType<typeof createQueryResult<ReturnType<typeof asIssueId>>>>()
+  // Dates are canonical ISO scalars. Reverse their characters so the existing
+  // ordered query uses the same descending order as the board's comparator.
+  function descendingDate(value: string): string {
+    let result = ''
+    for (const character of value) result += String.fromCharCode(0xffff - character.charCodeAt(0))
+    return result + '\uffff'
+  }
   function ordered(ids: string[], ordering: IssuesOrdering): Loaded<ReturnType<typeof asIssueId>[]> {
     const keys = new Map<string, readonly [number, number, string]>()
     for (const id of ids) {
@@ -132,26 +141,53 @@ export function createBoardLayout(pool: MobxPool) {
     const options = JSON.parse(key) as BoardColumnOptions
     countIssueBoard(`column.${options.stage}`)
     const query: BoardQuery = { kind: 'board', filter: options.filter, showAgentTasks: options.showAgentTasks }
-    const queryKey = JSON.stringify(query), all = members(queryKey)
-    if (all === LOADING) return LOADING
+    const queryKey = JSON.stringify(query)
     // The terminal lane includes all closed reasons. Filters still refer to
     // issueStatusOf, while placement refers to the actual durable stage.
     const statuses = options.filter.stage ? [options.filter.stage]
-      : options.stage === 'done' ? ['done', 'cancelled', 'duplicate', 'superseded'] : [options.stage]
-    const candidates = new Set(statuses.flatMap(stage => pool.queries.ids({ ...questionOf(query), stage })))
-    const ids: string[] = [], cycles: string[] = []
-    for (const id of candidates) {
-      if (!all.has(id)) continue
-      const stage = column(id)
-      if (stage === LOADING) return LOADING
-      if (stage !== options.stage) continue
-      const isRoot = root(JSON.stringify([id, queryKey]))
-      if (isRoot === LOADING) return LOADING
-      if (isRoot === 1) ids.push(id)
-      else if (isRoot === 2) cycles.push(id)
+      : isFinished(options) ? ['done', 'cancelled', 'duplicate', 'superseded'] : [options.stage]
+    const questions = statuses.map(stage => ({ ...questionOf(query), stage }))
+    let result = columnResults.get(key)
+    if (!result) {
+      result = createQueryResult({
+        name: `IssueBoard.column:${key}`,
+        // untracked-read: query-membership-seed
+        ids: () => untracked(() => new Set(questions.flatMap(question => pool.queries.ids(question)))),
+        // untracked-read: query-membership-probe
+        has: id => untracked(() => questions.some(question => pool.queries.includes(question, id))),
+        read: id => {
+          const all = members(queryKey)
+          if (all === LOADING) return LOADING
+          if (!all.has(id)) return undefined
+          const stage = column(id)
+          if (stage === LOADING) return LOADING
+          if (stage !== options.stage) return undefined
+          const isRoot = root(JSON.stringify([id, queryKey]))
+          return isRoot === LOADING ? LOADING : isRoot ? asIssueId(id) : undefined
+        },
+        order: id => {
+          const value = sortKey(JSON.stringify([id, options.ordering]))
+          if (!value || value === LOADING) return ''
+          const placement = root(JSON.stringify([id, queryKey]))
+          if (placement === LOADING) return ''
+          return `${String(value[0]).padStart(16, '0')}:${String(value[1]).padStart(16, '0')}:${descendingDate(value[2])}:${placement}`
+        },
+        subscribe: changed => {
+          const stopTable = observe(pool.tables.issue, change => changed(change.name))
+          const stopFeed = pool.queries.onChange(event => {
+            if (event.type === 'replace') changed(undefined)
+            else for (const row of event.rows) if (row.kind === 'issue') changed(row.id)
+          })
+          return () => { stopTable(); stopFeed() }
+        },
+        released: () => columnResults.delete(key),
+      })
+      columnResults.set(key, result)
     }
-    return ordered([...ids.sort(byId), ...cycles.sort(byId)], options.ordering)
-  }, { equals: equalIds })
+    // The helper preserves equal ID snapshots and replaces only the changed
+    // ordering path. Reading a column never copies or re-sorts all its IDs.
+    return result.get()
+  })
   const roots = keyedComputed('IssueBoard.rootIds', (key: string): Loaded<ReturnType<typeof asIssueId>[]> => {
     const ids = matching(key)
     if (ids === LOADING) return LOADING
@@ -164,6 +200,21 @@ export function createBoardLayout(pool: MobxPool) {
     }
     return [...result, ...cycles]
   }, { equals: equalIds })
+  const inColumn = keyedComputed('IssueBoard.inColumn', (id: string) => {
+    const value = column(id)
+    return value === LOADING ? LOADING : ISSUE_BOARD_STAGES.some(stage => stage === value)
+  })
+  const presentRoots = keyedComputed('IssueBoard.presentRoots', (key: string) => {
+    const ids = roots(key)
+    if (ids === LOADING) return LOADING
+    const result = new Set<string>()
+    for (const id of ids ?? []) {
+      const value = inColumn(id)
+      if (value === LOADING) return LOADING
+      if (value) result.add(id)
+    }
+    return result
+  })
   const position = keyedComputed('IssueBoard.listPosition', (key: string): Loaded<BoardRowIssue> => {
     const [id, ordering] = JSON.parse(key) as [string, IssuesOrdering]
     const stage = column(id), parentId = parent(id), sort = sortKey(key)
@@ -193,8 +244,8 @@ export function createBoardLayout(pool: MobxPool) {
   const board = keyedComputed('IssueBoard.layout', (key: string): Loaded<PoolBoardData> => {
     const options = JSON.parse(key) as BoardOptions
     const query = queryOf(options), queryKey = JSON.stringify(query)
-    const active = matching(queryKey), rootIds = roots(queryKey)
-    if (active === LOADING || rootIds === LOADING) return LOADING
+    const active = matching(queryKey), rootIds = roots(queryKey), present = presentRoots(queryKey)
+    if (active === LOADING || rootIds === LOADING || present === LOADING) return LOADING
     const columns: PoolBoardData['view']['orderedByStage'] = []
     for (const stage of ISSUE_BOARD_STAGES) {
       const ids = columnIds(columnKey({ filter: options.filter, ordering: options.display.ordering,
@@ -209,9 +260,9 @@ export function createBoardLayout(pool: MobxPool) {
     const listIds = groups?.flatMap(group => group.rows.map(row => row.id)) ?? []
     const nav: PoolBoardData['view']['nav'] = layout === 'list' ? { kind: 'rows', ids: listIds }
       : { kind: 'columns', columns: columns.map(column => column.ids) }
-    return { activeIds: (active ?? []).map(asIssueId), rootIds: rootIds ?? [], view: {
+    return { activeIds: (active ?? []) as ReturnType<typeof asIssueId>[], rootIds: rootIds ?? [], view: {
       layout, chips: filterChips(options.filter), orderedByStage: columns, rowGroups: groups ?? [], listIds,
-      nav, presentIds: new Set(nav.kind === 'rows' ? nav.ids : nav.columns.flat()),
+      nav, presentIds: nav.kind === 'rows' ? new Set(nav.ids) : present,
     } }
   })
   function boardKey(options: BoardOptions): string {
@@ -243,10 +294,12 @@ export function createBoardLayout(pool: MobxPool) {
       return flat === LOADING ? LOADING : flat?.flatMap(group => group.rows.map(row => row.id)) ?? []
     },
     stats: () => ({ demandKeys: matching.size,
-      cached: [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, position, rows, board]
-        .reduce((total, cache) => total + cache.size, 0) }),
+      cached: [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]
+        .reduce((total, cache) => total + cache.size, columnResults.size) }),
     dispose() {
-      for (const cache of [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, position, rows, board]) cache.clear()
+      for (const result of [...columnResults.values()]) result.dispose()
+      columnResults.clear()
+      for (const cache of [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
     },
   }
 }

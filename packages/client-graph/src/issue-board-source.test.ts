@@ -60,7 +60,7 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     },
   }
 }
-it('indexes residents only while an explorer or catalogue reader observes them', () => {
+it('indexes residents only while an explorer observes them; the catalogue uses metadata', () => {
   const rows = Array.from({ length: 512 }, (_, index) =>
     row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }),
   )
@@ -81,7 +81,7 @@ it('indexes residents only while an explorer or catalogue reader observes them',
     })
     expect(source.stats().residentRows).toBe(512)
     closeBoard()
-    expect(source.stats().residentRows).toBe(512)
+    expect(source.stats().residentRows).toBe(0)
     closeCatalog()
     expect(source.stats().residentRows).toBe(0)
     expect(source.stats().demandKeys).toBe(0)
@@ -95,6 +95,26 @@ it('indexes residents only while an explorer or catalogue reader observes them',
     closeBoard()
     closeCatalog()
     stop()
+  }
+})
+
+it('retains catalogue metadata across stage, heartbeat and title changes without the explorer index', () => {
+  const f = setup([row('one', { assignee: 'owner', labels: ['bug'] })])
+  let value: ReturnType<typeof f.source.catalog>
+  const stop = autorun(() => { value = f.source.catalog(false) })
+  try {
+    const before = value!
+    expect(before).toEqual({ scope: ['one'], projectPaths: ['/fixture'], assignees: ['owner'], labels: ['bug'] })
+    f.paint('one', { stage: 'planning', updatedAt: new Date(now).toISOString(), title: 'Renamed' })
+    expect(value!).toBe(before)
+    expect(f.source.stats().residentRows).toBe(0)
+    f.paint('one', { assignee: 'reviewer', labels: ['feature'] })
+    expect(value!).toEqual({ scope: ['one'], projectPaths: ['/fixture'], assignees: ['reviewer'], labels: ['feature'] })
+    stop()
+    expect(f.source.stats().cached).toBe(0)
+  } finally {
+    stop()
+    f.stop()
   }
 })
 

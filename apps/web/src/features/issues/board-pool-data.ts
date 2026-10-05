@@ -42,8 +42,11 @@ export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[])
   const ids = useWorklistPoolProjection(read, undefined)
   return ids && typeof ids !== 'symbol' ? ids : fallback
 }
+export function readBoardCatalog(pool: MobxPool, open: boolean, agents: boolean) {
+  return open ? pool.row('issueBoardCatalog', String(agents)) : undefined
+}
 export function useBoardCatalog(open: boolean, agents: boolean) {
-  const read = useCallback((pool: MobxPool) => open ? pool.row('issueBoardCatalog', String(agents)) : undefined, [open, agents])
+  const read = useCallback((pool: MobxPool) => readBoardCatalog(pool, open, agents), [open, agents])
   const value = useWorklistPoolProjection(read, undefined)
   return value && typeof value !== 'symbol' ? value : EMPTY_CATALOG
 }

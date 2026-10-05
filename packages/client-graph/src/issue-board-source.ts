@@ -439,19 +439,26 @@ export function createIssueBoardSource(
       }),
     )
   }
+  const catalogEntry = keyedComputed('IssueBoard.catalogEntry', (key: string) => {
+    const [id, agents] = JSON.parse(key) as [string, boolean]
+    const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+    if (!row || row === LOADING) return row
+    const eligible = !row.archived && !row.deletedAt && scoped(row, agents, true, id)
+    return { path: row.repoPath, eligible, assignee: eligible ? row.assignee : undefined,
+      labels: eligible ? row.labels : [] }
+  }, { equals: compareStructural })
   function catalog(agents: boolean): Loaded<BoardCatalog> {
-    return memo(`catalog:${agents}`, () =>
-      indexed(() => {
+    return memo(`catalog:${agents}`, () => {
         const scope: string[] = [],
           paths = new Set<string>(),
           assignees = new Set<string>(),
           labels = new Set<string>()
         const visit = (id: string) => {
-          const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+          const row = catalogEntry(JSON.stringify([id, agents]))
           if (row === LOADING) return false
           if (!row) return true
-          if (row.repoPath) paths.add(row.repoPath)
-          if (!row.archived && !row.deletedAt && scoped(row, agents, true, id)) {
+          if (row.path) paths.add(row.path)
+          if (row.eligible) {
             scope.push(id)
             if (row.assignee) assignees.add(row.assignee)
             for (const label of row.labels) labels.add(label)
@@ -459,14 +466,7 @@ export function createIssueBoardSource(
           return true
         }
         let pending = false
-        for (const id of bucket('all')) if (!visit(id)) pending = true
-        const start = performance.now(),
-          cold = pool.queries
-            .ids({ kind: 'boardCatalog' })
-            .filter((id) => !pool.tables.issue.has(id))
-        for (const id of cold) if (!visit(id)) pending = true
-        countIssueBoard('catalogColdVisits', cold.length)
-        countIssueBoard('catalogColdMs', performance.now() - start)
+        for (const id of pool.queries.ids({ kind: 'boardCatalog' })) if (!visit(id)) pending = true
         return pending
           ? LOADING
           : {
@@ -477,8 +477,7 @@ export function createIssueBoardSource(
                 (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
               ),
             }
-      }),
-    )
+    })
   }
   function issue(id: string, visible = false): Loaded<IssueViewModel> {
     return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {
@@ -802,6 +801,7 @@ export function createIssueBoardSource(
       stops.clear()
       cache.clear()
       placements.clear()
+      catalogEntry.clear()
       runInAction(() => buckets.clear())
     },
   }
@@ -820,7 +820,7 @@ export function createIssueBoardSource(
     stats: () => ({
       residentRows: stops.size,
       demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length + layout.stats().demandKeys,
-      cached: cache.size + placements.size + layout.stats().cached,
+      cached: cache.size + placements.size + catalogEntry.size + layout.stats().cached,
     }),
   }
 }

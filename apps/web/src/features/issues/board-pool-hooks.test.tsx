@@ -4,7 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { EMPTY_BOARD, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
+import { EMPTY_BOARD, readBoardCatalog, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
 import { useBoardCard, useBoardCloseGuard } from './board-pool-row'
 import { useExplorerData } from './explorer/explorer-pool-data'
 import { IssueBulkCloseDialog } from './issue-lifecycle'
@@ -90,6 +90,18 @@ it('keeps card time and addressed interaction state out of layout keys and defer
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
   catalog.rerender({ open: true })
   expect(state.poolReads).toHaveBeenCalledWith('issueBoardCatalog', 'false')
+  state.poolReads.mockClear()
+  catalog.rerender({ open: false })
+  expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
+})
+it('uses the same closed-menu reader in the hook and structural harness, and reads an open catalogue', () => {
+  const choices = { scope: ['one'], projectPaths: ['/fixture'], assignees: ['owner'], labels: ['bug'] }
+  const row = vi.fn(() => choices)
+  const pool = { row } as unknown as import('@podium/client-graph').MobxPool
+  expect(readBoardCatalog(pool, false, false)).toBeUndefined()
+  expect(row).not.toHaveBeenCalled()
+  expect(readBoardCatalog(pool, true, false)).toBe(choices)
+  expect(row).toHaveBeenCalledExactlyOnceWith('issueBoardCatalog', 'false')
 })
 function useBoundary() {
   const base = useBoardBase()
