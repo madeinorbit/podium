@@ -1,12 +1,20 @@
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import {
-  _isComputingDerivation, compareStructural, observable, onBecomeObserved, onBecomeUnobserved,
-  runInAction, type IObservableValue,
+  _isComputingDerivation,
+  compareStructural,
+  type IObservableValue,
+  observable,
+  onBecomeObserved,
+  onBecomeUnobserved,
+  runInAction,
 } from 'mobx'
 import type { SettingsEntity, SettingsRows } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export type SettingsOwner = Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'>
+export type SettingsOwner = Pick<
+  ClientRuntime,
+  'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow'
+>
 
 type Discovery = 'machines' | 'repos'
 const ENTITY = { machines: 'settingsMachine', repos: 'settingsRepository' } as const
@@ -65,19 +73,28 @@ export class SettingsSource {
 
   private follow(entry: Entry): () => void {
     switch (entry.entity) {
-      case 'settingsMachine': return this.followList('machines')
-      case 'settingsRepository': return this.followList('repos')
+      case 'settingsMachine':
+        return this.followList('machines')
+      case 'settingsRepository':
+        return this.followList('repos')
       case 'settingsCatalog': {
         if (entry.id !== 'catalog') return () => {}
-        const machine = this.followList('machines'), repo = this.followList('repos')
-        return () => { machine(); repo() }
+        const machine = this.followList('machines'),
+          repo = this.followList('repos')
+        return () => {
+          machine()
+          repo()
+        }
       }
       case 'settingsWindow': {
         if (entry.id !== 'window') return () => {}
-        this.window ??= { readers: 0, stop: this.owner.onLocals(['settingsTab'], () => {
-          this.pending.add('settingsWindow:window')
-          this.schedule()
-        }) }
+        this.window ??= {
+          readers: 0,
+          stop: this.owner.onLocals(['settingsTab'], () => {
+            this.pending.add('settingsWindow:window')
+            this.schedule()
+          }),
+        }
         this.window.readers++
         return () => {
           if (this.window && --this.window.readers === 0) {
@@ -92,7 +109,7 @@ export class SettingsSource {
   private followList(name: Discovery): () => void {
     let list = this.lists.get(name)
     if (!list) {
-      list = { readers: 0, stop: this.owner.onList(name, change => this.changed(name, change)) }
+      list = { readers: 0, stop: this.owner.onList(name, (change) => this.changed(name, change)) }
       this.lists.set(name, list)
     }
     list.readers++
@@ -117,14 +134,16 @@ export class SettingsSource {
 
   private lookup(entity: SettingsEntity, id: string): Reading {
     switch (entity) {
-      case 'settingsMachine': return this.owner.listRow('machines', id)
-      case 'settingsRepository': return this.owner.listRow('repos', id)
-      case 'settingsCatalog': return id === 'catalog'
-        ? { machines: this.owner.listIds('machines'), repositories: this.owner.listIds('repos') }
-        : undefined
-      case 'settingsWindow': return id === 'window'
-        ? { settingsTab: this.owner.readLocal('settingsTab') }
-        : undefined
+      case 'settingsMachine':
+        return this.owner.listRow('machines', id)
+      case 'settingsRepository':
+        return this.owner.listRow('repos', id)
+      case 'settingsCatalog':
+        return id === 'catalog'
+          ? { machines: this.owner.listIds('machines'), repositories: this.owner.listIds('repos') }
+          : undefined
+      case 'settingsWindow':
+        return id === 'window' ? { settingsTab: this.owner.readLocal('settingsTab') } : undefined
     }
   }
 
@@ -161,8 +180,10 @@ export class SettingsSource {
     this.window = undefined
     this.rows.clear()
     this.pending.clear()
-    queueMicrotask(() => runInAction(() => {
-      for (const entry of entries) entry.value.set(LOADING)
-    }))
+    queueMicrotask(() =>
+      runInAction(() => {
+        for (const entry of entries) entry.value.set(LOADING)
+      }),
+    )
   }
 }

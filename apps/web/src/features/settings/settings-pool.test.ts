@@ -1,52 +1,97 @@
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { autorun } from 'mobx'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dedupeSessionsByResume } from '@podium/model'
-import { MobxPool } from '@podium/client-graph'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { MobxPool } from '@podium/client-graph'
+import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
-
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { dedupeSessionsByResume } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const disposals: (() => void)[] = []
-afterEach(() => { for (const dispose of disposals.splice(0)) dispose() })
+afterEach(() => {
+  for (const dispose of disposals.splice(0)) dispose()
+})
 const stamp = '2020-01-01T00:00:00.000Z'
 const session = (id: string, agent: string, cold = false): SliceSession => ({
-  sessionId: id, agentKind: agent, cwd: '/project/subdir', lastActiveAt: stamp,
-  status: cold ? 'exited' : 'live', ...(cold ? { stoppedAt: stamp, agentState: { phase: 'ended', since: stamp } } : {}),
+  sessionId: id,
+  agentKind: agent,
+  cwd: '/project/subdir',
+  lastActiveAt: stamp,
+  status: cold ? 'exited' : 'live',
+  ...(cold ? { stoppedAt: stamp, agentState: { phase: 'ended', since: stamp } } : {}),
 })
 function fixture(sessions: SliceSession[] = []) {
   const values = new Map<string, string>()
-  const uiListeners = new Set<(keys: ReadonlySet<string>) => void>(), listeners = new Set<() => void>()
+  const uiListeners = new Set<(keys: ReadonlySet<string>) => void>(),
+    listeners = new Set<() => void>()
   const ui = {
     get: (key: string) => values.get(key) ?? null,
-    set: (key: string, value: string | null) => { if (value === null) values.delete(key); else values.set(key, value); for (const wake of uiListeners) wake(new Set([key])) },
-    subscribe: (wake: (keys: ReadonlySet<string>) => void) => { uiListeners.add(wake); return () => { uiListeners.delete(wake) } },
+    set: (key: string, value: string | null) => {
+      if (value === null) values.delete(key)
+      else values.set(key, value)
+      for (const wake of uiListeners) wake(new Set([key]))
+    },
+    subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
+      uiListeners.add(wake)
+      return () => {
+        uiListeners.delete(wake)
+      }
+    },
   } as RoutedUiState
-  let state = { machines: [{ id: 'host', name: 'Host' }], repos: [{ path: '/project', kind: 'repository', worktrees: [] }], settingsTab: 'accounts',
-    sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]) }
+  let state = {
+    machines: [{ id: 'host', name: 'Host' }],
+    repos: [{ path: '/project', kind: 'repository', worktrees: [] }],
+    settingsTab: 'accounts',
+    sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]),
+  }
   const read = vi.fn(() => state as object)
-  const owner = withKeyedInputs({ getSnapshot: read, ui, subscribe: (wake: () => void) => { listeners.add(wake); return () => { listeners.delete(wake) } } })
+  const owner = withKeyedInputs({
+    getSnapshot: read,
+    ui,
+    subscribe: (wake: () => void) => {
+      listeners.add(wake)
+      return () => {
+        listeners.delete(wake)
+      }
+    },
+  })
   const feed = new Map(sessions.map((row) => [row.sessionId, row]))
   const load = vi.fn((_entity: string, id: string) => feed.get(id))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-02') }, undefined,
-    { settings: true, load, schedule: () => () => {} })
+  const pool = new MobxPool(
+    { selectedIssueId: null, coarseNow: Date.parse('2026-10-02') },
+    undefined,
+    { settings: true, load, schedule: () => () => {} },
+  )
   pool.attachSettings(owner)
   pool.attachPreferences(ui)
-  pool.apply({ type: 'replace', rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })) })
+  pool.apply({
+    type: 'replace',
+    rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })),
+  })
   disposals.push(() => pool.dispose())
-  return { pool, read, load, owner, feed, values, uiListeners, listeners,
+  return {
+    pool,
+    read,
+    load,
+    owner,
+    feed,
+    values,
+    uiListeners,
+    listeners,
     state: () => state,
-    publish(patch: Partial<typeof state>) { state = { ...state, ...patch }; for (const wake of listeners) wake() },
+    publish(patch: Partial<typeof state>) {
+      state = { ...state, ...patch }
+      for (const wake of listeners) wake()
+    },
   }
 }
 
 describe('declared settings readers', () => {
   it('keeps borrowed row identity and stays quiet for unchanged settings publications', () => {
-    const row = session('hot', 'codex'), { pool } = fixture([row])
+    const row = session('hot', 'codex'),
+      { pool } = fixture([row])
     expect(pool.row('session', row.sessionId)).toBe(row)
     const changed = vi.spyOn(pool.tables.session, 'set')
     disposals.push(() => changed.mockRestore())
@@ -63,15 +108,26 @@ describe('declared settings readers', () => {
 
   it('updates source-order ties without replacing full rows or copying cold payloads', () => {
     let payloadReads = 0
-    const cold = { ...session('cold', 'codex', true), get privatePayload() { payloadReads++; return 'large payload' } }
-    const hot = session('hot', 'claude-code'), { pool, load } = fixture([cold, hot])
-    const view = createPoolProjection(pool, current => current.settingsViews.setup().defaultAgent)
-    const wake = vi.fn(), stop = view.subscribe(wake)
+    const cold = {
+      ...session('cold', 'codex', true),
+      get privatePayload() {
+        payloadReads++
+        return 'large payload'
+      },
+    }
+    const hot = session('hot', 'claude-code'),
+      { pool, load } = fixture([cold, hot])
+    const view = createPoolProjection(pool, (current) => current.settingsViews.setup().defaultAgent)
+    const wake = vi.fn(),
+      stop = view.subscribe(wake)
     disposals.push(stop)
     expect(view.getSnapshot()).toBe('codex')
     const first = pool.row('setupSession', 'cold')
     expect(first).toMatchObject({ setupOrder: 1 })
-    pool.apply({ type: 'replace', rows: [hot, cold].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
+    pool.apply({
+      type: 'replace',
+      rows: [hot, cold].map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+    })
     expect(wake).toHaveBeenCalledTimes(1)
     expect(view.getSnapshot()).toBe('claude-code')
     expect(pool.row('session', 'hot')).toBe(hot)
@@ -86,13 +142,14 @@ describe('declared settings readers', () => {
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
     const { pool, read, publish } = fixture()
-    const initial: Record<string, unknown> = {}
-    const initialStop = autorun(() => {
-      initial.catalog = pool.row('settingsCatalog', 'catalog')
-      initial.window = pool.row('settingsWindow', 'window')
-      initial.machine = pool.row('settingsMachine', 'host')
-    })
+    const initialView = createPoolProjection(pool, current => ({
+      catalog: current.row('settingsCatalog', 'catalog'),
+      window: current.row('settingsWindow', 'window'),
+      machine: current.row('settingsMachine', 'host'),
+    }))
+    const initialStop = initialView.subscribe(() => {})
     disposals.push(initialStop)
+    const initial = initialView.getSnapshot()
     expect(initial.catalog).toBe(LOADING)
     expect(initial.window).toBe(LOADING)
     expect(initial.machine).toBe(LOADING)
@@ -103,20 +160,27 @@ describe('declared settings readers', () => {
     expect(pool.row('settingsWindow', 'window')).toEqual({ settingsTab: 'accounts' })
     expect(pool.row('settingsMachine', 'missing')).toBeUndefined()
     const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))
-    const wake = vi.fn(), stop = view.subscribe(wake)
+    const wake = vi.fn(),
+      stop = view.subscribe(wake)
     disposals.push(stop)
-    publish({ settingsTab: 'updates' }); await Promise.resolve()
+    publish({ settingsTab: 'updates' })
+    await Promise.resolve()
     expect(wake).not.toHaveBeenCalled()
-    publish({ machines: [{ id: 'host', name: 'Renamed' }] }); await Promise.resolve()
+    publish({ machines: [{ id: 'host', name: 'Renamed' }] })
+    await Promise.resolve()
     expect(wake).toHaveBeenCalledTimes(1)
     expect(view.getSnapshot()).toMatchObject({ name: 'Renamed' })
-    publish({ machines: [] }); await Promise.resolve()
+    publish({ machines: [] })
+    await Promise.resolve()
     expect(pool.row('settingsMachine', 'host')).toBeUndefined()
     expect(pool.row('settingsCatalog', 'catalog')).toMatchObject({ machines: [] })
   })
 
   it('preserves default-agent ties across hot and cold summaries, updates and hydration', () => {
-    const { pool, load, feed } = fixture([session('z-cold', 'codex', true), session('a-hot', 'claude-code')])
+    const { pool, load, feed } = fixture([
+      session('z-cold', 'codex', true),
+      session('a-hot', 'claude-code'),
+    ])
     expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
     expect(pool.settingsViews.setup().defaultAgent).toBe('codex')
     expect(load).not.toHaveBeenCalled()
@@ -132,12 +196,20 @@ describe('declared settings readers', () => {
   })
 
   it('compares catalog, tab, resume twins, usage, agent and demanded preferences with no differences', async () => {
-    const a = session('older', 'codex', true), b = { ...session('newer', 'claude-code', true), lastActiveAt: '2021-01-01T00:00:00.000Z' }
+    const a = session('older', 'codex', true),
+      b = { ...session('newer', 'claude-code', true), lastActiveAt: '2021-01-01T00:00:00.000Z' }
     a.resume = b.resume = { kind: 'codex.thread', value: 'synthetic-twin' }
-    const f = fixture([a, b, session('shell', 'shell'), { ...session('headless', 'codex'), headless: true }])
+    const f = fixture([
+      a,
+      b,
+      session('shell', 'shell'),
+      { ...session('headless', 'codex'), headless: true },
+    ])
     f.owner.ui.set('podium.sounds.enabled', 'false')
     expect(f.pool.row('preference', 'podium.sounds.enabled')).toBe(LOADING)
-    expect(checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending).toBeGreaterThan(0)
+    expect(
+      checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
+    ).toBeGreaterThan(0)
     await Promise.resolve()
     const result = checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
@@ -148,7 +220,9 @@ describe('declared settings readers', () => {
     f.publish({ settingsTab: 'updates', repos: [], machines: [] })
     f.owner.ui.set('podium.sounds.enabled', 'true')
     await Promise.resolve()
-    expect(checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])).toMatchObject({ differences: 0, pending: 0 })
+    expect(
+      checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]),
+    ).toMatchObject({ differences: 0, pending: 0 })
   })
 
   it('detaches the existing owners and refuses stale reads and queued loads after disposal', async () => {
