@@ -214,6 +214,11 @@
       "@podium/source": "./src/spawn-agent.ts",
       "types": "./src/spawn-agent.ts",
       "import": "./src/spawn-agent.ts"
+    },
+    "./demo": {
+      "@podium/source": "./src/demo/index.ts",
+      "types": "./src/demo/index.ts",
+      "import": "./src/demo/index.ts"
     }
   },
   "scripts": {

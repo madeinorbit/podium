@@ -13,6 +13,7 @@ import { restoreReloadRoute } from '@/lib/reload-route'
 import { AppShell } from './AppShell'
 import { AppStarted } from './AppStarted'
 import { BootScreen } from './BootScreen'
+import { WebDemoApp } from './demo-mode'
 import '@/index.css'
 import '@/styles.css'
 import { DaemonPairingBanner } from './DaemonPairingBanner'
@@ -149,6 +150,9 @@ const root = document.getElementById('root')
 if (!root) throw new Error('Podium web root was not found')
 const params = new URLSearchParams(window.location.search)
 const showMotionDemo = params.get('e2e') === '1' && params.get('motion-demo') === '1'
+// Demo mode (POD-5277): made-up data, no server. Bypasses every gate that asks
+// one — login, setup, replica — and renders the shell over demo rows instead.
+const showDemo = !showMotionDemo && params.get('demo') === '1'
 const payloadUnavailable =
   (globalThis as { __PODIUM_PAYLOAD_UNAVAILABLE__?: boolean }).__PODIUM_PAYLOAD_UNAVAILABLE__ ===
   true
@@ -180,9 +184,14 @@ if (!redirectPhoneToMobileApp()) {
             {/* OUTSIDE every gate (POD-1610). The boot check raises its notice before
             login or setup resolve, and a build that cannot read the server is
             worth saying on any screen — a banner mounted deeper renders only on
-            the screens the skew has not already broken. */}
-            <WireSkewBanner />
-            <DaemonPairingBanner />
+            the screens the skew has not already broken. Demo has no server to
+            be skewed against, so its shell renders without these probes. */}
+            {showDemo ? null : (
+              <>
+                <WireSkewBanner />
+                <DaemonPairingBanner />
+              </>
+            )}
             {/* OUTSIDE every gate for the same reason, and for one more: the login
             and setup screens are exactly where an iterate tab is most easily
             mistaken for the installed app. Renders nothing in a built bundle. */}
@@ -195,6 +204,8 @@ if (!redirectPhoneToMobileApp()) {
               <Suspense fallback={<div className="app-loading" aria-hidden="true" />}>
                 <MotionDemo />
               </Suspense>
+            ) : showDemo ? (
+              <WebDemoApp />
             ) : (
               <AuthenticatedPodiumApp initialPodiumHref={initialPodiumHref} />
             )}

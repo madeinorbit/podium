@@ -1,4 +1,10 @@
-import { seedIssueFixtures } from './issue-fixtures'
+import {
+  createDemoReplica,
+  DEMO_PRINCIPAL,
+  DEMO_SUPER_SESSION,
+  DEMO_TRANSCRIPTS,
+  demoEnabled,
+} from '@podium/client-core/demo'
 
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
@@ -28,9 +34,9 @@ import { seedIssueFixtures } from './issue-fixtures'
  * degradation notice, and this principal's local erase. They live in `./shell`,
  * which says why each one cannot come from a snapshot.
  *
- * Demo mode (`?demo=1`) is now a REAL store over an in-memory replica seeded
- * with the fixtures, rather than a second hand-written value object: the design
- * surface therefore exercises the same pool readers as the product.
+  * Demo mode (`?demo=1`) is now a REAL store over a kernel-backed facade seeded
+  * with the fixtures (POD-5277), rather than a second hand-written value object: the design
+  * surface therefore exercises the same pool readers as the product.
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -46,7 +52,6 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
-  createReplica,
   isTranscriptWindowStorageKey,
   parseReplicaNamespaceKey,
   REPLICA_KEY_PREFIX,
@@ -83,13 +88,6 @@ import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
 import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
-import {
-  DEMO_ISSUES,
-  DEMO_SESSIONS,
-  DEMO_SUPER_SESSION,
-  DEMO_TRANSCRIPTS,
-  demoEnabled,
-} from './demoData'
 // From `./launch-ready`, not `./launch`: the boundary itself imports
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
@@ -318,12 +316,14 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
  * the slice in production and from the fixture object in demo, and only one of
  * them was ever looked at.
  *
- * Now the fixtures are ROWS. A memory-backed replica is seeded with them and the
- * ordinary `StoreProvider` runs over it, so every screen exercises the same
- * pool readers and the same store actions it does in the
- * product. What is stubbed is only the network: a tRPC surface that answers the
- * handful of reads the fixture flows make and resolves mutations without
- * changing the world.
+  * Now the fixtures are ROWS in the kernel's own vocabulary. A kernel-backed
+  * facade (`createDemoReplica` — the same `createKernelReplica` the product
+  * assembly hands the pool) is seeded with them and the ordinary
+  * `StoreProvider` runs over it, so every screen exercises the same
+  * pool readers and the same store actions it does in the
+  * product. What is stubbed is only the network: a tRPC surface that answers the
+  * handful of reads the fixture flows make and resolves mutations without
+  * changing the world.
  *
  * The boot enrichments (repos, pins, tab orders, superagent threads) fail
  * harmlessly against that stub — the engine already runs every one of them
@@ -361,9 +361,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
     return progress
   }, [])
   const createReplicaFn = useMemo(() => {
-    const replica = createReplica()
-    replica.applySnapshot('sessions', DEMO_SESSIONS)
-    seedIssueFixtures(replica, DEMO_ISSUES, DEMO_PRINCIPAL)
+    const replica = createDemoReplica()
     return () => replica
   }, [])
   return (
@@ -382,10 +380,6 @@ function DemoProvider({ children }: { children: ReactNode }) {
     </StoreProvider>
   )
 }
-
-/** The demo principal. Named rather than borrowed from a real id so nothing in
- *  a demo run can land under a person's namespace. */
-const DEMO_PRINCIPAL = asUserId('demo')
 
 const DEMO_SHELL: MobileShell = {
   error: null,

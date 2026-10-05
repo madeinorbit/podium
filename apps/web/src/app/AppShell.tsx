@@ -1111,4 +1111,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   )
 }
 
-const AppBody = observer(AppBodyView)
+/** The shell body, exported for the `?demo=1` shell (POD-5277), which renders
+ *  this same tree over demo rows instead of the kernel assembly. */
+export const AppBody = observer(AppBodyView)

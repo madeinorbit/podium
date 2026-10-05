@@ -58,6 +58,7 @@ function describeNotice(description: string): ReactNode {
 export function StoreProvider({
   principal,
   config,
+  api,
   onFatalError,
   engineOverrides,
   createReplicaFn,
@@ -72,6 +73,10 @@ export function StoreProvider({
   principal: ClientPrincipal | null
   config: ServerOrigin
   onFatalError: (message: string) => void
+  /** Demo-mode seam (POD-5277 `?demo=1`): a stubbed API that answers locally
+   *  instead of reaching the server. Production always builds its own client
+   *  from the config origin. */
+  api?: Trpc
   /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
   engineOverrides?: { spawnConfirmGraceMs?: number }
   /** Required private-replica facade. AppShell cannot mount this provider until
@@ -85,7 +90,7 @@ export function StoreProvider({
   makeSocket?: import('@podium/client-core/socket-transport').SocketHubOptions['makeSocket']
   children: ReactNode
 }): JSX.Element {
-  const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
+  const trpc = useMemo(() => api ?? makeTrpc(config.httpOrigin), [api, config.httpOrigin])
   // Ship finalized client switch traces [POD-701] to the server: fire-and-forget,
   // never throws into the UI (the collector also swallows reporter errors).
   useEffect(() => {
