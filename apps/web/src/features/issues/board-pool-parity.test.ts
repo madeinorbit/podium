@@ -28,7 +28,7 @@ function expectBoard(
   pool: import('@podium/client-graph').MobxPool,
   options: import('@podium/client-graph/issue-board-schema').BoardOptions,
 ) {
-  const value = readBoardSnapshot(pool, options)
+  const value = inBoardCheck(() => readBoardSnapshot(pool, options))
   if (!value || value === LOADING) throw new Error('Board fixture is loading')
   expectPoolOutput(value, JSON.stringify(options))
 }
@@ -37,7 +37,7 @@ function expectExplorer(
   tab: import('@podium/client-graph/issue-board-schema').PoolExplorerData['tab'] | null,
   query: string,
 ) {
-  const value = pool.row('issueExplorerModel', JSON.stringify({ tab, query }))
+  const value = inBoardCheck(() => pool.row('issueExplorerModel', JSON.stringify({ tab, query })))
   if (!value || value === LOADING) throw new Error('Explorer fixture is loading')
   expectPoolOutput(explorerSnapshot(value), JSON.stringify({ tab, query }))
 }
@@ -93,7 +93,6 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
       { text: 'task' },
     ]) {
       for (const layout of ['board', 'list'] as const) {
-        inBoardCheck(() =>
           expectBoard(handle.pool, {
             display: { ...DEFAULT_DISPLAY, layout },
             filter,
@@ -101,15 +100,13 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
             isMobile: false,
             openIssueId: null,
             now: FIXED_NOW,
-          }),
-        )
+          })
       }
     }
     for (const tab of [null, 'needs', 'in_progress', 'planning', 'done', 'cancelled'] as const)
-      inBoardCheck(() => expectExplorer(handle.pool, tab, ''))
+      expectExplorer(handle.pool, tab, '')
     for (const query of ['task', 'POD-12', ''])
-      inBoardCheck(() => expectExplorer(handle.pool, null, query))
-    inBoardCheck(() =>
+      expectExplorer(handle.pool, null, query)
       expectBoard(handle.pool, {
         display: { ...DEFAULT_DISPLAY, layout: 'list', ordering: 'updated', showAgentTasks: true },
         filter: {},
@@ -117,8 +114,7 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
         isMobile: false,
         openIssueId: null,
         now: FIXED_NOW,
-      }),
-    )
+      })
     expect(handle.pool.tables.issue.size).toBeLessThan(replica.rows('issueProjections').length)
   } finally {
     handle.dispose()
