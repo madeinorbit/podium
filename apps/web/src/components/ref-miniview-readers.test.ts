@@ -1,4 +1,5 @@
 import { MobxPool } from '@podium/client-graph/pool'
+import { sessionForIssue } from '@/lib/ref-miniview'
 import { expect, it, vi } from 'vitest'
 import { readReferenceSession, readRefMiniview } from './ref-miniview-readers'
 
@@ -89,7 +90,8 @@ it('addresses issue seats and nearest parent on first/repeated opens equally at 
         const card = readRefMiniview(pool, 'POD-1')
         expect(card.loading).toBe(false)
         expect(card.issues.map((issue) => issue.id)).toEqual(['own', 'parent'])
-        expect(card.sessions.map((seat) => seat.sessionId)).toEqual(['seat', 'headless'])
+        expect(card.sessions.map((seat) => seat.sessionId)).toEqual(['headless', 'seat'])
+        expect(sessionForIssue(card.issues[0]!, card.issues, card.sessions)).toMatchObject({ session: { sessionId: 'seat' }, via: { id: 'parent' } })
         expect(
           row.mock.calls.some(([, id]) => id.startsWith('unrelated-') || id.startsWith('other-')),
         ).toBe(false)

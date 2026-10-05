@@ -56,6 +56,34 @@ export function createIssueMentionIndex() {
     }
     if (ids[lo] === id) ids.splice(lo, 1)
   }
+  // A native ref's numeric suffix is a sequence PREFIX, not a substring.
+  // Search the existing per-repo sequence order as decimal ranges, then take
+  // only its first ranked window; unrelated numeric grams never become candidates.
+  function sequencePrefix(ids: readonly string[], digits: string, limit: number): string[] {
+    const value = Number(digits)
+    if (!Number.isSafeInteger(value) || String(value) !== digits || !ids.length) return []
+    const max = facts.get(ids[0]!)!.seq
+    const ranges: [number, number][] = []
+    if (value === 0) ranges.push([0, 0])
+    else for (let factor = 1; value * factor <= max; factor *= 10)
+      ranges.push([value * factor, Math.min(max, (value + 1) * factor - 1)])
+    const found: string[] = []
+    for (const [lower, upper] of ranges.reverse()) {
+      let lo = 0, hi = ids.length
+      while (lo < hi) {
+        const at = (lo + hi) >>> 1
+        if (facts.get(ids[at]!)!.seq > upper) lo = at + 1
+        else hi = at
+      }
+      for (let at = lo; at < ids.length && found.length < limit; at++) {
+        const id = ids[at]!
+        if (facts.get(id)!.seq < lower) break
+        found.push(id)
+      }
+      if (found.length === limit) break
+    }
+    return found
+  }
   const keys = (fact: Fact) => grams(`${fact.title}\n${fact.ref}\n${fact.seq}`)
   return {
     counts,
@@ -147,8 +175,7 @@ export function createIssueMentionIndex() {
         const prefix = question.prefixes[repo] ? `${question.prefixes[repo]}-`.toLowerCase() : '#'
         if (prefix.includes(q)) for (const id of ids.slice(0, limit)) candidates.add(id)
         else if (digits && refPart && prefix.endsWith(refPart))
-          for (const id of postings.get(token(digits)) ?? [])
-            if (facts.get(id)?.repo === repo) candidates.add(id)
+          for (const id of sequencePrefix(ids, digits, limit)) candidates.add(id)
       }
       const winners: { id: string; score: number }[] = []
       for (const id of candidates) {

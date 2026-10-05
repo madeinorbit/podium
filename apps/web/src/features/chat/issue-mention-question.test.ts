@@ -55,6 +55,10 @@ it('preserves mention ranking and eligibility across source edits, Unicode, refs
       'POD',
       'OD-',
       'pod-4',
+      'POD-412',
+      'POD-00',
+      'pod-4 ',
+      'd-41',
       '412',
       '17',
       'EXT',
@@ -114,5 +118,5 @@ it('bounds ranked IDs and source candidate visits for empty/rare/missing mention
     }
   }
   expect(work.slice(4)).toEqual(work.slice(0, 4))
-  console.info('POD-5569 mention source visits [empty,rare,missing,ref] at 1x/4x', work)
+  console.info('POD-5569 mention scored candidates [empty,rare,missing,ref] at 1x/4x', work)
 })
