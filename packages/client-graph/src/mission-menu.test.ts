@@ -120,7 +120,7 @@ it('reads only the sender repository group and keeps handoff targets exact as un
     const others: HeaderRows['repository'][] = Array.from({ length: 128 * scale }, (_, i) => ({
       kind: 'repository', path: `/other/${i}`, worktrees: [], originUrl: `https://example.test/other-${i}`,
     }))
-    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId } }] })
+    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId, repoName: 'Menu' } }] })
     pool.header.apply([
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
