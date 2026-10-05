@@ -488,28 +488,10 @@ export function createIssuePageViews(pool: MobxPool) {
               : undefined
           }
         }
-        // Only file tabs / unknown sessions use containment. The census reads
-        // declared summaries, never cold payloads or a second ownership index.
-        let best: IssueViewModel | undefined
-        let pending = false
-        for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: args.cwd })) {
-          const row = pool.row('issue', id, 'summary') as Loaded<IssueViewModel>
-          if (row === LOADING) {
-            pending = true
-            continue
-          }
-          if (!row || row.archived || row.deletedAt || !row.worktreePath) continue
-          const root = row.worktreePath
-          if (args.cwd !== root && !args.cwd.startsWith(root.endsWith('/') ? root : `${root}/`))
-            continue
-          if (
-            !best ||
-            root.length > best.worktreePath!.length ||
-            (root.length === best.worktreePath!.length && row.seq < best.seq)
-          )
-            best = row
-        }
-        return pending ? LOADING : best ? data(best.id) : undefined
+        // File tabs / unknown sessions demand the maintained winning identity,
+        // then that page alone, including when many old issues share its path.
+        const id = pool.queries.containingIssueId(args.cwd)
+        return id ? data(id) : undefined
       },
       Object.is,
     )

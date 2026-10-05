@@ -40,6 +40,8 @@ export class ReaderQueries {
     { atom: IAtom; value: IssueCloseMemberCounts }
   >()
   private readonly issueChildAtoms = new Map<string, { atom: IAtom; value: IssueChildCounts }>()
+  private readonly containingIssueAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
+  private readonly containingIssuePaths = new Map<string, Set<string>>()
   private effectiveIssues: IssueQuestions | undefined
   private effectiveIssueSource: ColdQueries | undefined
   private effectiveIssueIdentities: IssueIdentities | undefined
@@ -685,11 +687,63 @@ export class ReaderQueries {
   }
   private changeIssueFacts(id: string, change: (questions: IssueQuestions) => void): void {
     const questions = this.issueQuestions(),
-      before = questions.fact(id)?.parentId
+      previous = questions.fact(id),
+      before = previous?.parentId
     change(questions)
-    const after = questions.fact(id)?.parentId
+    const next = questions.fact(id),
+      after = next?.parentId
     if (before) this.publishIssueChildren(before)
     if (after && after !== before) this.publishIssueChildren(after)
+    if (previous?.containment !== next?.containment) {
+      const paths = new Set([previous?.containment?.path, next?.containment?.path])
+      const questions = new Set<string>()
+      for (const path of paths)
+        if (path) for (const cwd of this.containingIssuePaths.get(path) ?? []) questions.add(cwd)
+      for (const cwd of questions) this.publishContainingIssue(cwd)
+    }
+  }
+  /** One live issue for a file's path: longest containing root, then the
+   * smallest sequence and that root's source insertion order. */
+  containingIssueId(cwd: string): string | undefined {
+    const value = this.issueQuestions().containingIssueId(cwd),
+      state = this.containingIssueAtoms.get(cwd)
+    if (state) state.atom.reportObserved()
+    else {
+      const paths = new Set([cwd])
+      for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+        paths.add(cwd.slice(0, at))
+        paths.add(cwd.slice(0, at + 1))
+      }
+      const atom = createAtom(`history.containingIssue:${cwd}`, undefined, () => {
+        this.containingIssueAtoms.delete(cwd)
+        for (const path of paths) {
+          const questions = this.containingIssuePaths.get(path)
+          questions?.delete(cwd)
+          if (!questions?.size) this.containingIssuePaths.delete(path)
+        }
+      })
+      if (atom.reportObserved()) {
+        this.containingIssueAtoms.set(cwd, { atom, value })
+        for (const path of paths) {
+          let questions = this.containingIssuePaths.get(path)
+          if (!questions) {
+            questions = new Set()
+            this.containingIssuePaths.set(path, questions)
+          }
+          questions.add(cwd)
+        }
+      }
+    }
+    this.counts.scalarVisits++
+    return value
+  }
+  private publishContainingIssue(cwd: string): void {
+    const state = this.containingIssueAtoms.get(cwd)
+    if (!state) return
+    const value = this.issueQuestions().containingIssueId(cwd)
+    if (state.value === value) return
+    state.value = value
+    state.atom.reportChanged()
   }
   private updateIdentity(entity: 'issue' | 'session', id: string): void {
     for (const [key, result] of this.identities) {
@@ -852,6 +906,7 @@ export class ReaderQueries {
       for (const id of this.issueScopeAtoms.keys()) this.publishIssueScope(id)
       for (const id of this.issueCloseAtoms.keys()) this.publishIssueClose(id)
       for (const id of this.issueChildAtoms.keys()) this.publishIssueChildren(id)
+      for (const cwd of this.containingIssueAtoms.keys()) this.publishContainingIssue(cwd)
       for (const id of this.linkedIssueAtoms.keys()) this.publishLinkedIssue(id)
       for (const state of this.issuePrefixAtoms.values()) this.publishIssuePrefix(state.prefix)
       for (const ref of this.sessionReferenceAtoms.keys()) this.publishSessionReference(ref)
@@ -1144,6 +1199,8 @@ export class ReaderQueries {
     this.issueScopeAtoms.clear()
     this.issueCloseAtoms.clear()
     this.issueChildAtoms.clear()
+    this.containingIssueAtoms.clear()
+    this.containingIssuePaths.clear()
     this.linkedIssueAtoms.clear()
     this.issuePrefixAtoms.clear()
     this.linkedAliases.clear()
