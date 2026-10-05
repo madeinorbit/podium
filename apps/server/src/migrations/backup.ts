@@ -104,6 +104,17 @@ export function backupDatabase(
   const required = Math.ceil(needed * PREFLIGHT_MARGIN)
   const available = freeBytes(dir)
   if (available < required) {
+    // LOGGED WHERE THE NUMBERS ARE KNOWN (POD-5289). The update operation
+    // reports this reason as its step error, but only this line ties the
+    // refusal to the measured database size and the free bytes on this
+    // filesystem at the moment it was refused.
+    log.warn('refusing the pre-migration backup: not enough free disk space', {
+      dir,
+      dbPath,
+      needed,
+      required,
+      available,
+    })
     throw new Error(
       `Not enough disk space for the pre-migration backup in ${dir}: ` +
         `need ~${required} bytes (database + sidecars + 10% margin), only ${available} bytes free. ` +

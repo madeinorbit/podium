@@ -1589,6 +1589,28 @@ const preparing = new Map<string, Promise<unknown>>()
 const heldCoordinatorUpdates = new Map<string, PreparedCoordinatorUpdate>()
 let coordinatorRuns = new WeakMap<UpdatesService, Map<string, Promise<StepOutcome>>>()
 const canceledCoordinatorUpdates = new Set<string>()
+/**
+ * THE SNAPSHOT FAILURE AN OPERATION ALREADY EARNED (POD-5289).
+ *
+ * A coordinator snapshot that fails (for example the free-space check refusing
+ * a 1.2 GB database with only megabytes free) returns a `snapshotFailure`
+ * outcome AND cancels its prepared update in the `finally` below. That cancel
+ * moves the supervisor journal to `canceled` with detail `Update canceled
+ * before activation`, and a retry that starts afterwards (the stall retry, or
+ * the machines-step dispatch with a new grant) reads that journal and throws
+ * the canceled detail — which then finishes the step while the snapshot
+ * report queued behind it is dropped as finished (`engine.ts` recordProgress).
+ * The operator reads `unexpected update failure / canceled before activation`
+ * instead of the disk-space reason that actually stopped the update.
+ *
+ * Keeping the first snapshot failure per operation and returning it for every
+ * later attempt of the same operation (instead of re-preparing into the
+ * canceled journal, or reporting `coordinator-update-inactive`) is what makes
+ * the real reason the step's reported error. The map is module-level like the
+ * neighboring coordinator state; entries are rare (one per failed operation)
+ * and cleared with the rest in tests.
+ */
+const coordinatorSnapshotFailures = new Map<string, StepOutcome>()
 
 /**
  * Watch something this process handed off, reporting when it ends — and saying
@@ -2269,6 +2291,13 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_SERVER },
         eligibility: 'the operation reached its coordinator replacement step after the fleet',
       })
+      // A snapshot that already failed stays the answer even when no replacement
+      // was dispatched (for example a re-entry after the first attempt already
+      // finished the operation, so `handler.active` is false and `replacement`
+      // is still undefined). Returning bare `coordinator-update-inactive` here
+      // would hide the disk-space reason behind a code with no detail.
+      const priorSnapshot = coordinatorSnapshotFailures.get(operation.id)
+      if (priorSnapshot && replacement === undefined) return priorSnapshot
       const run = replacement ?? Promise.resolve({ state: 'failed', error: { code: 'coordinator-update-inactive' } } as StepOutcome)
       return run
     }
@@ -2302,6 +2331,13 @@ async function runCoordinatorReplacement(
   grant?: UpdateGrantMessage,
 ): Promise<StepOutcome> {
   if (context.serverPlacement.kind === 'external') return { state: 'skipped' }
+  // A snapshot that already failed for this operation stays the answer.
+  // Without this, a retry that starts after the `finally` below cancelled the
+  // preparation reads the supervisor journal's `canceled` phase (detail
+  // `Update canceled before activation`) and finishes the step with that,
+  // while the snapshot report queued behind it is dropped as finished.
+  const priorSnapshotFailure = coordinatorSnapshotFailures.get(operation.id)
+  if (priorSnapshotFailure) return priorSnapshotFailure
   const originalDetails = updateOperationDetails(operation)
   const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
   const active = async () =>
@@ -2346,6 +2382,14 @@ async function runCoordinatorReplacement(
       prepared = await context.prepareCoordinatorUpdate(details.target, grant)
       if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
     } catch (error) {
+      // A snapshot that already failed stays the answer even when the
+      // preparation now reads the journal the `finally` below left behind.
+      // After a snapshot failure cancels the preparation, a retry's poll sees
+      // phase `canceled` and throws `Update canceled before activation` here;
+      // returning that would hide the disk-space (or timeout, or corruption)
+      // reason that actually stopped the update.
+      const prior = coordinatorSnapshotFailures.get(operation.id)
+      if (prior) return prior
       // CLASSIFY ON THE THROWN ERROR'S OWN MESSAGE, DESCRIBE THE WHOLE CHAIN
       // [POD-3824]: widening what an operator READS must not quietly rewrite
       // what the fleet DECIDES, and these are two questions with one input only
@@ -2389,13 +2433,34 @@ async function runCoordinatorReplacement(
     const fromVersion = details.fromVersion ?? context.appVersion()
     const snapshotFailure = (detail: string): StepOutcome => {
       cancelReason = `Database snapshot failed; the server was not restarted: ${detail}`
-      return {
+      const outcome: StepOutcome = {
         state: 'failed',
         error: describeUpdateOperationFailure({
           code: 'preparation-failed',
           detail: cancelReason,
         }),
       }
+      // LOGGED HERE, NOT JUST RETURNED (POD-5289). The `finally` below cancels
+      // the prepared update, whose journal then reads `canceled` with detail
+      // `Update canceled before activation`; without this line the only record
+      // of the real reason (for example the free-space check's required and
+      // available bytes) is a StepOutcome that a stall retry can drop.
+      log.warn('coordinator database snapshot failed; the server was not restarted', {
+        operationId: operation.id,
+        step: stepId,
+        ...(grant ? { grantId: grant.grantId } : {}),
+        detail,
+      })
+      coordinatorSnapshotFailures.set(operation.id, outcome)
+      // REPORTED HERE, BEFORE THE `finally` CANCELS (POD-5289). Fire-and-forget:
+      // awaiting from inside `ensure()` would deadlock on the engine's chain,
+      // and the return below still carries the outcome for the drive path. For
+      // the machines step (whose runner already returned `running`) this is the
+      // report that fails the step with the snapshot reason; the cancel that
+      // follows would otherwise finish it first with the journal's `canceled`
+      // detail and leave this report to be dropped as finished.
+      context.report?.(operation.id, stepId, { ...outcome, state: 'failed' })
+      return outcome
     }
     let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
       ? details.databaseSnapshotPath : undefined
@@ -3012,4 +3077,5 @@ export function resetUpdateOperationState(): void {
   heldCoordinatorUpdates.clear()
   coordinatorRuns = new WeakMap()
   canceledCoordinatorUpdates.clear()
+  coordinatorSnapshotFailures.clear()
 }

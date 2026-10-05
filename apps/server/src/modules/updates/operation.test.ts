@@ -4669,10 +4669,20 @@ describe('coordinator snapshot activation boundary', () => {
       deliveryCaps: FEED_CAPS, platform: 'linux-x64',
     })] : []
     let failSnapshot = false
+    let throwDiskFull = false
     const snapshotPath = join(runtimeDir, 'verified.db')
     const snapshot = vi.fn(async () => {
       snapshotting.resolve()
       await releaseSnapshot.promise
+      if (throwDiskFull) {
+        // The free-space refusal from backupDatabase (backup.ts): the safety
+        // copy needs ~1.1x the database and the disk does not have it.
+        throw new Error(
+          'Not enough disk space for the pre-migration backup in /state: ' +
+            'need ~1452000000 bytes (database + sidecars + 10% margin), only 500000000 bytes free. ' +
+            'The server refuses to start the migration until disk space is freed.',
+        )
+      }
       if (failSnapshot) return { ok: false as const, code: 'timeout' as const, detail: 'verification timed out' }
       return { ok: true as const, path: snapshotPath }
     })
@@ -4733,6 +4743,7 @@ describe('coordinator snapshot activation boundary', () => {
       h, target, executor, adapter, reports, snapshot, snapshotting, preparing, activated, receiptSettled,
       releasePreparation, releaseSnapshot, fallbackRestart, start, repeat, oldServer, runtimeDir,
       failSnapshot: () => { failSnapshot = true },
+      throwDiskFull: () => { throwDiskFull = true },
       transfer: () => { transfer = true },
       supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
       async close() {
@@ -4837,6 +4848,57 @@ describe('coordinator snapshot activation boundary', () => {
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect(await f.oldServer()).toBe('old coordinator serving')
     } finally { vi.restoreAllMocks(); await f.close() }
+  })
+
+  /**
+   * POD-5289. When the safety copy cannot be made because the disk is too
+   * full, the operator must read the disk-space reason — not `unexpected
+   * update failure / canceled before activation`.
+   *
+   * The snapshot throws the free-space refusal, the `finally` cancels the
+   * prepared update (journal `canceled`), and a retry with a new grant starts
+   * afterwards. That retry must still report the snapshot reason rather than
+   * the journal's canceled detail (or `coordinator-update-inactive` once the
+   * first attempt already finished the operation).
+   */
+  it('reports the disk-space refusal instead of the cancel that follows it', async () => {
+    const f = await fixture(false)
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.snapshotting.promise
+      f.throwDiskFull()
+      f.releaseSnapshot.resolve()
+      await f.receiptSettled.promise
+      await f.h.engine.whenSettled('op_1')
+
+      // The first attempt fails closed with the real reason and never restarts.
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(f.fallbackRestart).not.toHaveBeenCalled()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+      const first = await f.h.read()
+      expect(first.state).toBe('failed')
+      expect(first.error?.message).toContain('Database snapshot failed')
+      expect(first.error?.message).toContain('Not enough disk space')
+      expect(first.error?.message).toContain('1452000000')
+      expect(first.error?.message).toContain('500000000')
+      expect(first.error?.message).not.toContain('canceled before activation')
+
+      // A retry with a new grant (the stall retry, or a re-entry after the
+      // cancel) must return the same snapshot reason — not the journal's
+      // `canceled` detail and not a bare inactive code.
+      const retry = await f.repeat()
+      expect(retry.state).toBe('failed')
+      const detail = retry.error && 'detail' in retry.error
+        ? String((retry.error as { detail?: unknown }).detail ?? '')
+        : ''
+      const message = retry.error && 'message' in retry.error
+        ? String((retry.error as { message?: unknown }).message ?? '')
+        : ''
+      expect(`${message} ${detail}`).toContain('Not enough disk space')
+      expect(`${message} ${detail}`).not.toContain('canceled before activation')
+      expect(retry.error?.code).not.toBe('coordinator-update-inactive')
+    } finally { await f.close() }
   })
 
   it('never cancels a replacement grant after authority changes during snapshot verification', async () => {
