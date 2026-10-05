@@ -1,5 +1,5 @@
 import { isFinished } from './predicates'
-import { sessionValues } from '@podium/client-core/session-values'
+import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
@@ -272,7 +272,7 @@ export function createRowSource(
           | undefined
       )?.insert
     if (!raw) return undefined
-    const value = raw
+    const value = raw as AnyRow & SessionValueInput
     const userState = foldRowOverlays(
       sessionUserKeys.has(id)
         ? authority('sessionUserStates', sessionUserKeys.get(id)!)

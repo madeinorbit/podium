@@ -86,6 +86,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const repoPaths = new Map<string, string>()
   const reposAtPath = new Map<string, Set<string>>()
   const pathKeys = (path: string) => [`issue:path:${path}`, ...[...(reposAtPath.get(path) ?? [])].map(id => `issue:repo:${id}`)]
+  const targetPathKeys = (path: string) => [`issue:path:${path}`, ...[...(reposAtPath.get(path) ?? [])].map(id => `issue:targetRepo:${id}`)]
   const pathMembers = (path: string) => new Set(pathKeys(path).flatMap(key => [...bucket(key)]))
   const repoPrefixes = new Map<string, string>()
   const prefixRepos = new Map<string, Set<string>>()
@@ -114,7 +115,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const touch = (key: string) => revisions.set(key, ++version)
   const compareTargets = (a: string, b: string) =>
     (targetDetails.get(b)?.seq ?? 0) - (targetDetails.get(a)?.seq ?? 0) || byId(a, b)
-  const orderedTargetKey = (key: string) => key.startsWith('issue:path:') || key.startsWith('issue:repo:')
+  const orderedTargetKey = (key: string) => key.startsWith('issue:path:') || key.startsWith('issue:targetRepo:')
   function removeTarget(key: string, id: string) {
     const ids = targetPostings.get(key)
     if (!ids) return
@@ -181,6 +182,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         deletedAt, worktreePath } = row
       const path = String(repoPath ?? '')
       out.add(`issue:repo:${repoId ?? ''}`)
+      if (repoPath === undefined && typeof repoId === 'string') out.add(`issue:targetRepo:${repoId}`)
       out.add(`issue:path:${path}`)
       out.add(`issue:priority:${priority}`)
       out.add(
@@ -374,7 +376,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           return Math.max(
             replacement,
             revisions.get(`issueRepoPath:${question.repoPath}`) ?? 0,
-            ...pathKeys(question.repoPath).map(key => revisions.get(`mobileTargets:${key}`) ?? 0),
+            ...targetPathKeys(question.repoPath).map(key => revisions.get(`mobileTargets:${key}`) ?? 0),
           )
         case 'proposedIssues':
           keys.push('issue:proposed')
@@ -527,7 +529,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       switch (question.kind) {
         case 'issueMentionMatches': return mentions?.ids(question) ?? []
         case 'mobileIssueTargets': {
-          const keys = pathKeys(question.repoPath)
+          const keys = targetPathKeys(question.repoPath)
           const postings = keys.map(key => targetPostings.get(key) ?? []).filter(ids => ids.length)
           const ids = postings.length <= 1 ? postings[0] ?? [] : [...new Set(postings.flat())].sort(compareTargets)
           const needle = question.query.trim().toLocaleLowerCase()

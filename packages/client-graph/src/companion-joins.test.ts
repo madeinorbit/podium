@@ -33,8 +33,9 @@ function fixture(scale: 1 | 4) {
       issueId: n ? 'history' : undefined, status: n ? 'exited' : 'live', archived: !!n,
       stoppedAt: n ? stamp : undefined, agentState: { phase: n ? 'ended' : 'working' } })
   }
+  const discovery = [{ path: '/synthetic/project', repoId: 'project', worktrees: [{ path: '/synthetic/project/wt' }] }]
   const source = createRowSource({ principal: { userId: 'operator' },
-    readLocal: () => [{ path: '/synthetic/project', repoId: 'project', worktrees: [{ path: '/synthetic/project/wt' }] }],
+    readLocal: () => discovery,
     onLocals: () => () => {},
   }, {
     row: (kind, id) => tables.get(kind)?.get(id), rows: kind => [...(tables.get(kind)?.values() ?? [])],

@@ -786,7 +786,7 @@ export class MobxPool {
       let view = this.joinedRows.get(server)
       if (!view) {
         view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
-          const companion = this.row(kind, key)
+          const companion = kind === 'machine' ? this.row('machine', key) : this.row('repo', key)
           return companion === LOADING ? undefined : companion as Readonly<Record<string, unknown>> | undefined
         })
         this.joinedRows.set(server, view)

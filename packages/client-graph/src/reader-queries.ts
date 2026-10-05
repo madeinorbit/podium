@@ -59,9 +59,10 @@ export class ReaderQueries {
   private readonly repoPrefixes: string[] = []
   private readonly repoPrefixAtom = createAtom('history.repositoryPrefixKey')
   private repoPrefixValue = ''
+  private readonly referenceTokens = new Map<string, Set<string>>()
   private readonly sessionReferenceAtoms = new Map<
     string,
-    { atom: IAtom; value: string | undefined }
+    { atom: IAtom; value: string | undefined; keys: readonly string[] }
   >()
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
@@ -380,6 +381,8 @@ export class ReaderQueries {
       }
     }
     this.repoOverrides.set(id, prefix)
+    const row = this.pool.row('repo', id) as Readonly<Record<string, unknown>> | undefined
+    this.residents.apply({ type: 'update', rows: [{ kind: 'repo', id, value: row }] })
     const identities = this.issueIdentities(),
       before = identities.repoPrefix(id)
     const bare = identities.setRepo(id, prefix)
@@ -438,6 +441,18 @@ export class ReaderQueries {
       state.atom.reportChanged()
     }
   }
+  private referenceKeys(ref: string): string[] {
+    const prefix = parseSessionRef(ref)?.prefix
+    return prefix ? this.issueIdentities().repoIds(prefix).map(id => referenceKey(id, ref)!) : []
+  }
+  private releaseReference(ref: string): void {
+    for (const key of this.sessionReferenceAtoms.get(ref)?.keys ?? []) {
+      const tokens = this.referenceTokens.get(key)
+      tokens?.delete(ref)
+      if (!tokens?.size) this.referenceTokens.delete(key)
+    }
+    this.sessionReferenceAtoms.delete(ref)
+  }
   private referenceWinner(ref: string, questions: SessionQuestions): string | undefined {
     const parsed = parseSessionRef(ref)
     if (!parsed) return undefined
@@ -458,9 +473,17 @@ export class ReaderQueries {
     if (state) state.atom.reportObserved()
     else {
       const atom = createAtom(`history.sessionReference:${ref}`, undefined, () =>
-        this.sessionReferenceAtoms.delete(ref),
+        this.releaseReference(ref),
       )
-      if (atom.reportObserved()) this.sessionReferenceAtoms.set(ref, { atom, value })
+      if (atom.reportObserved()) {
+        const keys = this.referenceKeys(ref)
+        this.sessionReferenceAtoms.set(ref, { atom, value, keys })
+        for (const key of keys) {
+          let tokens = this.referenceTokens.get(key)
+          if (!tokens) this.referenceTokens.set(key, tokens = new Set())
+          tokens.add(ref)
+        }
+      }
     }
     return value
   }
@@ -475,11 +498,22 @@ export class ReaderQueries {
     if (!ref) return
     const state = this.sessionReferenceAtoms.get(ref)
     if (!state) {
-      for (const token of this.sessionReferenceAtoms.keys()) {
-        const parsed = parseSessionRef(token)
-        if (parsed && this.issueIdentities().repoIds(parsed.prefix).some(id => referenceKey(id, token) === ref)) this.publishSessionReference(token)
-      }
+      for (const token of [...(this.referenceTokens.get(ref) ?? [])]) this.publishSessionReference(token)
       return
+    }
+    const keys = this.referenceKeys(ref)
+    if (keys.length !== state.keys.length || keys.some((key, at) => state.keys[at] !== key)) {
+      for (const key of state.keys) {
+        const tokens = this.referenceTokens.get(key)
+        tokens?.delete(ref)
+        if (!tokens?.size) this.referenceTokens.delete(key)
+      }
+      state.keys = keys
+      for (const key of keys) {
+        let tokens = this.referenceTokens.get(key)
+        if (!tokens) this.referenceTokens.set(key, tokens = new Set())
+        tokens.add(ref)
+      }
     }
     const value = this.referenceWinner(ref, this.sessionQuestions())
     if (value === state.value) return
@@ -1113,6 +1147,7 @@ export class ReaderQueries {
     this.linkedAliases.clear()
     this.linkedPrefixes.clear()
     this.sessionReferenceAtoms.clear()
+    this.referenceTokens.clear()
     this.sessionPathAtoms.clear()
     this.topologyListeners.clear()
     this.publicationTopologyBefore = undefined

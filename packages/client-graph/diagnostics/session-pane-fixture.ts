@@ -29,7 +29,7 @@ export function sessionPaneFixture(): SessionView[] {
     { status: 'exited', resumable: false },
     { status: 'starting' },
     { status: 'reconnecting' },
-    { condition: 'logged-out', machineId: 'machine-b', machineName: 'Offline host' },
+    { condition: 'logged-out', agentKind: 'codex', machineId: 'machine-b', machineName: 'Offline host' },
     { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
     { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },
     { observedModel: 'claude-opus-4-8', observedEffort: 'medium', requestedModel: 'gpt-6' },

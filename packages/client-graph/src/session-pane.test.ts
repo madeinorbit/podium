@@ -16,7 +16,7 @@ import { LOADING } from './worklist/rollup'
 
 function fixture(attachLog = true) {
   const sessions = sessionPaneFixture()
-  const machines = [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false }] as MachineWire[]
+  const machines = [{ id: 'machine-a', name: 'Host', online: true }, { id: 'machine-b', name: 'Offline host', online: false, loggedOutHarnesses: ['codex'] }] as MachineWire[]
   let state = { sessions, machines, panelMode: { 'pane-0': 'chat' }, dockShells: { '/synthetic/w19': 'pane-19' },
     reposLoaded: true, coarseNow: SESSION_PANE_NOW, selectedIssueId: null } as unknown as Store
   const listeners = new Set<() => void>()
