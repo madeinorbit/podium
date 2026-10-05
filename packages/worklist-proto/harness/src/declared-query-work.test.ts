@@ -278,7 +278,18 @@ async function measured(
                   .ids({ kind: 'pageIssues' })
                   .sort()
                   .map((id) => page.summary(id))
-    return { work: result.work, identical: compareStructural(expected, actual), expected, actual }
+    // pageIssues supplies candidate identities, not presentation order. Its only
+    // production reader, IssuePage.issues(), projects them in ID order through
+    // createQueryResult. Compare every identity (including duplicates) in that
+    // order outside the work measurement; the planted iterator still counts.
+    const parityExpected = mechanism === 'identity' ? (expected as string[]).toSorted() : expected
+    const parityActual = mechanism === 'identity' ? (actual as string[]).toSorted() : actual
+    return {
+      work: result.work,
+      identical: compareStructural(parityExpected, parityActual),
+      expected: parityExpected,
+      actual: parityActual,
+    }
   } finally {
     stop()
     vi.restoreAllMocks()
@@ -375,10 +386,12 @@ describe('pool screens work ratios: declared query screen counters', () => {
       ((value.reader === 'consumer:issue-page.detail' || value.reader === 'consumer:issue-page.panel') && value.action === 'navigate-by-ref') ||
       (value.reader === 'consumer:issue-page.detail/IssuePage@issue:guard-root' && value.action === 'machine-flip'),
     )
+    // cf4d2a0373 made the board index demand-only: cards do not retain it.
+    // POD-5555 removes that index. Any index work still meets the ratios above,
+    // but only the mounted summary, roster and pane readers must do work here.
     for (const pattern of [
       /IssuePage@summaries/,
       /IssueBoard@sessions:/,
-      /IssueBoard@index:/,
       /^consumer:session-pane/,
     ])
       expect(
