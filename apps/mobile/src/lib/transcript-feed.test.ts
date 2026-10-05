@@ -92,6 +92,31 @@ describe('mobile transcript feed', () => {
     expect([...search.matchingRows]).toEqual([0])
   })
 
+  it('addresses emitted rows and folded aliases while omitting only the hidden question', () => {
+    const ask = item('ask', 'tool', '', { toolName: 'AskUserQuestion', toolInputJson: '{"questions":[]}' })
+    const items = [
+      item('t1', 'tool', '', { toolName: 'Read', toolInput: 'a' }),
+      item('t2', 'tool', '', { toolName: 'Read', toolInput: 'b' }),
+      ask,
+      item('a1', 'assistant', 'Answer', { answer: true }),
+    ]
+    const model = buildMobileTranscript(items)
+    expect(model.positionOfKey('t1')).toBe(0)
+    expect(model.positionOfKey('t2')).toBe(0)
+    expect(model.positionOfKey('ask')).toBe(1)
+    expect(model.positionOfKey('a1')).toBe(2)
+    expect(model.positionOfKey('missing')).toBeUndefined()
+    const hidden = buildMobileTranscript(items, { hiddenQuestionId: 'ask' })
+    expect(hidden.rows.map(row => row.kind)).toEqual(['tools', 'answer'])
+    expect(hidden.positionOfKey('ask')).toBeUndefined()
+    expect(hidden.positionOfKey('a1')).toBe(1)
+    const receipt = buildMobileTranscript([ { ...ask, toolResult: 'Done' } ], { hiddenQuestionId: 'ask' })
+    expect(receipt.rows[0]?.kind).toBe('receipt')
+    expect(receipt.positionOfKey('ask')).toBe(0)
+    const duplicate = buildMobileTranscript([item('same', 'assistant', 'First'), item('same', 'assistant', 'Second')])
+    expect(duplicate.positionOfKey('same')).toBe(0)
+  })
+
   it('maps every envelope row sharing a match and selects its first row when wrapping', () => {
     const model = buildMobileTranscript([
       item(
@@ -104,6 +129,9 @@ describe('mobile transcript feed', () => {
     const answer = matchMobileTranscript(model, 'needle')
     expect(answer.matches).toEqual([0, 1])
     expect([...answer.matchingRows]).toEqual([0, 1, 2])
+    expect(model.positionOfKey('batch:message:msg_a')).toBe(0)
+    expect(model.positionOfKey('batch:message:msg_b')).toBe(1)
+    expect(model.positionOfKey('answer')).toBe(2)
     expect(positionMobileTranscriptSearch(answer, 0)).toMatchObject({
       activeRow: 0,
       position: 1,

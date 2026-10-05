@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { createRef, type ReactElement, type Ref } from 'react'
 import { Keyboard } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { insideReader, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 
@@ -110,16 +111,18 @@ function content(
     onLoadOlder?: () => void
     viewportRef?: Ref<TranscriptViewportHandle>
     keyboardDismissMode?: 'on-drag' | 'none'
+    keyExtractor?: (key: string) => string
+    positionOfKey?: (key: string) => number | undefined
   } = {},
 ): ReactElement {
-  const positions = new Map(data.map((key, index) => [key, index]))
+  const positions = options.positionOfKey ? undefined : new Map(data.map((key, index) => [key, index]))
   return (
     <TranscriptViewport
       identity="one"
       ref={options.viewportRef}
       data={data}
-      keyExtractor={(key) => key}
-      positionOfKey={key => positions.get(key)}
+      keyExtractor={options.keyExtractor ?? ((key) => key)}
+      positionOfKey={options.positionOfKey ?? (key => positions!.get(key))}
       renderItem={({ item }) => <span>{item}</span>}
       ListFooterComponent={<span>Working</span>}
       moreAbove
@@ -145,6 +148,61 @@ function resized(): void {
 }
 
 describe('phone web viewport', () => {
+  it('addresses retained and search anchors without walking all rows at 1x/4x', async () => {
+    const samples = []
+    for (const scale of [1, 4] as const) {
+      const data = Array.from({ length: 512 * scale }, (_, index) => `row-${index}`)
+      let rowReads = 0
+      const counted = (rows: string[]) => new Proxy(rows, {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) rowReads++
+          return Reflect.get(target, key, receiver)
+        },
+      })
+      const positions = new Map(data.map((key, index) => [key, index]))
+      const positionOfKey = vi.fn((key: string) => insideReader('phone viewport anchor', () => positions.get(key)))
+      const keyExtractor = vi.fn((key: string) => key)
+      const viewportRef = createRef<TranscriptViewportHandle>()
+      const opts = { positionOfKey, keyExtractor, viewportRef }
+      const watched = counted(data)
+      const { container, getByTestId, rerender, unmount } = render(content(watched, opts))
+      resized()
+      const scroller = getByTestId('transcript-scroller')
+      const measure = async (action: () => void) => {
+        rowReads = 0
+        positionOfKey.mockClear()
+        keyExtractor.mockClear()
+        const result = await measureWork(async () => { act(action) })
+        return { work: result.work, rowReads, keyReads: keyExtractor.mock.calls.length, lookups: positionOfKey.mock.calls.length }
+      }
+      const readAbove = await measure(() => read(scroller, scroller.scrollHeight - scroller.clientHeight - 200))
+      const anchorKey = `row-${data.length - 5}`
+      const anchor = container.querySelector(`[data-row-key="${anchorKey}"]`)!
+      const anchorTop = anchor.getBoundingClientRect().top
+      const updated = [...data, 'arrival']
+      positions.set('arrival', data.length)
+      const next = content(counted(updated), opts)
+      const arrival = await measure(() => { rerender(next); resized() })
+      expect(container.querySelector(`[data-row-key="${anchorKey}"]`)).toBe(anchor)
+      expect(anchor.getBoundingClientRect().top).toBeCloseTo(anchorTop)
+      const search = await measure(() => viewportRef.current?.scrollToIndex({ index: data.length - 85, animated: false }))
+      expect(container.querySelector(`[data-row-key="row-${data.length - 85}"]`)).not.toBeNull()
+      for (const result of [readAbove, arrival, search]) {
+        expect(result.rowReads).toBeLessThan(200)
+        expect(result.keyReads).toBeLessThan(250)
+        expect(result.lookups).toBeGreaterThan(0)
+      }
+      const target = data[data.length - 80]!
+      const control = await measure(() => { insideReader('scanned anchor control', () => watched.findIndex(key => key === target)) })
+      expect(control.rowReads).toBe(data.length - 79)
+      samples.push({ scale, actions: { readAbove, arrival, search }, control })
+      unmount()
+    }
+    expect(samples[1]!.actions).toEqual(samples[0]!.actions)
+    expect(samples[1]!.control.rowReads).toBeGreaterThan(samples[0]!.control.rowReads * 4)
+    console.log('[actual phone viewport anchor work1x4x]', JSON.stringify(samples))
+  })
+
   it('dismisses the keyboard for reader gestures, preserving focus on viewport and scroll events', () => {
     const dismiss = vi.spyOn(Keyboard, 'dismiss')
     const { getByTestId, container } = render(
