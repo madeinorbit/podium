@@ -1243,10 +1243,12 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     // cold index's whole publication for the row (its rule row, its relation
     // forwards, the netted move and its bucket, the reader questions' facets),
     // which ran in the pool's standalone reader index or not at all before:
-    // measured 54 writes + 2 deletes + 14 iterations, whatever the corpus.
+    // The pilot also maintains addressed issue/session question facts and
+    // identity indexes. Count that fixed publication cost, not just the old
+    // relation-only baseline; bucket-size invariance is checked below.
     expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
       outside: 0,
-      plain: { written: 54, deleted: 2, iterated: 14, copied: 0 },
+      plain: { written: 165, deleted: 4, iterated: 112, copied: 0 },
     })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
@@ -1372,9 +1374,11 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
    * plain work of a change does not grow with the bucket: the same change at
    * B and at B/10 costs the same, element for element. `PLAIN_CAP` is a
    * coarse ceiling on top (a change's own bookkeeping across the index, the
-   * reader questions, the pool and the harness), measured at 2026-10-03.
+   * reader questions, identity indexes, the pool and the harness). The pilot
+   * adds addressed question facts; the original 160-operation ceiling
+   * predates them. The size-invariance and zero-copy checks remain exact.
    */
-  const PLAIN_CAP = 160
+  const PLAIN_CAP = 320
   const corpus = (size: number): RowRecord[] => {
     const rows: RowRecord[] = [lane('/repo')]
     for (let i = 0; i < size; i += 1) rows.push(issue(`B${i}`), session(`BS${i}`, { cwd: `/repo/x${i}` }))
@@ -1456,40 +1460,48 @@ describe('an issue gaining or losing a worktreePath re-files only its path (POD-
   // session, never the B. Counted outside the pool (M3 G1/G3/G4): a
   // whole-corpus re-scan touches B and must fail.
   const B = 1000
-  function bigRig(): Rig {
+  function bigRig(size = B): Rig {
     const rows: RowRecord[] = [lane('/repo'), issue('I1'), session('S1', { cwd: '/w/unscanned/sub' })]
-    for (let i = 0; i < B; i += 1) rows.push(session(`BS${i}`, { cwd: `/repo/x${i}` }))
+    for (let i = 0; i < size; i += 1) rows.push(session(`BS${i}`, { cwd: `/repo/x${i}` }))
     return rig(rows)
   }
 
   it('gaining then losing the path touches one session, not the corpus', () => {
-    const r = bigRig()
-    try {
-      expect(r.one('session', 'S1', 'worktree')).toBeNull()
-      const slots = [['worktree', '/repo', 'sessions']] as const
-      const gainSets = held(r.pool, slots)
-      const gainOutside = countedOutside(() => r.push(issue('I1', { worktreePath: '/w/unscanned' })))
-      // The narrow root, spelled as the issue names it.
-      expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned')
-      expect(r.many('worktree', '/w/unscanned', 'sessions')).toEqual(['S1'])
-      expect(outsideTotal(gainOutside), `gain: ${JSON.stringify(gainOutside)}`).toBeLessThan(100)
-      expect(plainTotal(gainOutside.plain), `gain plain ${JSON.stringify(gainOutside.plain)}`).toBeLessThan(100)
-      expect(replaced(gainSets, held(r.pool, slots)), 'gain: no set replaced').toEqual({
-        keys: 0,
-        elements: 0,
-      })
-      const loseSets = held(r.pool, slots)
-      const loseOutside = countedOutside(() => r.push(issue('I1', { worktreePath: null })))
-      expect(r.one('session', 'S1', 'worktree')).toBeNull()
-      expect(outsideTotal(loseOutside), `lose: ${JSON.stringify(loseOutside)}`).toBeLessThan(100)
-      expect(replaced(loseSets, held(r.pool, slots)), 'lose: no set replaced').toEqual({
-        keys: 0,
-        elements: 0,
-      })
-      r.check()
-    } finally {
-      r.dispose()
+    const costs: { gain: PlainCount; lose: PlainCount }[] = []
+    for (const size of [B / 10, B]) {
+      const r = bigRig(size)
+      try {
+        expect(r.one('session', 'S1', 'worktree')).toBeNull()
+        const slots = [['worktree', '/repo', 'sessions']] as const
+        const gainSets = held(r.pool, slots)
+        const gainOutside = countedOutside(() => r.push(issue('I1', { worktreePath: '/w/unscanned' })))
+        // The narrow root, spelled as the issue names it.
+        expect(r.one('session', 'S1', 'worktree')).toBe('/w/unscanned')
+        expect(r.many('worktree', '/w/unscanned', 'sessions')).toEqual(['S1'])
+        expect(outsideTotal(gainOutside), `gain: ${JSON.stringify(gainOutside)}`).toBeLessThan(100)
+        // The whole publication includes the pilot's addressed question and
+        // identity indexes. Its fixed cost must still be corpus-independent.
+        expect(plainTotal(gainOutside.plain), `gain plain ${JSON.stringify(gainOutside.plain)}`).toBeLessThan(300)
+        expect(replaced(gainSets, held(r.pool, slots)), 'gain: no set replaced').toEqual({
+          keys: 0,
+          elements: 0,
+        })
+        const loseSets = held(r.pool, slots)
+        const loseOutside = countedOutside(() => r.push(issue('I1', { worktreePath: null })))
+        expect(r.one('session', 'S1', 'worktree')).toBeNull()
+        expect(outsideTotal(loseOutside), `lose: ${JSON.stringify(loseOutside)}`).toBeLessThan(100)
+        expect(plainTotal(loseOutside.plain), `lose plain ${JSON.stringify(loseOutside.plain)}`).toBeLessThan(300)
+        expect(replaced(loseSets, held(r.pool, slots)), 'lose: no set replaced').toEqual({
+          keys: 0,
+          elements: 0,
+        })
+        r.check()
+        costs.push({ gain: gainOutside.plain, lose: loseOutside.plain })
+      } finally {
+        r.dispose()
+      }
     }
+    expect(costs[1], 'same root gain/loss work at 100 and 1000 unrelated sessions').toEqual(costs[0])
   }, 120_000)
 
   it('a whole-corpus re-scan plant fails the count', () => {

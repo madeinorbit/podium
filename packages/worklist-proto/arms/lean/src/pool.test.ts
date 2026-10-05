@@ -26,7 +26,7 @@ function boot() {
 describe('lean memory prototype', () => {
   it('shares observed row computations independently of explicit mount membership', () => {
     const { pool } = boot()
-    // Isolate row lifetime from the existing many-edge schema failure in filing.
+    // Isolate row lifetime from the corpus-wide filing computation.
     const row = observable.box({ title: 'first' }, { deep: false })
     vi.spyOn(pool.filing, 'get').mockImplementation(() => ({
       order: ['one'], views: new Map([['one', row.get()]]),

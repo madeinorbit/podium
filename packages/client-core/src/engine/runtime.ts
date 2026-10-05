@@ -50,6 +50,7 @@ import { bindStoreStatsOwner } from '../perf/store-stats'
  */
 
 import { createLogger } from '@podium/logger'
+import { runInAction } from 'mobx'
 import type {
   IssueId,
   LayoutSnapshot,
@@ -537,7 +538,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.state.drafts = Object.fromEntries(this.drafts.values)
+    this.state.drafts = runInAction(() => Object.fromEntries(this.drafts.values))
     this.inputs = createKeyedInputs(() => this.state)
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(

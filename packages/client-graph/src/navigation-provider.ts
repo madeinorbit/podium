@@ -1,6 +1,7 @@
 import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/navigation-provider'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
+import { allowImperativeRead } from '@podium/mobx-helpers'
 import { parseSessionRef } from '@podium/protocol'
 import { compareStructural, transaction } from 'mobx'
 import { missions } from './mission'
@@ -103,7 +104,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
   // Runtime actions also use this port outside a reactive read. Permit those
   // addressed reads without detaching the same methods from watched projections.
   const read = <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A): R =>
-    transaction(() => fn(...args))
+    allowImperativeRead(() => transaction(() => fn(...args)))
   return {
     ...provider,
     issue: read(provider.issue),

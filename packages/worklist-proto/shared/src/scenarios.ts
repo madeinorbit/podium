@@ -1017,7 +1017,7 @@ function takeMarkReadReceipts(ctx: ScenarioEngine): string[] {
  * later step is running then and charges that step a row it did not change.
  * Only an explicit press (#9a) is left un-echoed, on purpose: its echo is #9b.
  */
-async function settled(ctx: ScenarioEngine): Promise<void> {
+export async function settled(ctx: ScenarioEngine): Promise<void> {
   await settle(ctx.settleMs)
   if (echoAcknowledgedMarkReads(ctx).length === 0) return
   await settle(ctx.settleMs)

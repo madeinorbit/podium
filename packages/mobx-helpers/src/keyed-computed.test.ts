@@ -1,6 +1,28 @@
 import { autorun, compareStructural, configure, observable, onBecomeObserved, onBecomeUnobserved, runInAction, spy, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { keyedComputed } from './keyed-computed'
+import { allowImperativeRead, keyedComputed } from './keyed-computed'
+
+describe('allowImperativeRead', () => {
+  it('permits strict observable reads outside a reaction', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    configure({ observableRequiresReaction: true })
+    try {
+      const input = observable.box(1)
+      expect(allowImperativeRead(() => input.get())).toBe(1)
+      expect(warn).not.toHaveBeenCalled()
+    } finally { warn.mockRestore(); configure({ observableRequiresReaction: false }) }
+  })
+
+  it('retains dependencies when called from a reaction', () => {
+    const input = observable.box(1)
+    const read = vi.fn(() => allowImperativeRead(() => input.get()))
+    const stop = autorun(read)
+    try {
+      runInAction(() => input.set(2))
+      expect(read.mock.results.map(result => result.value)).toEqual([1, 2])
+    } finally { stop() }
+  })
+})
 
 describe('keyedComputed', () => {
   it('shares each observed key and releases it after the last reader', () => {

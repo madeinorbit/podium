@@ -2,6 +2,7 @@
  * Only the compact result survives a filing run; getter memos are discarded. */
 import type { RowView } from '@podium/client-graph/shared/row-view'
 import { allRelations, SCHEMA } from '@podium/client-graph/shared/schema'
+import { relationTargets } from '@podium/client-graph/shared/links'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { isLinkSpec, relationRef } from '../../hand/pool/relations'
 import {
@@ -37,22 +38,30 @@ function scopeOf(pool: LeanPool) {
   // these summary groups die with this filing run (they are not in its result).
   const summaryGroups = new Map<string, Map<string, Set<string>>>()
   const summaryForward = new Map<string, Map<string, string>>()
+  const summaryMany = new Map<string, Map<string, ReadonlySet<string>>>()
   for (const { from, name, relation } of allRelations()) {
     if (!isLinkSpec(relation) || relation.kind === 'prefix') continue
     const groups = new Map<string, Set<string>>()
     const forward = new Map<string, string>()
+    const forwardMany = new Map<string, ReadonlySet<string>>()
     for (const id of pool.residency.ids(from)) {
       const summary = pool.row(from, id, 'summary') as Record<string, unknown> | undefined
       if (!summary || (relation.where && !relation.where.test(summary))) continue
-      const target = relationRef(relation, summary, SCHEMA)
-      if (target === null) continue
-      forward.set(id, target)
-      const members = groups.get(target) ?? new Set<string>()
-      members.add(id)
-      groups.set(target, members)
+      if (!relation.uncollapsed && pool.engine.isCollapsed(from, id)) continue
+      const many = relation.kind === 'edge' && relation.many
+      const target = many ? null : relationRef(relation, summary, SCHEMA)
+      const targets = many ? relationTargets(from, name, summary) : new Set(target === null ? [] : [target])
+      if (many) forwardMany.set(id, targets)
+      else if (target !== null) forward.set(id, target)
+      for (const target of targets) {
+        const members = groups.get(target) ?? new Set<string>()
+        members.add(id)
+        groups.set(target, members)
+      }
     }
     summaryGroups.set(`${relation.to}.${relation.inverse}`, groups)
     summaryForward.set(`${from}.${name}`, forward)
+    if (relation.kind === 'edge' && relation.many) summaryMany.set(`${from}.${name}`, forwardMany)
   }
   const relations: ViewInputs['relations'] = {
     one: (from, id, name) =>
@@ -61,10 +70,14 @@ function scopeOf(pool: LeanPool) {
       new Set([
         ...pool.relations.many(from, id, name),
         ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? []),
+        ...(summaryMany.get(`${from}.${name}`)?.get(id) ?? []),
       ]),
     size: (from, id, name) =>
-      pool.relations.size(from, id, name) +
-      (summaryGroups.get(`${from}.${name}`)?.get(id)?.size ?? 0),
+      new Set([
+        ...pool.relations.many(from, id, name),
+        ...(summaryGroups.get(`${from}.${name}`)?.get(id) ?? []),
+        ...(summaryMany.get(`${from}.${name}`)?.get(id) ?? []),
+      ]).size,
     subset: (from, id, name, subset) => pool.relations.subset(from, id, name, subset),
   }
   const issues = [...tables.issue.keys()].map((id) => ({ id }))

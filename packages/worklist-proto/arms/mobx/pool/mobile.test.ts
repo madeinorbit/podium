@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '@podium/client-graph/create'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import * as writeClock from '@podium/client-graph/shared/write-contract'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
@@ -19,9 +20,18 @@ import { writeResult } from '../../../harness/src/results'
 import { countKinds, gen, genCorpus } from '../../../shared/src/gen/changes'
 import { startGenRun } from '../../../shared/src/gen/run'
 import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
-import { startScenarioEngine, upsert } from '../../../shared/src/scenarios'
+import { settled, startScenarioEngine, upsert } from '../../../shared/src/scenarios'
 
 installMobxWarnTrap()
+
+/** Pending mark-read values use the same deterministic clock as server echoes. */
+async function mobileRun(corpus = genCorpus()) {
+  let now = () => corpus.fixedNow
+  vi.spyOn(writeClock, 'wallClockNow').mockImplementation(() => now())
+  const run = await startGenRun({ corpus, feedMode: 'pooled' })
+  now = () => run.ctx.engine.readLocal('coarseNow')
+  return run
+}
 
 function settle(pool: MobxPool, state: MobileWorkState = {}): void {
   for (let window = 0; window < 64; window += 1) {
@@ -34,8 +44,10 @@ function settle(pool: MobxPool, state: MobileWorkState = {}): void {
 describe('mobile pool values', () => {
   for (const scale of [1, 4] as const) it(`corpus and methodology changes at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
+    vi.spyOn(writeClock, 'wallClockNow').mockImplementation(() => ctx.engine.readLocal('coarseNow'))
     const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
+    feeds.attachPool(handle.pool)
     const nativeState: MobileWorkState = {}
     const checks: unknown[] = []
     let previous: readonly MobileWorkSection[] | undefined
@@ -68,8 +80,16 @@ describe('mobile pool values', () => {
       catch (cause) { identityFailure ??= cause }
       return snapshot
     }, () => {}, { fireImmediately: true })
-    const check = (scenario: string) => {
+    const check = async (scenario: string) => {
       feeds.flush(); settle(handle.pool)
+      if (scenario === 'selectionClick') {
+        // At 4x, navigation activity can need a cold subtree. Its completed
+        // loads trigger the eager mark-read after the selection write settled.
+        await settled(ctx)
+        feeds.flush(); settle(handle.pool)
+        expect(tracked(() => handle.pool.mobileWork.row({ id: ctx.targets.visibleRootId, kind: 'issue' })))
+          .toMatchObject({ unread: false })
+      }
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
       for (const searching of [false, true]) {
@@ -86,15 +106,15 @@ describe('mobile pool values', () => {
       expect(Object.keys(value!).sort()).toEqual([...MOBILE_ROW_FIELDS].sort())
     }
     try {
-      check('corpus')
-      for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); check(scenario.scenario) }
+      await check('corpus')
+      for (const scenario of FENCE_SCENARIOS) { await scenario.write(ctx); await check(scenario.scenario) }
       expect(retained).toBeGreaterThan(0)
       writeResult(`mobile-${scale}x`, { issue: 'POD-5439', scale, checks, retainedNativeArrays: retained })
     } finally { stop(); handle.dispose(); feeds.dispose(); ctx.engine.destroy() }
   }, 600_000)
 
   it('pinned asks keep both keys, complete counts and their original reorder scope', async () => {
-    const run = await startGenRun({ feedMode: 'pooled' })
+    const run = await mobileRun()
     const locals = createEngineLocals(run.ctx.engine)
     const handle = createWorklistPool(run.feed().source, locals.source)
     const id = 'mobile-pinned-ask'
@@ -117,7 +137,7 @@ describe('mobile pool values', () => {
   }, 120_000)
 
   it('draft quietness suppresses unread until the first runtime state and opens its session', async () => {
-    const run = await startGenRun({ feedMode: 'pooled' })
+    const run = await mobileRun()
     const locals = createEngineLocals(run.ctx.engine)
     const handle = createWorklistPool(run.feed().source, locals.source)
     const id = 'mobile-quiet-draft', sessionId = 'mobile-draft-seat'
@@ -174,7 +194,7 @@ describe('mobile pool values', () => {
   const steps = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
   for (let seed = firstSeed; seed <= seeds; seed += 1) it(`observed random-change gate, seed ${seed}`, async () => {
     const corpus = genCorpus(), changes = gen(seed, steps, {}, { corpus, forceSidebarValues: true })
-    const run = await startGenRun({ corpus, feedMode: 'pooled' })
+    const run = await mobileRun(corpus)
     let feed = run.feed(), locals = createEngineLocals(run.ctx.engine)
     let handle = createWorklistPool(feed.source, locals.source)
     const observe = () => reaction(() => poolMobileSnapshot(handle.pool), () => {}, { fireImmediately: true })

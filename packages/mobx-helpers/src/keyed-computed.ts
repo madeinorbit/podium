@@ -1,4 +1,9 @@
-import { _getGlobalState, compareDefault, computed, type IComputedValue, onBecomeUnobserved } from 'mobx'
+import { _getGlobalState, compareDefault, computed, type IComputedValue, onBecomeUnobserved, runInAction } from 'mobx'
+
+/** Permit imperative reads while preserving dependencies for reactive callers. */
+export function allowImperativeRead<T>(read: () => T): T {
+  return _getGlobalState().trackingDerivation ? read() : runInAction(read)
+}
 
 export interface KeyedComputedOptions<K, V> {
   equals?: (previous: V, next: V) => boolean

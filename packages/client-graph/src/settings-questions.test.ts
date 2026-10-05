@@ -119,17 +119,25 @@ it('orders visible automation targets with path maxima and no session catalog at
       listRow: (name: string, id: string) => name === 'repos' ? repos.get(id) : undefined,
       readLocal: () => 'sessions', onList: () => () => {}, onLocals: () => () => {},
     } as unknown as SettingsOwner)
-    f.pool.row('settingsCatalog', 'catalog'); await Promise.resolve()
     const rows = vi.spyOn(f.pool, 'row'), roster = vi.spyOn(f.pool.settingsViews, 'sessions'), ids = vi.spyOn(f.pool.queries, 'ids')
     const view = createPoolProjection(f.pool, pool => automationViews(pool).targets()), paint = vi.fn()
     let stop = () => {}
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })
     try {
       expect(rows).not.toHaveBeenCalled()
-      const first = await measure('automation choices first demand', () => {
+      const first = await measureWork(async () => {
+        insideReader('automation choices first demand', () => {
+          expect(view.getSnapshot().pending).toBe(1)
+          stop = view.subscribe(paint)
+        })
+        // Observed settings demand loads the catalog, then its named rows,
+        // in separate microtasks. An imperative pre-read warms neither.
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(view.getSnapshot().pending).toBe(0)
         expect(view.getSnapshot().choices.map(row => row.value)).toEqual(['/shown', '/other', '__global__'])
-        stop = view.subscribe(paint)
-      })
+      }, { pool: f.pool })
+      paint.mockClear()
       const repeated = await measure('automation choices repeated demand', () => { view.getSnapshot() })
       const unrelated = await measure('automation choices unrelated heartbeat', () => f.publish({ type: 'update', rows: [session('foreign-0', { lastActiveAt: '2021-01-01T00:00:00Z' })] }))
       expect(paint).not.toHaveBeenCalled()
@@ -142,7 +150,7 @@ it('orders visible automation targets with path maxima and no session catalog at
       expect(paint).not.toHaveBeenCalled()
       expect(roster).not.toHaveBeenCalled(); expect(ids).not.toHaveBeenCalled()
       return Object.fromEntries(Object.entries({ first, repeated, unrelated, changed, closed }).map(([name, value]) => [name, value.work]))
-    } finally { stop(); rows.mockRestore(); roster.mockRestore(); ids.mockRestore(); f.pool.dispose() }
+    } finally { stop(); view.dispose(); rows.mockRestore(); roster.mockRestore(); ids.mockRestore(); f.pool.dispose() }
   }
   const first = await measured(1), second = await measured(4)
   console.info('automation target work1x4x', JSON.stringify({ first, second }))
