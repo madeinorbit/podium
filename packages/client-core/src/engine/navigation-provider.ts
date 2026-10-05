@@ -6,6 +6,15 @@ import type { SessionView } from '../session-values'
 export const NAVIGATION_LOADING = Symbol('navigation loading')
 export type NavigationRead<T> = T | undefined | typeof NAVIGATION_LOADING
 export type NavigationWorktreeSession = Pick<SessionView, 'sessionId' | 'cwd' | 'name' | 'title'>
+export interface NavigationTopologySession {
+  id: string
+  before?: { cwd: string; issueId?: string; order: string }
+  after?: { cwd: string; issueId?: string; order: string }
+}
+export interface NavigationTopologyDelta {
+  reset: boolean
+  sessions: readonly NavigationTopologySession[]
+}
 export type NavigationIssue = Pick<
   IssueProjection,
   'id' | 'updatedAt' | 'archived' | 'deletedAt' | 'worktreePath'
@@ -22,9 +31,16 @@ export interface NavigationProvider {
   sessionMembership?(id: string): NavigationRead<Pick<SessionView, 'sessionId' | 'cwd' | 'issueId'>>
   /** The existing source identities and cold fields for worktree move notices. */
   worktreeSessions?(): NavigationRead<readonly NavigationWorktreeSession[]>
+  /** Named registered paths and source-maintained scalar membership. */
+  registeredWorktree?(path: string): NavigationRead<boolean>
+  worktreeForCwd?(cwd: string): NavigationRead<string | null>
+  firstWorktree?(): NavigationRead<string | null>
+  hasWorktreeSession?(path: string): NavigationRead<boolean>
+  worktreeSession?(id: string): NavigationRead<NavigationWorktreeSession>
+  topologySession?(id: string): NavigationTopologySession['after']
   issueSessions?(id: string): NavigationRead<readonly SessionView[]>
   /** Pool topology changes, excluding ordinary activity/title updates. */
-  onTopology?(changed: () => void): () => void
+  onTopology?(changed: (delta?: NavigationTopologyDelta) => void): () => void
   activityAt(id: string): NavigationRead<string>
   issueReadAt(id: string): string | null | undefined
   /** Track just the addressed reads made by the current navigation. */

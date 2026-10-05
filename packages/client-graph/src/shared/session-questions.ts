@@ -69,6 +69,8 @@ export interface SessionQuestions {
   activityRevision(question: SessionActivityQuestion): number
   issueCloseCounts(issueId: string): IssueCloseMemberCounts
   referenceId(ref: string): string | undefined
+  hasWithin(path: string): boolean
+  present(id: string): boolean
 }
 export const compareTriageSessions = (a: TriageSession, b: TriageSession) =>
   a.rank - b.rank || b.at.localeCompare(a.at) ||
@@ -206,6 +208,11 @@ export function createSessionQuestions(
     file(next)
   }
   const api: SessionQuestions = {
+    hasWithin: path => activities.get(`activity:within:${path}`)?.answer.first() !== undefined,
+    present(id) {
+      const value = facts.get(id)
+      return value !== undefined && (activities.get(`activity:exact:${value.cwd}`)?.answer.has(id) ?? false)
+    },
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,

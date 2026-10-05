@@ -62,6 +62,7 @@ import {
 } from '../ui-state'
 import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
 import { Reactions } from './reactions'
+import { NAVIGATION_LOADING, type NavigationProvider, type NavigationTopologyDelta } from './navigation-provider'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 import type { EngineState } from './state'
 
@@ -278,6 +279,7 @@ function makeEngine(
     draftPersistDebounceMs?: number
     principal?: string
     coarseClock?: CoarseClock
+    info?: (title: string, destination?: string) => void
   } = {},
 ) {
   const hub = opts.hub ?? new FakeHub()
@@ -289,7 +291,7 @@ function makeEngine(
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
-    notices: { error: (m) => errors.push(m), info: () => {} },
+    notices: { error: (m) => errors.push(m), info: opts.info ?? (() => {}) },
     createReplicaFn: () =>
       opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
@@ -320,6 +322,71 @@ function makeEngine(
 }
 
 // ---------------------------------------------------------------- tests
+
+describe('addressed topology navigation', () => {
+  function addressed(engine: ReturnType<typeof makeEngine>['engine']) {
+    const rows = new Map<string, SessionView>()
+    let changed: ((delta?: NavigationTopologyDelta) => void) | undefined
+    let watched: (() => void) | undefined
+    let labelLoading = false
+    const summaries = vi.fn((id: string) => labelLoading ? NAVIGATION_LOADING : rows.get(id))
+    const provider: NavigationProvider = {
+      issue: () => undefined, missionRoot: () => undefined, missionMembers: () => new Set(),
+      issueReadAt: () => undefined, activityAt: () => undefined,
+      session: id => rows.get(id), sessionMembership: id => rows.get(id),
+      registeredWorktree: path => path === '/old' || path === '/dest',
+      firstWorktree: () => '/old', hasWorktreeSession: () => false,
+      worktreeForCwd: cwd => cwd === '/old' || cwd === '/dest' ? cwd : null,
+      worktreeSession: summaries,
+      topologySession: id => { const row = rows.get(id); return row ? { cwd: row.cwd, order: id } : undefined },
+      onTopology: fn => { changed = fn; return () => { changed = undefined } },
+      watch: (read, wake) => { read(); watched = wake; return () => { if (watched === wake) watched = undefined } },
+    }
+    engine.setNavigationProvider(provider)
+    return { rows, summaries, publish: (delta: NavigationTopologyDelta) => changed?.(delta),
+      loading: (value: boolean) => { labelLoading = value }, wake: () => watched?.() }
+  }
+
+  it('retains a visible move through a reset before the queued wake', async () => {
+    const info = vi.fn(), { engine } = makeEngine({ info })
+    const f = addressed(engine)
+    try {
+      f.rows.set('pane', session('pane', '/old'))
+      engine.access.navigateWorkspace({ selectedWorktree: '/old', tabId: asSessionId('pane'), firstPane: true })
+      await settle()
+      f.rows.set('pane', session('pane', '/dest'))
+      f.publish({ reset: false, sessions: [{ id: 'pane', before: { cwd: '/old', order: 'pane' }, after: { cwd: '/dest', order: 'pane' } }] })
+      f.publish({ reset: true, sessions: [] })
+      await settle()
+      expect(engine.access.selectedWorktree).toBe('/dest')
+      expect(info).not.toHaveBeenCalled()
+    } finally { engine.destroy() }
+  })
+
+  it('retries one background label without demanding first-sight or evicted summaries', async () => {
+    const info = vi.fn(), { engine } = makeEngine({ info })
+    const f = addressed(engine)
+    try {
+      await settle()
+      f.rows.set('background', session('background', '/dest'))
+      f.loading(true)
+      f.publish({ reset: false, sessions: [
+        { id: 'background', before: { cwd: '/old', order: 'background' }, after: { cwd: '/dest', order: 'background' } },
+        ...Array.from({ length: 512 }, (_, i) => ({ id: `new-${i}`, after: { cwd: '/dest', order: `new-${i}` } })),
+        { id: 'evicted', before: { cwd: '/old', order: 'evicted' } },
+      ] })
+      await settle()
+      expect(info).not.toHaveBeenCalled()
+      expect(f.summaries.mock.calls.length).toBeGreaterThan(0)
+      expect(f.summaries.mock.calls.every(([id]) => id === 'background')).toBe(true)
+      f.loading(false); f.wake()
+      await settle()
+      expect(info).toHaveBeenCalledExactlyOnceWith('background moved worktree', '/dest')
+      f.wake(); await settle()
+      expect(info).toHaveBeenCalledTimes(1)
+    } finally { engine.destroy() }
+  })
+})
 
 describe('engine replica construction (POD-1239)', () => {
   it('refuses to construct without a replica factory instead of adopting ambient storage', () => {

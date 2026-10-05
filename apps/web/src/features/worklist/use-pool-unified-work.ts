@@ -110,10 +110,14 @@ function sessionMembership(
     for (const id of issueIds) {
       for (const sessionId of pool.graph.many('issue', id, 'sessions')) retained.add(sessionId)
     }
-  // Keep slice order for lastActiveAt ties, even when a relation bucket was
-  // reordered by a move away and back. Non-candidates cost only an ID probe.
-  for (const id of pool.tables.session.keys()) {
-    if (retained && !retained.has(id)) continue
+  // A scoped question orders only its related resident slots. The unscoped
+  // compatibility menu caller is retired by the separate menu-demand fix.
+  const candidates = retained
+    ? [...retained].filter(id => pool.tables.session.has(id)).sort((a, b) =>
+      (pool.queries.residentInsertionOrder('session', a) ?? Infinity) -
+      (pool.queries.residentInsertionOrder('session', b) ?? Infinity))
+    : pool.tables.session.keys()
+  for (const id of candidates) {
     const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
     if (session === undefined || session === LOADING || !session.issueId) continue
     const members = byIssue.get(session.issueId)
@@ -151,10 +155,10 @@ export function createPoolWorkActions(
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
     const sessions = sessionMembership(pool, issueIds)
-    // The legacy candidate order is the slice order, including tie-breaking
-    // on lastActiveAt. Walk resident keys, reading only this mission's rows.
-    for (const member of pool.tables.issue.keys()) {
-      if (!issueIds.has(member)) continue
+    const orderedMembers = [...issueIds].filter(member => pool.tables.issue.has(member)).sort((a, b) =>
+      (pool.queries.residentInsertionOrder('issue', a) ?? Infinity) -
+      (pool.queries.residentInsertionOrder('issue', b) ?? Infinity))
+    for (const member of orderedMembers) {
       // The app's issue membership summary comes from session.issueId and
       // excludes dock shells. Cwd-only seats can draw a row but do not become
       // workspace pane candidates for an issue.

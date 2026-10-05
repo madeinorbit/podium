@@ -1,5 +1,6 @@
 import { createAtom, type IAtom, observe, reaction, untracked } from 'mobx'
 import { residentIds } from './enumerate'
+import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { parseSessionRef } from '@podium/protocol'
 import type { MobxPool } from './pool'
@@ -12,6 +13,7 @@ import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
 import type { SessionQuestions } from './shared/session-questions'
 import type { RowSourceEvent } from './shared/source'
+import { createWorktreeQuestions } from './shared/worktree-questions'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 interface IdentityResult {
@@ -39,6 +41,10 @@ export class ReaderQueries {
   private readonly repoOverrides = new Map<string, string | undefined>()
   private readonly repoStops = new Map<string, () => void>()
   private readonly sessionReferenceAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
+  private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
+  private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
+  private readonly worktrees = createWorktreeQuestions()
+  private readonly firstWorktreeAtom = createAtom('history.firstWorktree')
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: ColdQueries | undefined
   private readonly observed = new Map<
@@ -53,6 +59,8 @@ export class ReaderQueries {
    * maintained at ingestion, never discovered by walking resident history. */
   private readonly residents = createReaderIndex({ targetSearch: false, recent: false })
   private readonly residentIssueIds = new Set<string>()
+  private readonly residentOrder = { issue: new Map<string, number>(), session: new Map<string, number>() }
+  private residentSequence = 0
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
   // Existing question atoms publish changes; these sets add no tracking objects.
@@ -91,9 +99,60 @@ export class ReaderQueries {
         ))
       }
     }))
+    this.stopTables.push(observe(pool.tables.worktree, change => {
+      const row = pool.tables.worktree.get(change.name) as Readonly<Record<string, unknown>> | undefined
+      this.changeWorktree(change.name, row)
+      if (change.type === 'add' || change.type === 'delete') this.publishTopology({ reset: false, sessions: [] })
+    }))
+  }
+  private changeWorktree(id: string, row: Readonly<Record<string, unknown>> | undefined): void {
+    const before = this.worktrees.first()
+    this.worktrees.set(id, row)
+    if (before !== this.worktrees.first()) {
+      this.firstWorktreeAtom.reportChanged()
+      this.publishTopology({ reset: false, sessions: [] })
+    }
+  }
+  firstWorktreePath(): string | null {
+    this.firstWorktreeAtom.reportObserved()
+    this.counts.scalarVisits++
+    return this.worktrees.first()
+  }
+  /** Presence is independent of an activity timestamp, including epoch zero. */
+  hasSessionWithin(path: string): boolean {
+    const value = this.sessionQuestions().hasWithin(path), state = this.sessionPathAtoms.get(path)
+    if (state) state.atom.reportObserved()
+    else {
+      const atom = createAtom(`history.sessionPath:${path}`, undefined, () => this.sessionPathAtoms.delete(path))
+      if (atom.reportObserved()) this.sessionPathAtoms.set(path, { atom, value })
+    }
+    this.counts.scalarVisits++
+    return value
+  }
+  private publishSessionPath(path: string): void {
+    const state = this.sessionPathAtoms.get(path)
+    if (!state) return
+    const value = this.sessionQuestions().hasWithin(path)
+    if (value === state.value) return
+    state.value = value; state.atom.reportChanged()
+  }
+  onTopology(listener: (delta: NavigationTopologyDelta) => void): () => void {
+    // Fork the already maintained source roots before its next publication.
+    this.sessionQuestions()
+    this.topologyListeners.add(listener)
+    return () => this.topologyListeners.delete(listener)
+  }
+  private publishTopology(delta: NavigationTopologyDelta): void {
+    for (const listener of this.topologyListeners) listener(delta)
+  }
+  sessionTopology(id: string): NavigationTopologyDelta['sessions'][number]['after'] {
+    const questions = this.sessionQuestions(), fact = questions.fact(id)
+    return fact && questions.present(id) ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined
   }
   private updateResident(entity: 'issue' | 'session', id: string): void {
     const present = this.pool.tables[entity].has(id)
+    if (!present) this.residentOrder[entity].delete(id)
+    else if (!this.residentOrder[entity].has(id)) this.residentOrder[entity].set(id, ++this.residentSequence)
     if (entity === 'issue') {
       if (present) this.residentIssueIds.add(id)
       else this.residentIssueIds.delete(id)
@@ -263,6 +322,11 @@ export class ReaderQueries {
   has(question: ReaderQuestion, id: string): boolean {
     return this.includes(question, id)
   }
+  /** Gesture-local order of a named resident slot, matching table insertion
+   * ties without iterating the table to discover that slot's position. */
+  residentInsertionOrder(entity: 'issue' | 'session', id: string): number | undefined {
+    return this.residentOrder[entity].get(id)
+  }
   /** Ancestor scope follows only its four visibility bits, never its title or
    * other presentation fields. Resident writes shadow the source by address. */
   issueScope(id: string): IssueScopeFacts | undefined {
@@ -311,18 +375,38 @@ export class ReaderQueries {
     state.atom.reportChanged()
   }
   private changeSessionFacts(id: string, change: (questions: SessionQuestions) => void): void {
-    const questions = this.sessionQuestions(), before = questions.fact(id)?.issueId
-    const beforeRef = questions.fact(id)?.displayRef
-    const beforePresent = questions.fact(id) !== undefined
+    const questions = this.sessionQuestions(), previous = questions.fact(id)
+    const before = previous?.issueId, beforeRef = previous?.displayRef
+    const beforePresent = previous !== undefined
+    const beforeVisible = this.topologyListeners.size ? questions.present(id) : false
     change(questions)
-    if (beforePresent !== (questions.fact(id) !== undefined))
+    const next = questions.fact(id)
+    if (beforePresent !== (next !== undefined))
       this.sessionAtoms.get(`presence:${id}`)?.reportChanged()
-    const after = questions.fact(id)?.issueId
+    const after = next?.issueId
     if (before) this.publishIssueClose(before)
     if (after && after !== before) this.publishIssueClose(after)
     this.publishSessionReference(beforeRef)
-    const afterRef = questions.fact(id)?.displayRef
+    const afterRef = next?.displayRef
     if (afterRef !== beforeRef) this.publishSessionReference(afterRef)
+    if (this.sessionPathAtoms.size) {
+      const paths = new Set<string>()
+      for (const cwd of [previous?.cwd, next?.cwd]) {
+        if (cwd === undefined) continue
+        paths.add(cwd)
+        for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) paths.add(cwd.slice(0, at))
+      }
+      for (const path of paths) this.publishSessionPath(path)
+    }
+    if (this.topologyListeners.size) {
+      const afterVisible = questions.present(id)
+      if (beforeVisible !== afterVisible || (beforeVisible && afterVisible && (
+        previous?.cwd !== next?.cwd || previous?.issueId !== next?.issueId || previous?.order !== next?.order
+      ))) this.publishTopology({ reset: false, sessions: [{ id,
+        before: previous && beforeVisible ? { cwd: previous.cwd, issueId: previous.issueId, order: previous.order } : undefined,
+        after: next && afterVisible ? { cwd: next.cwd, issueId: next.issueId, order: next.order } : undefined,
+      }] })
+    }
   }
   /** Raw parent edges count archived/deleted children, with only stage=done
    * contributing to the completed count, matching the issue close contract. */
@@ -395,10 +479,39 @@ export class ReaderQueries {
     if (!state.atom.reportObserved() && created) this.observed.delete(key)
     return index
   }
+  private publicationTopologyBefore: Map<string, NavigationTopologyDelta['sessions'][number]['before']> | undefined
+  /** Keep the named before facts before table observers can adopt a freshly
+   * replaced source root. This is publication input, released at publish. */
+  beginPublication(event: RowSourceEvent): void {
+    this.publicationTopologyBefore = undefined
+    if (!this.topologyListeners.size || !this.effectiveSessions ||
+      (event.type !== 'replace' && (this.sourceSeen === undefined || this.sourceSeen === this.index()))) return
+    const before = new Map<string, NavigationTopologyDelta['sessions'][number]['before']>()
+    for (const row of event.rows) if (row.kind === 'session' && !before.has(row.id)) {
+      const fact = this.effectiveSessions.fact(row.id)
+      before.set(row.id, fact && this.effectiveSessions.present(row.id)
+        ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined)
+    }
+    this.publicationTopologyBefore = before
+  }
   publish(event: RowSourceEvent): void {
     const index = this.index()
     const fresh = this.sourceSeen !== undefined && this.sourceSeen !== index
     this.sourceSeen = index
+    // A replacement carries every new identity. Compare those addressed
+    // records against the prior persistent roots before forking the new roots;
+    // new IDs have no before fact and remain first sight.
+    const beforeReplacement = this.publicationTopologyBefore ?? new Map<string, NavigationTopologyDelta['sessions'][number]['before']>()
+    const captured = this.publicationTopologyBefore !== undefined
+    this.publicationTopologyBefore = undefined
+    if (!captured && (event.type === 'replace' || fresh) && this.topologyListeners.size && this.effectiveSessions)
+      for (const row of event.rows) if (row.kind === 'session' && !beforeReplacement.has(row.id)) {
+        const fact = this.effectiveSessions.fact(row.id)
+        beforeReplacement.set(row.id, fact && this.effectiveSessions.present(row.id)
+          ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order } : undefined)
+      }
+    for (const row of event.rows) if (row.kind === 'worktree')
+      this.changeWorktree(row.id, row.value as Readonly<Record<string, unknown>> | undefined)
     if (event.type === 'replace' || fresh) {
       this.effectiveSource = index
       this.effectiveSessions = index.forkSessionQuestions(
@@ -449,6 +562,14 @@ export class ReaderQueries {
       for (const id of this.issueChildAtoms.keys()) this.publishIssueChildren(id)
       for (const id of this.linkedIssueAtoms.keys()) this.publishLinkedIssue(id)
       for (const ref of this.sessionReferenceAtoms.keys()) this.publishSessionReference(ref)
+      for (const path of this.sessionPathAtoms.keys()) this.publishSessionPath(path)
+      const sessions: NavigationTopologyDelta['sessions'][number][] = []
+      for (const [id, before] of beforeReplacement) {
+        const after = this.sessionTopology(id)
+        if (before?.cwd !== after?.cwd || before?.issueId !== after?.issueId || before?.order !== after?.order)
+          sessions.push({ id, before, after })
+      }
+      this.publishTopology({ reset: true, sessions })
     }
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
@@ -682,7 +803,13 @@ export class ReaderQueries {
     this.linkedAliases.clear()
     this.linkedPrefixes.clear()
     this.sessionReferenceAtoms.clear()
+    this.sessionPathAtoms.clear()
+    this.topologyListeners.clear()
+    this.publicationTopologyBefore = undefined
+    this.worktrees.clear()
     this.residentIssueIds.clear()
+    this.residentOrder.issue.clear()
+    this.residentOrder.session.clear()
     this.residents.apply({ type: 'replace', rows: [] })
     this.effectiveSessions?.clear()
     this.effectiveSessions = undefined

@@ -15,16 +15,7 @@ import { LOADING } from './worklist/rollup'
 export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider {
   const provider: NavigationProvider = {
     onTopology(changed) {
-      // The source owns these facts once. Following its revision needs no
-      // history scan, row facets or second per-session metadata map.
-      let index = pool.coldIndex(), version = index.sessionTopologyVersion
-      return pool.queries.onChange(event => {
-        const next = pool.coldIndex(), revision = next.sessionTopologyVersion
-        const moved = event.type === 'replace' || next !== index || revision !== version
-        index = next
-        version = revision
-        if (moved) changed()
-      })
+      return pool.queries.onTopology(changed)
     },
     issueSessions(id) {
       const rows: SessionView[] = []
@@ -64,22 +55,10 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       let row = pool.row('session', id)
       if (row === LOADING) return NAVIGATION_LOADING
       if (row !== undefined || !parseSessionRef(id.trim())) return row as SessionView | undefined
-      // Permanent birth refs are also local navigation targets. The declared
-      // reference question names the candidates; it never enumerates history.
-      // Cold candidates answer through the declared scalar summary.
-      const ref = id.trim()
-      let pending = false
-      for (const key of pool.queries.indexed({ kind: 'sessionReference', ref }).sort()) {
-        const summary = pool.row('session', key, 'summary')
-        if (summary === LOADING) {
-          pending = true
-          continue
-        }
-        if ((summary as { displayRef?: string } | undefined)?.displayRef !== ref) continue
-        row = pool.row('session', key)
-        return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
-      }
-      return pending ? NAVIGATION_LOADING : undefined
+      const key = pool.queries.sessionReferenceId(id.trim())
+      if (!key) return undefined
+      row = pool.row('session', key)
+      return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },
     sessionMembership(id) {
       const row = pool.row('session', id, 'summary-fields')
@@ -87,23 +66,32 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
     },
-    worktreeSessions() {
-      const rows = []
-      const ids = pool.queries
-        .ids({ kind: 'shellSessions' })
-        .filter((id) => !pool.queries.collapsed(id))
-        .sort((a, b) => {
-          const left = pool.queries.orderKey(a),
-            right = pool.queries.orderKey(b)
-          return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
-        })
-      for (const id of ids) {
-        const row = pool.row('session', id, 'summary-fields')
-        if (row === LOADING) return NAVIGATION_LOADING
-        if (row) rows.push(row)
-      }
-      return rows as ReturnType<NonNullable<NavigationProvider['worktreeSessions']>>
+    registeredWorktree(path) {
+      return (pool.row('worktree', path) as { path?: string } | undefined)?.path === path
     },
+    worktreeForCwd(cwd) {
+      // Probe directory ancestors, preserving plain and trailing-slash roots.
+      // The source's session relation also accepts issue-only roots; navigation
+      // deliberately follows only lanes registered by the machine scan.
+      let path = cwd.length > 1 && cwd.endsWith('/') ? cwd.slice(0, -1) : cwd
+      if (provider.registeredWorktree!(cwd)) return cwd
+      if (path !== cwd && provider.registeredWorktree!(path)) return path
+      while (path.length > 1) {
+        const slash = path.lastIndexOf('/')
+        if (slash < 0) return null
+        path = slash === 0 ? '/' : path.slice(0, slash)
+        if (path !== '/' && provider.registeredWorktree!(`${path}/`)) return `${path}/`
+        if (provider.registeredWorktree!(path)) return path
+      }
+      return null
+    },
+    firstWorktree: () => pool.queries.firstWorktreePath(),
+    hasWorktreeSession: path => pool.queries.hasSessionWithin(path),
+    worktreeSession(id) {
+      const row = pool.row('session', id, 'summary-fields')
+      return row === LOADING ? NAVIGATION_LOADING : row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>
+    },
+    topologySession: id => pool.queries.sessionTopology(id),
     activityAt(id) {
       const latest = navigationActivity(pool).activityAt(id)
       return latest === LOADING ? NAVIGATION_LOADING : latest
@@ -124,7 +112,12 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     missionMembers: read(provider.missionMembers),
     session: read(provider.session),
     sessionMembership: read(provider.sessionMembership!),
-    worktreeSessions: read(provider.worktreeSessions!),
+    registeredWorktree: read(provider.registeredWorktree!),
+    worktreeForCwd: read(provider.worktreeForCwd!),
+    firstWorktree: read(provider.firstWorktree!),
+    hasWorktreeSession: read(provider.hasWorktreeSession!),
+    worktreeSession: read(provider.worktreeSession!),
+    topologySession: read(provider.topologySession!),
     activityAt: read(provider.activityAt),
     issueReadAt: read(provider.issueReadAt),
   }

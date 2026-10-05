@@ -110,6 +110,7 @@ import {
   initialEngineState,
   NAVIGATION_LOADING,
   type NavigationProvider,
+  type NavigationTopologySession,
   navigationSession,
   overlayState,
   resolvedWorkspaceKey,
@@ -371,6 +372,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private pendingSessionNavigation: string | undefined
   private navigationWakeQueued = false
   private pendingNavigationTopology = false
+  private readonly pendingWorktreeMoves = new Map<string, NavigationTopologySession>()
   private pendingWorktreeFallback = false
   private statsReactionDepth = 0
   readonly services: EngineStatics<TApi>
@@ -940,6 +942,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.pendingNavigation = undefined
     this.pendingSessionNavigation = undefined
     this.pendingNavigationTopology = false
+    this.pendingWorktreeMoves.clear()
     this.pendingWorktreeFallback = false
     this.destroyed = true
     this.poolWriter?.dispose?.()
@@ -959,8 +962,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   setNavigationProvider(provider: NavigationProvider): void {
     if (this.destroyed) return
     this.stopTopologyWatch?.()
-    this.stopTopologyWatch = provider.onTopology?.(() => {
+    this.pendingWorktreeMoves.clear()
+    this.stopTopologyWatch = provider.onTopology?.((delta) => {
       if (this.destroyed) return
+      if (delta?.reset && provider.topologySession)
+        for (const [id, previous] of this.pendingWorktreeMoves)
+          this.pendingWorktreeMoves.set(id, { ...previous, after: provider.topologySession(id) })
+      for (const change of delta?.sessions ?? []) {
+        const previous = this.pendingWorktreeMoves.get(change.id)
+        this.pendingWorktreeMoves.set(change.id, previous
+          ? { id: change.id, before: previous.before, after: change.after }
+          : change)
+      }
       this.pendingNavigationTopology = true
       this.queueNavigationWake(provider)
     })
@@ -992,7 +1005,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       !this.state.selectedIssueId &&
       !this.state.openIssueId &&
       !this.pendingSessionNavigation &&
-      !this.pendingNavigation
+      !this.pendingNavigation &&
+      this.pendingWorktreeMoves.size === 0 && !this.pendingWorktreeFallback && !this.pendingNavigationTopology
     ) {
       previous?.()
       return
@@ -1017,6 +1031,16 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         const issue = foregroundIssue(st)
         const pending = this.pendingNavigation
         return [
+          this.pendingNavigationTopology
+            ? [...this.pendingWorktreeMoves.values()]
+                .filter(change => change.before && change.after && change.before.cwd !== change.after.cwd)
+                .map(change => provider.worktreeSession?.(change.id))
+            : undefined,
+          (this.pendingNavigationTopology || this.pendingWorktreeFallback) && provider.registeredWorktree
+            ? st.selectedWorktree
+              ? [provider.registeredWorktree(st.selectedWorktree), provider.hasWorktreeSession?.(st.selectedWorktree)]
+              : provider.firstWorktree?.()
+            : undefined,
           !provider.onTopology && (this.pendingNavigationTopology || this.pendingWorktreeFallback)
             ? provider.worktreeSessions?.()
             : undefined,
@@ -1076,15 +1100,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.navigationWakeQueued = false
         if (this.destroyed || this.state.navigation !== provider) return
         this.batch(() => {
-          if (
-            this.pendingNavigationTopology &&
-            this.reactions.worktreeFollow() &&
-            this.reactions.worktreeFallback() &&
-            this.reactions.sessionIssueFollow()
-          ) {
-            this.pendingNavigationTopology = false
-            this.pendingWorktreeFallback = false
-            this.reactions.pruneWorkspaces()
+          if (this.pendingNavigationTopology) {
+            const followed = this.reactions.worktreeFollow([...this.pendingWorktreeMoves.values()])
+            if (followed) this.pendingWorktreeMoves.clear()
+            if (followed && this.reactions.worktreeFallback() && this.reactions.sessionIssueFollow()) {
+              this.pendingNavigationTopology = false
+              this.pendingWorktreeFallback = false
+              this.reactions.pruneWorkspaces()
+            }
           }
           if (
             !this.pendingNavigationTopology &&
@@ -1417,13 +1440,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       route.worktree !== prev?.worktree &&
       route.worktree !== st.selectedWorktree
     ) {
-      const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
-      const crew = st.navigation.worktreeSessions?.()
-      const canShow =
-        !st.reposLoaded ||
-        worktrees.some((w) => w.path === route.worktree) ||
-        crew === NAVIGATION_LOADING ||
-        (crew ?? []).some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
+      let canShow = !st.reposLoaded
+      if (!canShow && st.navigation.registeredWorktree && st.navigation.hasWorktreeSession) {
+        const known = st.navigation.registeredWorktree(route.worktree)
+        const anchored = known === true ? false : st.navigation.hasWorktreeSession(route.worktree)
+        canShow = known === true || anchored === true || known === NAVIGATION_LOADING || anchored === NAVIGATION_LOADING
+      } else if (!canShow) {
+        const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
+        const crew = st.navigation.worktreeSessions?.()
+        canShow = worktrees.some(w => w.path === route.worktree) || crew === NAVIGATION_LOADING ||
+          (crew ?? []).some(s => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
+      }
       if (canShow) patch.selectedWorktree = route.worktree
     }
     // A pane the state is not already showing is a LINK (deep link, back/forward),

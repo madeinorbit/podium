@@ -1015,6 +1015,7 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
+      this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
       // A source that rebuilt its index (a dropped index reseeds) is a new

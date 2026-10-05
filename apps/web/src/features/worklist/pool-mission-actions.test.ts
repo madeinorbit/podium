@@ -4,6 +4,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { createPoolWorkActions } from './use-pool-unified-work'
+import { insideReader, measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
 
 it('selects a spin-off pane through the cached mission with zero legacy mission work', () => {
   const stamp = '2026-10-01T12:00:00Z'
@@ -25,7 +26,7 @@ it('selects a spin-off pane through the cached mission with zero legacy mission 
   const row = vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<typeof pool.sidebar.row>, symbol>>)
   const store = { paneA: null, fileTabs: [], batchGesture: (fn: () => void) => fn(),
     navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
-  const runtime = { getSnapshot: () => store } as unknown as Parameters<typeof createPoolWorkActions>[1]
+  const runtime = { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1]
   const focus = vi.fn()
   try {
     const work = createPoolWorkActions(pool, runtime, focus)
@@ -57,7 +58,7 @@ it('keeps issue and session slice order for tied panes after relation buckets mo
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   const store = { paneA: null, fileTabs: [], batchGesture: (fn: () => void) => fn(),
     navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
-  const runtime = { getSnapshot: () => store } as unknown as Parameters<typeof createPoolWorkActions>[1]
+  const runtime = { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1]
   try {
     pool.apply({ type: 'replace', rows: [
       ...[root, first, second].map(value => ({ kind: 'issue' as const, id: value.id, value })),
@@ -72,4 +73,34 @@ it('keeps issue and session slice order for tied panes after relation buckets mo
       expect(store.navigateWorkspace).toHaveBeenLastCalledWith({ selectedIssueId: root.id, tabId: older.sessionId, firstPane: true })
     } finally { row.mockRestore() }
   } finally { pool.dispose() }
+})
+
+it('selects one mission without visiting unrelated resident keys at 1x/4x', async () => {
+  async function measured(scale: 1 | 4) {
+    const stamp = '2026-10-01T12:00:00Z'
+    const root = { id: 'root', seq: 1, title: 'Root', stage: 'backlog', createdAt: stamp, updatedAt: stamp } satisfies SliceIssue
+    const pane = { sessionId: 'pane', issueId: root.id, cwd: '/root', status: 'live', agentKind: 'codex', createdAt: stamp, lastActiveAt: stamp } satisfies SliceSession
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+    const store = { paneA: null, fileTabs: [], batchGesture: (fn: () => void) => fn(), navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
+    try {
+      pool.apply({ type: 'replace', rows: [
+        { kind: 'issue', id: root.id, value: root }, { kind: 'session', id: pane.sessionId, value: pane },
+        ...Array.from({ length: scale * 128 }, (_, i) => ({ kind: 'issue' as const, id: `foreign-${i}`, value: { ...root, id: `foreign-${i}`, seq: i + 2 } })),
+        ...Array.from({ length: scale * 128 }, (_, i) => ({ kind: 'session' as const, id: `foreign-seat-${i}`, value: { ...pane, sessionId: `foreign-seat-${i}`, issueId: `foreign-${i}` } })),
+      ] })
+      const row = vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<typeof pool.sidebar.row>, symbol>>)
+      const actions = createPoolWorkActions(pool, { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1], vi.fn())
+      actions.selectIssue(root.id)
+      const issueKeys = vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => { throw new Error('whole resident issue keys') })
+      const sessionKeys = vi.spyOn(pool.tables.session, 'keys').mockImplementation(() => { throw new Error('whole resident session keys') })
+      try {
+        const result = await measureWork(() => insideReader('one mission selection', () => actions.selectIssue(root.id)), { pool })
+        expect(store.navigateWorkspace).toHaveBeenLastCalledWith({ selectedIssueId: root.id, tabId: pane.sessionId, firstPane: true })
+        return result.work
+      } finally { issueKeys.mockRestore(); sessionKeys.mockRestore(); row.mockRestore() }
+    } finally { pool.dispose() }
+  }
+  const first = await measured(1), second = await measured(4)
+  console.info('scoped selection work 1x/4x', JSON.stringify({ first, second }))
+  for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const) expect(second[counter]).toBe(first[counter])
 })

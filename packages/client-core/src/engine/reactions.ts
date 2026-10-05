@@ -48,6 +48,7 @@ import {
   workspaceWritePatch,
 } from './state'
 import type { StoreNotices } from './types'
+import type { NavigationTopologySession } from './navigation-provider'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
@@ -312,8 +313,39 @@ export class Reactions {
    *  silently disappears from the tab strip mid-conversation. A background
    *  session's move never yanks the view; it gets a toast so the user knows
    *  where it now lives in the sidebar. */
-  worktreeFollow(): boolean {
+  worktreeFollow(changes: readonly NavigationTopologySession[] = []): boolean {
     const st = this.ports.state()
+    if (st.navigation.worktreeForCwd) {
+      const visible = new Set(this.isVisible() ? visibleTabIds(st) : [])
+      const notices: { title: string; destination: string | undefined }[] = []
+      let follow: string | null = null
+      // Only identities changed since the previous navigation wake participate.
+      // Their final source order preserves which visible move follows first.
+      const moves = changes.filter(change => change.before && change.after && change.before.cwd !== change.after.cwd)
+        .sort((a, b) => {
+          const left = a.after?.order ?? '', right = b.after?.order ?? ''
+          return left < right ? -1 : left > right ? 1 : a.id.localeCompare(b.id)
+        })
+      for (const change of moves) {
+        const from = st.navigation.worktreeForCwd(change.before!.cwd)
+        const to = st.navigation.worktreeForCwd(change.after!.cwd)
+        if (from === NAVIGATION_LOADING || to === NAVIGATION_LOADING) return false
+        if (from === to) continue
+        if (follow === null && to != null && from != null && from === st.selectedWorktree && visible.has(change.id)) {
+          follow = to
+        } else {
+          const row = st.navigation.worktreeSession?.(change.id)
+          if (row === NAVIGATION_LOADING) return false
+          notices.push({ title: `${row?.name || row?.title || 'A session'} moved worktree`,
+            destination: to ?? change.after?.cwd })
+        }
+      }
+      // Resolve the complete changed neighbourhood before producing effects,
+      // so a cold notice can retry without repeating already delivered notices.
+      if (follow) this.ports.publish({ selectedWorktree: follow })
+      for (const notice of notices) this.ports.notices.info(notice.title, notice.destination)
+      return true
+    }
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
     const rows = sessions ?? []
@@ -351,6 +383,20 @@ export class Reactions {
   worktreeFallback(): boolean {
     const st = this.ports.state()
     if (!st.reposLoaded) return true
+    if (st.navigation.registeredWorktree && st.navigation.hasWorktreeSession && st.navigation.firstWorktree) {
+      if (st.selectedWorktree) {
+        const known = st.navigation.registeredWorktree(st.selectedWorktree)
+        if (known === NAVIGATION_LOADING) return false
+        if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
+        const anchored = st.navigation.hasWorktreeSession(st.selectedWorktree)
+        if (anchored === NAVIGATION_LOADING) return false
+        if (anchored) return true
+      }
+      const first = st.navigation.firstWorktree()
+      if (first === NAVIGATION_LOADING) return false
+      this.ports.publish({ selectedWorktree: first ?? null })
+      return true
+    }
     const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
     if (!st.selectedWorktree) {
       this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })

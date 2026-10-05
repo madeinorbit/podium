@@ -613,16 +613,15 @@ describe('web pool navigation', () => {
       ],
     })
     const provider = createPoolNavigationProvider(pool)
-    const questions = vi.spyOn(pool.coldIndex(), 'readerIds')
+    const questions = vi.spyOn(pool.queries, 'sessionReferenceId')
+    const catalog = vi.spyOn(pool.coldIndex(), 'readerIds')
     const residentKeys = vi.spyOn(pool.tables.session, 'keys')
     try {
       expect(tracked(() => provider.session(seat.displayRef))).toBe(NAVIGATION_LOADING)
       expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toBe(NAVIGATION_LOADING)
       expect(load).not.toHaveBeenCalled()
-      expect(questions).toHaveBeenCalledWith({ kind: 'sessionReference', ref: seat.displayRef })
-      expect(questions.mock.calls.every(([question]) => question.kind === 'sessionReference')).toBe(
-        true,
-      )
+      expect(questions).toHaveBeenCalledWith(seat.displayRef)
+      expect(catalog).not.toHaveBeenCalled()
       expect(residentKeys).not.toHaveBeenCalled()
       pool.hydrate()
       expect(load).toHaveBeenCalledTimes(1)
