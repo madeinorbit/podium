@@ -349,6 +349,7 @@ export class ReaderQueries {
   }
   private sourceOnly(question: ReaderQuestion): boolean {
     return (
+      question.kind === 'issueMentionMatches' ||
       question.kind === 'mobileIssueTargets' ||
       question.kind === 'spawnIssues' ||
       (question.kind === 'commandIssueSessions' &&
@@ -683,7 +684,7 @@ export class ReaderQueries {
       ? this.sessionQuestions().recentRevision()
       : value.readerRevision(question) + (this.sourceOnly(question) ? 0 : this.residents.revision(question)))
     // Ranked windows stay bounded in the source's existing index.
-    if (question.kind === 'mobileIssueTargets' || question.kind === 'headerRecentSession') {
+    if (question.kind === 'issueMentionMatches' || question.kind === 'mobileIssueTargets' || question.kind === 'headerRecentSession') {
       const ids = this.initialIds(question, index)
       this.counts.questions++
       this.counts.returnedIds += ids.length

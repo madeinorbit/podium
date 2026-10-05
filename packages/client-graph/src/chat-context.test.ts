@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { chatContextReadStats, createChatContextReader } from './chat-context'
+import { chatContextReadStats, createChatContextReader, chatMentionMatches } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -86,4 +86,30 @@ it('keeps a known missing mention summary pending and coalesces its batched load
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
   expect(reader.mentions()).toMatchObject({ pending: 0, issues: [{ id: 'second' }, { id: 'first' }] })
+})
+
+
+it('reads at most five source-ranked mention summaries on first/repeated 1x/4x histories, with no order catalog', () => {
+  const work: number[] = []
+  for (const size of [64, 256]) {
+    const stamp = '2026-10-05T00:00:00Z', pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+    pools.push(pool)
+    pool.apply({ type: 'replace', rows: Array.from({ length: size + 8 }, (_, i) => ({ kind: 'issue' as const, id: `issue-${i}`,
+      value: { id: `issue-${i}`, seq: i, stage: 'in_progress', title: i < 8 ? 'Unique result' : 'Unrelated issue', repoPath: '/synthetic',
+        createdAt: stamp, updatedAt: i < 8 ? stamp : '2020-01-01T00:00:00Z' },
+    })) })
+    const rows = vi.spyOn(pool, 'row')
+    for (let n = 0; n < 2; n++) {
+      rows.mockClear()
+      const result = chatMentionMatches(pool, 'unique')
+      expect(result.pending).toBe(0)
+      expect(result.issues.map(issue => issue.seq)).toEqual([7, 6, 5, 4, 3])
+      expect(rows.mock.calls.some(([kind]) => kind === 'chatIssueOrder')).toBe(false)
+      const summaries = rows.mock.calls.filter(([kind]) => kind === 'issue')
+      expect(summaries).toHaveLength(5)
+      expect(summaries.every(([, , purpose]) => purpose === 'summary-fields')).toBe(true)
+      work.push(summaries.length)
+    }
+  }
+  expect(work).toEqual([5, 5, 5, 5])
 })

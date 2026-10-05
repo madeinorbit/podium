@@ -132,6 +132,7 @@ import {
   useChatSession,
   useChatSessionExitKind,
   useChatThreads,
+  useChatThread,
 } from './use-chat-context'
 import { useChatSend } from './use-chat-send'
 
@@ -695,4 +696,26 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   expect(corpus.source.counts.outboxReads).toBe(work.outboxReads)
   expect(corpus.source.counts.orderLists).toBe(work.orderLists)
   expect(corpus.source.counts.orderIds).toBe(work.orderIds)
+})
+
+
+it('requests no thread for ordinary chat and only the selected backend row for a superthread', async () => {
+  const rows = vi.spyOn(f.pool!, 'row')
+  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined } })
+  expect(hook.result.current).toBeUndefined()
+  expect(rows.mock.calls.some(([kind]) => kind === 'superThread' || kind === 'superThreadCatalog')).toBe(false)
+  await act(async () => hook.rerender({ id: 'own-thread' }))
+  await waitFor(() => expect(hook.result.current).toMatchObject({ id: 'own-thread' }))
+  expect(rows.mock.calls.some(([kind]) => kind === 'superThreadCatalog')).toBe(false)
+  expect(rows.mock.calls.filter(([kind]) => kind === 'superThread').every(([, id]) => id === 'own-thread')).toBe(true)
+})
+
+it('keeps mention catalog demand off until the picker is visible', async () => {
+  const rows = vi.spyOn(f.pool!, 'row')
+  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), { initialProps: { query: null } })
+  expect(hook.result.current).toEqual([])
+  expect(rows).not.toHaveBeenCalled()
+  await act(async () => hook.rerender({ query: 'task' }))
+  await waitFor(() => expect(hook.result.current.length).toBeGreaterThan(0))
+  expect(rows.mock.calls.some(([kind]) => kind === 'chatIssueOrder')).toBe(false)
 })

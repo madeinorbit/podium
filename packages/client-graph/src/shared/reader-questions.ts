@@ -79,7 +79,7 @@ const referenceText = (text: string) => text.toLocaleLowerCase().replace(/[^a-z0
  * The phone target question answers its declared order/text predicate here;
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
-  const mentions = createIssueMentionIndex()
+  const mentions = options.targetSearch === false ? undefined : createIssueMentionIndex()
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
   const filed = new Map<string, Set<string>>()
@@ -206,9 +206,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       before = filed.get(address) ?? new Set<string>()
     const after = row ? keys(kind, row) : new Set<string>()
     if (kind === 'issue') {
-      const beforeMention = mentions.revision
-      mentions.set(id, row)
-      if (beforeMention !== mentions.revision) touch('issue:mentions')
+      const beforeMention = mentions?.revision
+      mentions?.set(id, row)
+      if (beforeMention !== mentions?.revision) touch('issue:mentions')
       const scope = row
         ? Number(Boolean(row.isDraftVessel)) | (Number(Boolean(row.deletedAt)) << 1) |
           (Number(Boolean(row.archived)) << 2) | (Number(row.audience === 'agent') << 3)
@@ -413,7 +413,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     apply(event: RowSourceEvent) {
       if (event.type === 'replace') {
-        mentions.clear()
+        mentions?.clear()
         buckets.clear()
         repos.clear()
         filed.clear()
@@ -437,7 +437,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       const has = (key: string) => bucket(key).has(id)
       if (!has(`${questionEntity(question)}:all`)) return false
       switch (question.kind) {
-        case 'issueMentionMatches': return mentions.ids(question).includes(id)
+        case 'issueMentionMatches': return mentions?.ids(question).includes(id) ?? false
         case 'residentIssues': return false
         case 'mobileIssueTargets':
         case 'headerRecentSession':
@@ -482,7 +482,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     ids(question: ReaderQuestion): string[] {
       switch (question.kind) {
-        case 'issueMentionMatches': return mentions.ids(question)
+        case 'issueMentionMatches': return mentions?.ids(question) ?? []
         case 'mobileIssueTargets': {
           const ids = targetPostings.get(`issue:path:${question.repoPath}`) ?? []
           const needle = question.query.trim().toLocaleLowerCase()
