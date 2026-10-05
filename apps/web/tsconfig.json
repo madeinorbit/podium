@@ -5,5 +5,5 @@
     "types": ["node", "chai", "react", "react-dom"],
     "preserveSymlinks": false
   },
-  "include": ["src", "test", "vite.config.ts", "harness/speed-gate.ts", "harness/browser-paint.ts"]
+  "include": ["src", "test", "vite.config.ts", "harness/speed-gate.ts", "harness/browser-paint.ts", "harness/interaction-idle-proof.ts"]
 }
