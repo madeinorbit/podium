@@ -351,13 +351,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
   useEffect(() => { transcript.markRendered() }, [itemCount, transcript])
+  const pendingSeed = conversation.pending.some((turn) => turn.id === 'pending-first-turn')
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
     if (pendingSeedSession.current !== sessionId) return
-    if (conversation.pending.some((turn) => turn.id === 'pending-first-turn')) return
+    if (pendingSeed) return
     pendingSeedSession.current = null
     onInitialPendingSettled?.()
-  }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
+  }, [pendingSeed, initialPendingText, onInitialPendingSettled, sessionId])
 
   /**
    * WHAT GOES ON THE WIRE IS NOT WHAT GOES IN THE BUBBLE.

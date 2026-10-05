@@ -77,7 +77,7 @@ vi.mock('../components/TranscriptList', async () => {
   return {
   TranscriptList: observer(({
     transcript,
-    items = transcript?.items ?? [],
+    items = transcript?.ids.map(id => transcript.byId.get(id)!) ?? [],
     liveItem,
     tail,
     pendingTurns = [],
@@ -247,6 +247,7 @@ describe('SuperagentScreen chrome', () => {
             label: 'Bash',
           }),
         )
+        await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       })
       for (const action of [restore, send, status]) {
         expect(action.roleReads).toBe(0)
@@ -290,9 +291,11 @@ describe('SuperagentScreen chrome', () => {
         { reset: false },
       ),
     )
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
     items = []
     await act(async () => view.emit('transcriptDelta', 'session:superagent', [], { reset: true }))
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     expect(transcriptProps.at(-1)?.items).toEqual([])
     expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
   })
@@ -526,6 +529,7 @@ describe('SuperagentScreen chrome', () => {
         kind: 'partial-text',
         text: 'one',
       })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       view.emit('headlessActivity', 'session:superagent', {
         kind: 'partial-text',
         text: 'one two',
@@ -555,6 +559,7 @@ describe('SuperagentScreen chrome', () => {
         kind: 'partial-text',
         text: 'newer than the status',
       })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       frames[1]?.(1)
     })
 
@@ -568,6 +573,7 @@ describe('SuperagentScreen chrome', () => {
         kind: 'partial-text',
         text: 'must not survive turn end',
       })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' })
       view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' })
       // Model the host dequeuing the callback just before cancelAnimationFrame.
@@ -584,6 +590,7 @@ describe('SuperagentScreen chrome', () => {
         kind: 'partial-text',
         text: 'cancel on unmount',
       })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     })
     expect(requestFrame).toHaveBeenCalledTimes(4)
     view.unmount()
@@ -674,6 +681,7 @@ describe('SuperagentScreen chrome', () => {
       first.emit('transcriptDelta', 'session:superagent', items, { reset: false })
       first.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' })
     })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     await waitFor(() =>
       expect(screen.getByTestId('superagent-live-text').textContent).toBe('Successful reply'),
     )
@@ -743,6 +751,7 @@ describe('SuperagentScreen chrome', () => {
         { reset: false },
       ),
     )
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByTestId('superagent-failed-row')).toBeNull()
     expect(screen.queryByText(savedFailure.error)).toBeNull()
@@ -806,6 +815,7 @@ describe('SuperagentScreen chrome', () => {
             { reset: false },
           ),
         )
+        await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       } else {
         const event =
           activity === 'partial-text'
@@ -816,9 +826,11 @@ describe('SuperagentScreen chrome', () => {
                 ? { kind: 'turn-end', error: 'Current live failure' }
                 : { kind: activity }
         act(() => view.emit('headlessActivity', 'session:superagent', event))
+        await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       }
       if (activity !== 'failed turn-end') {
         act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }))
+        await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       }
       if (timing === 'after') await act(async () => resolveFailure?.(savedFailure))
 
@@ -854,6 +866,7 @@ describe('SuperagentScreen chrome', () => {
       view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' })
       resolveItems?.([{ id: 'user:sent', role: 'user', text: 'hello' }])
     })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     expect(latestTurnFailure).not.toHaveBeenCalled()
     expect(transcriptProps.at(-1)?.pendingTurns).toEqual([])
     expect(screen.queryByText(savedFailure.error)).toBeNull()
@@ -869,6 +882,7 @@ describe('SuperagentScreen chrome', () => {
         kind: 'turn-end',
         error: 'Current live failure',
       })
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
       view.emit(
         'transcriptDelta',
         'session:superagent',
@@ -887,6 +901,7 @@ describe('SuperagentScreen chrome', () => {
     })
     expect(screen.getByText('Current live failure')).toBeTruthy()
     act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' }))
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     expect(screen.queryByText('Current live failure')).toBeNull()
   })
 })
@@ -897,6 +912,7 @@ it('does not poll the thread every five seconds while a turn is running', async 
     const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(async () => null))
     await screen.findByText('transcript')
     act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' }))
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
     await waitFor(() => expect(screen.getByTestId('superagent-working-indicator')).toBeTruthy())
     expect(interval.mock.calls.filter(([, delay]) => delay === 5000)).toEqual([])
   } finally { interval.mockRestore() }
