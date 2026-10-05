@@ -13,10 +13,13 @@ function readRepositories(pool: MobxPool) {
   })
 }
 export function useLaunchInputs(repoPath: string) {
-  const read = useCallback((pool: MobxPool) => ({
-    repo: pool.headerViews.repository(repoPath),
-    machines: pool.headerViews.machines(),
-  }), [repoPath])
+  const read = useCallback(
+    (pool: MobxPool) => ({
+      repo: pool.headerViews.repository(repoPath),
+      machines: pool.headerViews.machines(),
+    }),
+    [repoPath],
+  )
   return useMobilePoolProjection(read, EMPTY)
 }
 

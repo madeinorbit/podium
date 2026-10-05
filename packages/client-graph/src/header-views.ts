@@ -1,7 +1,6 @@
-import { isFinished } from './shared/predicates'
-import { reposToViews } from '@podium/client-core/values'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
+import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal, normalizeOriginUrl } from '@podium/model/browser'
 import {
@@ -19,6 +18,7 @@ import { HeaderSessions } from './header-sessions'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import { sessionSeats } from './session-seats'
+import { isFinished } from './shared/predicates'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking, LOADING } from './worklist/rollup'
 
@@ -438,12 +438,7 @@ export function createHeaderViews(pool: MobxPool) {
       if (!metrics.length) return result
       for (const id of pool.queries.ids({ kind: 'reclaimIssues' })) {
         const candidate = issueSummary(id)
-        if (
-          !candidate?.worktreePath ||
-          candidate.deletedAt ||
-          !isFinished(candidate)
-        )
-          continue
+        if (!candidate?.worktreePath || candidate.deletedAt || !isFinished(candidate)) continue
         const closed = Date.parse(candidate.closedAt ?? '')
         if (!Number.isFinite(closed) || !pool.clock.reached(closed + afterDays * 86_400_000))
           continue
@@ -463,13 +458,14 @@ export function createHeaderViews(pool: MobxPool) {
     shipping,
     reclaimCounts,
     repositoryCount: () => pool.header.count('repository'),
-    repository: (path: string) => memo(`repository:${path}`, () => {
-      const scans = pool.header.repositoryGroup(path).flatMap((id) => {
-        const scan = row('repository', id)
-        return scan ? [scan] : []
-      })
-      return reposToViews(scans)[0]
-    }),
+    repository: (path: string) =>
+      memo(`repository:${path}`, () => {
+        const scans = pool.header.repositoryGroup(path).flatMap((id) => {
+          const scan = row('repository', id)
+          return scan ? [scan] : []
+        })
+        return reposToViews(scans)[0]
+      }),
     idleCapUnmetCount: () => pool.header.idleCapUnmetCount(),
     panelMetric: (machineId: MachineId | undefined) => {
       const id = machineId ?? pool.header.firstId('hostMetric')

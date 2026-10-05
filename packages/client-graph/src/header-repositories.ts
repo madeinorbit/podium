@@ -37,7 +37,9 @@ export function createHeaderRepositoryRelations() {
       const previous = facts.get(id)
       const next: Identity | undefined = row && {
         path: row.path,
-        group: row.repoId ?? (normalizeOriginUrl(row.originUrl) || `local:${row.machineId ?? ''}:${row.path}`),
+        group:
+          row.repoId ??
+          (normalizeOriginUrl(row.originUrl) || `local:${row.machineId ?? ''}:${row.path}`),
         links: row.worktrees.map((tree) => tree.path),
         arrival: previous?.arrival ?? arrival++,
       }
@@ -55,11 +57,13 @@ export function createHeaderRepositoryRelations() {
       const previous = positions
       const changed = new Set(previous ? [...previous.keys(), ...ids] : [...facts.keys(), ...ids])
       positions = next
-      const reorderPaths = new Set<string>(), reorderGroups = new Set<string>()
+      const reorderPaths = new Set<string>(),
+        reorderGroups = new Set<string>()
       for (const id of changed) {
         const fact = facts.get(id)
         if (!fact) continue
-        const before = !previous || previous.has(id), after = next.has(id)
+        const before = !previous || previous.has(id),
+          after = next.has(id)
         if (before !== after) contribute(id, fact, after ? 1 : -1)
         if (before && after && (previous?.get(id) ?? fact.arrival) !== next.get(id)) {
           reorderPaths.add(fact.path)
@@ -84,7 +88,9 @@ export function createHeaderRepositoryRelations() {
         const key = facts.get(id)!.group
         if (visited.has(key)) continue
         visited.add(key)
-        const ids = (groups.get(key) ?? EMPTY).filter((candidate) => !linked.has(facts.get(candidate)!.path))
+        const ids = (groups.get(key) ?? EMPTY).filter(
+          (candidate) => !linked.has(facts.get(candidate)!.path),
+        )
         if (ids.length && facts.get(ids[0]!)!.path === path) return ids
       }
       return EMPTY

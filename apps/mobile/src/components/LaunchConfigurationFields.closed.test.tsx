@@ -1,5 +1,5 @@
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { reposToViews } from '@podium/client-core/values'
+import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'

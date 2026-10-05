@@ -80,9 +80,7 @@ function WorklistProbe() {
   const sessions = useSessions()
   const issues = useIssues()
   const connected = useConnected()
-  const paths = [
-    ...new Set(repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : []),
-  ]
+  const paths = [...new Set(repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : [])]
   return (
     <div>
       <span data-testid="rows">{rows}</span>

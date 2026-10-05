@@ -14,7 +14,10 @@ vi.mock('./mobile-pool', () => ({
     return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
   },
 }))
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 it('the actual launch hook reads its named repository and ignores unrelated catalog changes at 1x/4x', async () => {
   const samples = []
@@ -22,38 +25,84 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     state.pool = pool
     const repos: GitRepositoryWire[] = Array.from({ length: 128 * scale }, (_, at) => ({
-      kind: 'repository', path: `/repo/${at}`, originUrl: `https://example.test/project-${at}`, worktrees: [],
+      kind: 'repository',
+      path: `/repo/${at}`,
+      originUrl: `https://example.test/project-${at}`,
+      worktrees: [],
     }))
     pool.header.apply([
       ...repos.map((value, at) => ({ kind: 'repository' as const, id: `r${at}`, value })),
-      { kind: 'machine', id: 'm0', value: { id: 'm0', name: 'Only host', online: true } as MachineWire },
+      {
+        kind: 'machine',
+        id: 'm0',
+        value: { id: 'm0', name: 'Only host', online: true } as MachineWire,
+      },
     ])
     const ids = vi.spyOn(pool.headerViews, 'ids')
     const keys = vi.spyOn(pool.header.tables.repository, 'keys')
-    let view: ReturnType<typeof renderHook<ReturnType<typeof useLaunchInputs>, { path: string }>> | undefined
-    const measure = (action: () => void) => measureWork(async () => { act(action); await act(async () => {}) }, { pool })
+    let view:
+      | ReturnType<typeof renderHook<ReturnType<typeof useLaunchInputs>, { path: string }>>
+      | undefined
+    const measure = (action: () => void) =>
+      measureWork(
+        async () => {
+          act(action)
+          await act(async () => {})
+        },
+        { pool },
+      )
     try {
-      const first = await measure(() => { view = renderHook(({ path }) => useLaunchInputs(path), { initialProps: { path: '/repo/0' } }) })
+      const first = await measure(() => {
+        view = renderHook(({ path }) => useLaunchInputs(path), {
+          initialProps: { path: '/repo/0' },
+        })
+      })
       expect(view!.result.current.repo?.path).toBe('/repo/0')
       expect(view!.result.current.machines).toHaveLength(1)
-      const unrelated = await measure(() => pool.header.apply([{ kind: 'repository', id: 'r17', value: { ...repos[17]!, branch: 'changed' } }]))
+      const unrelated = await measure(() =>
+        pool.header.apply([
+          { kind: 'repository', id: 'r17', value: { ...repos[17]!, branch: 'changed' } },
+        ]),
+      )
       expect(unrelated.work.rows).toBe(0)
-      const changed = await measure(() => pool.header.apply([{ kind: 'repository', id: 'r0', value: { ...repos[0]!, branch: 'selected' } }]))
+      const changed = await measure(() =>
+        pool.header.apply([
+          { kind: 'repository', id: 'r0', value: { ...repos[0]!, branch: 'selected' } },
+        ]),
+      )
       expect(view!.result.current.repo?.worktrees[0]?.branch).toBe('selected')
       const select = await measure(() => view!.rerender({ path: '/repo/23' }))
       expect(view!.result.current.repo?.path).toBe('/repo/23')
       const absent = await measure(() => view!.rerender({ path: '/absent' }))
       expect(view!.result.current.repo).toBeUndefined()
       view!.unmount()
-      const closed = await measure(() => pool.header.apply([{ kind: 'repository', id: 'r23', value: { ...repos[23]!, branch: 'closed' } }]))
+      const closed = await measure(() =>
+        pool.header.apply([
+          { kind: 'repository', id: 'r23', value: { ...repos[23]!, branch: 'closed' } },
+        ]),
+      )
       expect(closed.work.rows).toBe(0)
       expect(ids).not.toHaveBeenCalled()
       expect(keys).not.toHaveBeenCalled()
-      samples.push({ scale, first: first.work, unrelated: unrelated.work, changed: changed.work, select: select.work, absent: absent.work, closed: closed.work })
-    } finally { view?.unmount(); pool.dispose(); cleanup() }
+      samples.push({
+        scale,
+        first: first.work,
+        unrelated: unrelated.work,
+        changed: changed.work,
+        select: select.work,
+        absent: absent.work,
+        closed: closed.work,
+      })
+    } finally {
+      view?.unmount()
+      pool.dispose()
+      cleanup()
+    }
   }
   console.info('[actual launch hook repository work1x4x]', JSON.stringify(samples))
   for (const action of ['first', 'unrelated', 'changed', 'select', 'absent', 'closed'] as const)
     for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
-      expect(samples[1]![action][counter], `${action}:${counter}`).toBe(samples[0]![action][counter])
+      expect(samples[1]![action][counter], `${action}:${counter}`).toBe(
+        samples[0]![action][counter],
+      )
 })
