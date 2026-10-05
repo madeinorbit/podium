@@ -423,7 +423,7 @@ try {
         result.actions.at(-1).population={...result.population};save()
         await startup(f,'app-warm-start',i===samples)
         await population(f.page)
-        if(i!==samples || variant!==order.at(-1))await f.context.close()
+        if(i!==samples+profileSamples-1 || variant!==order.at(-1))await f.context.close()
       }
       if (paired) console.log('PAIR_STEP_FINISHED '+JSON.stringify({arm,step:i}))
     }
