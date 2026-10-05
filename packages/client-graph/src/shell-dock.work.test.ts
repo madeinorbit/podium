@@ -149,7 +149,7 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
   const f = shellFixture(), views = shellViews(f.pool)
   const root = f.state().repos[0]!
   const repos = [
-    { ...root, worktrees: [{ path: '/synthetic/project/w1' }] },
+    { ...root, worktrees: [{ path: '/synthetic/project/w1' }, { path: '/clone' }] },
     { ...root, path: '/clone', worktrees: [{ path: '/clone/nested' }] },
     { ...root, repoId: 'deeper' as typeof root.repoId, path: '/synthetic/project/w1' },
     { ...root, repoId: 'wildcard' as typeof root.repoId, path: '/wild/', machineId: undefined, worktrees: [] },
@@ -174,6 +174,35 @@ it('preserves dock scope path, group order, machine, linked scan and fallback se
     check('/synthetic/project-sibling', root.machineId)
     check('/clone/nested/deep', root.machineId, [...repos].reverse())
     check('/synthetic/project/w1/deep', root.machineId, [])
+  } finally {
+    stop()
+    f.pool.dispose()
+  }
+})
+
+it('tracks active session cwd and attachment changes and keeps explicit file git precedence', () => {
+  const f = shellFixture(), views = shellViews(f.pool)
+  const values: unknown[] = [], stop = autorun(() => values.push(views.dock()))
+  try {
+    const selected = { ...f.sessions[0]!, cwd: '/undiscovered/sub', issueId: f.issues[2]!.id }
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: selected.sessionId, value: selected }] as never })
+    expect(views.dock()).toMatchObject({
+      active: { cwd: selected.cwd, sessionId: selected.sessionId },
+      scope: { repoId: 'shell-repo', repoPath: '/synthetic/project' },
+      gitIssue: undefined,
+      mailIssueId: f.issues[2]!.id,
+    })
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[2]!.id,
+      value: { ...f.issues[2]!, worktreePath: '/undiscovered' } }] as never })
+    expect(views.dock()).toHaveProperty('gitIssue.id', f.issues[2]!.id)
+    f.change({ paneA: asSessionId(f.fileTabs[0]!.id), fileTabs: [{
+      ...f.fileTabs[0]!, issueId: f.issues[0]!.id,
+    }] })
+    expect(views.dock()).toMatchObject({
+      gitIssue: { id: f.issues[0]!.id },
+      mailIssueId: f.issues[1]!.id,
+    })
+    expect(values.length).toBeGreaterThanOrEqual(4)
   } finally {
     stop()
     f.pool.dispose()
