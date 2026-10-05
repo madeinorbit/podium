@@ -89,6 +89,22 @@ it('keeps crew presentation unobserved when a hidden row asks only for its colla
   } finally { stop() }
 })
 
+it('bounds parent child-list reads for earliest-child parenting at 1x and 4x', () => {
+  for (const scale of [1, 4]) {
+    const children = Array.from({ length: 128 * scale }, (_, index) =>
+      issue(`child-${index}`, { parentId: 'root', seq: index + 2 }))
+    const { pool, reader } = open([issue('root'), ...children], [])
+    const many = vi.spyOn(pool.graph, 'many')
+    const stop = autorun(() => { expect(reader.deck('root').topology).not.toBe(LOADING) })
+    try {
+      // Membership, topology and the parent's scalar question each consume
+      // this bucket a bounded number of times, independent of its width.
+      expect(many.mock.calls.filter(([entity, id, relation]) =>
+        entity === 'issue' && id === 'root' && relation === 'children').length).toBeLessThanOrEqual(4)
+    } finally { stop(); many.mockRestore() }
+  }
+})
+
 it('requests cold mission ancestry together without changing the shared root answer', () => {
   const rows = Array.from({ length: 100 }, (_, index) => issue(`ancestor-${index}`, {
     ...coldRoot(), id: `ancestor-${index}`, parentId: index ? `ancestor-${index - 1}` : null,

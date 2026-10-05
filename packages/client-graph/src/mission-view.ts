@@ -151,6 +151,13 @@ const visibleFact = cachedGroup('deck.visible', (node: MissionIssueFacts) => {
   const row = node.row
   return Boolean(row && !row.archived && !row.deletedAt)
 })
+const earliestChild = cachedGroup('deck.earliestChild', (node: MissionIssueFacts) => {
+  let first: string | undefined
+  for (const id of node.view.pool.graph.many('issue', node.id, 'children')) {
+    if (first === undefined || id < first) first = id
+  }
+  return first
+})
 
 /** The issue's scalar mission facts. No rich navigation record is read here.
  * Each scalar computed is allocated only while something observes it. */
@@ -170,6 +177,7 @@ export class MissionIssueFacts {
   get needsHuman() { return fields.needsHuman(this) }
   get coordinatorSessionId() { return fields.coordinatorSessionId(this) }
   get visible() { return visibleFact(this) }
+  get earliestChild() { return earliestChild(this) }
   private static readonly live = cachedGroup('deck.live', (node: MissionIssueFacts) =>
     requireLoaded(node.view.present(node.id)).some(sessionPresentOnTask))
   get live() { return MissionIssueFacts.live(this) }
@@ -221,7 +229,7 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
   })
   const parent = new Map<string, string>(), parents = new Map<string, string[]>(), seen = new Set<string>()
   let overlap = false
-  const firstChild = (id: string) => [...view.pool.graph.many('issue', id, 'children')].sort()[0]
+  const firstChild = (id: string) => view.facts(id).earliestChild
   for (const [id, kids] of children) for (const child of kids) {
     const origins = parents.get(child) ?? []
     origins.push(id); parents.set(child, origins)
