@@ -238,19 +238,22 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
       f.pool.header.apply([{ kind: 'shipOrder', id: 'count-0', value }])
     try {
       const first = await measure('first shipping counts', () => {
-        expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale + 1 })
+        const stop = autorun(() => {
+          expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale + 1 })
+        })
+        stop()
       })
       const edited = await measure('one shipping state', () => update({ ...orders[0]!, humanState: 'waiting' }))
-      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale })
+      expect(f.painted()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale })
       const moved = await measure('one shipping repository', () => update({ ...orders[0]!, repoId: 'other' }))
-      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      expect(f.painted()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
       expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 3, decisionCount: 2 })
       const restored = await measure('restore shipping repository', () => update(orders[0]))
       expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 2, decisionCount: 1 })
       const shipped = await measure('finish shipping order', () => update({ ...orders[0]!, humanState: 'shipped' }))
-      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      expect(f.painted()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
       const deleted = await measure('remove shipping order', () => update(undefined))
-      expect(f.pool.headerViews.shipping()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
+      expect(f.painted()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
       const repeated = await measure('repeat shipping removal', () => update(undefined))
       expect(rows.mock.calls.filter(([kind]) => kind === 'shipOrder')).toEqual([])
       const control = await measure('whole shipping count control', () => {
