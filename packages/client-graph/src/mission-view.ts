@@ -1,4 +1,4 @@
-import { compareStructural } from 'mobx'
+import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
 
@@ -16,7 +16,9 @@ import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
-import { type SeatRelation, sessionSeats } from './session-seats'
+import type { SeatRelation } from './session-seats'
+import { MissionDeckModel, MissionIssueFacts, requireLoaded, settled } from './mission-deck-model'
+export { MissionDeckModel, MissionDeckIssueModel } from './mission-deck-model'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -32,7 +34,8 @@ export interface MissionViewValues {
   root: IssueNavigationModel | undefined
   rows: FlightDeckRow[]
   members: ReadonlySet<string>
-  byId: ReadonlyMap<string, IssueNavigationModel>
+  issueIds: readonly string[]
+  deck?: MissionDeckModel
   /** The mission's seated (non-archived) senders, in session order. */
   sessions: readonly SessionView[]
   /** How many archived sessions the drawn rows hold; the list itself is
@@ -49,7 +52,7 @@ export interface MissionViewValues {
 
 const NO_PROGRESS: MissionProgress = Object.freeze({ total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 })
 export const EMPTY_MISSION_VIEW: MissionViewValues = Object.freeze({
-  root: undefined, rows: [], members: new Set<string>(), byId: new Map<string, IssueNavigationModel>(),
+  root: undefined, rows: [], members: new Set<string>(), issueIds: [],
   sessions: [], archivedCount: 0, titles: new Map<string, string>(), progress: NO_PROGRESS,
   departures: [], continuation: null, note: null, presence: null, rowPresentation: new Map<string, MissionRowPresentation>(),
 })
@@ -135,48 +138,23 @@ function mergeMemberFacts(a: MemberFacts, b: MemberFacts): MemberFacts {
 class MissionNode {
   constructor(readonly id: string, readonly view: MissionViewReader) {}
 }
-const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id), compareStructural)
-const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id), compareStructural)
-const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id), compareStructural)
-const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id), compareStructural)
+const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
+const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
+const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
+const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
 const pageMemberIds = (pool: MobxPool, id: string) =>
   [...pool.graph.many('issue', id, 'pageSessions')].sort().map(asSessionId)
-const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id), compareStructural)
-const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id), compareStructural)
+const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id))
+const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id))
 const MODES = ['full', 'working', 'needs-you'] as const
 type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
-// TODO(POD-5575): pane helpers build fresh objects/arrays; retain explicit structural equality.
-const paneGroups = <V>(name: string, read: (node: MissionNode, mode: FlightDeckMode) => V): PaneGroups<V> =>
-  Object.fromEntries(MODES.map(mode => [mode, cachedGroup(`${name}${mode === 'full' ? 'Full' : mode === 'working' ? 'Working' : 'NeedsYou'}`,
-    (node: MissionNode) => read(node, mode), compareStructural)])) as PaneGroups<V>
-/** The pane without its archived list: everything a seated heartbeat can change. */
-const paneCore = paneGroups('missionPaneCore', (node, mode) => deriveMissionView(node.view, node.id, mode))
-/** The drawn rows' ids only, so the archived list survives a re-derived pane. */
-const paneRows = paneGroups('missionPaneRows', (node, mode) => {
-  const core = paneCore[mode](node)
-  return core === LOADING ? LOADING : core.rows.map(row => row.issue.id)
-})
-/** The drawn rows' archived list, read only while it is shown. */
-const paneArchive = paneGroups('missionPaneArchive', (node, mode) => deriveMissionArchive(node.view, paneRows[mode](node)))
-/** Its length from the rows' cached history facts: no archived row is re-read. */
-const paneArchiveCount = paneGroups('missionPaneArchiveCount', (node, mode) => {
-  const rowIds = paneRows[mode](node)
-  if (rowIds === LOADING) return LOADING
-  let count = 0
-  for (const id of rowIds) {
-    const history = node.view.history(id)
-    if (history === LOADING) return LOADING
-    count += history.roster
-  }
-  return count
-})
-const paneValues = paneGroups('missionPane', (node, mode): MissionViewValues | typeof LOADING => {
-  const core = paneCore[mode](node)
-  if (core === LOADING) return LOADING
-  const archivedCount = paneArchiveCount[mode](node)
-  return archivedCount === LOADING ? LOADING : { ...core, archivedCount }
-})
-const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id), compareStructural)
+const paneValues = Object.fromEntries(MODES.map(mode => [mode,
+  cachedGroup(`missionPane.${mode}`, (node: MissionNode) => {
+    node.view.stats.values++
+    return node.view.deckValues(node.view.deck(node.id, mode))
+  }),
+])) as PaneGroups<MissionViewValues>
+const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
 const openSession = sessionPresentOnTask
@@ -188,7 +166,20 @@ const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.typ
  * replica, runtime, outbox or independently maintained relation index here. */
 export class MissionViewReader {
   private readonly nodes = new Map<string, MissionNode>()
-  readonly stats = { values: 0, issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
+  private readonly factsById = new Map<string, MissionIssueFacts>()
+  private readonly decks = new Map<string, MissionDeckModel>()
+  readonly stats: { values: number; issueReads: number; sessionReads: number; attachmentEdges: number; onRollup?: (id: string) => void } = { values: 0, issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
+  facts(id: string) {
+    let facts = this.factsById.get(id)
+    if (!facts) { facts = new MissionIssueFacts(id, this); this.factsById.set(id, facts) }
+    return facts
+  }
+  deck(id: string, mode: FlightDeckMode = 'full') {
+    const key = JSON.stringify([id, mode])
+    let deck = this.decks.get(key)
+    if (!deck) { deck = new MissionDeckModel(id, this, mode); this.decks.set(key, deck) }
+    return deck
+  }
   private node(id: string) {
     let node = this.nodes.get(id)
     if (!node) { node = new MissionNode(id, this); this.nodes.set(id, node) }
@@ -203,7 +194,10 @@ export class MissionViewReader {
     if (!id) return EMPTY_MISSION_VIEW
     const root = this.selectedRoot(id)
     if (root === LOADING) return LOADING
-    return root ? paneValues[mode](this.node(root.id)) : EMPTY_MISSION_VIEW
+    if (!root) return EMPTY_MISSION_VIEW
+    const deck = this.deck(root.id, mode)
+    if (deck.topology === LOADING || deck.progress === LOADING || this.archiveCount(deck) === LOADING) return LOADING
+    return paneValues[mode](this.node(root.id))
   }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
   issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
@@ -233,19 +227,15 @@ export class MissionViewReader {
   }
   /** Whether the relation holds archived or unsettled senders (LOADING while seats load). */
   private hasHistory(relation: SeatRelation, id: string): boolean | typeof LOADING {
-    const partition = sessionSeats(this.pool).partition(relation, id)
-    if (partition === LOADING) return LOADING
-    return partition.archived.length > 0 || partition.unknown.length > 0
+    const ids = this.seatIds(relation, id, true)
+    return ids === LOADING ? LOADING : ids.length > 0
   }
   /** The archived list under a mission root's drawn rows, in row order. */
-  archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING { return paneArchive[mode](this.node(rootId)) }
+  archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING { return deriveMissionArchive(this, this.deck(rootId, mode).rowIds(mode)) }
   /** An archived session's facts: its shared seat when the whole row is in
    * hand (one cached value per session, shared with navigation and the
    * partitions), else its row, which this read loads. */
-  private facts(sessionId: string): SessionFacts | typeof LOADING | undefined {
-    const seat = sessionSeats(this.pool).seat(sessionId)
-    if (seat === LOADING || seat === undefined) return seat
-    if (seat.seat === 'retired' && seat.complete) return seat as unknown as SessionFacts
+  private sessionFacts(sessionId: string): SessionFacts | typeof LOADING | undefined {
     const session = this.session(sessionId)
     return session === LOADING || !session ? session : factsOf(session)
   }
@@ -258,7 +248,7 @@ export class MissionViewReader {
     const found: SessionFacts[] = []
     let pending = false
     for (const sessionId of ids) {
-      const facts = this.facts(sessionId)
+      const facts = this.sessionFacts(sessionId)
       if (facts === LOADING) pending = true
       else if (facts) found.push(facts)
     }
@@ -267,19 +257,25 @@ export class MissionViewReader {
   sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
-    let row = this.pool.row('session', id, 'summary')
-    const summary = row
-    if (summary && summary !== LOADING && !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) row = this.pool.row('session', id)
+    const row = this.pool.row('session', id)
     return row as Loaded<SessionView>
   }
   /** The seated or archived side's ids, and the cold ones whose summary
    * does not say which: those settle from their rows (read here anyway). */
   private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
-    const partition = sessionSeats(this.pool).partition(relation, id)
-    if (partition === LOADING) return LOADING
-    const known = archived ? partition.archived : partition.present
-    return partition.unknown.length ? [...known, ...partition.unknown] : known
+    const ids: string[] = []
+    let pending = false
+    for (const sessionId of this.pool.graph.many('issue', id, relation)) {
+      const flag = this.archivedSession(sessionId)
+      if (flag === LOADING) pending = true
+      else if (flag === archived) ids.push(sessionId)
+    }
+    return pending ? LOADING : ids
   }
+  private readonly archivedSession = keyedComputed('MissionSession.archived', (id: string) => {
+    const row = this.pool.row('session', id) as Loaded<SessionView>
+    return row === LOADING || row === undefined ? row : Boolean(row.archived)
+  })
   private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
     const ids = this.seatIds(relation, id, archived)
     if (ids === LOADING) return LOADING
@@ -364,7 +360,7 @@ export class MissionViewReader {
   latestPrompt(ids: Iterable<string>): string | undefined {
     const winners: SessionFacts[] = []
     for (const id of ids) {
-      const facts = this.facts(id)
+      const facts = this.sessionFacts(id)
       if (facts === LOADING) throw LOADING
       if (facts) winners.push(facts)
     }
@@ -467,7 +463,7 @@ export class MissionViewReader {
   }
   /** Request the addressed neighbourhood together before presentation reads
    * can stop at the first cold child and split one batch into N batches. */
-  prepare(members: ReadonlySet<string>): boolean {
+  prepareHandoff(members: ReadonlySet<string>): boolean {
     const drawn = new Set<string>(), tips = new Set<string>(), addressed = new Set<string>()
     let pending = false
     const visibleId = (id: string) => {
@@ -506,39 +502,87 @@ export class MissionViewReader {
     }
     return !pending
   }
-  dispose = () => { this.nodes.clear() }
-}
-
-export function missionView(pool: MobxPool): MissionViewReader {
-  return pool.sources.view('missionView', () => new MissionViewReader(pool))
-}
-
-/** A single derivation's addressed neighbourhood. These maps are presentation
- * values, not maintained indexes: their inputs are declared graph queries. */
-class MissionContext {
-  readonly byId = new Map<string, IssueNavigationModel>()
-  constructor(readonly view: MissionViewReader) {}
-  issue(id: string): IssueNavigationModel | undefined {
-    if (this.byId.has(id)) return this.byId.get(id)
-    const value = this.view.issue(id)
-    if (value === LOADING) throw LOADING
-    if (value) this.byId.set(id, value)
-    return value
+  archiveCount(deck: MissionDeckModel): number | typeof LOADING {
+    return settled(() => {
+      let count = 0
+      for (const id of requireLoaded(deck.rowIds())) count += requireLoaded(this.history(id)).roster
+      return count
+    })
   }
-  /** Non-archived senders: every rule that asks whether work is present. */
-  present(id: string): readonly SessionView[] {
-    const value = this.view.present(id)
-    if (value === LOADING) throw LOADING
-    return value
+  addressedIds(deck: MissionDeckModel): string[] {
+    const ids = new Set(requireLoaded(deck.topology).scope)
+    const stack = [...ids]
+    while (stack.length) {
+      const id = stack.pop()!
+      for (const child of this.pool.graph.many('issue', id, 'spinOffs')) if (!ids.has(child) && this.facts(child).visible) { ids.add(child); stack.push(child) }
+    }
+    for (const id of [...ids]) {
+      for (const target of this.pool.graph.many('issue', id, 'pageDependencies')) ids.add(target)
+      const issue = requireLoaded(this.catalogIssue(id))
+      for (const target of [issue?.supersededBy, issue?.duplicateOf, issue?.stage === 'proposed' ? issue.parentId : null]) if (target) ids.add(target)
+    }
+    return [...ids].filter(id => Boolean(requireLoaded(this.catalogIssue(id))))
   }
-  roster(id: string, archived = false): SessionView[] {
-    const value = this.view.roster(id, archived)
-    if (value === LOADING) throw LOADING
-    return [...value]
+  deckValues(deck: MissionDeckModel): MissionViewValues {
+    const view = this
+    return {
+      deck,
+      get root() { return requireLoaded(view.issue(deck.id)) },
+      get members() { return requireLoaded(deck.members) },
+      get rows() { return requireLoaded(deck.rowIds()).map(id => deck.model(id)) },
+      get issueIds() { return view.addressedIds(deck) },
+      get sessions() {
+        const sessions = new Map<string, SessionView>()
+        for (const id of view.addressedIds(deck)) for (const session of requireLoaded(view.present(id))) sessions.set(session.sessionId, session)
+        return [...sessions.values()].sort(view.sessionOrder)
+      },
+      get archivedCount() { return requireLoaded(view.archiveCount(deck)) },
+      get titles() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).title])) },
+      get rowPresentation() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).presentation])) },
+      get progress() { return requireLoaded(deck.progress) },
+      get continuation() { return view.continuation(requireLoaded(view.issue(deck.id))!) },
+      get note() { return view.note(requireLoaded(view.issue(deck.id))!) },
+      get presence() { return view.presence(requireLoaded(view.issue(deck.id))!, deck.model(deck.id).sessions) },
+      get departures() { return view.departures(deck) },
+    }
   }
-  live(id: string) { return this.present(id).some(openSession) }
+  departures(deck: MissionDeckModel): MissionDeparture[] {
+    const members = requireLoaded(deck.members), found: MissionDeparture[] = [], seen = new Set<string>()
+    for (const id of [...members].sort()) {
+      if (!this.facts(id).visible) continue
+      const empty = !requireLoaded(this.roster(id)).some(openSession)
+      for (const tip of this.tips(id)) {
+        if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
+        seen.add(tip.id)
+        const issue = requireLoaded(this.issue(tip.id))!
+        found.push({ issue, originId: id, state: this.presentation(issue, requireLoaded(this.roster(tip.id))).state })
+      }
+    }
+    return found.sort((a, b) => a.issue.seq - b.issue.seq)
+  }
+  private presentStrict(id: string) { return requireLoaded(this.present(id)) }
+  private rosterStrict(id: string, archived = false) { return [...requireLoaded(this.roster(id, archived))] }
+  rulesIssue(id: string): IssueNavigationModel | undefined {
+    const raw = requireLoaded(this.catalogIssue(id))
+    if (!raw) return undefined
+    const dependents: IssueNavigationModel['dependents'] = []
+    for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
+      const source = requireLoaded(this.catalogIssue(sourceId))
+      if (source) for (const dep of source.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+    }
+    return issueNavigationOverlay(raw, { dependents }) as IssueNavigationModel
+  }
+  hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
+  tipIds(id: string, local = false) { return this.tips(id, local).map(issue => issue.id as string) }
+  presentation(issue: IssueNavigationModel, sessions: readonly SessionView[]): MissionRowPresentation {
+    let state = deckIssueState(issue, sessions)
+    if (['retired', 'proposed', 'next', 'idle'].includes(state.state) && this.waiting(issue).length)
+      state = { ...state, state: 'waiting', label: 'Waiting' }
+    return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }
+  }
+  live(id: string) { return this.presentStrict(id).some(openSession) }
   lastActive(issue: IssueNavigationModel, local: boolean) {
-    return local ? issue.updatedAt : this.present(issue.id).reduce((latest, session) =>
+    return local ? issue.updatedAt : this.presentStrict(issue.id).reduce((latest, session) =>
       !session.archived && session.lastActiveAt > latest ? session.lastActiveAt : latest, issue.updatedAt)
   }
   preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
@@ -552,14 +596,14 @@ class MissionContext {
     const stack = [origin]
     while (stack.length) {
       const parentId = stack.pop()!
-      const children = [...this.view.pool.graph.many('issue', parentId, 'spinOffs')].sort()
+      const children = [...this.pool.graph.many('issue', parentId, 'spinOffs')].sort()
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
-        const facts = this.view.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
+        const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
         if (facts === LOADING) throw LOADING
         if (!facts || !visible(facts)) continue
-        const issue = this.issue(id)
+        const issue = this.rulesIssue(id)
         // Legacy's first discovered-from edge is the origin, not every edge.
         if (!issue || originId(issue) !== parentId) continue
         descendants.push(issue); stack.push(id)
@@ -573,7 +617,7 @@ class MissionContext {
       while (parentId && parentId !== origin) {
         if (path.has(parentId)) { parentId = null; break }
         path.add(parentId)
-        const parent = this.issue(parentId)
+        const parent = this.rulesIssue(parentId)
         if (!parent) break
         branch = parent; parentId = originId(branch)
       }
@@ -588,16 +632,16 @@ class MissionContext {
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
     const targetId = issue.supersededBy
-      ? this.view.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy
-      : this.view.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf
+      ? this.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy
+      : this.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf
     if (targetId) {
-      const target = this.issue(targetId), ref = target ? issueDisplayRef(target) : 'another task'
+      const target = this.rulesIssue(targetId), ref = target ? issueDisplayRef(target) : 'another task'
       return issue.supersededBy ? { kind: 'superseded', ...(target ? { target } : {}), short: ref,
         full: `Work continued in ${ref}`, line: `continued · ${ref}` } :
         { kind: 'duplicate', ...(target ? { target } : {}), short: ref,
           full: `The same work is tracked in ${ref}`, line: `duplicate · ${ref}` }
     }
-    if ((local ? this.roster(issue.id) : this.present(issue.id)).some(openSession)) return null
+    if ((local ? this.rosterStrict(issue.id) : this.presentStrict(issue.id)).some(openSession)) return null
     const tip = this.preferred(this.tips(issue.id, local), local)
     if (!tip) return null
     const ref = issueDisplayRef(tip)
@@ -605,7 +649,7 @@ class MissionContext {
   }
   waiting(issue: IssueNavigationModel): string[] {
     return issue.deps.filter(dep => dep.type === 'blocks').flatMap(dep => {
-      const target = this.issue(dep.id)
+      const target = this.rulesIssue(dep.id)
       return target && !issueClosed(target) ? [issueDisplayRef(target)] : []
     })
   }
@@ -630,7 +674,7 @@ class MissionContext {
     if (issue.stage === 'proposed') {
       const spin = originId(issue), sourceId = spin ?? issue.parentId
       if (sourceId) {
-        const source = this.issue(sourceId), ref = source ? issueDisplayRef(source) : null
+        const source = this.rulesIssue(sourceId), ref = source ? issueDisplayRef(source) : null
         return spin ? { kind: 'shape-own', label: 'starts', short: 'on its own',
           full: ref ? `Starts on its own — ${ref} can close without it` : 'Starts on its own — the task that found it can close without it' } :
           { kind: 'shape-mission', label: 'starts', short: 'in this mission',
@@ -640,7 +684,7 @@ class MissionContext {
     const verbs: Record<string, string> = { 'discovered-from': 'Discovered from', related: 'Related to', tracks: 'Tracks', supersedes: 'Supersedes', 'caused-by': 'Caused by', validates: 'Validates' }
     for (const dep of issue.deps) {
       if (dep.type === 'blocks' || dep.type === 'parent-child') continue
-      const target = this.issue(dep.id)
+      const target = this.rulesIssue(dep.id)
       if (!target) continue
       const label = verbs[dep.type] ?? dep.type, ref = issueDisplayRef(target)
       return { kind: 'relation', label, short: ref, full: `${label} ${ref}` }
@@ -651,7 +695,7 @@ class MissionContext {
    * roster (archived included) answers which session moved. */
   presence(issue: IssueNavigationModel, sessions: readonly SessionView[], local = false, roster?: string): PresenceNote | null {
     if (sessions.some(openSession)) return null
-    const moved = roster === undefined ? sessions.find(session => session.handoffTarget) : this.view.moved(roster)
+    const moved = roster === undefined ? sessions.find(session => session.handoffTarget) : this.moved(roster)
     if (moved) return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
     const continuation = this.continuation(issue, local)
     if (continuation) return { kind: 'moved', text: continuation.full, attention: false }
@@ -665,214 +709,28 @@ class MissionContext {
     if (issue.stage === 'in_progress') return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }
     return { kind: 'ready', text: 'Proposed · not started', attention: false }
   }
+  dispose = () => {
+    for (const deck of this.decks.values()) deck.dispose()
+    this.nodes.clear(); this.factsById.clear(); this.decks.clear(); this.archivedSession.clear()
+  }
 }
 
-function buildRows(ctx: MissionContext, root: IssueNavigationModel, members: ReadonlySet<string>, mode: FlightDeckMode): FlightDeckRow[] {
-  const children = new Map<string, IssueNavigationModel[]>(), scope = new Set<string>()
-  const stack = [...members]
-  while (stack.length) {
-    const id = stack.pop()!
-    if (scope.has(id)) continue
-    scope.add(id)
-    const facts = ctx.view.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-    if (facts === LOADING) throw LOADING
-    if (!facts || !visible(facts)) continue
-    const issue = ctx.issue(id)
-    if (!issue) continue
-    const kids = [...ctx.view.pool.graph.many('issue', id, 'children')]
-    stack.push(...kids)
-    const found = kids.flatMap(childId => {
-      const childFacts = ctx.view.pool.row('issue', childId, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-      if (childFacts === LOADING) throw LOADING
-      if (!childFacts || !visible(childFacts)) return []
-      const child = ctx.issue(childId)
-      return child ? [child] : []
-    })
-    children.set(id, found)
-  }
-  for (const id of members) {
-    const issue = ctx.byId.get(id)
-    if (!issue || !visible(issue) || id === root.id || (issue.parentId && members.has(issue.parentId))) continue
-    const owner = issue.startedBySession ? ctx.view.pool.graph.one('session', issue.startedBySession, 'missionIssue') : null
-    const parentId = owner && members.has(owner) && owner !== id ? owner : root.id
-    const siblings = children.get(parentId) ?? []
-    if (!siblings.some(child => child.id === id)) siblings.push(issue)
-    children.set(parentId, siblings)
-  }
-  for (const siblings of children.values()) siblings.sort((a, b) =>
-    a.sortKey && b.sortKey && a.sortKey !== b.sortKey ? a.sortKey.localeCompare(b.sortKey) : a.seq - b.seq || rowOrder(a, b))
-  const parentOf = new Map<string, string>()
-  // Legacy constructs every formal bucket in replica order before grafting.
-  // A graft can coexist with a raw parent outside this mission; its bucket's
-  // first formal child determines which parent includePath encounters first.
-  const firstChildren = new Map<string, string | undefined>()
-  const firstChild = (id: string) => {
-    if (!firstChildren.has(id)) firstChildren.set(id, [...ctx.view.pool.graph.many('issue', id, 'children')].sort()[0])
-    return firstChildren.get(id)
-  }
-  const earlier = (a: string, b: string) => {
-    const left = firstChild(a), right = firstChild(b)
-    return left !== undefined && (right === undefined || left < right)
-  }
-  for (const [id, kids] of children) for (const child of kids) {
-    const previous = parentOf.get(child.id) ?? child.parentId
-    parentOf.set(child.id, !previous || earlier(id, previous) ? id : previous)
-  }
-  const rosters = new Map<string, SessionView[]>()
-  for (const id of scope) {
-    const issue = ctx.byId.get(id)
-    if (issue && visible(issue)) rosters.set(id, deckSessionOrder(issue, ctx.roster(id)))
-  }
-  const matches = (issue: IssueNavigationModel) => mode === 'needs-you' ? issueNeedsHuman(issue, rosters.get(issue.id) ?? []) :
-    mode === 'working' ? (rosters.get(issue.id) ?? []).some(sessionAtWork) : true
-  const included = new Set<string>([root.id])
-  for (const id of members) {
-    const issue = ctx.byId.get(id)
-    if (!issue || !visible(issue) || !matches(issue)) continue
-    let current: string | undefined = id
-    const seen = new Set<string>()
-    while (current && !seen.has(current)) {
-      seen.add(current); included.add(current)
-      if (current === root.id) break
-      current = parentOf.get(current)
-    }
-  }
-  const descendants = (id: string) => {
-    const seen = new Set<string>([id]), out: string[] = [], stack = [...(children.get(id) ?? [])].reverse()
-    while (stack.length) {
-      const child = stack.pop()!
-      if (seen.has(child.id)) continue
-      seen.add(child.id); out.push(child.id)
-      stack.push(...[...(children.get(child.id) ?? [])].reverse())
-    }
-    return out
-  }
-  const rows: FlightDeckRow[] = []
-  const walk = (id: string, depth: number, path: ReadonlySet<string>) => {
-    const issue = ctx.byId.get(id)
-    if (path.has(id) || !included.has(id) || !issue || !visible(issue)) return
-    const descendantIds = descendants(id), ids = [id, ...descendantIds]
-    const allSessions = ids.flatMap(id => rosters.get(id) ?? [])
-    const actionableCount = ids.filter(id => { const candidate = ctx.byId.get(id); return candidate && issueNeedsHuman(candidate, rosters.get(id) ?? []) }).length
-    const waitingAgentCount = ids.reduce((count, id) => {
-      const candidate = ctx.byId.get(id)
-      return count + (candidate ? (rosters.get(id) ?? []).filter(session => sessionAsksOnIssue(candidate, session)).length : 0)
-    }, 0)
-    const hidden = descendantIds.flatMap(id => { const child = ctx.byId.get(id); return child ? [child] : [] })
-    const working = (session: SessionView) => openSession(session) && motionPhase(session) === 'working'
-    const rank = (session: SessionView) => working(session) ? 0 : sessionSettled(session) ? 2 : 1
-    const seenCrew = new Set<string>()
-    const unique = allSessions.filter(session => { if (seenCrew.has(session.sessionId)) return false; seenCrew.add(session.sessionId); return true })
-    rows.push({ issue, depth, sessions: rosters.get(id) ?? [], descendantIds, actionableCount,
-      liveAgentCount: allSessions.filter(openSession).length, workingAgentCount: allSessions.filter(working).length,
-      waitingAgentCount, matched: matches(issue), collapsedSummary: {
-        tasks: hidden.length, done: hidden.filter(child => issueClosed(child) && !issueAbandoned(child)).length,
-        run: hidden.filter(child => !isFinished(child) && (underway(child.stage) || child.stage === 'review')).length,
-        kinds: [...new Set(allSessions.filter(openSession).map(session => session.agentKind))].slice(0, 2),
-        crew: unique.sort((a, b) => rank(a) - rank(b)).slice(0, 12), needsYou: actionableCount > 0,
-      } })
-    const nextPath = new Set(path).add(id)
-    for (const child of children.get(id) ?? []) walk(child.id, depth + 1, nextPath)
-  }
-  walk(root.id, 0, new Set())
-  return rows
-}
-
-function progressFor(ctx: MissionContext, root: IssueNavigationModel, members: ReadonlySet<string>): MissionProgress {
-  const formal = new Set<string>(), stack = [...ctx.view.pool.graph.many('issue', root.id, 'children')]
-  while (stack.length) {
-    const id = stack.pop()!
-    if (id === root.id || formal.has(id)) continue
-    const issue = ctx.issue(id)
-    if (!issue || !visible(issue)) continue
-    formal.add(id); stack.push(...ctx.view.pool.graph.many('issue', id, 'children'))
-  }
-  const scope = [...members].flatMap(id => { const issue = ctx.byId.get(id); return issue && visible(issue) ? [issue] : [] })
-  const accepted = scope.filter(issue => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue))
-  const units = (accepted.length ? accepted : [root]).filter(issue => !issueAbandoned(issue) &&
-    (ctx.live(issue.id) || (ctx.tips(issue.id, true).length === 0 && !issue.dependents.some(dep => dep.type === 'discovered-from'))))
-  const staffed = new Set<string>()
-  for (const issue of scope) {
-    if (!ctx.live(issue.id)) continue
-    let id: string | null = issue.id
-    while (id && !staffed.has(id)) { staffed.add(id); id = ctx.view.pool.graph.one('issue', id, 'parent') }
-  }
-  const result = { ...NO_PROGRESS, total: units.length }
-  for (const issue of units) {
-    if (issueClosed(issue)) result.done++
-    else if (issue.blocked) result.block++
-    else if (issue.stage === 'review') result.review++
-    else if (underway(issue.stage)) {
-      if (issue.stage === 'shipping' || staffed.has(issue.id)) result.run++
-      else result.stall++
-    }
-  }
-  result.wait = Math.max(0, result.total - result.done - result.block - result.review - result.run - result.stall)
-  return result
+export function missionView(pool: MobxPool): MissionViewReader {
+  return pool.sources.view('missionView', () => new MissionViewReader(pool))
 }
 
 export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
   return view.values(selectedId, mode)
 }
-/** The pane's archived list: the drawn rows' archived rosters, de-duplicated
- * in row order. Reads only the row ids and archived history, so a seated
- * heartbeat that re-derives the pane leaves this list cached. */
 function deriveMissionArchive(view: MissionViewReader, rowIds: readonly string[] | typeof LOADING): SessionView[] | typeof LOADING {
   if (rowIds === LOADING) return LOADING
   const seen = new Set<string>(), archived: SessionView[] = []
   for (const id of rowIds) {
     const roster = view.roster(id, true)
     if (roster === LOADING) return LOADING
-    for (const session of roster) {
-      if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
-    }
+    for (const session of roster) if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
   }
   return archived
-}
-function deriveMissionView(view: MissionViewReader, rootId: string, mode: FlightDeckMode): Omit<MissionViewValues, 'archivedCount'> | typeof LOADING {
-  view.stats.values++
-  try {
-    // The root the reader's selection policy chose (values / selectedRoot).
-    const root = view.issue(rootId)
-    if (root === LOADING) return LOADING
-    if (!root) return EMPTY_MISSION_VIEW
-    const members = missions(view.pool).members(root.id)
-    if (members === LOADING) return LOADING
-    if (!view.prepare(members)) return LOADING
-    const ctx = new MissionContext(view)
-    ctx.byId.set(root.id, root)
-    const rows = buildRows(ctx, root, members, mode)
-    const titles = new Map<string, string>()
-    const rowPresentation = new Map<string, MissionRowPresentation>()
-    for (const row of rows) {
-      const title = view.title(row.issue)
-      if (title === LOADING) return LOADING
-      titles.set(row.issue.id, title)
-      // The row's old local note sees only its own crew; the root header sees
-      // staffing on continuation targets as well. Preserve both readings.
-      const note = ctx.note(row.issue, true), presence = ctx.presence(row.issue, row.sessions, true)
-      rowPresentation.set(row.issue.id, { state: deckIssueState(row.issue, row.sessions, ctx.byId), note, presence })
-    }
-    const continuation = ctx.continuation(root), note = ctx.note(root), presence = ctx.presence(root, rows[0]?.sessions ?? [])
-    const departures: MissionDeparture[] = [], seenDepartures = new Set<string>()
-    // Legacy origin order is the replica's id order, not the rendered seq order.
-    const origins = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue && visible(issue) ? [issue] : [] })
-    for (const origin of origins) {
-      const empty = !ctx.roster(origin.id).some(openSession)
-      for (const tip of ctx.tips(origin.id)) {
-        if (members.has(tip.id) || seenDepartures.has(tip.id) || (!empty && issueClosed(tip))) continue
-        seenDepartures.add(tip.id)
-        ctx.waiting(tip)
-        departures.push({ issue: tip, originId: origin.id, state: deckIssueState(tip, ctx.roster(tip.id), ctx.byId) })
-      }
-    }
-    const progress = progressFor(ctx, root, members)
-    // The close guards read seated members only. Archived history stays in
-    // its own cached groups. Never scan a global session array for ownership.
-    const sessions = [...new Map([...ctx.byId.keys()].flatMap(id => ctx.present(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
-    return { root, rows, members, byId: ctx.byId, sessions, titles, progress,
-      departures: departures.sort((a, b) => a.issue.seq - b.issue.seq), continuation, note, presence, rowPresentation }
-  } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
 
 function newestSession(sessions: readonly SessionView[]): SessionView | undefined {
@@ -892,18 +750,18 @@ const NOW_RANK: Record<HandoffNowEntry['kind'], number> = {
 }
 
 /** Current mission exceptions, one truthful row per issue. */
-function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNowEntry[] {
+function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNowEntry[] {
   const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
 
   for (const issue of issues) {
     if (!memberIds.has(issue.id) || issue.stage === 'proposed' || issue.archived || issue.deletedAt)
       continue
-    const crew = ctx.present(issue.id)
+    const crew = requireLoaded(ctx.present(issue.id))
     const present = crew.filter(sessionPresentOnTask)
     const asking = present.find(
       (session) => sessionAsksOnIssue(issue, session) || motionPhase(session) === 'waiting',
     )
-    const askedBy = issue.asked?.by ? ctx.view.member(issue.id, issue.asked.by) : undefined
+    const askedBy = issue.asked?.by ? ctx.member(issue.id, issue.asked.by) : undefined
     const explicitNeed = issue.needsHuman === true || asking !== undefined
     let entry: HandoffNowEntry | null = null
 
@@ -931,7 +789,7 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
             'Agent computing now.',
         }
       } else if (issue.stage === 'review' && !issue.blocked) {
-        const session = ctx.view.newest(issue.id)
+        const session = ctx.newest(issue.id)
         entry = {
           kind: 'review',
           issueId: issue.id,
@@ -973,7 +831,7 @@ function poolHandoffNow(ctx: MissionContext, issues: readonly IssueNavigationMod
 }
 
 
-function poolHandoffNext(ctx: MissionContext, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNextEntry[] {
+function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigationModel[], memberIds: ReadonlySet<string>): HandoffNextEntry[] {
   const entries: Array<{ entry: HandoffNextEntry; seq: number; depth: number }> = []
   const depthMemo = new Map<string, number>()
 
@@ -1014,7 +872,7 @@ function poolHandoffNext(ctx: MissionContext, issues: readonly IssueNavigationMo
         Boolean(candidate && !issueClosed(candidate)),
       )
     const children = poolOpenChildren(ctx, memberIds, issue.id)
-    const session = ctx.view.newest(issue.id)
+    const session = ctx.newest(issue.id)
     let entry: HandoffNextEntry | null = null
 
     if (issue.stage === 'review' && openBlockers.length === 0) {
@@ -1050,8 +908,8 @@ function poolHandoffNext(ctx: MissionContext, issues: readonly IssueNavigationMo
   return entries.map(({ entry }) => entry)
 }
 
-function poolOpenChildren(ctx: MissionContext, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
-  return [...ctx.view.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
+function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
+  return [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
     if (!members.has(id)) return []
     const issue = ctx.issue(id)
     return issue && issue.stage !== 'proposed' && visible(issue) && !issueClosed(issue) ? [issue] : []
@@ -1145,10 +1003,10 @@ function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionH
   try {
     const members = missions(view.pool).members(rootId)
     if (members === LOADING) return LOADING
-    if (!view.prepare(members)) return LOADING
-    const ctx = new MissionContext(view)
+    if (!view.prepareHandoff(members)) return LOADING
+    const ctx = view
     const issues = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue ? [issue] : [] })
-    const crew = [...new Map([...members].flatMap(id => ctx.present(id)).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
+    const crew = [...new Map([...members].flatMap(id => requireLoaded(ctx.present(id))).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
     // A session has one issue, so member histories never overlap.
     let count = 0
     const winners: string[] = []

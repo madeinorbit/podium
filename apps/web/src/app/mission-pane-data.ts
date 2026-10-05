@@ -71,9 +71,9 @@ export function usePoolMissionFolded() {
       return {
         root: values.root,
         progress: values.progress,
-        live: values.rows[0]?.liveAgentCount ?? 0,
-        working: values.rows[0]?.workingAgentCount ?? 0,
-        needs: values.rows[0]?.actionableCount ?? 0,
+        live: values.deck?.model(values.deck.id).liveAgentCount ?? 0,
+        working: values.deck?.model(values.deck.id).workingAgentCount ?? 0,
+        needs: values.deck?.model(values.deck.id).actionableCount ?? 0,
       }
     },
     [readers, selectedId],

@@ -174,7 +174,7 @@ const EMPTY_DECK: MissionViewValues = {
   root: undefined,
   rows: [],
   members: new Set(),
-  byId: new Map(),
+  issueIds: [],
   sessions: [],
   archivedCount: 0,
   titles: new Map(),

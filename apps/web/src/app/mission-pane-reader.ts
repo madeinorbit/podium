@@ -11,6 +11,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 /** The deck's catalog answers, cached apart from the mission: a click that
  * changes the selection reads them by address instead of re-grouping every
  * repo scan and machine (review finding 2). */
+const NO_HOSTS: ReturnType<typeof machineViewsFromWire> = []
 function deckCatalog(pool: MobxPool) {
   return pool.sources.view('missionPaneCatalog', () => {
     const repoViews = cachedKey('MissionPane', 'repos', () => {
@@ -31,6 +32,7 @@ function deckCatalog(pool: MobxPool) {
     const hosts = cachedKey('MissionPane', 'hosts', (key) => {
       const [machineId, repoPath] = JSON.parse(key) as [string | null, string | null]
       const machines = machineViews('')
+      if (machines.length === 0) return NO_HOSTS
       if (machineId) return machines.filter((view) => view.machine.id === machineId)
       const repo = repoPath === null ? undefined : repoViews('').get(repoPath)
       return machines.filter((view) =>
@@ -59,7 +61,6 @@ export function readMissionPane(
   for (const id of new Set([
     input.paneA,
     input.split ? input.paneB : null,
-    ...mission.rows.map((row) => row.issue.startedBySession),
   ])) {
     if (id && reader.session(id) === LOADING) return LOADING
   }

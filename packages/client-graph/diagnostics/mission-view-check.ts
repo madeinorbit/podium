@@ -90,7 +90,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
   }
-  return snapshot({ root, rows, byId, sessions,
+  return snapshot({ root, rows, issueIds: issues.map(issue => issue.id), sessions,
     members: root ? missionIssueIds(issues, root.id, sessions) : new Set(),
     titles: new Map(rows.map(row => [row.issue.id, issueDisplayTitle(row.issue, sessions, worktreePaths)])),
     progress: missionProgress(issues, sessions, root?.id),

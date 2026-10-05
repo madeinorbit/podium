@@ -331,7 +331,7 @@ export function createMobileScreenReader(pool: MobxPool) {
       // history), so the phone adds every attached sender of the pane's issues,
       // as the pane once did itself.
       const crew = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
-      for (const id of values.byId.keys()) {
+      for (const id of values.issueIds) {
         const attached = mission.attached(id)
         if (attached === LOADING) throw LOADING
         for (const seat of attached) crew.set(seat.sessionId, seat)
@@ -346,7 +346,7 @@ export function createMobileScreenReader(pool: MobxPool) {
       const values = deck(id, 'full')
       if (values === LOADING) throw LOADING
       if (!values.root) return EMPTY_MOBILE_MISSION
-      const issues = new Map(values.byId),
+      const issues = new Map(values.issueIds.flatMap(id => { const row = mission.issue(id); if (row === LOADING) throw LOADING; return row ? [[id, row] as const] : [] })),
         sessions = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
       const crew = new Map<string, SessionView>()
       for (const member of values.members) {

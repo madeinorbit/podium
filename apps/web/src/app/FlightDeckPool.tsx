@@ -5,7 +5,7 @@ import type { FlightDeckMode } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
-import { compareStructural, computed, observer } from '@podium/client-graph/react'
+import { computed, observer } from '@podium/client-graph/react'
 import {
   type ComponentProps,
   type JSX,
@@ -70,7 +70,7 @@ export default observer(function PoolFlightDeck(
   // Observe the projection from its first read, retaining rows across pane
   // selection. Equal catalog publications must not redraw the whole roster.
   const values = useMemo(
-    () => computed(() => (pool ? read(pool) : LOADING), { equals: compareStructural }),
+    () => computed(() => (pool ? read(pool) : LOADING)),
     [pool, read],
   ).get()
   const source = useMemo<FlightDeckSource | null>(() => {
@@ -82,9 +82,10 @@ export default observer(function PoolFlightDeck(
       agentHosts: values.hosts,
       IssueMenu: PoolIssueContextMenu,
       ArchivedSessions: PoolArchivedSessions,
-      issues: [...values.mission.byId.values()].sort((a, b) =>
-        a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
-      ),
+      issues: () => values.mission.issueIds.flatMap(id => {
+        const issue = reader.issue(id)
+        return issue && issue !== LOADING ? [issue] : []
+      }).sort((a, b) => a.id.localeCompare(b.id)),
       allWorktreePaths: [],
       issue: (id) => {
         const issue = reader.issue(id)
