@@ -31,8 +31,7 @@
         "actions": {
           "pane-switch": ["rows", "elements"],
           "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"]
+          "heartbeat": ["rows", "elements"]
         }
       },
       {
