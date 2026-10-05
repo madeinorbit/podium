@@ -121,8 +121,6 @@ describe('pool screening incrementality', () => {
     }
     return reads
   }
-    return reads
-  }
 
   it('re-reads one summary on an unrelated proposal edit, flat at 1x/4x', () => {
     // The legacy arm reprojected every proposal on any summary touch: P
