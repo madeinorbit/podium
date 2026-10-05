@@ -107,7 +107,7 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
 })
 
 it('keeps replacement, missing samples, repeated IDs and atomic contribution moves correct', () => {
-  const pool = new MobxPool()
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const metric = (count?: number) =>
     ({ hostname: 'host', idleCapUnmet: count }) as HeaderRows['hostMetric']
   try {
