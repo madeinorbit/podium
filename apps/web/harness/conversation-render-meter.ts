@@ -1,8 +1,6 @@
 /** Build-only instrumentation: count actual component bodies in both revisions. */
-import { createRequire } from 'node:module'
 import type { Plugin } from 'vite'
-const require = createRequire(new URL('../../../scripts/package.json', import.meta.url))
-const ts = require('typescript') as typeof import('typescript')
+import ts from 'typescript'
 
 export function conversationRenderMeter(surface: 'web' | 'phone'): Plugin {
   const names: Record<string, string> = surface === 'web'

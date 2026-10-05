@@ -9,6 +9,6 @@ export default async () => {
   return mergeConfig(await inbox(), {
   define: { __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
   plugins: [conversationRenderMeter('phone')],
-  build: { minify: true, rollupOptions: { input: resolve(import.meta.dirname, 'test/conversation-stream.browser.html') } },
+  build: { minify: true, rolldownOptions: { moduleTypes: { '.js': 'jsx' }, input: resolve(import.meta.dirname, 'test/conversation-stream.browser.html') } },
   })
 }
