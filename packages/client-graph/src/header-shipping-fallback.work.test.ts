@@ -2,12 +2,13 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
-import type { HeaderRows } from './header-schema'
+import { HEADER_ISSUE_SUMMARY_FIELDS, type HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING } from './worklist/rollup'
+import { HIDDEN_ISSUE_FIELDS } from './worklist/visible'
 
 const stamp = '2020-01-01T00:00:00Z'
 installMobxWarnTrap({ errors: true })
@@ -147,7 +148,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
           { kind: 'window', id: 'window', value: window('/shared-sibling/file') },
         ]),
       )
-      expect(value).toEqual(counts(6, 4))
+      expect(value).toEqual(counts(0, 0))
       const explicit = await measure('explicit issue beats path fallback', () =>
         pool.header.apply([
           { kind: 'window', id: 'window', value: window('/shared/src/file', 'ancestor') },
@@ -245,7 +246,9 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
 })
 
 it('uses cold containing-issue facts and follows addressed eligibility and replacement updates', () => {
-  let source = createColdIndex(SCHEMA, { issue: ['repoId', 'worktreePath', 'seq'] })
+  let source = createColdIndex(SCHEMA, {
+    issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS, 'readAt'],
+  })
   const target = issue('target', 1, '/shared/src', { stage: 'done', closedAt: stamp }),
     runner = issue('runner', 2, '/shared/src', { stage: 'done', closedAt: stamp })
   source.apply({ type: 'replace', rows: [target, runner] })
@@ -281,9 +284,11 @@ it('uses cold containing-issue facts and follows addressed eligibility and repla
     publish({ type: 'update', rows: [issue('target', 1, '/shared/src', { archived: true })] })
     expect(seen.at(-1)).toEqual(counts(2, 0))
     publish({ type: 'update', rows: [issue('runner', 2, '/shared/src', { deletedAt: stamp })] })
-    expect(seen.at(-1)).toEqual(counts(6, 4))
+    expect(seen.at(-1)).toEqual(counts(0, 0))
     // Replace the source instance as the real feed does after reset.
-    source = createColdIndex(SCHEMA, { issue: ['repoId', 'worktreePath', 'seq'] })
+    source = createColdIndex(SCHEMA, {
+      issue: [...HIDDEN_ISSUE_FIELDS, ...HEADER_ISSUE_SUMMARY_FIELDS, 'readAt'],
+    })
     const rows = [issue('ancestor', 0, '/shared', { stage: 'done', closedAt: stamp })]
     source.apply({ type: 'replace', rows })
     pool.apply({ type: 'replace', rows })
