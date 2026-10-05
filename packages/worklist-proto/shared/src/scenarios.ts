@@ -99,7 +99,6 @@ import {
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import { createRowSource } from './row-source'
 import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
@@ -823,11 +822,10 @@ export async function startEngineOnCorpus(
     return { engine, hub }
   }
   const install = async (ctx: ScenarioEngine): Promise<void> => {
-    // POD-5669: POD-5497 moved rows out of engine state — actions now route
-    // through the pool writer and mark-read-on-view reads the navigation
-    // port. Wire the scenario engine the way production does (fixture port +
-    // log) so selection paints its eager mark-read and direct action writes
-    // resolve. The row source in runWithSource reuses this writer.
+    // POD-5669: POD-5497 moved rows out of engine state — mark-read-on-view
+    // now reads the navigation port. Install the fixture port so selection
+    // paints its eager mark-read. (Writes route through the pool writer the
+    // row source attaches in runWithSource; see scenarios.test.ts.)
     ctx.engine.setNavigationProvider(
       fixtureNavigation({
         issues: () => referenceState(ctx.engine).issueProjections,
@@ -835,7 +833,6 @@ export async function startEngineOnCorpus(
         markers: () => referenceState(ctx.engine).issueUserStates,
       }),
     )
-    ctx.engine.attachPoolWriter(createRuntimeTransactions(ctx.engine))
     ctx.engine.start()
     await settle(ctx.settleMs)
     ctx.replica.onKernelEvent({

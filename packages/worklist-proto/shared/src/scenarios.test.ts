@@ -17,6 +17,7 @@ import { localsOfEngine } from '../../harness/src/engine-locals'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { expectedSnapshot, oracleSnapshot, rowViewsFromStore } from '../../harness/src/oracle/index'
 import { FIRST_WINDOW_ROWS } from '../../harness/web/entrylib'
+import { createRowSource } from './row-source'
 import {
   applyHeartbeat,
   applyStageMove,
@@ -473,6 +474,9 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
     const ctx = await startScenarioEngine(1, {
       server: { issueUpdate: () => new Promise(() => {}) },
     })
+    // POD-5669: client writes route through the pool writer since POD-5497;
+    // attach the production feed the way runWithSource does.
+    const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
     try {
       const id = ctx.targets.stageMoveId
       const serverTitle = (ctx.cache.read('issueProjection', id)?.value as { title: string }).title
@@ -493,6 +497,7 @@ describe('scenario server writes build on server truth (POD-4551)', () => {
         serverTitle,
       )
     } finally {
+      rows.dispose()
       ctx.engine.destroy()
     }
   }, 60_000)
