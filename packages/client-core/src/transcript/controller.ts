@@ -1,5 +1,6 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { cursorInsertionIndex } from '../values/cursor-order'
+import { isAskUserQuestion } from '../values/ask-question'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
@@ -265,6 +266,54 @@ export function prependTranscriptItems(
   return fresh.length === 0 ? prev : [...fresh, ...prev]
 }
 
+/** IDs only, ordered by the controller's existing raw-item position relation. */
+class LatestTranscriptId {
+  private readonly ids: string[] = []
+  private readonly locations = new Map<string, number>()
+  constructor(private readonly position: (id: string) => number) {}
+  clear(): void { this.ids.length = 0; this.locations.clear() }
+  latest(): string | undefined { return this.ids[0] }
+  private newer(a: number, b: number): boolean {
+    return this.position(this.ids[a]!) > this.position(this.ids[b]!)
+  }
+  private swap(a: number, b: number): void {
+    const first = this.ids[a]!, second = this.ids[b]!
+    this.ids[a] = second; this.ids[b] = first
+    this.locations.set(first, b); this.locations.set(second, a)
+  }
+  private repair(at: number): void {
+    while (at > 0) {
+      const parent = (at - 1) >>> 1
+      if (!this.newer(at, parent)) break
+      this.swap(at, parent); at = parent
+    }
+    for (;;) {
+      const left = at * 2 + 1, right = left + 1
+      let next = at
+      if (left < this.ids.length && this.newer(left, next)) next = left
+      if (right < this.ids.length && this.newer(right, next)) next = right
+      if (next === at) return
+      this.swap(at, next); at = next
+    }
+  }
+  set(id: string, present: boolean): void {
+    const location = this.locations.get(id)
+    if (present) {
+      if (location !== undefined) { this.repair(location); return }
+      this.locations.set(id, this.ids.length)
+      this.ids.push(id); this.repair(this.ids.length - 1)
+      return
+    }
+    if (location === undefined) return
+    const last = this.ids.pop()!
+    this.locations.delete(id)
+    if (location < this.ids.length) {
+      this.ids[location] = last; this.locations.set(last, location)
+      this.repair(location)
+    }
+  }
+}
+
 export class TranscriptController {
   private readonly listeners = new Set<Listener>()
   private readonly initialLimit: number
@@ -288,6 +337,8 @@ export class TranscriptController {
   private probing: Promise<boolean> | null = null
   private indexedItems: readonly TranscriptItem[] = []
   private readonly itemPositions = new Map<string, number>()
+  private readonly userPrompts = new LatestTranscriptId(id => this.itemPositions.get(id) ?? -1)
+  private readonly questions = new LatestTranscriptId(id => this.itemPositions.get(id) ?? -1)
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
@@ -308,6 +359,26 @@ export class TranscriptController {
   }
 
   getSnapshot = (): TranscriptState => this.state
+
+  getItem(id: string | undefined): TranscriptItem | undefined {
+    if (id === undefined) return undefined
+    const position = this.itemPositions.get(id)
+    return position === undefined ? undefined : this.state.items[position]
+  }
+
+  latestOperatorPrompt(): string | null {
+    return this.getItem(this.userPrompts.latest())?.text ?? null
+  }
+
+  latestPendingQuestion(): TranscriptItem | null {
+    const item = this.getItem(this.questions.latest())
+    return item && !item.toolResult ? item : null
+  }
+
+  private fileFacts(item: TranscriptItem): void {
+    this.userPrompts.set(item.id, item.role === 'user' && item.text.trim().length > 0)
+    this.questions.set(item.id, isAskUserQuestion(item))
+  }
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener)
@@ -645,6 +716,7 @@ export class TranscriptController {
         const merged = mergeIndexedTranscriptFrame(this.state.items, frame, this.itemPositions)
         this.indexedItems = merged
         if (merged === this.state.items) return
+        for (const item of frame) this.fileFacts(item)
         const bounded = this.boundFollowingWindow(merged)
         const items = bounded.items
         const tail = items.at(-1)?.cursor ?? this.state.tail
@@ -677,8 +749,11 @@ export class TranscriptController {
   private patch(patch: Partial<TranscriptState>): void {
     if (patch.items && patch.items !== this.indexedItems) {
       this.itemPositions.clear()
+      this.userPrompts.clear()
+      this.questions.clear()
       patch.items.forEach((item, index) => {
         this.itemPositions.set(item.id, index)
+        this.fileFacts(item)
       })
       this.indexedItems = patch.items
     }

@@ -16,7 +16,6 @@ import {
   chatActivity,
   composerState,
   defaultChatCapable,
-  latestPendingQuestion,
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
@@ -435,12 +434,8 @@ export function SessionConversation({
   }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
 
   const latestOperatorPrompt = useMemo(() => {
-    for (let index = items.length - 1; index >= 0; index--) {
-      const item = items[index]
-      if (item?.role === 'user' && item.text.trim()) return item.text
-    }
-    return null
-  }, [items])
+    return transcriptController.latestOperatorPrompt()
+  }, [items, transcriptController])
   useEffect(() => {
     conversationController.updateContext({
       agentSince: session.agentState?.since,
@@ -590,16 +585,17 @@ export function SessionConversation({
   // the instant it has one, so this is consulted only while it has none.
   const need = session.agentState?.need
   const phase = session.agentState?.phase
+  const transcriptQuestion = useMemo(
+    () => transcriptController.latestPendingQuestion(),
+    [items, transcriptController],
+  )
   const pendingAsk = useMemo(
     () =>
-      pendingAskFromState(need, session.status, phase, latestPendingQuestion(items) !== null)
+      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)
         ?.item ?? null,
-    [items, need, phase, session.status],
+    [transcriptQuestion, need, phase, session.status],
   )
-  const pendingQuestion = useMemo(
-    () => latestPendingQuestion(items) ?? pendingAsk,
-    [items, pendingAsk],
-  )
+  const pendingQuestion = transcriptQuestion ?? pendingAsk
   const askAnswerable =
     pendingAsk !== null ||
     session.status === 'live' ||
@@ -679,6 +675,7 @@ export function SessionConversation({
           >
             <TranscriptList
               items={items}
+              transcriptQuestion={transcriptQuestion}
               live={session.status === 'live'}
               assetContext={{ httpOrigin: store.httpOrigin, sessionId, cwd: session.cwd }}
               pendingTurns={pendingTurns}

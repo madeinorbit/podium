@@ -901,6 +901,7 @@ function JumpToNewest({
 
 export function TranscriptList({
   items,
+  transcriptQuestion,
   liveItem,
   live,
   onAnswer,
@@ -932,6 +933,8 @@ export function TranscriptList({
   pinRequest = 0,
 }: {
   items: TranscriptItem[]
+  /** Source-owned raw-order answer. Array-only hosts retain their existing seam. */
+  transcriptQuestion?: TranscriptItem | null
   /** In-progress assistant prose, kept outside the stable settled item array. */
   liveItem?: TranscriptItem
   live: boolean
@@ -1043,7 +1046,10 @@ export function TranscriptList({
   )
   const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
-  const pending = useMemo(() => latestPendingQuestion(items), [items])
+  const pending = useMemo(
+    () => transcriptQuestion === undefined ? latestPendingQuestion(items) : transcriptQuestion,
+    [items, transcriptQuestion],
+  )
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const model = useMemo(
     () =>
