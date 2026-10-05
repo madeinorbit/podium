@@ -440,6 +440,23 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
   return result
 }))
 
+// The header is mounted only after its own references and scalar rollups have
+// settled. Observing this boolean keeps LOADING in the data boundary; ordinary
+// header value changes are read by its observer, without republishing the pane.
+const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => settled(() => {
+  const root = requireLoaded(deck.view.issue(deck.id))
+  if (!root) return true
+  const row = deck.model(deck.id)
+  const reads = [
+    () => row.liveAgentCount, () => row.workingAgentCount,
+    () => deck.view.continuation(root), () => deck.view.note(root),
+    () => deck.view.presence(root, row.sessions), () => deck.view.departures(deck),
+  ]
+  let pending = false
+  for (const read of reads) if (settled(read) === LOADING) pending = true
+  return pending ? LOADING : true
+}))
+
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
  * lifetime; unobserved row/model questions keep no computed allocations. */
 export class MissionDeckModel {
@@ -477,6 +494,7 @@ export class MissionDeckModel {
   get members() { return missions(this.view.pool).members(this.id) }
   get topology() { return topology(this) }
   get progress() { return progress(this) }
+  get headerReady() { return headerReady(this) }
   rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null) {
     return this.placements(JSON.stringify([mode, collapsed === null ? null : [...collapsed]]))
   }

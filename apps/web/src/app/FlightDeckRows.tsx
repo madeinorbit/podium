@@ -51,7 +51,8 @@ import type {
   MissionViewValues,
 } from '@podium/client-graph/mission-view'
 import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
-import { requireLoaded } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { requireLoaded, settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
@@ -1531,7 +1532,8 @@ export const TaskRow = observer(
     const raw = row.view.issue(row.id)
     if (!raw || typeof raw === 'symbol') return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
     const displayTitle = row.title
-    const presentation = row.presentation
+    const presentation = settled(() => row.presentation)
+    if (presentation === LOADING) return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
     if (!presentation) throw new Error('Pool mission row has no presentation values')
     const state = presentation!.state
     const sessions = deckSessions(row, mode)

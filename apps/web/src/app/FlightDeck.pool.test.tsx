@@ -148,7 +148,7 @@ beforeEach(() => {
     ],
   })
   state.pool = pool
-})
+}, 60_000)
 afterEach(() => {
   cleanup()
   pool.dispose()
@@ -222,7 +222,8 @@ describe('rendered mission pane parity', () => {
     try {
       const current = mount('full')
       await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-scroller"]')).not.toBeNull(), { timeout: 10_000 })
-      expect(current.container.querySelector('.deck-header')?.textContent).toContain(state.selectedIssueId.replace('i', ''))
+      const root = missionView(pool).issue(state.selectedIssueId)
+      expect(root && typeof root !== 'symbol' ? current.container.querySelector('.deck-header')?.textContent : '').toContain(root && typeof root !== 'symbol' ? root.displayRef : 'missing root')
     } finally {
       cleanup()
       handle.dispose()

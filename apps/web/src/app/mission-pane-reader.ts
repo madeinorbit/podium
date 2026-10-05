@@ -58,6 +58,7 @@ export function readMissionPane(
   const reader = missionView(pool)
   const mission = readMissionView(reader, input.selectedIssueId, input.mode)
   if (mission === LOADING) return LOADING
+  if (mission.deck?.headerReady === LOADING) return LOADING
   for (const id of new Set([
     input.paneA,
     input.split ? input.paneB : null,
