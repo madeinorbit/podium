@@ -131,7 +131,7 @@ export function IssuesScreen() {
       showDone,
     ],
   )
-  const { issues, sessions, booting, board, workingByIssue, progressByIssue, proposals } =
+  const { issues, booting, board, workingByIssue, progressByIssue, proposals } =
     useTaskScreenData(options)
   const chips = useMemo(() => filterChips(filter), [filter])
 

@@ -66,7 +66,7 @@ export function IssueCloseSheet({
   return <VisibleIssueCloseSheet issue={issue} reason={reason} busy={busy} onConfirm={onConfirm} onClose={onClose} />
 }
 
-function VisibleIssueCloseSheet({ issue, reason, busy, onConfirm, onClose }: Parameters<typeof IssueCloseSheet>[0]) {
+function VisibleIssueCloseSheet({ issue, reason, busy = false, onConfirm, onClose }: Parameters<typeof IssueCloseSheet>[0]) {
   const value = useIssueCloseConcerns(issue.id)
   const pending = value === LOADING
   const concerns = pending ? [] : value
