@@ -1,6 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import type { EngineState, NavigationTopologyDelta } from '@podium/client-core/engine'
+import { loadingNavigationProvider } from '@podium/client-core/engine'
 import { Reactions } from '../../client-core/src/engine/reactions'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { createPoolNavigationProvider } from './navigation-provider'
@@ -51,6 +52,16 @@ it('answers registered roots and the ordered fallback without projecting reposit
     f.publish({ type: 'replace', rows: [] })
     expect(f.provider.firstWorktree!()).toBeNull()
   } finally { f.pool.dispose() }
+})
+
+it('keeps the loading port addressed before the pool import resolves', () => {
+  const state = { navigation: loadingNavigationProvider, reposLoaded: true, selectedWorktree: '/old' } as unknown as EngineState
+  Object.defineProperty(state, 'repos', { get() { throw new Error('global repositories during loading') } })
+  const publish = vi.fn()
+  const reactions = new Reactions({ state: () => state, publish, hub: {} as never, notices: {} as never,
+    isVisible: () => false, markSessionRead: vi.fn(), markIssueRead: vi.fn() })
+  try { expect(reactions.worktreeFallback()).toBe(false); expect(publish).not.toHaveBeenCalled() }
+  finally { reactions.dispose() }
 })
 
 it('anchors archived/headless/shell sessions with invalid timestamps and releases addressed path observers', () => {

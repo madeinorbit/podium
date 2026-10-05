@@ -50,6 +50,11 @@ export interface NavigationProvider {
 /** Installed synchronously while a client's pool import is in flight. */
 export const loadingNavigationProvider: NavigationProvider = {
   worktreeSessions: () => NAVIGATION_LOADING,
+  registeredWorktree: () => NAVIGATION_LOADING,
+  worktreeForCwd: () => NAVIGATION_LOADING,
+  firstWorktree: () => NAVIGATION_LOADING,
+  hasWorktreeSession: () => NAVIGATION_LOADING,
+  worktreeSession: () => NAVIGATION_LOADING,
   issue: () => NAVIGATION_LOADING,
   missionRoot: () => NAVIGATION_LOADING,
   missionMembers: () => NAVIGATION_LOADING,
