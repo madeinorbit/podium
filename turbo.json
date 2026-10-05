@@ -281,6 +281,8 @@
         "$TURBO_ROOT$/apps/web/test/header-fixture.ts",
         "$TURBO_ROOT$/apps/web/test/sidebar-fixture.ts",
         "$TURBO_ROOT$/apps/web/test/sidebar-actions-fixture.ts",
+        "$TURBO_ROOT$/apps/web/harness/conversation-render-meter.ts",
+        "$TURBO_ROOT$/apps/web/test/conversation-stream-driver.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
         "$TURBO_ROOT$/packages/worklist-proto/harness/src/fence-scenarios.ts",
