@@ -49,6 +49,7 @@ export interface MobileTranscriptModel {
   rows: MobileTranscriptRow[]
   latestAssistantKey: string | undefined
   positionOfKey(key: string): number | undefined
+  rowsForBlock(blockIndex: number): readonly number[]
 }
 
 interface MobileTranscriptIndex {
@@ -84,10 +85,16 @@ export function buildMobileTranscript(
 ): MobileTranscriptModel {
   const rows: MobileTranscriptRow[] = []
   const positions = new Map<string, number>()
+  const blockRows = new Map<number, number[]>()
   const append = (row: MobileTranscriptRow) => {
     const position = rows.length
     rows.push(row)
     if (!positions.has(row.key)) positions.set(row.key, position)
+    for (const blockIndex of row.blockIndices) {
+      const members = blockRows.get(blockIndex)
+      if (members) members.push(position)
+      else blockRows.set(blockIndex, [position])
+    }
     if (row.kind === 'tools')
       for (const block of row.blocks ?? [])
         if (!positions.has(block.item.id)) positions.set(block.item.id, position)
@@ -238,7 +245,11 @@ export function buildMobileTranscript(
     })
   }
 
-  return { blocks, rows, latestAssistantKey, positionOfKey: (key) => positions.get(key) }
+  return {
+    blocks, rows, latestAssistantKey,
+    positionOfKey: (key) => positions.get(key),
+    rowsForBlock: (blockIndex) => blockRows.get(blockIndex) ?? [],
+  }
 }
 
 /** Shape the one in-progress assistant row without touching settled history. */
@@ -277,19 +288,25 @@ export function matchMobileTranscript(
 ): MobileTranscriptMatches {
   if (!query.trim()) return { matches: [], matchingRows: new Set(), firstRowByBlock: new Map() }
   const matches = searchBlocks(model.blocks, query)
+  return projectMobileTranscriptMatches(model, matches)
+}
+
+/** A matched block names its presentation rows through the model's identity
+ * relation. Folded tool runs and split envelopes can name more than one row. */
+export function projectMobileTranscriptMatches(
+  model: MobileTranscriptModel,
+  matches: number[],
+): MobileTranscriptMatches {
   const matchingRows = new Set<number>()
   const firstRowByBlock = new Map<number, number>()
-  if (matches.length === 0) return { matches, matchingRows, firstRowByBlock }
-  const matchingBlocks = new Set(matches)
-  for (let index = 0; index < model.rows.length; index++) {
-    const row = model.rows[index]!
-    for (const blockIndex of row.blockIndices) {
-      if (!matchingBlocks.has(blockIndex)) continue
-      matchingRows.add(index)
-      if (!firstRowByBlock.has(blockIndex)) firstRowByBlock.set(blockIndex, index)
+  for (const blockIndex of matches) {
+    for (const position of model.rowsForBlock(blockIndex)) {
+      if (position >= model.rows.length) continue
+      matchingRows.add(position)
+      if (!firstRowByBlock.has(blockIndex)) firstRowByBlock.set(blockIndex, position)
     }
   }
-  return { matches, matchingRows, firstRowByBlock }
+  return { matches, matchingRows: new Set([...matchingRows].sort((a, b) => a - b)), firstRowByBlock }
 }
 
 /** Answer which matched row is selected through the demanded match relation. */
