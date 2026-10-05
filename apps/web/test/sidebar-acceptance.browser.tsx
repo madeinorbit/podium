@@ -388,7 +388,9 @@ const fixture = {
   settled: () => database.settled(),
   begin() {
     storeStats.reset()
+    const poolReport = perf?.read().pool
     perf?.reset()
+    if (poolReport) perf?.pool(poolReport.connected, poolReport.rows)
     intervals = []
     active = true
   },

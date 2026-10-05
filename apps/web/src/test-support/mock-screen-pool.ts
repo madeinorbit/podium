@@ -6,6 +6,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { isMessageRecordAttention } from '@podium/model'
+import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 import { vi } from 'vitest'
@@ -193,6 +194,13 @@ function useFixturePool(): MobxPool {
         }
       },
       queries: {
+        setupDefaultAgent: () => resolveDefaultAgent(undefined, sessions()),
+        setupSessionCount: () => sessions().length,
+        setupSessionPresent: (id: string) => sessions().some(row => row.sessionId === id),
+        activity: (question: Parameters<MobxPool['queries']['activity']>[0]) => {
+          const usage = createRepositoryUsageSelector()(sessions())
+          return Math.max(0, ...question.roots.map(path => usage.get(path) ?? 0))
+        },
         ids: ({ kind }: { kind: string }) =>
           kind === 'mentionIssues'
             ? live.current.issues.map((row) => row.id)
