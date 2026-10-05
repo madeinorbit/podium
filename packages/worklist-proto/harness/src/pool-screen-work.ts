@@ -17,6 +17,7 @@ import {
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
+import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
@@ -87,7 +88,6 @@ import {
   readPalette,
 } from '../../../../apps/web/src/app/command-launch-readers'
 import { readMissionPane } from '../../../../apps/web/src/app/mission-pane-reader'
-import { readBoardCatalog } from '../../../../apps/web/src/features/issues/board-pool-reader'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   type FixtureScale,

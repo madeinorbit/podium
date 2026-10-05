@@ -1,12 +1,11 @@
 import type { MobxPool } from '@podium/client-graph'
+import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import type { BoardCatalog, BoardColumnOptions, BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import { ISSUE_BOARD_STAGES, type IssueId } from '@podium/model/browser'
 import { useCallback } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from './board-pool-projection'
-import { readBoardCatalog } from './board-pool-reader'
-
-export { readBoardCatalog } from './board-pool-reader'
+export { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 
 export const EMPTY_BOARD: PoolBoardData = {
   activeIds: [],
