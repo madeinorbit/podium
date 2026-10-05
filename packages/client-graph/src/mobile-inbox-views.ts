@@ -129,7 +129,7 @@ export function createMobileInboxViews(pool: MobxPool) {
       )
       const loading = booting() || answers === LOADING
       const queue =
-        answers === LOADING
+        answers === LOADING || answers === undefined
           ? []
           : [...answers]
               .sort(
