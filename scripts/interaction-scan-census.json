@@ -7599,12 +7599,12 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/rawSessions",
       "rule": "consume:map",
-      "tokens": "1facbfa99f1df08dfae1d71744b521ef9f9e688c30867f2777bde688b09df440",
+      "tokens": "9dd96981c3ebc5544fa5c771b84841b60195b71a7711ad9a61e808479da01200",
       "gate": [],
       "origin": [
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "56fe9c76bf17babf15b0fab6302c09632f28b30643ba93ee6b71ff7f65f32e54",
+      "fingerprint": "ea0b80bbc8f88f52f96f064074eb42b99aee5d0ffa51e32bc0b805b6ad0eb198",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7816,14 +7816,14 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/conversation",
       "rule": "reader-summary",
-      "tokens": "5647394889f2f1327141cfc2dd1715c9d7824dec043622c484681c3773f0a147",
+      "tokens": "2cf20fcba4030c3808998d2f13a40978526dba732af692157fc155bcaef23a48",
       "gate": [],
       "origin": [
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
         "61394c5858feb778b7495e95dc1eeacc5803c6537780b29e1ae90770e146ed07",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d"
       ],
-      "fingerprint": "aed88a9cf3771a9c961df39e6c15447e5e505a6b14890d69831bfef97ff1ac05",
+      "fingerprint": "7a9691532e691221add4c906cc2f5c08eaa9d35afec00db0f09242b1304a8097",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45340,7 +45340,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "0e8cfa6a5fdfc6f2de763b7e9cb8b9c38a82d03a68f1e994346ea6c5fd69e7d6",
+      "tokens": "334c5fa10ddff8ee2c951722075401652a6cb24837a38729aa8376497e9fcda7",
       "gate": [],
       "origin": [
         "108db4795cb373320091b36ae4710f20597f2ab09644298c9447d14e7ed5d427",
@@ -45357,7 +45357,7 @@
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "529a8833cbc3c36be5c9201370e71080010f2d8ba1584f6004565f6ca671886e",
+      "fingerprint": "0d9590674ae4d003e30c0b1694f05a179757ce98d15ab8c714d2f61c89d9a630",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
