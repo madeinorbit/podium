@@ -4,6 +4,7 @@ import {
   DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
+  publishDemoSlice,
 } from '@podium/client-core/demo'
 
 /**
@@ -96,7 +97,7 @@ import { MobileSyncBoundary } from './MobileSyncBoundary'
 import { openMobileEntityStore } from './mobile-entity-store'
 import { mobileVersionObservers } from './mobile-live-connection'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
-import { attachMobilePool } from './mobile-pool'
+import { attachMobilePool, useMobilePool } from './mobile-pool'
 import { createMobileSyncFetch } from './mobile-sync-fetch'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
@@ -364,6 +365,12 @@ function DemoProvider({ children }: { children: ReactNode }) {
     const replica = createDemoReplica()
     return () => replica
   }, [])
+  // Publish the seeded slice once the pool has attached (POD-5277): the
+  // pool's question indexes build from replica events, and the pool's
+  // presence here means its row source has subscribed. StrictMode-safe —
+  // re-installing the identical slice is a no-op downstream.
+  const [demoReplica] = useState(createDemoReplica)
+  const createReplicaFn = useMemo(() => () => demoReplica, [demoReplica])
   return (
     <StoreProvider
       config={config}
@@ -374,11 +381,29 @@ function DemoProvider({ children }: { children: ReactNode }) {
       routerWindow={routerWindow}
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
     >
+      <DemoSlicePublisher replica={demoReplica} />
       <MobileShellSurface value={{ ...DEMO_SHELL, error }}>
         <MobileSyncBoundary store={syncProgress}>{children}</MobileSyncBoundary>
       </MobileShellSurface>
     </StoreProvider>
   )
+}
+
+/**
+ * Publishes the demo slice's install event once the pool exists. Mounted
+ * inside the provider so `useMobilePool` resolves; the pool's presence means
+ * its row source has subscribed, so the install's replace batch is observed.
+ */
+function DemoSlicePublisher({ replica }: { replica: ReturnType<typeof createDemoReplica> }) {
+  const pool = useMobilePool()
+  const published = useRef(false)
+  useEffect(() => {
+    if (pool !== null && !published.current) {
+      published.current = true
+      publishDemoSlice(replica)
+    }
+  }, [pool, replica])
+  return null
 }
 
 const DEMO_SHELL: MobileShell = {

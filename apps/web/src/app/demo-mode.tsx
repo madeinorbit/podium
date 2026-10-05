@@ -18,21 +18,23 @@ import {
   DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
+  publishDemoSlice,
 } from '@podium/client-core/demo'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { SessionId } from '@podium/model'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { useFeature } from '@/lib/use-feature'
 import { WebSyncProgressStore } from '@/lib/sync-progress'
 import type { JSX, ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AppBody } from './AppShell'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
 import { StoreProvider } from './store'
-import { attachWorklistPool } from './store-worklist-pool'
+import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import type { Trpc } from './trpc'
 
@@ -125,35 +127,18 @@ function DemoDensityProvider({ children }: { children: ReactNode }): JSX.Element
  * reports the replica as settled from the first frame.
  */
 export function WebDemoApp(): JSX.Element {
-  const [api] = useState(demoTrpc)
-  const [principal] = useState(() => asClientPrincipal(DEMO_PRINCIPAL))
-  const createReplicaFn = useMemo(() => {
-    const replica = createDemoReplica()
-    return () => replica
-  }, [])
-  const [syncProgress] = useState(() => {
-    const progress = new WebSyncProgressStore()
-    progress.begin('live')
-    return progress
-  })
   return (
     <TooltipProvider>
       <ErrorBoundary resetKey="demo" onRetry={() => {}}>
-        <StoreProvider
-          principal={principal}
-          config={DEMO_CONFIG}
-          api={api}
-          onFatalError={() => {}}
-          createReplicaFn={createReplicaFn}
-        >
+        <WebDemoProvider>
           <DemoDensityProvider>
             <ConfirmProvider>
               <ToolbarSlotProvider>
-                <AppBody syncProgress={syncProgress} />
+                <DemoBody />
               </ToolbarSlotProvider>
             </ConfirmProvider>
           </DemoDensityProvider>
-        </StoreProvider>
+        </WebDemoProvider>
       </ErrorBoundary>
       <Toaster
         position="top-center"
@@ -164,6 +149,36 @@ export function WebDemoApp(): JSX.Element {
   )
 }
 
+function DemoBody(): JSX.Element {
+  const [syncProgress] = useState(() => {
+    const progress = new WebSyncProgressStore()
+    progress.begin('live')
+    return progress
+  })
+  return <AppBody syncProgress={syncProgress} />
+}
+
+/**
+ * Publishes the demo slice's install event once the pool exists. The pool's
+ * presence means its row source has subscribed, so the install's replace
+ * batch is observed and the event-fed question indexes fill.
+ */
+function DemoSlicePublisher({
+  replica,
+}: {
+  replica: ReturnType<typeof createDemoReplica>
+}): null {
+  const pool = useWorklistPool()
+  const published = useRef(false)
+  useEffect(() => {
+    if (pool !== null && !published.current) {
+      published.current = true
+      publishDemoSlice(replica)
+    }
+  }, [pool, replica])
+  return null
+}
+
 /**
  * Focused-test/demo harness provider: the demo store with the web pool
  * attached, without the shell chrome. Tests render the sidebar or an issue
@@ -172,10 +187,8 @@ export function WebDemoApp(): JSX.Element {
 export function WebDemoProvider({ children }: { children: ReactNode }): JSX.Element {
   const [api] = useState(demoTrpc)
   const [principal] = useState(() => asClientPrincipal(DEMO_PRINCIPAL))
-  const createReplicaFn = useMemo(() => {
-    const replica = createDemoReplica()
-    return () => replica
-  }, [])
+  const [demoReplica] = useState(createDemoReplica)
+  const createReplicaFn = useMemo(() => () => demoReplica, [demoReplica])
   return (
     <StoreProvider
       principal={principal}
@@ -183,8 +196,16 @@ export function WebDemoProvider({ children }: { children: ReactNode }): JSX.Elem
       api={api}
       onFatalError={() => {}}
       createReplicaFn={createReplicaFn}
-      attachRuntime={(runtime) => attachWorklistPool(runtime, () => {})}
+      attachRuntime={(runtime) => {
+        const detachPool = attachWorklistPool(runtime, () => {})
+        const detachReload = registerReloadPreparation(runtime.prepareReload)
+        return () => {
+          detachReload()
+          detachPool()
+        }
+      }}
     >
+      <DemoSlicePublisher replica={demoReplica} />
       {children}
     </StoreProvider>
   )

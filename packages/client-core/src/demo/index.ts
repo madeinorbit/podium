@@ -12,4 +12,9 @@ export {
   DEMO_USAGE_BUCKETS,
   demoEnabled,
 } from './demo-data'
-export { buildDemoEntityRecords, createDemoReplica, DEMO_PRINCIPAL } from './demo-replica'
+export {
+  buildDemoEntityRecords,
+  createDemoReplica,
+  DEMO_PRINCIPAL,
+  publishDemoSlice,
+} from './demo-replica'

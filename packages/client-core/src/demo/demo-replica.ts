@@ -110,24 +110,17 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
  * per provider mount (never shared across mounts): the facade memoises
  * projections per instance, and the side cache holds per-mount ui-state.
  *
- * EVENT-FED POOL INDEXES (why this publishes on subscribe). The rows sit in
- * the cache from construction, so direct reads answer immediately — but the
- * pool's question indexes (`referenceSessions`, `mentionIssues`, …) build from
- * replica EVENTS. In production those arrive as the bootstrap that lands after
- * the pool attaches; a silently pre-seeded cache emits nothing, so the pool
- * would paint orders and summaries while every question answered empty. Each
- * new addressed subscriber therefore receives the install it missed as a
- * `bootstrap-installed` — the same signal a cold boot ends with — and the row
- * source enumerates the seeded rows into a full publication. Idempotent: a
- * later subscriber re-installs the identical slice, which the source's
- * memoised retain absorbs without downstream churn.
+ * The rows sit in the cache from construction, so direct reads answer
+ * immediately — but the pool's question indexes (`referenceSessions`,
+ * `mentionIssues`, …) build from replica EVENTS. Publish the install with
+ * {@link publishDemoSlice} once the pool has attached (see below).
  */
 export function createDemoReplica(): KernelBackedReplica {
   const records = new Map<string, EntityRecord>()
   for (const record of buildDemoEntityRecords()) {
     records.set(recordKey(record.entity, record.entityId), record)
   }
-  const replica = createKernelReplica({
+  return createKernelReplica({
     cache: {
       readCursor: () => null,
       readEntities: () => [...records.values()],
@@ -136,17 +129,48 @@ export function createDemoReplica(): KernelBackedReplica {
     },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
-  const subscribe = replica.subscribeAddressedBatch.bind(replica)
-  replica.subscribeAddressedBatch = (cb) => {
-    const off = subscribe(cb)
-    replica.onKernelEvent({
-      type: 'bootstrap-installed',
-      cause: 'cold-start',
-      snapshotSeq: 1,
-      entityCount: records.size,
-      bufferedFramesApplied: 0,
-    })
-    return off
-  }
-  return replica
+}
+
+const DEMO_SLICE_KINDS = [
+  'sessions',
+  'sessionUserStates',
+  'machines',
+  'issueProjections',
+  'issueUserStates',
+  'issueGitStates',
+  'issueDeps',
+  'repos',
+  'issueEvents',
+  'pendingInteractions',
+  'messageRecords',
+  'shipOrders',
+  'shipLanes',
+  'conversations',
+  'automations',
+  'automationRuns',
+  'userLayouts',
+] as const
+
+/**
+ * Publish the seeded slice to the pool's event-fed indexes (POD-5277).
+ *
+ * In production these indexes fill from the bootstrap that lands AFTER the
+ * pool attaches; a silently pre-seeded cache emits nothing, so the pool would
+ * paint orders and summaries while every question answered empty. Call this
+ * once the pool exists (its subscription strictly precedes its visibility):
+ * the `bootstrap-installed` — the same signal a cold boot ends with — makes
+ * the facade emit one addressed replace batch, and the row source enumerates
+ * the seeded rows into a full publication. Idempotent: re-installing the
+ * identical slice is absorbed without downstream churn.
+ */
+export function publishDemoSlice(replica: KernelBackedReplica): void {
+  let entityCount = 0
+  for (const kind of DEMO_SLICE_KINDS) entityCount += replica.rows(kind).length
+  replica.onKernelEvent({
+    type: 'bootstrap-installed',
+    cause: 'cold-start',
+    snapshotSeq: 1,
+    entityCount,
+    bufferedFramesApplied: 0,
+  })
 }
