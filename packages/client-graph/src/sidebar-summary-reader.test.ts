@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 
-it('keeps a missing cold seat summary pending without indexing or loading its row early', () => {
+it('keeps a missing cold seat out of the roster without indexing or loading its row', () => {
   const now = Date.parse('2026-10-03T12:00:00Z')
   const path = '/synthetic/cold-roster'
   const session = { sessionId: 'cold-seat', cwd: path, issueId: null, agentKind: 'codex',
@@ -19,12 +19,15 @@ it('keeps a missing cold seat summary pending without indexing or loading its ro
     expect(pool.tables.session.has(session.sessionId)).toBe(false)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: session.sessionId, value: { ...session, title: 'Changed' } as never }] })
     expect(pool.sidebarRosters.candidates(path)).toEqual([])
-    expect(pool.model('worktree', path)?.roster).toEqual({ ids: [], pending: 1 })
-    expect(pool.model('worktree', path)?.roster).toEqual({ ids: [], pending: 1 })
+    // POD-5407: the roster files resident sessions only. A session the rule
+    // keeps cold can never be a retained seat, so a missing cold summary
+    // stays pending 0 and queues no load.
+    expect(pool.model('worktree', path)?.roster).toEqual({ ids: [], pending: 0 })
+    expect(pool.model('worktree', path)?.roster).toEqual({ ids: [], pending: 0 })
     expect(load).not.toHaveBeenCalled()
     missing.mockRestore()
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledExactlyOnceWith('session', session.sessionId)
+    expect(pool.hydrate()).toBe(0)
+    expect(load).not.toHaveBeenCalled()
     expect(pool.model('worktree', path)?.roster).toEqual({ ids: [], pending: 0 })
     expect(pool.hydrate()).toBe(0)
   } finally { missing.mockRestore(); pool.dispose() }
