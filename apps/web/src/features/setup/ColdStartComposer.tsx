@@ -472,7 +472,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     attachments.attachments.length > 0 ||
     Boolean(draft.pendingIssueId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null)
+  const [rootEl, setRootEl] = useState<HTMLFieldSetElement | null>(null)
   const [focused, setFocused] = useState(false)
   useColdStartPromptAutoGrow({
     taRef: inputRef,
@@ -969,12 +969,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
           {/* The drop target is the PANE now, not this box (POD-1669) — see
               `paneDrop`. What stays here is the chord and the paste. */}
-          <div
+          <fieldset
             ref={setRootEl}
-            role="group"
             data-testid="cold-start-field"
             data-expanded={expanded ? 'true' : 'false'}
-            className="cold-start-field relative overflow-hidden rounded-[14px] bg-bar shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
+            className="cold-start-field relative min-w-0 overflow-hidden rounded-[14px] border-0 bg-bar p-0 shadow-[inset_0_0_0_1px_var(--border-strong),0_20px_50px_-30px_var(--carve-drop)]"
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault()
@@ -1276,7 +1275,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 </div>
               </div>
             )}
-          </div>
+          </fieldset>
 
           {/* THREE DEAD ENDS, THREE ANSWERS (POD-1469, POD-1582).
               UNAUTHORIZED IS NOT UNREADY, and it is stated first: no amount of
