@@ -78,6 +78,13 @@ function remove<T>(root: Node<T> | undefined, item: Item<T>, compareItems: (a: I
   while (next.left) next = next.left
   return balance(next.item, root.left, remove(root.right, next.item, compareItems))
 }
+/** A value change at the same ordering key replaces one persistent path.
+ * Removing it first would copy that path twice and rebalance an unchanged tree. */
+function replace<T>(root: Node<T> | undefined, before: Item<T> | undefined,
+  after: Item<T> | undefined, compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
+  if (before && (!after || compareItems(before, after) !== 0)) root = remove(root, before, compareItems)
+  return after ? put(root, after, compareItems) : root
+}
 function itemAt<T>(root: Node<T> | undefined, index: number): Item<T> | undefined {
   while (root) {
     const left = size(root.left)
@@ -270,10 +277,9 @@ export function createKeyedAnswer<T>(
     set(id: string, order: string, value: T): void {
       const before = item(id)
       if (before?.order === order && before.value === value) return
-      if (before) root = remove(root, before, compareItems)
       const after = { id, order, value, ...(point ? { point: point(value) } : {}) }
       keys = put(keys, { id, order: id, value: after })
-      root = put(root, after, compareItems)
+      root = replace(root, before, after, compareItems)
     },
     delete(id: string): void {
       const before = item(id)
@@ -329,13 +335,13 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     root: undefined as Node<T> | undefined,
   }))
   function replaceItem(before: Item<T> | undefined, after: Item<T> | undefined) {
-    if (before) root = remove(root, before)
-    if (after) root = put(root, after)
+    root = replace(root, before, after)
     for (const match of matches) {
       const previous = at(match.root, 0)
       const beforeSize = size(match.root)
-      if (before && match.test(before.value)) match.root = remove(match.root, before)
-      if (after && match.test(after.value)) match.root = put(match.root, after)
+      match.root = replace(match.root,
+        before && match.test(before.value) ? before : undefined,
+        after && match.test(after.value) ? after : undefined)
       if (at(match.root, 0) !== previous) match.atom.reportChanged()
       if (size(match.root) !== beforeSize) match.countAtom.reportChanged()
     }

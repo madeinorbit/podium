@@ -79,10 +79,14 @@ def analyze(directory, build):
         parents = {child: node['id'] for node in profile['nodes'] for child in node.get('children', [])}
         locations = {node_id: maps.locate(node['callFrame']) for node_id, node in nodes.items()}
         leaves, inclusive, frames = defaultdict(float), defaultdict(float), defaultdict(float)
-        clock = profile['startTime']
+        clock, points = profile['startTime'], []
         for node_id, delta in zip(profile['samples'], profile['timeDeltas']):
-            previous, clock = clock, clock + delta
+            clock += delta
+            points.append((clock, node_id))
+        previous = profile['startTime']
+        for clock, node_id in sorted(points):
             ms = max(0, min(clock, end) - max(previous, start)) / 1000
+            previous = clock
             if not ms:
                 continue
             location = locations[node_id]

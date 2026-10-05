@@ -1,6 +1,6 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { createQueryResult, joinQueryResults } from './query-result'
+import { createKeyedAnswer, createQueryResult, joinQueryResults } from './query-result'
 import { LOADING } from './worklist/rollup'
 
 function fixture(prefix = '') {
@@ -52,6 +52,55 @@ function fixture(prefix = '') {
 }
 
 describe('maintained query answers', () => {
+  it.each([1024, 4096])('replaces startup index revisions in one ordered path (%i entries)', (count) => {
+    type Value = { id: string; rank: number; revision: number; deadline: number }
+    const compare = vi.fn((a: Value, b: Value) => a.rank - b.rank)
+    const answer = createKeyedAnswer(compare, value => value.deadline)
+    for (let rank = 0; rank < count; rank++) {
+      const id = String(rank).padStart(5, '0')
+      answer.set(id, '', { id, rank, revision: 0, deadline: 0 })
+    }
+    const captured = answer.snapshot(), fork = answer.fork()
+    const id = String(count - 1).padStart(5, '0')
+    compare.mockClear()
+    answer.set(id, '', { id, rank: count - 1, revision: 1, deadline: 99 })
+    const comparisons = compare.mock.calls.length
+    // Startup scalar indexes repeatedly change bucket/revision values while
+    // keeping their order. A remove followed by put traverses this path twice.
+    expect(comparisons).toBeLessThanOrEqual(Math.ceil(Math.log2(count)) + 2)
+    expect(comparisons).toBeGreaterThan(0)
+    expect(answer.get(id)?.revision).toBe(1)
+    expect(answer.firstBounded(98, 'above')?.id).toBe(id)
+    expect(fork.get(id)?.revision).toBe(0)
+    expect(fork.firstBounded(98, 'above')).toBeUndefined()
+    expect(captured.at(-1)?.revision).toBe(0)
+    expect(answer.snapshot().map(value => value.rank)).toEqual(Array.from({ length: count }, (_, rank) => rank))
+    console.info('startup stable-key comparisons', JSON.stringify({ count, comparisons }))
+  })
+
+  it('reorders changed scalar keys and preserves snapshots when a matching value changes', () => {
+    const f = fixture()
+    const lists: { id: string; title: string }[][] = [], witnesses: unknown[] = [], counts: unknown[] = []
+    const stops = [autorun(() => {
+      const value = f.result.get()
+      if (value && value !== LOADING) lists.push(value)
+    }), autorun(() => witnesses.push(f.result.firstMatch(0))), autorun(() => counts.push(f.result.countMatch(0)))]
+    try {
+      f.set('a', { title: 'Another title', order: '2' })
+      expect(lists.at(-1)?.map(value => value.title)).toEqual(['B', 'Another title'])
+      expect(lists[0]?.map(value => value.title)).toEqual(['B', 'A'])
+      expect(witnesses.at(-1)).toEqual({ id: 'a', title: 'Another title' })
+      expect(counts).toEqual([1])
+      f.set('a', { title: 'Changed membership', order: '2' })
+      expect(witnesses.at(-1)).toBeUndefined()
+      expect(counts).toEqual([1, 0])
+      f.set('a', { title: 'Again first', order: '0' })
+      expect(lists.at(-1)?.map(value => value.id)).toEqual(['a', 'b'])
+      expect(witnesses.at(-1)).toEqual({ id: 'a', title: 'Again first' })
+      expect(counts).toEqual([1, 0, 1])
+    } finally { for (const stop of stops) stop() }
+  })
+
   it('publishes incremental counts when a non-witness changes and releases closed demand', () => {
     const f = fixture(), counts: unknown[] = [], witnesses: unknown[] = []
     const count = autorun(() => counts.push(f.result.countMatch(0)))
