@@ -361,7 +361,9 @@ export class TranscriptController {
   private readonly userPrompts = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly questions = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly recordedAt = new Map<string, number>()
-  private readonly recordedItems = new LatestTranscriptId((id) => this.recordedAt.get(id) ?? -Infinity)
+  private readonly recordedItems = new LatestTranscriptId(
+    (id) => this.recordedAt.get(id) ?? -Infinity,
+  )
   private readonly userEchoes = new Map<string, { text: string; paths: string }>()
   private readonly userTexts = new Map<string, number>()
   private readonly userPaths = new Map<string, number>()
@@ -416,7 +418,11 @@ export class TranscriptController {
       : this.userTexts.has(text.trim())
   }
 
-  private moveEchoCount(counts: Map<string, number>, before: string | undefined, after: string | undefined): void {
+  private moveEchoCount(
+    counts: Map<string, number>,
+    before: string | undefined,
+    after: string | undefined,
+  ): void {
     if (before === after) return
     if (before !== undefined) {
       const count = counts.get(before) ?? 0
@@ -437,9 +443,10 @@ export class TranscriptController {
     }
     if (this.trackEchoes) {
       const previous = this.userEchoes.get(item.id)
-      const next = item.role === 'user'
-        ? { text: item.text.trim(), paths: JSON.stringify(item.toolPaths ?? []) }
-        : undefined
+      const next =
+        item.role === 'user'
+          ? { text: item.text.trim(), paths: JSON.stringify(item.toolPaths ?? []) }
+          : undefined
       this.moveEchoCount(this.userTexts, previous?.text, next?.text)
       this.moveEchoCount(this.userPaths, previous?.paths, next?.paths)
       if (next) this.userEchoes.set(item.id, next)
@@ -829,7 +836,9 @@ export class TranscriptController {
       })
       this.indexedItems = patch.items
     }
-    let facts: Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion' | 'latestRecordedAt'> | undefined
+    let facts:
+      | Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion' | 'latestRecordedAt'>
+      | undefined
     if (patch.items && patch.items !== this.state.items) {
       const userId = this.userPrompts.latest(),
         questionId = this.questions.latest()
@@ -842,7 +851,8 @@ export class TranscriptController {
         latestOperatorPrompt:
           userPosition === undefined ? null : (patch.items[userPosition]?.text ?? null),
         pendingQuestion: question && !question.toolResult ? question : null,
-        latestRecordedAt: recordedId === undefined ? null : this.recordedAt.get(recordedId) ?? null,
+        latestRecordedAt:
+          recordedId === undefined ? null : (this.recordedAt.get(recordedId) ?? null),
       }
     }
     this.state = { ...this.state, ...patch, ...facts }

@@ -9,13 +9,7 @@ import { asThreadId, type SessionId } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import {
-  useHttpOrigin,
-  useHub,
-  useReplica,
-  useStoreActions,
-  useTrpc,
-} from '../client/hooks'
+import { useHttpOrigin, useHub, useReplica, useStoreActions, useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
@@ -61,8 +55,21 @@ import { color, font, sans, space } from '../theme/theme'
  *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
-const EMPTY_TRANSCRIPT: Pick<TranscriptState, 'items' | 'initialLoaded' | 'pendingQuestion' | 'latestRecordedAt' | 'hasMoreOlder' | 'loadingOlder'> = {
-  items: [], initialLoaded: false, pendingQuestion: null, latestRecordedAt: null, hasMoreOlder: false, loadingOlder: false,
+const EMPTY_TRANSCRIPT: Pick<
+  TranscriptState,
+  | 'items'
+  | 'initialLoaded'
+  | 'pendingQuestion'
+  | 'latestRecordedAt'
+  | 'hasMoreOlder'
+  | 'loadingOlder'
+> = {
+  items: [],
+  initialLoaded: false,
+  pendingQuestion: null,
+  latestRecordedAt: null,
+  hasMoreOlder: false,
+  loadingOlder: false,
 }
 const emptyTranscript = () => EMPTY_TRANSCRIPT
 const subscribeEmptyTranscript = () => () => {}
@@ -144,23 +151,33 @@ export function SuperagentScreen() {
   const podiumSid = ackedSid ?? publishedSid
   const followingTranscript = useRef(true)
   const searchingTranscript = useRef(false)
-  const followTranscript = useCallback((following: boolean) => { followingTranscript.current = following }, [])
-  const searchTranscript = useCallback((searching: boolean) => { searchingTranscript.current = searching }, [])
-  const transcriptController = useMemo(() => podiumSid === undefined ? undefined : createTranscriptController({
-    sessionId: podiumSid,
-    initialLimit: 80,
-    pageLimit: 80,
-    questions: ['userEcho', 'latestRecordedAt'],
-    retainHistory: () => !followingTranscript.current || searchingTranscript.current,
-    source: {
-      read: (request) => trpc.sessions.transcriptRead.query(request),
-      subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
-    },
-    cache: {
-      read: (sid) => replica.transcriptWindow(sid),
-      write: (sid, next) => replica.putTranscriptWindow(sid, [...next]),
-    },
-  }), [hub, podiumSid, replica, trpc.sessions.transcriptRead])
+  const followTranscript = useCallback((following: boolean) => {
+    followingTranscript.current = following
+  }, [])
+  const searchTranscript = useCallback((searching: boolean) => {
+    searchingTranscript.current = searching
+  }, [])
+  const transcriptController = useMemo(
+    () =>
+      podiumSid === undefined
+        ? undefined
+        : createTranscriptController({
+            sessionId: podiumSid,
+            initialLimit: 80,
+            pageLimit: 80,
+            questions: ['userEcho', 'latestRecordedAt'],
+            retainHistory: () => !followingTranscript.current || searchingTranscript.current,
+            source: {
+              read: (request) => trpc.sessions.transcriptRead.query(request),
+              subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
+            },
+            cache: {
+              read: (sid) => replica.transcriptWindow(sid),
+              write: (sid, next) => replica.putTranscriptWindow(sid, [...next]),
+            },
+          }),
+    [hub, podiumSid, replica, trpc.sessions.transcriptRead],
+  )
   const transcript = useSyncExternalStore<typeof EMPTY_TRANSCRIPT>(
     transcriptController?.subscribe ?? subscribeEmptyTranscript,
     transcriptController?.getSnapshot ?? emptyTranscript,
@@ -382,13 +399,19 @@ export function SuperagentScreen() {
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (!transcriptController || pendingTurns.length === 0) return
-    setPendingTurns((previous) => {
-      const next = previous.filter((turn) => !transcriptController.hasUserEcho(
-        turn.text, (turn.files ?? []).map((file) => file.path),
-      ))
+    const reconcile = () => setPendingTurns((previous) => {
+      const next = previous.filter(
+        (turn) =>
+          !transcriptController.hasUserEcho(
+            turn.text,
+            (turn.files ?? []).map((file) => file.path),
+          ),
+      )
       return next.length === previous.length ? previous : next
     })
-  }, [transcriptController, settled, pendingTurns.length])
+    reconcile()
+    return transcriptController.subscribe(reconcile)
+  }, [transcriptController, pendingTurns.length])
 
   // Once the transcript has echoed the optimistic row, transport is complete.
   // Real computation keeps its own `running` mark; a very fast completed turn
@@ -533,7 +556,8 @@ export function SuperagentScreen() {
     const failureAt = Date.parse(restoredFailure.at)
     if (
       Number.isFinite(failureAt) &&
-      transcript.latestRecordedAt !== null && transcript.latestRecordedAt > failureAt
+      transcript.latestRecordedAt !== null &&
+      transcript.latestRecordedAt > failureAt
     )
       return null
     return restoredFailure

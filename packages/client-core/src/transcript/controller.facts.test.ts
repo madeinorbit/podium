@@ -4,9 +4,9 @@ import { insideReader, measureWork } from '../../../worklist-proto/harness/src/w
 import { latestPendingQuestion } from '../values/ask-question'
 import {
   createTranscriptController,
+  type TranscriptControllerOptions,
   type TranscriptPage,
   type TranscriptSource,
-  type TranscriptControllerOptions,
 } from './controller'
 
 const cursor = (offset: number) =>
@@ -25,7 +25,12 @@ const ask = (id: string, offset: number, answered = false) =>
     ...(answered ? { toolResult: 'Answered' } : {}),
   })
 
-async function fixture(items: TranscriptItem[], initialLimit = 1024, retainHistory = true, questions?: TranscriptControllerOptions['questions']) {
+async function fixture(
+  items: TranscriptItem[],
+  initialLimit = 1024,
+  retainHistory = true,
+  questions?: TranscriptControllerOptions['questions'],
+) {
   let page: TranscriptPage = { items, head: 'head', tail: items.at(-1)?.cursor, hasMore: true }
   let listener: Parameters<TranscriptSource['subscribe']>[2] | undefined
   const source: TranscriptSource = {
@@ -193,33 +198,59 @@ it('drops trimmed facts and restores them only when their raw history returns', 
 it('answers echo membership and latest raw time with no retained-row reads at 1x/4x', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
-    let roleReads = 0, timeReads = 0
+    let roleReads = 0,
+      timeReads = 0
     const items = [
       row('echo', 'user', 1, { text: '  Same prompt  ', toolPaths: ['/a', '/b'] }),
-      ...Array.from({ length: 128 * scale }, (_, index) => row(`a${index}`, 'assistant', index + 2)),
-    ].map((item) => ({ ...item,
-      get role() { roleReads++; return item.role },
-      get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
+      ...Array.from({ length: 128 * scale }, (_, index) =>
+        row(`a${index}`, 'assistant', index + 2),
+      ),
+    ].map((item) => ({
+      ...item,
+      get role() {
+        roleReads++
+        return item.role
+      },
+      get ts() {
+        timeReads++
+        return '2026-09-29T01:30:00.000Z'
+      },
     }))
     const f = await fixture(items, 1024, true, ['userEcho', 'latestRecordedAt'])
     try {
-      roleReads = 0; timeReads = 0
+      roleReads = 0
+      timeReads = 0
       let answers: boolean[] = []
       let latest: number | null = null
-      const result = await measureWork(async () => insideReader('raw transcript echo and time', () => {
-        answers = [f.controller.hasUserEcho('Same prompt'), f.controller.hasUserEcho('other', ['/a', '/b']), f.controller.hasUserEcho('Same prompt', ['/b', '/a']), f.controller.hasUserEcho('absent')]
-        latest = f.controller.getSnapshot().latestRecordedAt
-      }))
+      const result = await measureWork(async () =>
+        insideReader('raw transcript echo and time', () => {
+          answers = [
+            f.controller.hasUserEcho('Same prompt'),
+            f.controller.hasUserEcho('other', ['/a', '/b']),
+            f.controller.hasUserEcho('Same prompt', ['/b', '/a']),
+            f.controller.hasUserEcho('absent'),
+          ]
+          latest = f.controller.getSnapshot().latestRecordedAt
+        }),
+      )
       expect(answers).toEqual([true, true, false, false])
       expect(latest).toBe(Date.parse('2026-09-29T01:30:00.000Z'))
-      expect(roleReads).toBe(0); expect(timeReads).toBe(0)
+      expect(roleReads).toBe(0)
+      expect(timeReads).toBe(0)
       const action = { roleReads, timeReads, work: result.work }
-      const control = await measureWork(async () => insideReader('former raw failure check', () => {
-        items.some(item => item.ts !== undefined && Date.parse(item.ts) > Date.parse('2026-09-29T01:31:00.000Z'))
-      }))
+      const control = await measureWork(async () =>
+        insideReader('former raw failure check', () => {
+          items.some(
+            (item) =>
+              item.ts !== undefined && Date.parse(item.ts) > Date.parse('2026-09-29T01:31:00.000Z'),
+          )
+        }),
+      )
       expect(timeReads).toBe(items.length * 2)
       samples.push({ scale, action, control: { timeReads, work: control.work } })
-    } finally { f.controller.dispose() }
+    } finally {
+      f.controller.dispose()
+    }
   }
   expect(samples[1]!.action).toEqual(samples[0]!.action)
   expect(samples[1]!.control.timeReads).toBeGreaterThan(samples[0]!.control.timeReads * 3)
@@ -227,11 +258,16 @@ it('answers echo membership and latest raw time with no retained-row reads at 1x
 })
 
 it('maintains duplicate echo counts, ordered path identity and raw timestamp edits through reset and trim', async () => {
-  const f = await fixture([
-    row('u1', 'user', 1, { text: ' same ', toolPaths: ['a,b'], ts: '2026-09-29T01:35:00.000Z' }),
-    row('u2', 'user', 2, { text: 'same', toolPaths: ['a', 'b'], ts: '2026-09-29T01:32:00.000Z' }),
-    row('t', 'tool', 3, { ts: '2026-09-29T01:34:00.000Z' }),
-  ], 2, false, ['userEcho', 'latestRecordedAt'])
+  const f = await fixture(
+    [
+      row('u1', 'user', 1, { text: ' same ', toolPaths: ['a,b'], ts: '2026-09-29T01:35:00.000Z' }),
+      row('u2', 'user', 2, { text: 'same', toolPaths: ['a', 'b'], ts: '2026-09-29T01:32:00.000Z' }),
+      row('t', 'tool', 3, { ts: '2026-09-29T01:34:00.000Z' }),
+    ],
+    2,
+    false,
+    ['userEcho', 'latestRecordedAt'],
+  )
   try {
     expect(f.controller.hasUserEcho('same')).toBe(true)
     expect(f.controller.hasUserEcho('other', ['a,b'])).toBe(true)
@@ -240,7 +276,10 @@ it('maintains duplicate echo counts, ordered path identity and raw timestamp edi
     expect(f.controller.hasUserEcho('same')).toBe(true)
     expect(f.controller.hasUserEcho('other', ['a,b'])).toBe(false)
     expect(f.controller.getSnapshot().latestRecordedAt).toBe(Date.parse('2026-09-29T01:34:00.000Z'))
-    f.emit([row('t', 'tool', 3, { ts: 'invalid' }), row('u2', 'user', 2, { text: 'new', toolPaths: ['b', 'a'] })])
+    f.emit([
+      row('t', 'tool', 3, { ts: 'invalid' }),
+      row('u2', 'user', 2, { text: 'new', toolPaths: ['b', 'a'] }),
+    ])
     expect(f.controller.hasUserEcho('same')).toBe(false)
     expect(f.controller.hasUserEcho('new')).toBe(true)
     expect(f.controller.hasUserEcho('other', ['a', 'b'])).toBe(false)
@@ -249,7 +288,10 @@ it('maintains duplicate echo counts, ordered path identity and raw timestamp edi
     f.emit(Array.from({ length: 5 }, (_, index) => row(`tail${index}`, 'assistant', index + 4)))
     expect(f.controller.hasUserEcho('new')).toBe(false)
     expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
-    f.page({ items: [row('old', 'user', 0, { text: 'restored', ts: '2026-09-29T01:36:00.000Z' })], hasMore: false })
+    f.page({
+      items: [row('old', 'user', 0, { text: 'restored', ts: '2026-09-29T01:36:00.000Z' })],
+      hasMore: false,
+    })
     await f.controller.loadOlder()
     expect(f.controller.hasUserEcho('restored')).toBe(true)
     expect(f.controller.getSnapshot().latestRecordedAt).toBe(Date.parse('2026-09-29T01:36:00.000Z'))
@@ -257,19 +299,34 @@ it('maintains duplicate echo counts, ordered path identity and raw timestamp edi
     f.emit([], true)
     expect(f.controller.hasUserEcho('restored')).toBe(false)
     expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
-  } finally { f.controller.dispose() }
+  } finally {
+    f.controller.dispose()
+  }
 })
 
 it('does not maintain undeclared echo or timestamp questions', async () => {
-  let timeReads = 0, pathReads = 0
-  const item: TranscriptItem = { id: 'u', role: 'user', text: 'prompt',
-    get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
-    get toolPaths() { pathReads++; return ['/a'] },
+  let timeReads = 0,
+    pathReads = 0
+  const item: TranscriptItem = {
+    id: 'u',
+    role: 'user',
+    text: 'prompt',
+    get ts() {
+      timeReads++
+      return '2026-09-29T01:30:00.000Z'
+    },
+    get toolPaths() {
+      pathReads++
+      return ['/a']
+    },
   }
   const f = await fixture([item])
   try {
-    expect(timeReads).toBe(0); expect(pathReads).toBe(0)
+    expect(timeReads).toBe(0)
+    expect(pathReads).toBe(0)
     expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
     expect(() => f.controller.hasUserEcho('prompt')).toThrow('must declare')
-  } finally { f.controller.dispose() }
+  } finally {
+    f.controller.dispose()
+  }
 })

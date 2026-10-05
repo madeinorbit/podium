@@ -173,9 +173,13 @@ describe('TranscriptList pendingAsk', () => {
   it('renders and answers the source-owned raw question', async () => {
     const question = fromState()
     const onAnswer = vi.fn(async () => {})
-    render(<TranscriptList items={[question]} transcriptQuestion={question} live onAnswer={onAnswer} />)
+    render(
+      <TranscriptList items={[question]} transcriptQuestion={question} live onAnswer={onAnswer} />,
+    )
     fireEvent.click(screen.getByLabelText('Postgres'))
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1] }] }))
+    await waitFor(() =>
+      expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1] }] }),
+    )
   })
   it('reads the published assistant key without copying retained rows at 1x/4x', () => {
     const samples = []
@@ -197,12 +201,19 @@ describe('TranscriptList pendingAsk', () => {
         { id: 'tail', role: 'user', text: 'After the answer' },
       ]
       const { rerender, unmount } = render(
-        <TranscriptList transcriptQuestion={null} items={items} live streaming onAnswer={onAnswer} />,
+        <TranscriptList
+          transcriptQuestion={null}
+          items={items}
+          live
+          streaming
+          onAnswer={onAnswer}
+        />,
       )
       expect(screen.getByText('▋').parentElement?.textContent).toContain('Latest answer')
       expect(tailWork.rowIterations).toBe(0)
       rerender(
-        <TranscriptList transcriptQuestion={null}
+        <TranscriptList
+          transcriptQuestion={null}
           items={[...items, { id: 'new', role: 'assistant', text: 'Newest prose' }]}
           live
           streaming
@@ -244,10 +255,25 @@ describe('TranscriptList pendingAsk', () => {
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
       reset()
-      rerender(<TranscriptList transcriptQuestion={null} items={[...items]} live={false} onAnswer={onAnswer} />)
+      rerender(
+        <TranscriptList
+          transcriptQuestion={null}
+          items={[...items]}
+          live={false}
+          onAnswer={onAnswer}
+        />,
+      )
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
-      rerender(<TranscriptList transcriptQuestion={null} items={items} live={false} findRequest={1} onAnswer={onAnswer} />)
+      rerender(
+        <TranscriptList
+          transcriptQuestion={null}
+          items={items}
+          live={false}
+          findRequest={1}
+          onAnswer={onAnswer}
+        />,
+      )
       expect(searchWork.rowReads).toBe(0)
       fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
       expect(screen.getByText('1/3')).toBeTruthy()
@@ -271,7 +297,8 @@ describe('TranscriptList pendingAsk', () => {
       fireEvent.click(screen.getByLabelText('Close transcript search'))
       reset()
       rerender(
-        <TranscriptList transcriptQuestion={null}
+        <TranscriptList
+          transcriptQuestion={null}
           items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]}
           live={false}
           findRequest={1}
@@ -281,7 +308,8 @@ describe('TranscriptList pendingAsk', () => {
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
       rerender(
-        <TranscriptList transcriptQuestion={null}
+        <TranscriptList
+          transcriptQuestion={null}
           items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]}
           live={false}
           findRequest={2}
@@ -299,7 +327,15 @@ describe('TranscriptList pendingAsk', () => {
 
   it('draws the state-carried question and answers it', async () => {
     const onAnswer = vi.fn(async () => {})
-    render(<TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={fromState()} onAnswer={onAnswer} />)
+    render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        pendingAsk={fromState()}
+        onAnswer={onAnswer}
+      />,
+    )
 
     expect(screen.getByText('Which database?')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('SQLite'))
@@ -312,7 +348,15 @@ describe('TranscriptList pendingAsk', () => {
   // React identity — a row keyed by anything that changed per tick would throw
   // away a half-made selection every time the state ticked.
   it('keys the row by the synthetic item id', () => {
-    render(<TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={fromState()} onAnswer={async () => {}} />)
+    render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        pendingAsk={fromState()}
+        onAnswer={async () => {}}
+      />,
+    )
 
     expect(fromState().id).toBe(PENDING_ASK_ITEM_ID)
     expect(screen.getByLabelText('Postgres')).toBeTruthy()
@@ -322,7 +366,15 @@ describe('TranscriptList pendingAsk', () => {
   // in front of a real operator. The card the state drew answers either way.
   it('answers on a session that is not live yet', async () => {
     const onAnswer = vi.fn(async () => {})
-    render(<TranscriptList transcriptQuestion={null} items={[]} live={false} pendingAsk={fromState()} onAnswer={onAnswer} />)
+    render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live={false}
+        pendingAsk={fromState()}
+        onAnswer={onAnswer}
+      />,
+    )
 
     fireEvent.click(screen.getByLabelText('Postgres'))
     await waitFor(() =>
@@ -331,7 +383,15 @@ describe('TranscriptList pendingAsk', () => {
   })
 
   it('shows nothing when the caller has no live question to pass', () => {
-    render(<TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={null} onAnswer={async () => {}} />)
+    render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        pendingAsk={null}
+        onAnswer={async () => {}}
+      />,
+    )
 
     expect(screen.queryByText('Which database?')).toBeNull()
   })
@@ -344,7 +404,8 @@ describe('TranscriptList pendingAsk', () => {
     }))
     const onAnswer = async () => {}
     const { rerender } = render(
-      <TranscriptList transcriptQuestion={null}
+      <TranscriptList
+        transcriptQuestion={null}
         items={settled}
         liveItem={{ id: 'super:live', role: 'assistant', text: 'Live one' }}
         live
@@ -355,7 +416,8 @@ describe('TranscriptList pendingAsk', () => {
     const initialViewportData = viewportData.at(-1)
 
     rerender(
-      <TranscriptList transcriptQuestion={null}
+      <TranscriptList
+        transcriptQuestion={null}
         items={settled}
         liveItem={{ id: 'super:live', role: 'assistant', text: 'Live two' }}
         live
@@ -378,10 +440,24 @@ describe('TranscriptList pendingAsk', () => {
     const first = vi.fn(async () => {})
     const latest = vi.fn(async () => {})
     const { rerender } = render(
-      <TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={ask} onAnswer={first} />,
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        pendingAsk={ask}
+        onAnswer={first}
+      />,
     )
 
-    rerender(<TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={ask} onAnswer={latest} />)
+    rerender(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        pendingAsk={ask}
+        onAnswer={latest}
+      />,
+    )
     fireEvent.click(screen.getByLabelText('SQLite'))
 
     await waitFor(() => expect(latest).toHaveBeenCalledTimes(1))
@@ -415,7 +491,13 @@ describe('TranscriptList pendingAsk', () => {
       }
       return (
         <Suspense fallback={null}>
-          <TranscriptList transcriptQuestion={null} items={[]} live pendingAsk={ask} onAnswer={answer} />
+          <TranscriptList
+            transcriptQuestion={null}
+            items={[]}
+            live
+            pendingAsk={ask}
+            onAnswer={answer}
+          />
           <SuspendAfterTranscript blocked={blocked} />
         </Suspense>
       )
@@ -435,7 +517,8 @@ describe('TranscriptList pendingAsk', () => {
 it('renders the Bash input as coloured inline text when a work run opens', () => {
   const command = 'echo "$HOME" && printf "%s" 42'
   const { container } = render(
-    <TranscriptList transcriptQuestion={null}
+    <TranscriptList
+      transcriptQuestion={null}
       live={false}
       onAnswer={async () => {}}
       items={[
@@ -471,7 +554,8 @@ describe('TranscriptList pending delivery captions', () => {
 
   it('says "sent" for a message on its way, not "sending…"', () => {
     render(
-      <TranscriptList transcriptQuestion={null}
+      <TranscriptList
+        transcriptQuestion={null}
         items={[]}
         live
         onAnswer={async () => {}}
@@ -486,7 +570,8 @@ describe('TranscriptList pending delivery captions', () => {
     const onSendAgainPending = vi.fn()
     const onRetryPending = vi.fn()
     render(
-      <TranscriptList transcriptQuestion={null}
+      <TranscriptList
+        transcriptQuestion={null}
         items={[]}
         live
         onAnswer={async () => {}}
@@ -506,7 +591,8 @@ describe('TranscriptList pending delivery captions', () => {
 
   it('says an unknown message may already have arrived before offering it again', () => {
     render(
-      <TranscriptList transcriptQuestion={null}
+      <TranscriptList
+        transcriptQuestion={null}
         items={[]}
         live
         onAnswer={async () => {}}

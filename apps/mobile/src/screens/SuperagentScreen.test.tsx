@@ -86,7 +86,12 @@ vi.mock('../components/TranscriptList', () => ({
     pendingTurns?: { text: string; failed?: string }[]
     transcriptQuestion: TranscriptItem | null
   }) => {
-    transcriptProps.push({ items, ...(liveItem ? { liveItem } : {}), pendingTurns, transcriptQuestion })
+    transcriptProps.push({
+      items,
+      ...(liveItem ? { liveItem } : {}),
+      pendingTurns,
+      transcriptQuestion,
+    })
     return (
       <div>
         transcript
@@ -180,47 +185,102 @@ describe('SuperagentScreen chrome', () => {
   it('uses raw facts for failure restoration and optimistic sends without rereading history at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {
-      let roleReads = 0, timeReads = 0
+      let roleReads = 0,
+        timeReads = 0
       const items: TranscriptItem[] = Array.from({ length: 128 * scale }, (_, index) => ({
-        id: `retained:${index}`, text: 'Retained assistant history',
-        get role() { roleReads++; return 'assistant' as const },
-        get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
+        id: `retained:${index}`,
+        text: 'Retained assistant history',
+        get role() {
+          roleReads++
+          return 'assistant' as const
+        },
+        get ts() {
+          timeReads++
+          return '2026-09-29T01:30:00.000Z'
+        },
       }))
       let resolveFailure: ((failure: SuperagentTurnFailure) => void) | undefined
-      const latestTurnFailure = vi.fn(() => new Promise<SuperagentTurnFailure>((resolve) => { resolveFailure = resolve }))
-      const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'session:superagent' }))
-      const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(latestTurnFailure, () => items, sendTurn))
+      const latestTurnFailure = vi.fn(
+        () =>
+          new Promise<SuperagentTurnFailure>((resolve) => {
+            resolveFailure = resolve
+          }),
+      )
+      const sendTurn = vi.fn(async () => ({
+        threadId: 'global',
+        podiumSessionId: 'session:superagent',
+      }))
+      const view = await renderWithMobileStore(
+        <SuperagentScreen />,
+        failureFixture(latestTurnFailure, () => items, sendTurn),
+      )
       await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
       expect(transcriptProps.at(-1)?.items).toHaveLength(items.length)
       expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
       const measure = async (action: () => Promise<void>) => {
-        roleReads = 0; timeReads = 0
+        roleReads = 0
+        timeReads = 0
         const result = await measureWork(action)
         return { work: result.work, roleReads, timeReads }
       }
-      const restore = await measure(async () => { await act(async () => resolveFailure?.(savedFailure)) })
+      const restore = await measure(async () => {
+        await act(async () => resolveFailure?.(savedFailure))
+      })
       expect(screen.getByText(savedFailure.error)).toBeTruthy()
       const send = await measure(async () => {
-        await act(async () => { composerProps.at(-1)?.onSend('a new prompt'); await Promise.resolve() })
+        await act(async () => {
+          composerProps.at(-1)?.onSend('a new prompt')
+          await Promise.resolve()
+        })
       })
       expect(sendTurn).toHaveBeenCalledOnce()
-      const status = await measure(async () => { act(() => view.emit('headlessActivity', 'session:superagent', { kind: 'status', status: 'tool', label: 'Bash' })) })
+      const status = await measure(async () => {
+        act(() =>
+          view.emit('headlessActivity', 'session:superagent', {
+            kind: 'status',
+            status: 'tool',
+            label: 'Bash',
+          }),
+        )
+      })
       for (const action of [restore, send, status]) {
-        expect(action.roleReads).toBe(0); expect(action.timeReads).toBe(0)
+        expect(action.roleReads).toBe(0)
+        expect(action.timeReads).toBe(0)
       }
       samples.push({ scale, actions: { restore, send, status } })
-      view.unmount(); transcriptProps.length = 0; composerProps.length = 0
+      view.unmount()
+      transcriptProps.length = 0
+      composerProps.length = 0
     }
     expect(samples[1]!.actions).toEqual(samples[0]!.actions)
     console.log('[actual Superagent raw facts work1x4x]', JSON.stringify(samples))
   })
 
   it('passes the source-owned raw question and clears it on an authoritative reset', async () => {
-    const question: TranscriptItem = { id: 'question', role: 'tool', text: '', toolName: 'AskUserQuestion', toolInputJson: '{"questions":[]}' }
+    const question: TranscriptItem = {
+      id: 'question',
+      role: 'tool',
+      text: '',
+      toolName: 'AskUserQuestion',
+      toolInputJson: '{"questions":[]}',
+    }
     let items = [question]
-    const view = await renderWithMobileStore(<SuperagentScreen />, failureFixture(async () => null, () => items))
+    const view = await renderWithMobileStore(
+      <SuperagentScreen />,
+      failureFixture(
+        async () => null,
+        () => items,
+      ),
+    )
     await waitFor(() => expect(transcriptProps.at(-1)?.transcriptQuestion?.id).toBe('question'))
-    act(() => view.emit('transcriptDelta', 'session:superagent', [{ ...question, toolResult: 'Answered' }], { reset: false }))
+    act(() =>
+      view.emit(
+        'transcriptDelta',
+        'session:superagent',
+        [{ ...question, toolResult: 'Answered' }],
+        { reset: false },
+      ),
+    )
     expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
     items = []
     await act(async () => view.emit('transcriptDelta', 'session:superagent', [], { reset: true }))
