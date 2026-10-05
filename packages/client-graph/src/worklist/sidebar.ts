@@ -94,9 +94,10 @@ export class SidebarIndex {
     'sections',
     sameSections,
   )
-  private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs')
-  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band')
-  private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group')
+  // These projections assemble new arrays and records from the same lane facts.
+  private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
+  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareStructural)
+  private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
   constructor(private readonly pool: MobxPool) {}
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
