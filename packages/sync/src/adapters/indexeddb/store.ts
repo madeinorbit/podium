@@ -97,7 +97,6 @@ import {
   isQuotaError,
   requestAsPromise,
 } from './idb'
-import { enqueueWrites } from './write-batch'
 import {
   ALL_STORES,
   CURSOR_KEY,
@@ -112,6 +111,7 @@ import {
   type StoredOutboxRecord,
   upgradeSchema,
 } from './schema'
+import { enqueueWrites } from './write-batch'
 
 const rowKey = (entity: string, entityId: string): string => `${entity}\u0000${entityId}`
 

@@ -5,14 +5,19 @@ import { FaultySqlDatabase, freshDatabaseFile, sqliteEngine } from './test-suppo
 changedKeyDraftTests('mobile SQLite', async () => {
   const fresh = freshDatabaseFile()
   let db!: FaultySqlDatabase
-  const open = () => SqliteSyncStore.open({
-    openDatabase: () => {
-      db = new FaultySqlDatabase(sqliteEngine.open(fresh.file))
-      return db
-    },
-    deleteDatabase: () => { throw new Error('unexpected file recovery') },
-    onDegraded: () => { throw new Error('unexpected degradation') },
-  })
+  const open = () =>
+    SqliteSyncStore.open({
+      openDatabase: () => {
+        db = new FaultySqlDatabase(sqliteEngine.open(fresh.file))
+        return db
+      },
+      deleteDatabase: () => {
+        throw new Error('unexpected file recovery')
+      },
+      onDegraded: () => {
+        throw new Error('unexpected degradation')
+      },
+    })
   const store = await open()
   return {
     store,

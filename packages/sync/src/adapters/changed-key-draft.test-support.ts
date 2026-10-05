@@ -42,13 +42,16 @@ const remove = (id: string): CacheOperation => ({
 /** Count actual row enumeration/copies and published writes, without product counters. */
 function countRows(rows: Map<string, EntityRecord>) {
   const counts = { copiedOrVisited: 0, sets: 0, deletes: 0 }
-  function* counted<T>(iterator: IterableIterator<T>): IterableIterator<T> {
+  function* counted<T>(iterator: IterableIterator<T>): Generator<T, undefined, unknown> {
     for (const value of iterator) {
       counts.copiedOrVisited += 1
       yield value
     }
+    return undefined
   }
-  vi.spyOn(rows, Symbol.iterator).mockImplementation(() => counted(Map.prototype.entries.call(rows)))
+  vi.spyOn(rows, Symbol.iterator).mockImplementation(() =>
+    counted(Map.prototype.entries.call(rows)),
+  )
   vi.spyOn(rows, 'entries').mockImplementation(() => counted(Map.prototype.entries.call(rows)))
   vi.spyOn(rows, 'keys').mockImplementation(() => counted(Map.prototype.keys.call(rows)))
   vi.spyOn(rows, 'values').mockImplementation(() => counted(Map.prototype.values.call(rows)))
@@ -83,15 +86,23 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       fixture = undefined
     })
 
-    async function seed(store: DraftStore, rows = [row('a'), row('b')]): Promise<ReplicaCacheStore> {
+    async function seed(
+      store: DraftStore,
+      rows = [row('a'), row('b')],
+    ): Promise<ReplicaCacheStore> {
       const cache = store.viewFor(DRAFT_PRINCIPAL).cache
       await store.unitOfWork.transact(async (span) => cache.installSnapshot(rows, PRE, [], span))
       return cache
     }
 
-    it.each([128, 512])('copy-count guard: one-row heartbeat visits zero of %i cached rows per update', async (size) => {
+    it.each([
+      128, 512,
+    ])('copy-count guard: one-row heartbeat visits zero of %i cached rows per update', async (size) => {
       const { store, settled } = await open()
-      const cache = await seed(store, Array.from({ length: size }, (_, i) => row(String(i))))
+      const cache = await seed(
+        store,
+        Array.from({ length: size }, (_, i) => row(String(i))),
+      )
       const rows = store.entitiesOf(DRAFT_PRINCIPAL)
       const counts = countRows(rows)
       for (let update = 1; update <= 5; update += 1) {
@@ -154,25 +165,37 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       }
     })
 
-    it.each(['body', 'prepare', 'transaction'] as const)('%s failure discards changed keys and leaves the old mirror and durable rows', async (failure) => {
+    it.each([
+      'body',
+      'prepare',
+      'transaction',
+    ] as const)('%s failure discards changed keys and leaves the old mirror and durable rows', async (failure) => {
       const { store, failCommit, reopen } = await open()
       const cache = await seed(store)
       const rows = store.entitiesOf(DRAFT_PRINCIPAL)
       const phases: string[] = []
       if (failure === 'transaction') failCommit()
-      await expect(store.unitOfWork.transact(async (span) => {
-        cache.applyAtomic({ operations: [upsert('a'), remove('b')], cursor: POST }, span)
-        span.join({
-          prepare: () => {
-            expect(cache.read('session', 'a')?.value).toEqual({ heartbeat: 0 })
-            if (failure === 'prepare') throw new Error('draft failure')
-          },
-          publish: () => { phases.push('publish') },
-          discard: () => { phases.push('discard') },
-        })
-        span.onCommit(() => { phases.push('adopt') })
-        if (failure === 'body') throw new Error('draft failure')
-      })).rejects.toThrow('draft failure')
+      await expect(
+        store.unitOfWork.transact(async (span) => {
+          cache.applyAtomic({ operations: [upsert('a'), remove('b')], cursor: POST }, span)
+          span.join({
+            prepare: () => {
+              expect(cache.read('session', 'a')?.value).toEqual({ heartbeat: 0 })
+              if (failure === 'prepare') throw new Error('draft failure')
+            },
+            publish: () => {
+              phases.push('publish')
+            },
+            discard: () => {
+              phases.push('discard')
+            },
+          })
+          span.onCommit(() => {
+            phases.push('adopt')
+          })
+          if (failure === 'body') throw new Error('draft failure')
+        }),
+      ).rejects.toThrow('draft failure')
       expect(phases).toEqual(['discard'])
       expect(store.entitiesOf(DRAFT_PRINCIPAL)).toBe(rows)
       expect(cache.readEntities()).toEqual([row('a'), row('b')])
@@ -181,7 +204,10 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([row('a'), row('b')])
+        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([
+          row('a'),
+          row('b'),
+        ])
         expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readCursor()).toEqual(PRE)
         expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readPersonalRowsCompleteAt()).toEqual(PRE)
       } finally {
@@ -193,7 +219,9 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       const { store, reopen } = await open()
       const cache = await seed(store)
       let release!: () => void
-      const gate = new Promise<void>((resolve) => { release = resolve })
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
       const first = store.unitOfWork.transact(async (span) => {
         cache.applyAtomic({ operations: [upsert('a')], cursor: POST }, span)
         await gate
@@ -210,7 +238,10 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       store.close()
       const recovered = await reopen()
       try {
-        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([row('a', 1), row('b', 2)])
+        expect(recovered.viewFor(DRAFT_PRINCIPAL).cache.readEntities()).toEqual([
+          row('a', 1),
+          row('b', 2),
+        ])
       } finally {
         recovered.close()
       }
@@ -221,8 +252,24 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       const cache = await seed(store)
       const untouched = cache.read('session', 'b')
       await store.unitOfWork.transact(async (span) => {
-        cache.applyAtomic({ operations: [upsert('c'), remove('a'), remove('c'), upsert('d'), upsert('c', 3), upsert('a', 2), upsert('e')] }, span)
-        cache.applyAtomic({ operations: [{ kind: 'evict', entity: 'session', entityId: 'e' }], cursor: POST }, span)
+        cache.applyAtomic(
+          {
+            operations: [
+              upsert('c'),
+              remove('a'),
+              remove('c'),
+              upsert('d'),
+              upsert('c', 3),
+              upsert('a', 2),
+              upsert('e'),
+            ],
+          },
+          span,
+        )
+        cache.applyAtomic(
+          { operations: [{ kind: 'evict', entity: 'session', entityId: 'e' }], cursor: POST },
+          span,
+        )
       })
       expect(cache.readEntities()).toEqual([row('b'), row('d', 1), row('c', 3), row('a', 2)])
       expect(cache.read('session', 'b')).toBe(untouched)
@@ -233,7 +280,12 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       const cache = await seed(store)
       await store.unitOfWork.transact(async (span) => {
         cache.applyAtomic({ operations: [upsert('doomed'), remove('a')] }, span)
-        cache.installSnapshot([row('snapshot')], POST, [{ operations: [remove('snapshot'), upsert('buffered')] }], span)
+        cache.installSnapshot(
+          [row('snapshot')],
+          POST,
+          [{ operations: [remove('snapshot'), upsert('buffered')] }],
+          span,
+        )
         cache.applyAtomic({ operations: [upsert('after')] }, span)
         cache.installSnapshot([row('final')], POST, [{ operations: [upsert('tail')] }], span)
         cache.applyAtomic({ operations: [remove('final'), upsert('tail', 2)] }, span)
@@ -254,13 +306,19 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       const { store, settled } = await open()
       const cache = await seed(store)
       const other = store.viewFor(OTHER).cache
-      await store.unitOfWork.transact(async (span) => other.installSnapshot([row('a', 7)], PRE, [], span))
-      await expect(store.unitOfWork.transact(async (span) => {
-        cache.installSnapshot([row('replacement')], POST, [], span)
-        cache.applyAtomic({ operations: [remove('replacement'), upsert('tail')] }, span)
-        throw new Error('abort replacement')
-      })).rejects.toThrow('abort replacement')
-      await store.unitOfWork.transact(async (span) => cache.applyAtomic({ operations: [remove('a')] }, span))
+      await store.unitOfWork.transact(async (span) =>
+        other.installSnapshot([row('a', 7)], PRE, [], span),
+      )
+      await expect(
+        store.unitOfWork.transact(async (span) => {
+          cache.installSnapshot([row('replacement')], POST, [], span)
+          cache.applyAtomic({ operations: [remove('replacement'), upsert('tail')] }, span)
+          throw new Error('abort replacement')
+        }),
+      ).rejects.toThrow('abort replacement')
+      await store.unitOfWork.transact(async (span) =>
+        cache.applyAtomic({ operations: [remove('a')] }, span),
+      )
       expect(cache.readEntities()).toEqual([row('b')])
       expect(other.readEntities()).toEqual([row('a', 7)])
       cache.discardCache()
