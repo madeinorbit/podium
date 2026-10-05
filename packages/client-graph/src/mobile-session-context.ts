@@ -107,27 +107,20 @@ export function createMobileSessionReader(pool: MobxPool) {
       }
     },
     /**
-     * Conversation ports WITHOUT the draft text (this issue, phone composer
-     * isolation). `conversation()` reads `draft.text`, so every keystroke
-     * re-renders its subscribers via the stored-draft write. The screen only
-     * needs records/held/ready after its controller exists; the draft seed
-     * is read once imperatively (no subscription) and later copies arrive
-     * via the composer's stored-draft hook. Checking draft EXISTENCE for
-     * `ready` does not subscribe to its text.
+     * Conversation ports WITHOUT the draft row at all (this issue, phone composer
+     * isolation). Even checking draft EXISTENCE re-rendered the screen: the
+     * stored-draft write replaces the row object, so any read of it — text or
+     * not — wakes subscribers on every key. Ready here means held + records;
+     * the draft seed is read once imperatively (no subscription) and later
+     * copies arrive via the composer's stored-draft hook.
      */
     conversationPorts(id: string) {
       const held = pool.row('chatHeld', id),
-        draftRow = pool.row('chatDraft', id),
         records = chatRecords(pool, id)
       return {
         records: records.records,
         sends: held && held !== LOADING ? held.sends : [],
-        ready:
-          !!held &&
-          held !== LOADING &&
-          !!draftRow &&
-          draftRow !== LOADING &&
-          records.pending === 0,
+        ready: !!held && held !== LOADING && records.pending === 0,
       }
     },
   }
