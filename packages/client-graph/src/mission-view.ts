@@ -587,6 +587,7 @@ const liveTipsValue = cachedGroup('missionTips.live', (node: MissionNode) => nod
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
 const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
 const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
+const historyRosterCountValue = cachedGroup('missionHistoryRosterCount', (node: MissionNode) => node.view.readHistoryRosterCount(node.id))
 const pageMemberIds = (pool: MobxPool, id: string) =>
   [...pool.graph.many('issue', id, 'pageSessions')].sort().map(asSessionId)
 const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id))
@@ -680,6 +681,11 @@ export class MissionViewReader {
   history(id: string): MissionHistory | typeof LOADING {
     // Most issues have no archived sender: answer without building a cache.
     return this.hasHistory('missionSessions', id) === false ? NO_HISTORY : historyValue(this.node(id))
+  }
+  /** A closed archive observes only roster eligibility, without allocating
+   * the activity, prompt and handoff winner questions for every hidden seat. */
+  historyRosterCount(id: string): number | typeof LOADING {
+    return this.hasHistory('missionSessions', id) === false ? 0 : historyRosterCountValue(this.node(id))
   }
   /** Whether the relation holds archived or unsettled senders (LOADING while seats load). */
   private hasHistory(relation: SeatRelation, id: string): boolean | typeof LOADING {
@@ -817,6 +823,17 @@ export class MissionViewReader {
     for (const session of facts) if (!newest || session.lastActiveAt > newest.lastActiveAt) newest = session
     return { count: facts.length, roster: facts.filter(session => session.roster).length, newest: newest?.sessionId,
       moved: facts.find(session => session.moved)?.sessionId, latestPrompt: latestPromptOf(facts) }
+  }
+  readHistoryRosterCount(id: string): number | typeof LOADING {
+    const ids = this.seatIds('missionSessions', id, true)
+    if (ids === LOADING) return LOADING
+    let count = 0, pending = false
+    for (const sessionId of ids) {
+      const roster = this.historyFields.roster(sessionId)
+      if (roster === LOADING) pending = true
+      else if (roster) count++
+    }
+    return pending ? LOADING : count
   }
   readAttached(id: string): readonly SessionView[] | typeof LOADING {
     const present = this.present(id), archived = this.seatRows('missionSessions', id, true)
@@ -1019,9 +1036,9 @@ export class MissionViewReader {
     return settled(() => {
       let count = 0, pending = false
       for (const id of requireLoaded(deck.rowIds())) {
-        const history = this.history(id)
-        if (history === LOADING) pending = true
-        else count += history.roster
+        const roster = this.historyRosterCount(id)
+        if (roster === LOADING) pending = true
+        else count += roster
       }
       return pending ? LOADING : count
     })

@@ -421,6 +421,8 @@ async function main() {
     )
     await page.waitForFunction(
       () => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'),
+      undefined,
+      { timeout: 45_000 },
     )
     await page.evaluate(() => document.fonts.ready)
     await settle(page)

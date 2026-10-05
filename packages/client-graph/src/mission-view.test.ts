@@ -62,6 +62,26 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(load).toHaveBeenCalledTimes(1)
 })
 
+it('counts a closed archive without observing prompt, activity or handoff history', () => {
+  const { pool, reader } = open([issue('root')], [
+    session('drawn', 'root'), session('headless', 'root', { headless: true }),
+    session('shell', 'root', { agentKind: 'shell' }),
+  ])
+  const history = vi.spyOn(reader, 'readHistory')
+  let count: number | typeof LOADING = LOADING
+  const stop = autorun(() => { count = reader.archiveCount(reader.deck('root')) })
+  try {
+    expect(count).toBe(LOADING)
+    expect(pool.hydrate()).toBe(3)
+    expect(count).toBe(1)
+    expect(history).not.toHaveBeenCalled()
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'headless', value: session('headless', 'root') }] })
+    pool.hydrate()
+    expect(count).toBe(2)
+    expect(history).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+
 it('passes an unloaded child through its own and every ancestor rollup', () => {
   const { pool, reader } = open([issue('root'), issue('branch', { parentId: 'root' }),
     issue('leaf', { ...coldRoot(), id: 'leaf', parentId: 'branch' })], [])
