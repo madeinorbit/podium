@@ -4,29 +4,36 @@ import '@/test-support/mock-core-store-handle'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
-import { publishPoolFixture } from '@/test-support/pool-fixture'
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 import { SidebarUnified, WorkSections } from './SidebarUnified'
 
 const selection = vi.hoisted(() => ({
   issueId: 'closed-selected' as string | null,
   tuckedAt: null as string | null,
+  // The gesture context the suite declares for its selection (R-GROUP 5):
+  // true when the click landed on a folded row, false for navigation that
+  // reaches selection any other way. The real pool learns the same flag from
+  // the action; the hand fixture reads it here.
+  wasFolded: undefined as boolean | undefined,
 }))
 
 // A live ui-state collection (POD-540): the worklist's group folds SUBSCRIBE to
 // their per-user replicated row rather than seeding local state, so a `set` that
 // stores nothing means the fold never opens. Backed by a Map so a press writes
 // and the value comes back through the subscription, as in the real store.
+// Listeners get the changed keys as a set, per the ui-state contract — a real
+// preference source attached by the pool fixture iterates them.
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     get: (key: string): string | null => rows.get(key) ?? null,
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
-      for (const listener of listeners) listener()
+      for (const listener of listeners) listener(new Set([key]))
     },
-    subscribe: (callback: () => void): (() => void) => {
+    subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
       return () => {
         listeners.delete(callback)
@@ -150,6 +157,7 @@ vi.mock('@/app/store', () => {
     selectedWorktree: null,
     setSelectedWorktree: vi.fn(),
     selectedIssueId: selection.issueId,
+    selectedIssueWasFolded: selection.wasFolded,
     setSelectedIssueId: vi.fn((id: string | null) => {
       selection.issueId = id
     }),
@@ -204,6 +212,7 @@ afterEach(() => {
   ui.reset()
   selection.issueId = 'closed-selected'
   selection.tuckedAt = null
+  selection.wasFolded = undefined
 })
 
 describe('SidebarUnified PINNED section (POD-166, R3)', () => {
@@ -314,12 +323,16 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
   })
 
   it('folds the selected open closure when focus moves away', async () => {
-    render(<SidebarUnified />)
+    const { rerender } = render(<SidebarUnified />)
     expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
 
     fireEvent.click(rowButton('Plain issue'))
 
     expect(selection.issueId).toBe('plain')
+    // The click lands in the mocked store; republish so the memo'd pool
+    // components re-read the fixture, as an eviction publish does.
+    publishScreenPoolFixture()
+    rerender(<SidebarUnified />)
     await waitFor(() => expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy())
     await waitFor(() => expect(screen.queryByText('Closed result selected')).toBeNull())
   })
@@ -327,7 +340,13 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
   it('keeps a closure clicked in Closed folded, and forgets that latch after focus moves', async () => {
     const { rerender } = render(<SidebarUnified />)
     fireEvent.click(screen.getByRole('button', { name: '3 closed' }))
+    // The click lands on a folded row: declare the gesture context the pool
+    // would learn from the action, then republish so the memo'd pool
+    // components re-read the fixture.
+    selection.wasFolded = true
     fireEvent.click(rowButton('Closed alpha'))
+    publishScreenPoolFixture()
+    rerender(<SidebarUnified />)
 
     expect(selection.issueId).toBe('closed-a')
     const toggle = await screen.findByRole('button', { name: '4 closed' })
@@ -340,10 +359,13 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
     fireEvent.click(rowButton('Plain issue'))
+    publishScreenPoolFixture()
+    rerender(<SidebarUnified />)
     // Navigation from outside the sidebar has no folded-click latch. The
     // previous click must not keep this new selection in the closed lane.
     selection.issueId = 'closed-a'
-    publishPoolFixture()
+    selection.wasFolded = false
+    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy())
@@ -422,9 +444,17 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     fireEvent.click(band)
 
     expect(group.getAttribute('data-collapsed')).toBe('true')
+    // A shut band keeps its visited rows mounted for revisit (FoldPanel
+    // retain): what the user gets is hidden and inert, not unmounted. The
+    // rows and the tail fold stay in the DOM under aria-hidden/inert, so
+    // assert that nobody can see or tab to them instead of asserting absence.
     await waitFor(() => {
-      expect(screen.queryByText('Plain issue')).toBeNull()
-      expect(screen.queryByTestId('closed-fold-toggle')).toBeNull()
+      const row = screen.getByText('Plain issue').closest('[data-testid="unified-issue-row"]')
+      expect(row?.closest('[aria-hidden="true"]')).toBeTruthy()
+      expect(row?.closest('[inert]')).toBeTruthy()
+      const toggle = screen.getByTestId('closed-fold-toggle')
+      expect(toggle.closest('[aria-hidden="true"]')).toBeTruthy()
+      expect(toggle.closest('[inert]')).toBeTruthy()
     })
     // Pinned work lives above every project group, so it is not a project's to
     // hide (POD-166, R3) — and this is the assertion that proves the two bands

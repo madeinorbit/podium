@@ -25,6 +25,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 import { SidebarUnified } from './SidebarUnified'
 
 const { setSelectedIssueId, issueGet } = vi.hoisted(() => ({
@@ -149,6 +150,7 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     // Unshared: it is simply not in this principal's slice any more.
     currentIssues = []
     publishPoolFixture()
+    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
 
     await waitFor(() => expect(setSelectedIssueId).toHaveBeenCalledWith(null))
@@ -171,6 +173,7 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
 
     currentIssues = []
     publishPoolFixture()
+    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
     await waitFor(() => expect(setSelectedIssueId).toHaveBeenCalledWith(null))
 
@@ -190,6 +193,7 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
 
     currentIssues = [issue('iss_stays', 'Still here')]
     publishPoolFixture()
+    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
 
     // The row is RETAINED on screen for the length of its exit, which is right —
