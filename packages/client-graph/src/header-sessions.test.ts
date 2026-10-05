@@ -133,6 +133,9 @@ function visits(pool: MobxPool) {
 describe('incremental header sessions', () => {
   it('tracks cold working labels without a session publication', () => {
     const f = fixture(1), prefix = observable.box('FIRST'), read = f.pool.row.bind(f.pool)
+    f.change('cold-0', { status: 'live', agentState: state('working') })
+    expect(f.pool.queries.ids({ kind: 'headerSessions' })).toContain('cold-0')
+    expect(f.pool.tables.session.has('cold-0')).toBe(false)
     const summary = session('cold-0', { agentState: state('working') })
     Object.defineProperty(summary, 'displayRef', { enumerable: true, get: () => `${prefix.get()}-1-A` })
     const row = vi.spyOn(f.pool, 'row').mockImplementation(((kind: string, id: string, mode?: string) =>
