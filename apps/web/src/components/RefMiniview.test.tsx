@@ -1,4 +1,3 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import '@/test-support/model-catalog-mock'

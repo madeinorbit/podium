@@ -12,10 +12,14 @@ export function readReferenceSession(pool: MobxPool, ref: string) {
 export function readRefMiniview(pool: MobxPool, ref: string) {
   const parsed = parseAnyRef(ref)
   const session = parsed?.kind === 'session' ? readReferenceSession(pool, ref) : undefined
-  const sessions: SessionView[] = session && typeof session !== 'symbol' ? [session as SessionView] : []
+  const sessions: SessionView[] =
+    session && typeof session !== 'symbol' ? [session as SessionView] : []
   const issues: RefIssueLike[] = []
   let loading = typeof session === 'symbol'
-  const issueId = parsed?.kind === 'issue' ? pool.queries.linkedIssueId(ref) ?? pool.references.id(ref) : sessions[0]?.issueId
+  const issueId =
+    parsed?.kind === 'issue'
+      ? (pool.queries.linkedIssueId(ref) ?? pool.references.id(ref))
+      : sessions[0]?.issueId
   if (typeof issueId === 'symbol') loading = true
   let next = typeof issueId === 'symbol' ? undefined : issueId
   const seen = new Set<string>()
@@ -23,15 +27,20 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
   while (next && !seen.has(next)) {
     seen.add(next)
     const row = pool.row('issue', next)
-    if (typeof row === 'symbol') { loading = true; break }
+    if (typeof row === 'symbol') {
+      loading = true
+      break
+    }
     if (!row) break
     const model = pool.references.readById(next)
     const description = (row as { description?: string | { value?: string } }).description
     const issue = {
       ...row,
-      description: typeof description === 'string' ? description : description?.value ?? '',
+      description: typeof description === 'string' ? description : (description?.value ?? ''),
       ...pool.queries.issueChildCounts(next),
-      ...(model && typeof model !== 'symbol' ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix } : {}),
+      ...(model && typeof model !== 'symbol'
+        ? { displayRef: model.ref, prefix: parseAnyRef(model.ref)?.prefix }
+        : {}),
     } as RefIssueLike
     issues.push(issue)
     if (parsed?.kind === 'issue' && !haveSeat) {
@@ -39,7 +48,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
       // membership before reading payloads, and preserve replica-order ties.
       const question = { kind: 'commandIssueSessions', issueId: next, archived: false } as const
       const ids = [...pool.relations.many('issue', next, 'pageSessions')]
-        .filter(id => pool.queries.has(question, id) && !pool.queries.collapsed(id))
+        .filter((id) => pool.queries.has(question, id) && !pool.queries.collapsed(id))
         .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
       for (const id of ids) {
         const seat = pool.row('session', id, 'summary-fields')

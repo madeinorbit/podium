@@ -10,7 +10,6 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
-import type { UseChatSendOptions } from './use-chat-send'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []

@@ -25,36 +25,75 @@ const score = (ref: string, fact: Fact, q: string): number | undefined => {
 }
 
 export function createIssueMentionIndex() {
-  const facts = new Map<string, Fact>(), postings = new Map<string, Set<string>>()
-  const recent: string[] = [], repos = new Map<string, string[]>()
-  let order = 0, revision = 0
+  const facts = new Map<string, Fact>(),
+    postings = new Map<string, Set<string>>()
+  const recent: string[] = [],
+    repos = new Map<string, string[]>()
+  let order = 0,
+    revision = 0
   const counts = { visits: 0 }
-  const bySequence = (a: string, b: string) => facts.get(b)!.seq - facts.get(a)!.seq || facts.get(a)!.order - facts.get(b)!.order
-  const byRecency = (a: string, b: string) => facts.get(b)!.at - facts.get(a)!.at || facts.get(a)!.order - facts.get(b)!.order
+  const bySequence = (a: string, b: string) =>
+    facts.get(b)!.seq - facts.get(a)!.seq || facts.get(a)!.order - facts.get(b)!.order
+  const byRecency = (a: string, b: string) =>
+    facts.get(b)!.at - facts.get(a)!.at || facts.get(a)!.order - facts.get(b)!.order
   function insert(ids: string[], id: string, compare: (a: string, b: string) => number) {
-    let lo = 0, hi = ids.length
-    while (lo < hi) { const at = (lo + hi) >>> 1; if (compare(ids[at]!, id) < 0) lo = at + 1; else hi = at }
+    let lo = 0,
+      hi = ids.length
+    while (lo < hi) {
+      const at = (lo + hi) >>> 1
+      if (compare(ids[at]!, id) < 0) lo = at + 1
+      else hi = at
+    }
     ids.splice(lo, 0, id)
   }
   function remove(ids: string[], id: string, compare: (a: string, b: string) => number) {
-    let lo = 0, hi = ids.length
-    while (lo < hi) { const at = (lo + hi) >>> 1; if (compare(ids[at]!, id) < 0) lo = at + 1; else hi = at }
+    let lo = 0,
+      hi = ids.length
+    while (lo < hi) {
+      const at = (lo + hi) >>> 1
+      if (compare(ids[at]!, id) < 0) lo = at + 1
+      else hi = at
+    }
     if (ids[lo] === id) ids.splice(lo, 1)
   }
   const keys = (fact: Fact) => grams(`${fact.title}\n${fact.ref}\n${fact.seq}`)
   return {
     counts,
-    get revision() { return revision },
-    clear() { facts.clear(); postings.clear(); recent.length = 0; repos.clear(); order = 0; revision++ },
+    get revision() {
+      return revision
+    },
+    clear() {
+      facts.clear()
+      postings.clear()
+      recent.length = 0
+      repos.clear()
+      order = 0
+      revision++
+    },
     set(id: string, row: Row | undefined) {
-      const before = facts.get(id), date = Date.parse(String(row?.updatedAt ?? ''))
-      const next: Fact | undefined = row && !row.archived && !row.deletedAt ? {
-        title: String(row.title ?? '').toLowerCase(), seq: Number(row.seq ?? 0), repo: String(row.repoId ?? ''),
-        ref: String(row.linearIdentifier ?? '').trim().toLowerCase(), at: Number.isNaN(date) ? 0 : date,
-        order: before?.order ?? order++,
-      } : undefined
-      if (before?.title === next?.title && before?.seq === next?.seq && before?.repo === next?.repo &&
-        before?.ref === next?.ref && before?.at === next?.at) return
+      const before = facts.get(id),
+        date = Date.parse(String(row?.updatedAt ?? ''))
+      const next: Fact | undefined =
+        row && !row.archived && !row.deletedAt
+          ? {
+              title: String(row.title ?? '').toLowerCase(),
+              seq: Number(row.seq ?? 0),
+              repo: String(row.repoId ?? ''),
+              ref: String(row.linearIdentifier ?? '')
+                .trim()
+                .toLowerCase(),
+              at: Number.isNaN(date) ? 0 : date,
+              order: before?.order ?? order++,
+            }
+          : undefined
+      if (
+        before?.title === next?.title &&
+        before?.seq === next?.seq &&
+        before?.repo === next?.repo &&
+        before?.ref === next?.ref &&
+        before?.at === next?.at
+      )
+        return
       if (before) {
         remove(recent, id, byRecency)
         if (!before.ref) {
@@ -62,43 +101,78 @@ export function createIssueMentionIndex() {
           remove(ids, id, bySequence)
           if (!ids.length) repos.delete(before.repo)
         }
-        for (const key of keys(before)) { const ids = postings.get(key)!; ids.delete(id); if (!ids.size) postings.delete(key) }
+        for (const key of keys(before)) {
+          const ids = postings.get(key)!
+          ids.delete(id)
+          if (!ids.size) postings.delete(key)
+        }
       }
       if (next) {
-        facts.set(id, next); insert(recent, id, byRecency)
-        if (!next.ref) { let ids = repos.get(next.repo); if (!ids) repos.set(next.repo, ids = []); insert(ids, id, bySequence) }
-        for (const key of keys(next)) { let ids = postings.get(key); if (!ids) postings.set(key, ids = new Set()); ids.add(id) }
+        facts.set(id, next)
+        insert(recent, id, byRecency)
+        if (!next.ref) {
+          let ids = repos.get(next.repo)
+          if (!ids) {
+            ids = []
+            repos.set(next.repo, ids)
+          }
+          insert(ids, id, bySequence)
+        }
+        for (const key of keys(next)) {
+          let ids = postings.get(key)
+          if (!ids) {
+            ids = new Set()
+            postings.set(key, ids)
+          }
+          ids.add(id)
+        }
       } else facts.delete(id)
       revision++
     },
     ids(question: IssueMentionQuestion): string[] {
-      const q = question.query.trim().toLowerCase(), limit = Math.max(0, Math.trunc(question.limit))
+      const q = question.query.trim().toLowerCase(),
+        limit = Math.max(0, Math.trunc(question.limit))
       if (!limit) return []
-      if (!q) { const ids = recent.slice(0, limit); counts.visits += ids.length; return ids }
+      if (!q) {
+        const ids = recent.slice(0, limit)
+        counts.visits += ids.length
+        return ids
+      }
       const candidates = new Set(postings.get(token(q)))
-      const digits = q.match(/\d+$/)?.[0], refPart = digits ? q.slice(0, -digits.length) : undefined
+      const digits = q.match(/\d+$/)?.[0],
+        refPart = digits ? q.slice(0, -digits.length) : undefined
       // Repository prefixes are small metadata. A prefix-only ref question has
       // identical rank within its repo, so only that repo's first window can win.
       for (const [repo, ids] of repos) {
         const prefix = question.prefixes[repo] ? `${question.prefixes[repo]}-`.toLowerCase() : '#'
         if (prefix.includes(q)) for (const id of ids.slice(0, limit)) candidates.add(id)
         else if (digits && refPart && prefix.endsWith(refPart))
-          for (const id of postings.get(token(digits)) ?? []) if (facts.get(id)?.repo === repo) candidates.add(id)
+          for (const id of postings.get(token(digits)) ?? [])
+            if (facts.get(id)?.repo === repo) candidates.add(id)
       }
       const winners: { id: string; score: number }[] = []
       for (const id of candidates) {
         counts.visits++
         const fact = facts.get(id)!
-        const ref = fact.ref || (question.prefixes[fact.repo] ? `${question.prefixes[fact.repo]}-${fact.seq}`.toLowerCase() : `#${fact.seq}`)
+        const ref =
+          fact.ref ||
+          (question.prefixes[fact.repo]
+            ? `${question.prefixes[fact.repo]}-${fact.seq}`.toLowerCase()
+            : `#${fact.seq}`)
         const rank = score(ref, fact, q)
         if (rank === undefined) continue
         const entry = { id, score: rank }
         let at = 0
-        while (at < winners.length && (winners[at]!.score > rank || (winners[at]!.score === rank && bySequence(winners[at]!.id, id) <= 0))) at++
+        while (
+          at < winners.length &&
+          (winners[at]!.score > rank ||
+            (winners[at]!.score === rank && bySequence(winners[at]!.id, id) <= 0))
+        )
+          at++
         winners.splice(at, 0, entry)
         if (winners.length > limit) winners.pop()
       }
-      return winners.map(row => row.id)
+      return winners.map((row) => row.id)
     },
   }
 }
