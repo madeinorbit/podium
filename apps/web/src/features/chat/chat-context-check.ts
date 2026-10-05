@@ -11,7 +11,6 @@ import {
   chatRecords,
   chatReferenceMachines,
   chatReferenceSessions,
-  chatRepositoryKey,
 } from '@podium/client-graph/chat-context'
 import {
   type CheckSection,
@@ -169,7 +168,12 @@ export function checkChatContext(
       .map((row) => row.path)
       .sort()
       .join('\n'),
-    chatRepositoryKey(pool),
+    // This diagnostic compares path payloads, while the product's opaque
+    // change token is guarded separately by chat-repository-key.test.ts.
+    pool.headerViews.ids('repository').flatMap(id => {
+      const row = pool.headerViews.row('repository', id)
+      return row ? [row.path] : []
+    }).sort().join('\n'),
   )
   const reader = pool.row('chatContextReader', 'reader')
   const threads = reader && !loading(reader) ? reader.threads() : { threads: [], pending: 1 }
