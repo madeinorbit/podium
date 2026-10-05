@@ -296,13 +296,15 @@ export function ProjectMenu({
   paths,
   selected,
   onChange,
+  onOpenChange,
 }: {
   paths: string[]
   selected: string[]
   onChange: (paths: string[]) => void
+  onOpenChange?: (open: boolean) => void
 }): JSX.Element {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
         render={
           <button

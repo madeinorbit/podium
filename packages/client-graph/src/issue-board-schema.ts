@@ -6,7 +6,7 @@ import type {
   IssuesOrdering,
   TaskProgress,
 } from '@podium/client-core/values'
-import type { IssueId, IssueStage } from '@podium/model/browser'
+import type { IssueBoardStage, IssueId, IssueStage } from '@podium/model/browser'
 import type { BoardProjection } from './issue-board-projection'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
@@ -36,13 +36,41 @@ export interface BoardOptions {
   filter: BoardFilter
   expanded: readonly string[]
   isMobile: boolean
-  openIssueId: IssueId | null
-  now: number
+  openIssueId?: IssueId | null
+  now?: number
   menu?: boolean
   windowed?: boolean
   addressed?: readonly string[]
 }
+/** Data keys contain only layout/filter state. Addressed actions and details
+ * are separate readers; card payloads never enter the column ID lists. */
+export interface BoardColumnOptions {
+  filter: BoardFilter
+  ordering: IssuesOrdering
+  showAgentTasks: boolean
+  stage: IssueBoardStage
+}
+export interface BoardListRow {
+  id: IssueId
+  depth: number
+  childCount: number
+  expanded: boolean
+}
 export interface PoolBoardData {
+  activeIds: IssueId[]
+  rootIds: IssueId[]
+  view: {
+    chips: { key: keyof BoardFilter; label: string }[]
+    layout: 'board' | 'list'
+    orderedByStage: { stage: IssueBoardStage; ids: IssueId[] }[]
+    rowGroups: { stage: IssueBoardStage; rows: BoardListRow[]; count: number }[]
+    listIds: IssueId[]
+    nav: { kind: 'rows'; ids: IssueId[] } | { kind: 'columns'; columns: IssueId[][] }
+    presentIds: Set<string>
+  }
+}
+/** Rich snapshots are diagnostic evidence only, never a screen subscription. */
+export interface BoardSnapshotData {
   issues: IssueViewModel[]
   sessions: SessionView[]
   projectPaths: string[]
@@ -102,6 +130,10 @@ export interface IssueBoardSourceRows {
   issueBoardQuery: { ids: string[] }
   issueBoardCatalog: BoardCatalog
   issueBoardModel: PoolBoardData
+  issueBoardColumn: IssueId[]
+  issueBoardOpenIds: IssueId[]
+  issueBoardMenu: MissionActionInputs
+  issueBoardDropIndex: number
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
   issueBoardProjection: BoardProjection
@@ -117,6 +149,10 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardQuery',
   'issueBoardCatalog',
   'issueBoardModel',
+  'issueBoardColumn',
+  'issueBoardOpenIds',
+  'issueBoardMenu',
+  'issueBoardDropIndex',
   'issueExplorerModel',
   'issueBoardRow',
   'issueBoardProjection',
@@ -144,8 +180,29 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
   },
   issueBoardModel: {
     key: 'serializedDisplayAndFilter',
-    source: 'pool:issueBoardQuery+issueBoardCatalog+issue-relations',
+    source: 'pool:issueBoardColumn+issue-tree',
     residency: 'mounted-view',
+  },
+  issueBoardColumn: {
+    key: 'serializedColumnAndFilter',
+    source: 'pool:boardIssues+issue-scope+issue-sort-key',
+    fields: ['ids'],
+    residency: 'mounted-column-ids',
+  },
+  issueBoardOpenIds: {
+    key: 'serializedFilterAndOpenedId',
+    source: 'pool:issueBoardQuery+issue-tree',
+    residency: 'open-detail-navigation',
+  },
+  issueBoardMenu: {
+    key: 'addressedIdsAndScope',
+    source: 'pool:issueBoardRow+issueBoardSessions+issueBoardCatalog',
+    residency: 'open-menu',
+  },
+  issueBoardDropIndex: {
+    key: 'serializedColumnAndMovedId',
+    source: 'pool:issueBoardColumn+issue-sort-key',
+    residency: 'drag-gesture',
   },
   issueExplorerModel: {
     key: 'serializedTabAndQuery',

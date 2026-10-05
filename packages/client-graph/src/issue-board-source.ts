@@ -6,16 +6,11 @@ import type { SessionView } from '@podium/client-core/session-values'
 import {
   confirmedWorkingAgentCount,
   filterBoardIssues,
-  filterChips,
-  flattenRowGroups,
-  groupIssuesByStage,
   issueIsActionable,
-  issueRowsByStage,
-  partitionIssueTree,
   sessionNeedsHuman,
   sessionPresentOnTask,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
+import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
   compareStructural,
   createAtom,
@@ -25,17 +20,18 @@ import {
   runInAction,
 } from 'mobx'
 import { seedIssueReferences } from './enumerate'
+import { createBoardLayout } from './issue-board-layout'
 import { type BoardProjection, createBoardProjection } from './issue-board-projection'
 import {
   BOARD_EXPLORER_TABS,
   type BoardCardData,
+  type BoardColumnOptions,
   type BoardCatalog,
   type BoardExplorerTab,
   type BoardOptions,
   type BoardQuery,
   ISSUE_BOARD_SUMMARIES,
   type IssueBoardSourceRows,
-  type PoolBoardData,
   type PoolExplorerData,
 } from './issue-board-schema'
 import type { MobxPool } from './pool'
@@ -66,6 +62,7 @@ export function createIssueBoardSource(
     onLocals(keys: readonly 'openIssueId'[], listener: () => void): () => void
   },
 ) {
+  const layout = createBoardLayout(pool)
   const cache = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read())
   // Placement returns a fresh scalar record, so compare its fields by value.
   const placements = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
@@ -111,6 +108,7 @@ export function createIssueBoardSource(
     return (key.startsWith('placement:') ? placements : cache)(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
+    countIssueBoard('factReads')
     // Existing resident index observations own these small facts. Reuse them
     // during React's pre-subscription read; cold facts are never cached here.
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
@@ -374,6 +372,7 @@ export function createIssueBoardSource(
     return query.tab === 'needs' ? actionable(row) : tabOf(row) === query.tab
   }
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
+    if (query.kind === 'board') return layout.queryIds(query)
     return memo(`query:${JSON.stringify(query)}`, () =>
       indexed(() => {
         countIssueBoard('queries')
@@ -523,9 +522,19 @@ export function createIssueBoardSource(
       }
     })
   }
-  function progress(id: string, now: number) {
+  function workingAgents(seats: readonly SessionView[]): number {
+    for (const seat of seats) {
+      if (seat.status !== 'live' || seat.archived || seat.agentKind === 'shell' ||
+        !['working', 'compacting'].includes(seat.agentState?.phase ?? '')) continue
+      const at = Math.max(...[seat.lastActiveAt, seat.agentState?.since, seat.agentState?.stateObservedAt]
+        .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))
+      if (Number.isFinite(at)) pool.clock.passed(at + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)
+    }
+    return confirmedWorkingAgentCount(seats, pool.clock.current)
+  }
+  function progress(id: string) {
     if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null
-    return memo(`progress:${id}:${now}`, () => {
+    return memo(`progress:${id}`, () => {
       let total = 0,
         done = 0,
         liveAgents = 0
@@ -542,7 +551,7 @@ export function createIssueBoardSource(
         if (isFinished(row)) done++
         const seats = sessions(next)
         if (seats === LOADING) return LOADING
-        liveAgents += confirmedWorkingAgentCount(seats ?? [], now)
+        liveAgents += workingAgents(seats ?? [])
         stack.push(...pool.graph.many('issue', next, 'treeChildren'))
       }
       return total ? { total, done, liveAgents } : null
@@ -568,8 +577,9 @@ export function createIssueBoardSource(
       } as unknown as IssueViewModel
     })
   }
-  function card(options: { id: string; now: number; agents?: boolean }): Loaded<BoardCardData> {
-    return memo(`card:${JSON.stringify(options)}`, () => {
+  function card(options: { id: string; now?: number; agents?: boolean }): Loaded<BoardCardData> {
+    return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {
+      countIssueBoard('cards')
       const row = issue(options.id),
         roster = sessions(options.id)
       if (!row || row === LOADING || roster === LOADING)
@@ -595,7 +605,7 @@ export function createIssueBoardSource(
             counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
         }
       }
-      const rollup = progress(row.id, options.now)
+      const rollup = progress(row.id)
       if (rollup === LOADING) return LOADING
       const seatsById = new Map((roster ?? []).map((seat) => [seat.sessionId as string, seat]))
       return {
@@ -613,153 +623,30 @@ export function createIssueBoardSource(
       }
     })
   }
-  function board(options: BoardOptions): Loaded<PoolBoardData> {
-    return memo(`board:${JSON.stringify(options)}`, () => {
-      const found = queryIds({
-        kind: 'board',
-        filter: options.filter,
-        showAgentTasks: options.display.showAgentTasks,
-      })
-      const choices = catalog(options.display.showAgentTasks)
-      if (!found || found === LOADING || !choices || choices === LOADING) return LOADING
-      const active: IssueViewModel[] = []
-      for (const id of found.ids) {
-        const row = options.windowed ? placement(id) : facts(id)
+  const board = layout.board
+  function menu(options: { ids: string[]; agents: boolean }) {
+    return memo(`menu:${JSON.stringify(options)}`, () => {
+      const choices = catalog(options.agents)
+      if (!choices || choices === LOADING) return LOADING
+      const issues: IssueViewModel[] = [], allIssues: IssueViewModel[] = [], seats = new Map<string, SessionView>()
+      for (const id of choices.scope) {
+        const row = facts(id)
         if (row === LOADING) return LOADING
-        if (row) active.push(row)
+        if (row) allIssues.push(row)
       }
-      const roots = partitionIssueTree(active).roots
-      const layout = options.isMobile ? 'list' : options.display.layout
-      const expanded = new Set(options.expanded)
-      const needsRows = layout === 'list' || options.openIssueId !== null
-      const groups = needsRows
-        ? issueRowsByStage(active, options.display.ordering, { flatten: false, expanded })
-        : []
-      const shown = new Set(
-        options.windowed
-          ? (options.addressed ?? [])
-          : [
-              ...roots.map((row) => row.id),
-              ...groups.flatMap((group) => group.rows.map((row) => row.issue.id)),
-            ],
-      )
-      if (options.openIssueId) shown.add(options.openIssueId)
-      const models = new Map<string, IssueViewModel>(),
-        seats = new Map<string, SessionView>()
-      for (const id of shown) {
-        const row = issue(id),
-          roster = sessions(id)
+      for (const id of options.ids) {
+        const row = issue(id), roster = sessions(id)
         if (row === LOADING || roster === LOADING) return LOADING
-        if (row) models.set(id, row)
+        if (row) issues.push(row)
         for (const seat of roster ?? []) seats.set(seat.sessionId, seat)
       }
-      const boardIssues = roots.map((row) => models.get(row.id) ?? row)
-      const rowGroups = groups.map((group) => ({
-        ...group,
-        rows: group.rows.map((row) => ({ ...row, issue: models.get(row.issue.id) ?? row.issue })),
-      }))
-      const listIds = flattenRowGroups(rowGroups)
-      const orderedByStage = groupIssuesByStage(boardIssues, options.display.ordering)
-      const nav: PoolBoardData['view']['nav'] =
-        layout === 'list'
-          ? { kind: 'rows', ids: listIds }
-          : {
-              kind: 'columns',
-              columns: orderedByStage.map((column) => column.issues.map((row) => row.id)),
-            }
-      const presentIds = new Set(nav.kind === 'rows' ? nav.ids : nav.columns.flat())
-      const stageCounts = new Map<string, { stage: IssueViewModel['stage']; count: number }[]>(),
-        epicProgress: PoolBoardData['view']['epicProgress'] = new Map()
-      const scopeIds = new Set(choices.scope)
-      const rootIds = new Set(boardIssues.map((row) => row.id))
-      for (const root of options.windowed ? [] : models.values()) {
-        if (scopeIds.has(root.id) && root.childIds.length) {
-          const counts = new Map<string, number>()
-          for (const childId of pool.graph.many('issue', root.id, 'treeChildren'))
-            if (childId !== root.id && scopeIds.has(childId)) {
-              const child = facts(childId)
-              if (child === LOADING) return LOADING
-              if (child) counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
-            }
-          const result = ISSUE_STAGES.map((stage) => ({
-            stage,
-            count: counts.get(stage) ?? 0,
-          })).filter((value) => value.count)
-          if (result.length) stageCounts.set(root.id, result)
-        }
-        if (rootIds.has(root.id)) {
-          const rollup = progress(root.id, options.now)
-          if (rollup === LOADING) return LOADING
-          epicProgress.set(root.id, rollup)
-        }
-      }
-      let opened = options.openIssueId ? models.get(options.openIssueId) : undefined
-      if (opened) {
-        // A single addressed detail may borrow its full row. Opening the board
-        // itself and changing filters never promote cold cards to resident.
-        const full = pool.row('issue', opened.id) as Loaded<IssueViewModel>
-        if (full === LOADING) return LOADING
-        if (full)
-          opened = {
-            ...full,
-            ...opened,
-            description: text(full.description),
-            notes: full.notes === undefined ? undefined : text(full.notes),
-            brief: full.brief,
-            design: full.design,
-            acceptance: full.acceptance,
-          }
-      }
-      const flatIds = opened
-        ? flattenRowGroups(
-            issueRowsByStage(active, options.display.ordering, { flatten: true, expanded }),
-          )
-        : []
-      const scope: IssueViewModel[] = []
-      if (options.menu)
-        for (const id of choices.scope) {
-          const row = facts(id)
-          if (row === LOADING) return LOADING
-          if (row) scope.push(row)
-        }
-      const menuInputs = options.menu
-        ? {
-            issues: [...models.values()],
-            allIssues: scope,
-            sessions: [...seats.values()],
-            repos: pool.headerViews.ids('repository').flatMap((id) => {
-              const row = pool.headerViews.row('repository', id)
-              return row ? [row] : []
-            }),
-            machines: pool.headerViews.machines(),
-          }
-        : undefined
       return {
-        issues: options.windowed
-          ? active.map((row) => models.get(row.id) ?? row)
-          : [...models.values()],
-        sessions: [...seats.values()],
-        projectPaths: choices.projectPaths,
-        menuInputs,
-        view: {
-          nonArchived: [],
-          scope,
-          active: active.map((row) => models.get(row.id) ?? row),
-          assignees: choices.assignees,
-          labels: choices.labels,
-          chips: filterChips(options.filter),
-          layout,
-          boardIssues,
-          stageCounts,
-          epicProgress,
-          orderedByStage,
-          rowGroups,
-          listIds,
-          nav,
-          presentIds,
-          ...(opened ? { open: opened } : {}),
-          orderedIdsForOpen: opened ? (listIds.includes(opened.id) ? listIds : flatIds) : [],
-        },
+        issues, allIssues, sessions: [...seats.values()],
+        repos: pool.headerViews.ids('repository').flatMap(id => {
+          const row = pool.headerViews.row('repository', id)
+          return row ? [row] : []
+        }),
+        machines: pool.headerViews.machines(),
       }
     })
   }
@@ -841,6 +728,16 @@ export function createIssueBoardSource(
           return catalog(id === 'true')
         case 'issueBoardModel':
           return board(JSON.parse(id))
+        case 'issueBoardColumn':
+          return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
+        case 'issueBoardOpenIds': {
+          const options = JSON.parse(id)
+          return layout.openIds(options, options.id)
+        }
+        case 'issueBoardMenu':
+          return menu(JSON.parse(id))
+        case 'issueBoardDropIndex':
+          return layout.dropIndex(JSON.parse(id))
         case 'issueExplorerModel':
           return explorer(JSON.parse(id))
         case 'issueBoardRow':
@@ -872,6 +769,7 @@ export function createIssueBoardSource(
       if (disposed) return
       disposed = true
       stopOwner()
+      layout.dispose()
       releaseIndex()
       tabCounts.dispose()
       for (const projection of projections.values()) projection.dispose()
@@ -887,6 +785,8 @@ export function createIssueBoardSource(
   return {
     ...source,
     board,
+    columnIds: layout.columnIds,
+    openIds: layout.openIds,
     explorer,
     explorerCounts,
     issue,

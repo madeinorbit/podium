@@ -1,37 +1,25 @@
-import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
-import type { BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
-import { ISSUE_BOARD_STAGES } from '@podium/model/browser'
+import type { BoardCatalog, BoardColumnOptions, BoardOptions, PoolBoardData } from '@podium/client-graph/issue-board-schema'
+import { ISSUE_BOARD_STAGES, type IssueId } from '@podium/model/browser'
 import { useCallback } from 'react'
-import type { IssueViewModel } from '@/app/store'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useBoardPoolProjection } from './board-pool-projection'
 
-const EMPTY_ISSUES: IssueViewModel[] = [],
-  EMPTY_SESSIONS: SessionView[] = []
 export const EMPTY_BOARD: PoolBoardData = {
-  issues: EMPTY_ISSUES,
-  sessions: EMPTY_SESSIONS,
-  projectPaths: [],
+  activeIds: [],
+  rootIds: [],
   view: {
-    nonArchived: [],
-    scope: [],
-    active: [],
-    assignees: [],
-    labels: [],
     chips: [],
     layout: 'board',
-    boardIssues: [],
-    stageCounts: new Map(),
-    epicProgress: new Map(),
     rowGroups: [],
     listIds: [],
-    orderedByStage: ISSUE_BOARD_STAGES.map((stage) => ({ stage, issues: [] })),
+    orderedByStage: ISSUE_BOARD_STAGES.map((stage) => ({ stage, ids: [] })),
     nav: { kind: 'columns', columns: ISSUE_BOARD_STAGES.map(() => []) },
     presentIds: new Set(),
-    orderedIdsForOpen: [],
   },
 }
+const EMPTY_IDS: IssueId[] = []
+const EMPTY_CATALOG: BoardCatalog = { scope: [], projectPaths: [], assignees: [], labels: [] }
 const readWindow = (pool: MobxPool) => pool.row('issueBoardWindow', 'current')
 export function useBoardBase() {
   const window = useWorklistPoolProjection(readWindow, undefined)
@@ -40,15 +28,42 @@ export function useBoardBase() {
   }
 }
 export function useBoardData(options: BoardOptions): PoolBoardData {
-  // Facets belong to the mounted board, rather than a particular filter's
-  // projection. Retain that observation while React replaces the row reader.
-  const agents = String(options.display.showAgentTasks)
-  const readCatalog = useCallback(
-    (pool: MobxPool) => pool.row('issueBoardCatalog', agents),
-    [agents],
-  )
-  useWorklistPoolProjection(readCatalog, undefined)
-  const key = JSON.stringify({ ...options, windowed: true, now: 0 })
+  const key = JSON.stringify({
+    display: { layout: options.display.layout, ordering: options.display.ordering, showAgentTasks: options.display.showAgentTasks },
+    filter: options.filter, isMobile: options.isMobile,
+    expanded: options.isMobile || options.display.layout === 'list' ? options.expanded : [],
+  })
   const value = useBoardPoolProjection<PoolBoardData | symbol>('issueBoardModel', key)
   return value && typeof value !== 'symbol' ? value : EMPTY_BOARD
+}
+export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[]) {
+  const key = JSON.stringify(options)
+  const read = useCallback((pool: MobxPool) => pool.row('issueBoardColumn', key), [key])
+  const ids = useWorklistPoolProjection(read, undefined)
+  return ids && typeof ids !== 'symbol' ? ids : fallback
+}
+export function useBoardCatalog(open: boolean, agents: boolean) {
+  const read = useCallback((pool: MobxPool) => open ? pool.row('issueBoardCatalog', String(agents)) : undefined, [open, agents])
+  const value = useWorklistPoolProjection(read, undefined)
+  return value && typeof value !== 'symbol' ? value : EMPTY_CATALOG
+}
+export function useBoardOpenIds(options: BoardOptions, id: IssueId | null) {
+  const key = JSON.stringify({ ...options, id })
+  const read = useCallback((pool: MobxPool) => id ? pool.row('issueBoardOpenIds', key) : undefined, [id, key])
+  const value = useWorklistPoolProjection(read, undefined)
+  return value && typeof value !== 'symbol' ? value : EMPTY_IDS
+}
+export function useBoardMenu(ids: string[] | undefined, agents: boolean) {
+  const key = JSON.stringify({ ids, agents })
+  const active = !!ids
+  const read = useCallback((pool: MobxPool) => active ? pool.row('issueBoardMenu', key) : undefined, [active, key])
+  const value = useWorklistPoolProjection(read, undefined)
+  return value && typeof value !== 'symbol' ? value : undefined
+}
+export function useBoardDropIndex() {
+  const pool = useWorklistPool()
+  return useCallback((options: BoardColumnOptions & { id: string }) => {
+    const value = pool?.row('issueBoardDropIndex', JSON.stringify(options))
+    return typeof value === 'number' ? value : 0
+  }, [pool])
 }

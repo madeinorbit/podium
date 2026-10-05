@@ -14,11 +14,12 @@ import { NotSavedMark } from '@/components/NotSavedMark'
 import { issueColorHex } from '@/lib/issueColors'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
+import type { PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { BoardPoolRow } from './board-pool-row'
 import { cardAge, issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
-import { type IssueRow, isEpic } from './issue-hierarchy'
+import { isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
 
@@ -42,7 +43,7 @@ export function IssueListView({
   initialScrollTop = 0,
   onScrollTop,
 }: {
-  groups: { stage: IssueStage; rows: IssueRow[] }[]
+  groups: PoolBoardData['view']['rowGroups']
   display: IssuesDisplay
   onOpen: (id: IssueId) => void
   onCreateIn: (stage: IssueStage) => void
@@ -79,7 +80,7 @@ export function IssueListView({
       data-testid="issues-list"
       onScroll={(event) => onScrollTop?.(event.currentTarget.scrollTop)}
     >
-      {groups.map(({ stage, rows }) => {
+      {groups.map(({ stage, rows, count }) => {
         if (rows.length === 0) return null
         return (
           <section key={stage} aria-label={STAGE_LABELS[stage]}>
@@ -97,7 +98,7 @@ export function IssueListView({
                   parent's foreign-stage children ride under it visually but must
                   not inflate the header ("Backlog · 5" with 2 in-progress kids). */}
               <span className="font-mono text-[10px] text-text-dim tabular-nums">
-                {rows.filter((r) => r.issue.stage === stage).length}
+                {count}
               </span>
               <button
                 data-pressable
@@ -146,7 +147,7 @@ function VirtualStageRows({
   now,
 }: {
   stage: IssueStage
-  rows: IssueRow[]
+  rows: PoolBoardData['view']['rowGroups'][number]['rows']
   scrollRef: RefObject<HTMLElement | null>
   display: IssuesDisplay
   focusId: string | null
@@ -159,7 +160,7 @@ function VirtualStageRows({
   now: number
 }): JSX.Element {
   const containerRef = useRef<HTMLUListElement | null>(null)
-  const ids = useMemo(() => rows.map((row) => row.issue.id), [rows])
+  const ids = useMemo(() => rows.map((row) => row.id), [rows])
   const virtual = useBoundedVirtualList({
     keys: ids,
     scrollRef,
@@ -175,18 +176,18 @@ function VirtualStageRows({
       aria-label={`${STAGE_LABELS[stage]} tasks`}
     >
       {virtual.items.map((item) => {
-        const { issue, depth, childCount, expanded } = rows[item.index] as IssueRow
-        const isSelected = selected.includes(issue.id)
+        const { id, depth, childCount, expanded } = rows[item.index]!
+        const isSelected = selected.includes(id)
         return (
           <li
-            key={issue.id}
-            ref={virtual.measureRef(issue.id)}
+            key={id}
+            ref={virtual.measureRef(id)}
             className="absolute inset-x-0 top-0"
             style={{ transform: `translateY(${item.start}px)` }}
             aria-posinset={item.index + 1}
             aria-setsize={rows.length}
           >
-            <BoardPoolRow issue={issue}>{issue => {
+            <BoardPoolRow id={id}>{issue => {
               const m = issueCardModel(issue)
               const epic = isEpic(issue)
               const hex = issueColorHex(issue.color)

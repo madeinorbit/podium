@@ -188,6 +188,7 @@ function labelDotColor(label: string): string {
 
 function IssueCardLeaf({
   issue: suppliedIssue,
+  id,
   sessions: suppliedSessions,
   badges,
   stageCounts: suppliedCounts,
@@ -204,9 +205,10 @@ function IssueCardLeaf({
   onContextMenu,
   onDragStart,
 }: {
-  issue: IssueViewModel
+  issue?: IssueViewModel
+  id?: string
   /** This issue's member sessions, resolved by the board — the fleet stack. */
-  sessions: SessionView[]
+  sessions?: SessionView[]
   badges: IssuesDisplay['badges']
   stageCounts?: { stage: IssueStage; count: number }[]
   progress?: EpicProgress | null
@@ -224,10 +226,11 @@ function IssueCardLeaf({
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
 }): JSX.Element {
-  const data = useBoardCard(suppliedIssue.id, now, showAgentTasks)
+  const data = useBoardCard(id ?? suppliedIssue!.id, now, showAgentTasks)
   if (typeof data === 'symbol') return <div role="status">Loading task…</div>
   const issue = data?.issue ?? suppliedIssue
-  const sessions = data?.fleet ?? suppliedSessions
+  if (!issue) return <div role="status">Loading task…</div>
+  const sessions = data?.fleet ?? suppliedSessions ?? []
   const stageCounts = poolRollups ? data?.stageCounts ?? suppliedCounts : suppliedCounts
   const progress = poolRollups ? data?.progress ?? suppliedProgress : suppliedProgress
   const slots = issueCardStateSlots(issue, {

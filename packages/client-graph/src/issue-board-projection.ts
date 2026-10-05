@@ -1,4 +1,4 @@
-import { compareStructural, reaction } from 'mobx'
+import { reaction } from 'mobx'
 
 export interface BoardProjection<T = unknown> {
   getSnapshot(): T | undefined
@@ -28,7 +28,7 @@ export function createBoardProjection<T>(read: () => T, released: () => void): B
         snapshot = next
         for (const wake of listeners) wake()
       },
-      { equals: compareStructural, fireImmediately: true },
+      { fireImmediately: true },
     )
     queueMicrotask(() => {
       if (!listeners.size) clear()

@@ -24,13 +24,12 @@ import { Input } from '@/components/ui/input'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { useNow } from '@/lib/useNow'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
-import { useBoardBase, useBoardData } from './board-pool-data'
-import { useBoardCloseGuard } from './board-pool-row'
+import { useBoardBase, useBoardCatalog, useBoardData, useBoardMenu, useBoardOpenIds } from './board-pool-data'
+import { useBoardAddressed, useBoardCloseGuard, useBoardIssueReader } from './board-pool-row'
 import { boardKeyAction } from './board-shortcuts'
 import { IssueListView } from './IssueListView'
-import { IssuePage } from './IssuePage'
+import { PoolIssuePage } from './pool-issue-page'
 import {
   AnchoredIssueMenu,
   BulkBar,
@@ -64,8 +63,8 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
 
 /**
  * Issues is a composer, not a second view-model. The published issue projection
- * enters here once; `deriveIssuesViewModel` supplies the single answer consumed
- * by the list, kanban, keyboard navigation and issue page.
+ * enters as ID lists. Visible cards, addressed actions and the open detail
+ * keep their own readers; selection never changes the layout key.
  */
 export function IssuesView(): JSX.Element {
   const base = useBoardBase()
@@ -80,7 +79,6 @@ export function IssuesView(): JSX.Element {
   const deleteIssue = useRuntimeSelector((store) => store.deleteIssue)
   const closeIssue = useRuntimeSelector((store) => store.closeIssue)
   const isMobile = useIsMobile()
-  const now = useNow(60_000)
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the
   // row and the board is stuck on the defaults for the session (POD-540).
@@ -106,6 +104,7 @@ export function IssuesView(): JSX.Element {
   const [bulkClosing, setBulkClosing] = useState(false)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false)
   const issueScrollPositions = useRef<{
     list: number
     columns: Partial<Record<IssueStage, number>>
@@ -149,43 +148,20 @@ export function IssuesView(): JSX.Element {
     [deferredText, priority, projectPaths, status, stage, archived, deleted],
   )
 
-  const options = useMemo(
-    () => ({
-      display,
-      filter: deferredFilter,
-      expanded: [...expanded],
-      isMobile,
-      openIssueId,
-      now,
-      menu: ctxMenu !== null,
-      addressed: [
-        ...keyState.selected,
-        ...(ctxMenu?.ids ?? []),
-        ...(bulkClose?.ids ?? []),
-        ...(propMenu ? [propMenu.id] : []),
-      ],
-    }),
-    [
-      display,
-      deferredFilter,
-      expanded,
-      isMobile,
-      openIssueId,
-      now,
-      ctxMenu,
-      keyState.selected,
-      bulkClose,
-      propMenu,
-    ],
-  )
-  const {
-    issues,
-    sessions,
-    projectPaths: availableProjectPaths,
-    view,
-    menuInputs,
-  } = useBoardData(options)
-  const needsCloseGuard = useBoardCloseGuard(sessions)
+  const options = useMemo(() => ({
+    display: { layout: display.layout, ordering: display.ordering, showAgentTasks: display.showAgentTasks },
+    filter: deferredFilter, expanded: [...expanded], isMobile,
+  }), [display.layout, display.ordering, display.showAgentTasks, deferredFilter, expanded, isMobile])
+  const { view } = useBoardData(options)
+  const catalog = useBoardCatalog(projectMenuOpen || propMenu !== null || ctxMenu !== null, display.showAgentTasks)
+  const menuInputs = useBoardMenu(ctxMenu?.ids, display.showAgentTasks)
+  const addressedIds = useMemo(() => [...new Set([
+    ...keyState.selected, ...(ctxMenu?.ids ?? []), ...(bulkClose?.ids ?? []), ...(propMenu ? [propMenu.id] : []),
+  ])], [keyState.selected, ctxMenu, bulkClose, propMenu])
+  const issues = useBoardAddressed(addressedIds)
+  const readIssue = useBoardIssueReader()
+  const orderedIdsForOpen = useBoardOpenIds(options, openIssueId)
+  const needsCloseGuard = useBoardCloseGuard([])
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
     setError('')
@@ -330,7 +306,7 @@ export function IssuesView(): JSX.Element {
       // still gets its dialog — its headline carries a count of what is about to
       // close, which is a fact the bar has not otherwise shown.
       const only =
-        selectedIds.length === 1 ? issues.find((i) => i.id === selectedIds[0]) : undefined
+        selectedIds.length === 1 ? readIssue(selectedIds[0]!) : undefined
       if (only && !needsCloseGuard(only)) {
         runMut(closeIssue(only.id, intent.reason))
         return
@@ -355,7 +331,7 @@ export function IssuesView(): JSX.Element {
       const intent = parseIssueStatusValue(value)
       if (!intent) return
       if (intent.kind === 'close') {
-        const target = issues.find((issue) => issue.id === id)
+        const target = readIssue(id)
         if (target && !needsCloseGuard(target)) {
           runMut(closeIssue(id, intent.reason))
           return
@@ -365,7 +341,7 @@ export function IssuesView(): JSX.Element {
       }
       runMut(updateIssue(id, { stage: intent.stage }))
     },
-    [closeIssue, issues, needsCloseGuard, runMut, updateIssue],
+    [closeIssue, readIssue, needsCloseGuard, runMut, updateIssue],
   )
   const bulkCloseTargets = useMemo(
     () =>
@@ -401,11 +377,11 @@ export function IssuesView(): JSX.Element {
     setKeyState((state) => ({ ...state, selected: [] }))
   }
 
-  if (view.open) {
+  if (openIssueId) {
     return (
-      <IssuePage
-        issue={view.open}
-        orderedIds={view.orderedIdsForOpen}
+      <PoolIssuePage
+        issueId={openIssueId}
+        orderedIds={orderedIdsForOpen}
         onBack={() => setOpenIssueId(null)}
         onNavigate={setOpenIssueId}
       />
@@ -429,7 +405,8 @@ export function IssuesView(): JSX.Element {
           />
           <FilterMenu filter={filter} onChange={setFilter} />
           <ProjectMenu
-            paths={availableProjectPaths}
+            paths={catalog.projectPaths}
+            onOpenChange={setProjectMenuOpen}
             selected={filter.projectPaths ?? []}
             onChange={(paths) =>
               setFilter({ ...filter, projectPaths: paths.length ? paths : undefined })
@@ -489,14 +466,10 @@ export function IssuesView(): JSX.Element {
       ) : (
         <ResponsiveIssuesKanban
           columns={view.orderedByStage}
-          allIssues={issues}
-          sessions={sessions}
-          now={now}
+          filter={deferredFilter}
           badges={display.badges}
           ordering={display.ordering}
           showAgentTasks={display.showAgentTasks}
-          stageCounts={view.stageCounts}
-          epicProgress={view.epicProgress}
           onOpen={setOpenIssueId}
           onMoveIssue={moveIssue}
           onApprove={approveIssue}
@@ -526,7 +499,7 @@ export function IssuesView(): JSX.Element {
           animating out. */}
       {bulkClose && bulkCloseTargets.length > 0 && (
         <IssueBulkCloseDialog
-          sessions={sessions}
+          sessions={[]}
           issues={bulkCloseTargets}
           reason={bulkClose.reason}
           busy={bulkClosing}
@@ -550,8 +523,8 @@ export function IssuesView(): JSX.Element {
             <AnchoredIssueMenu
               issue={target}
               kind={propMenu.kind}
-              assignees={view.assignees}
-              labelPool={view.labels}
+              assignees={catalog.assignees}
+              labelPool={catalog.labels}
               onMoveIssue={moveIssue}
               onSetPriority={setPriority}
               onSetAssignee={setAssignee}
@@ -570,7 +543,7 @@ export function IssuesView(): JSX.Element {
               <IssueContextMenu
                 poolInputs={menuInputs}
                 issues={targets}
-                allIssues={view.scope}
+                allIssues={menuInputs.allIssues}
                 anchor={ctxMenu.anchor}
                 onClose={() => setCtxMenu(null)}
                 onOpen={setOpenIssueId}

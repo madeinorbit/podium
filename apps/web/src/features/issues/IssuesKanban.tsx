@@ -1,4 +1,3 @@
-import type { SessionView } from '@podium/client-core/session-values'
 /**
  * THE BOARD (rebuilt, POD-591).
  *
@@ -27,7 +26,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  *    are pinned through their boundary render, and no trip down a long column
  *    grows the component tree for the rest of the board's lifetime.
  */
-import type { IssueId, IssueStage} from '@podium/model/browser'
+import type { IssueBoardStage, IssueId, IssueStage } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type {
   CSSProperties,
@@ -40,25 +39,25 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
+import { useNow } from '@/lib/useNow'
 import { issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
 import { IssueCard } from './IssueCard'
+import { useBoardColumn, useBoardDropIndex } from './board-pool-data'
+import type { BoardFilter } from './issue-board-filter'
 import { STAGE_LABELS } from './issue-card'
 import { StageGlyph } from './issue-glyphs'
-import type { EpicProgress, IssuesDisplay, IssuesOrdering } from './issues-display'
-import { dropTargetStage, passedDragThreshold, plannedDropIndex } from './kanban-dnd'
+import type { IssuesDisplay, IssuesOrdering } from './issues-display'
+import { dropTargetStage, passedDragThreshold } from './kanban-dnd'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
 
 export interface IssuesKanbanProps {
-  columns: { stage: IssueStage; issues: IssueViewModel[] }[]
-  allIssues: IssueViewModel[]
-  sessions: SessionView[]
-  now: number
+  columns: { stage: IssueBoardStage; ids: IssueId[] }[]
+  filter: BoardFilter
+  now?: number
   badges: IssuesDisplay['badges']
   ordering: IssuesOrdering
   showAgentTasks?: boolean
-  stageCounts: Map<string, { stage: IssueStage; count: number }[]>
-  epicProgress: Map<string, EpicProgress | null>
   onOpen: (id: IssueId) => void
   onMoveIssue: (id: IssueId, stage: IssueStage) => void
   onApprove: (id: IssueId) => void
@@ -91,30 +90,15 @@ function sameDropTarget(a: DragState['over'], b: DragState['over']): boolean {
 const NOOP = (): void => {}
 
 export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
-  // One index for the whole board; a card resolves its own members from it
-  // rather than every card scanning the session list.
-  const sessionById = useMemo(
-    () => new Map(props.sessions.map((s) => [s.sessionId as string, s])),
-    [props.sessions],
-  )
-  const sessionsFor = useCallback(
-    (issue: IssueViewModel): SessionView[] =>
-      (issue.memberSessionIds ?? [])
-        .map((id) => sessionById.get(id))
-        .filter((s): s is SessionView => s !== undefined),
-    [sessionById],
-  )
-  // A card's session array must be referentially stable while the board handles
-  // sparse drag-state updates. Rebuilding it inside each column would defeat
-  // the memoized card leaf even when no session membership changed.
-  const sessionsByIssueId = useMemo(
-    () => new Map(props.allIssues.map((issue) => [issue.id, sessionsFor(issue)])),
-    [props.allIssues, sessionsFor],
-  )
-  // The parent owns the minute clock because the same timestamp also gates the
-  // confirmed-working rollup. Card ages and working badges therefore repaint
-  // from one coherent observation of time.
-  const now = props.now
+  const clock = useNow(60_000)
+  const now = props.now ?? clock
+  const dropIndex = useBoardDropIndex()
+  const dropIndexRef = useRef(dropIndex)
+  dropIndexRef.current = dropIndex
+  const filterRef = useRef(props.filter)
+  filterRef.current = props.filter
+  const agentsRef = useRef(props.showAgentTasks ?? false)
+  agentsRef.current = props.showAgentTasks ?? false
 
   const [drag, setDrag] = useState<DragState | null>(null)
   const proxyRef = useRef<HTMLDivElement | null>(null)
@@ -123,8 +107,6 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
   const activeCleanupRef = useRef<(() => void) | null>(null)
   const suppressClickRef = useRef(false)
   const suppressClickTimerRef = useRef<number | null>(null)
-  const columnsRef = useRef(props.columns)
-  columnsRef.current = props.columns
   const orderingRef = useRef(props.ordering)
   orderingRef.current = props.ordering
   const onMoveIssueRef = useRef(props.onMoveIssue)
@@ -182,10 +164,9 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
       const column = under?.closest('[data-kanban-column]')
       const stage = dropTargetStage(column?.getAttribute('data-kanban-column') ?? '')
       if (!stage) return null
-      const target = columnsRef.current.find((c) => c.stage === stage)
       return {
         stage,
-        index: plannedDropIndex(target?.issues ?? [], issue, stage, orderingRef.current),
+        index: dropIndexRef.current({ id: issue.id, stage: stage as IssueBoardStage, filter: filterRef.current, ordering: orderingRef.current, showAgentTasks: agentsRef.current }),
       }
     }
 
@@ -313,16 +294,15 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
         event.stopPropagation()
       }}
     >
-      {props.columns.map(({ stage, issues }) => (
+      {props.columns.map(({ stage, ids }) => (
         <IssueColumn
           key={stage}
           stage={stage}
-          issues={issues}
+          ids={ids}
+          filter={props.filter}
+          ordering={props.ordering}
           badges={props.badges}
           showAgentTasks={props.showAgentTasks ?? false}
-          stageCounts={props.stageCounts}
-          epicProgress={props.epicProgress}
-          sessionsByIssueId={sessionsByIssueId}
           now={now}
           drop={drag?.over?.stage === stage ? drag.over : null}
           draggedIssueId={drag?.issue.id ?? null}
@@ -344,7 +324,6 @@ export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
           drag={drag}
           point={proxyPointRef.current}
           proxyRef={proxyRef}
-          sessions={sessionsByIssueId.get(drag.issue.id) ?? []}
           badges={props.badges}
           now={now}
         />
@@ -366,14 +345,12 @@ function DragProxy({
   drag,
   point,
   proxyRef,
-  sessions,
   badges,
   now,
 }: {
   drag: DragState
   point: DragPoint
   proxyRef: RefObject<HTMLDivElement | null>
-  sessions: SessionView[]
   badges: IssuesDisplay['badges']
   now: number
 }): JSX.Element {
@@ -391,7 +368,6 @@ function DragProxy({
       <IssueCard
         issue={drag.issue}
         poolRollups={false}
-        sessions={sessions}
         badges={badges}
         focused={false}
         selected={false}
@@ -421,12 +397,11 @@ function DropLine(): JSX.Element {
 
 const IssueColumn = memo(function IssueColumn({
   stage,
-  issues,
+  ids: suppliedIds,
+  filter,
+  ordering,
   badges,
   showAgentTasks,
-  stageCounts,
-  epicProgress,
-  sessionsByIssueId,
   now,
   drop,
   draggedIssueId,
@@ -442,12 +417,12 @@ const IssueColumn = memo(function IssueColumn({
   initialScrollTop,
   onScrollTop,
 }: {
-  stage: IssueStage
-  issues: IssueViewModel[]
+  stage: IssueBoardStage
+  ids: IssueId[]
+  filter: BoardFilter
+  ordering: IssuesOrdering
   badges: IssuesDisplay['badges']
   showAgentTasks: boolean
-  stageCounts: Map<string, { stage: IssueStage; count: number }[]>
-  epicProgress: Map<string, EpicProgress | null>
   sessionsByIssueId: Map<IssueId, SessionView[]>
   now: number
   drop: DragState['over']
@@ -476,7 +451,7 @@ const IssueColumn = memo(function IssueColumn({
     },
     [initialScrollTop],
   )
-  const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
+  const issueIds = useBoardColumn({ stage, filter, ordering, showAgentTasks }, suppliedIds)
   const virtual = useBoundedVirtualList({
     keys: issueIds,
     scrollRef,
@@ -514,7 +489,7 @@ const IssueColumn = memo(function IssueColumn({
       >
         <StageGlyph stage={stage} size={13} />
         <h3 className="font-semibold text-[12px] text-foreground">{label}</h3>
-        <span className="font-mono text-[10px] text-text-dim tabular-nums">{issues.length}</span>
+        <span className="font-mono text-[10px] text-text-dim tabular-nums">{issueIds.length}</span>
         <button
           data-pressable
           type="button"
@@ -541,7 +516,7 @@ const IssueColumn = memo(function IssueColumn({
         data-testid="column-scroll"
         onScroll={(event) => onScrollTop?.(stage, event.currentTarget.scrollTop)}
       >
-        {issues.length === 0 && !over ? (
+        {issueIds.length === 0 && !over ? (
           <EmptyColumn label={label} onCreate={createInStage} />
         ) : (
           <ul
@@ -550,28 +525,25 @@ const IssueColumn = memo(function IssueColumn({
             aria-label={`${label} tasks`}
           >
             {virtual.items.map((item) => {
-              const issue = issues[item.index] as IssueViewModel
+              const id = issueIds[item.index]!
               return (
                 <li
-                  key={issue.id}
-                  ref={virtual.measureRef(issue.id)}
+                  key={id}
+                  ref={virtual.measureRef(id)}
                   className="absolute inset-x-0 top-0"
                   style={{ transform: `translateY(${item.start}px)` }}
                   aria-posinset={item.index + 1}
-                  aria-setsize={issues.length}
+                  aria-setsize={issueIds.length}
                   data-virtual-index={item.index}
                 >
-                  <CardBoundary resetKey={issue.id} label="issue card">
+                  <CardBoundary resetKey={id} label="issue card">
                     <IssueCard
-                      issue={issue}
-                      sessions={sessionsByIssueId.get(issue.id) ?? []}
+                      id={id}
                       badges={badges}
                       showAgentTasks={showAgentTasks}
-                      stageCounts={stageCounts.get(issue.id)}
-                      progress={epicProgress.get(issue.id) ?? null}
-                      focused={focusId === issue.id}
-                      selected={selectedIds.has(issue.id)}
-                      dragging={draggedIssueId === issue.id}
+                      focused={focusId === id}
+                      selected={selectedIds.has(id)}
+                      dragging={draggedIssueId === id}
                       now={now}
                       onOpen={onOpen}
                       {...(stage === 'proposed' ? { onApprove } : {})}
