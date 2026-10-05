@@ -141,7 +141,7 @@ it('derives sidebar ownership inside the applying action without refiling seats'
     expect(pool.issueObject(owner.id).placed).toBe(true)
     expect([...pool.sidebarRosters.candidates(LANE)]).toEqual([])
     runInAction(() => {
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: { ...owner, audience: 'agent', stage: 'backlog' } as never }] })
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: { ...owner, audience: 'agent' } as never }] })
       expect(pool.issueObject(owner.id).placed).toBe(false)
       expect([...pool.sidebarRosters.candidates(LANE)]).toEqual(['seat'])
     })

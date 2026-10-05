@@ -10,6 +10,23 @@ export const noReactionWrites = {
     const source = context.sourceCode
     const reactions = new Set(), observables = new Set(), namespaces = new Set()
     const targets = new Set(), aliases = [], functions = new Map(), calls = []
+    const bindings = new WeakMap()
+    let nextBinding = 0
+    const binding = (node) => {
+      for (let scope = source.getScope(node); scope; scope = scope.upper) {
+        const variable = scope.set.get(node.name)
+        if (!variable) continue
+        if (!bindings.has(variable)) bindings.set(variable, ++nextBinding)
+        return `${node.name}@${bindings.get(variable)}`
+      }
+      return node.name
+    }
+    const owner = (node) => {
+      for (let current = node; current; current = current.parent) {
+        if (current.type === 'ClassDeclaration' || current.type === 'ClassExpression') return `this@${current.range[0]}`
+      }
+      return 'this'
+    }
     const unwrap = (node) => {
       while (node && ['TSAsExpression', 'TSNonNullExpression', 'ChainExpression'].includes(node.type)) node = node.expression
       return node
@@ -17,8 +34,8 @@ export const noReactionWrites = {
     const name = (input) => {
       const node = unwrap(input)
       if (!node) return undefined
-      if (node.type === 'Identifier') return node.name
-      if (node.type === 'ThisExpression') return 'this'
+      if (node.type === 'Identifier') return binding(node)
+      if (node.type === 'ThisExpression') return owner(node)
       if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
         const key = node.computed ? node.property.value : node.property.name
         const object = name(node.object)
@@ -48,17 +65,17 @@ export const noReactionWrites = {
       ImportDeclaration(node) {
         if (node.source.value !== 'mobx') return
         for (const spec of node.specifiers) {
-          if (spec.type === 'ImportNamespaceSpecifier') namespaces.add(spec.local.name)
-          if (spec.imported?.name === 'reaction') reactions.add(spec.local.name)
-          if (spec.imported?.name === 'observable') observables.add(spec.local.name)
+          if (spec.type === 'ImportNamespaceSpecifier') namespaces.add(name(spec.local))
+          if (spec.imported?.name === 'reaction') reactions.add(name(spec.local))
+          if (spec.imported?.name === 'observable') observables.add(name(spec.local))
         }
       },
       VariableDeclarator(node) { define(name(node.id), node.init) },
-      PropertyDefinition(node) { define(`this.${node.key.name}`, node.value) },
-      ClassProperty(node) { define(`this.${node.key.name}`, node.value) },
+      PropertyDefinition(node) { define(`${owner(node)}.${node.key.name}`, node.value) },
+      ClassProperty(node) { define(`${owner(node)}.${node.key.name}`, node.value) },
       AssignmentExpression(node) { define(name(node.left), node.right) },
-      FunctionDeclaration(node) { if (node.id) functions.set(node.id.name, node) },
-      MethodDefinition(node) { functions.set(`this.${node.key.name}`, node.value) },
+      FunctionDeclaration(node) { if (node.id) functions.set(name(node.id), node) },
+      MethodDefinition(node) { functions.set(`${owner(node)}.${node.key.name}`, node.value) },
       CallExpression(node) { calls.push(node) },
       'Program:exit'() {
         for (let changed = true; changed;) {
@@ -75,7 +92,7 @@ export const noReactionWrites = {
             const node = unwrap(input)
             if (!node || seen.has(node)) return undefined
             seen.add(node)
-            if (node.type === 'Identifier') return writes(functions.get(node.name))
+            if (node.type === 'Identifier') return writes(functions.get(name(node)))
             if (node.type === 'CallExpression') {
               const method = unwrap(node.callee)
               if (method?.type === 'MemberExpression') {

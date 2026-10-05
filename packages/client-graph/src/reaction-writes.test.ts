@@ -53,6 +53,16 @@ describe('reaction observable-write fence', () => {
       runInAction(() => rows.set('id', input()))`)).toEqual([])
   })
 
+  it('distinguishes shadowed collections and methods belonging to separate classes', async () => {
+    expect(await findings(`import { observable, reaction } from 'mobx'
+      const rows = observable.map()
+      function plain() { const rows = new Map(); reaction(() => input(), value => rows.set('id', value)) }
+      class Reactive { rows = observable.map(); file(value) { this.rows.set('id', value) } }
+      class Plain { rows = new Map(); file(value) { this.rows.set('id', value) }
+        start() { reaction(() => input(), value => this.file(value)) } }
+      class Watched extends Reactive { start() { reaction(() => input(), value => rows.set('id', value)) } }`)).toHaveLength(1)
+  })
+
   it('keeps the changed production sites and the documented board exception clean', async () => {
     const results = await lint.lintFiles([
       'src/header-sessions.ts', 'src/header-views.ts', 'src/worklist/visible.ts',
