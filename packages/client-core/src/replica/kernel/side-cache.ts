@@ -74,6 +74,18 @@ export interface SideCacheInit {
    * the store still adopts it. Declining to adopt is not the same as discarding.
    */
   adoptLegacyOutbox?: boolean
+  /**
+   * Trailing throttle window for transcript shard persistence (POD-5536).
+   *
+   * `putTranscriptWindow` updates the in-memory window synchronously on every
+   * frame but serializes at most once per window: the first schedule arms one
+   * timer, later schedules only replace the pending snapshot, and the timer
+   * fires with whatever is newest. A pure debounce that re-armed per call
+   * would starve forever under a steady stream — exactly the workload this
+   * exists for — so staleness is bounded by this delay instead. Defaults to
+   * 250ms to match the async-storage bridge's quiet window.
+   */
+  transcriptSettleMs?: number
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
@@ -84,7 +96,15 @@ export interface SideCache {
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
   outboxDeadLetterStorage(): OutboxStorage
-  /** Detach this principal's cross-tab listener before another principal opens. */
+  /**
+   * Synchronously persist any coalesced transcript shards (POD-5536).
+   * Best-effort like every other transcript write: never throws. Lifecycle
+   * owners call this on reload/background boundaries so a mid-stream close
+   * keeps the latest snapshot; the trailing timer covers everything else.
+   */
+  flush(): void
+  /** Flush pending transcripts, then detach this principal's listeners before
+   *  another principal opens. */
   dispose(): void
 }
 
@@ -425,6 +445,104 @@ export function createSideCache(init: SideCacheInit): SideCache {
     transcriptIndexPersisted = true
   }
 
+  // ---- coalesced transcript persistence (POD-5536) -------------------------
+  //
+  // R12: every streaming frame sliced the newest 200 items AND synchronously
+  // JSON.stringified them before the async-storage bridge could coalesce
+  // anything — up to 200*u item serializations/s per busy stream. The bridge
+  // still coalesces backing writes, but it cannot take back main-thread
+  // serialization work that already happened.
+  //
+  // So the snapshot coalesces BEFORE serialization. `putTranscriptWindow`
+  // updates the in-memory window synchronously (reads stay immediate) and only
+  // marks the shard dirty; serialization + storage land at most once per
+  // trailing window, with the LATEST snapshot winning. Shards flush before the
+  // index so the index stays the commit record for shard membership, matching
+  // the order the synchronous path always wrote in. Eviction `removeItem`s stay
+  // synchronous — they carry no serialization cost.
+  //
+  // Durability is bounded staleness, not loss: the timer covers steady streams,
+  // `flush()` covers lifecycle/reload boundaries, and `dispose()` flushes
+  // before detaching. The cache stays best-effort and re-fetchable — a crash
+  // inside one window loses at most that window's tail, exactly the posture
+  // the quota-degraded path already has.
+  const settleMs = init.transcriptSettleMs ?? 250
+  const pendingShardKeys = new Set<string>()
+  let transcriptIndexDirty = false
+  let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined
+
+  const flushPendingTranscripts = (): void => {
+    if (transcriptFlushTimer !== undefined) {
+      try {
+        clearTimeout(transcriptFlushTimer)
+      } catch {
+        // best-effort; clearing a dead timer must not break the flush itself
+      }
+      transcriptFlushTimer = undefined
+    }
+    if (pendingShardKeys.size === 0 && !transcriptIndexDirty) return
+    const dirty = [...pendingShardKeys]
+    pendingShardKeys.clear()
+    for (const key of dirty) {
+      const window = transcripts[key]
+      // Evicted after being marked dirty: the eviction already removed the
+      // shard, so there is nothing to write.
+      if (window === undefined) continue
+      writeJson(storage, transcriptWindowKey(key), window)
+    }
+    if (transcriptIndexDirty) {
+      transcriptIndexDirty = false
+      writeTranscriptIndex()
+    }
+  }
+
+  const scheduleTranscriptFlush = (): void => {
+    // Trailing throttle, not debounce: an armed timer already picks up this
+    // newer snapshot when it fires. Re-arming here would push the write out
+    // indefinitely under a steady stream.
+    if (transcriptFlushTimer !== undefined) return
+    transcriptFlushTimer = setTimeout(() => {
+      transcriptFlushTimer = undefined
+      flushPendingTranscripts()
+    }, Math.max(0, settleMs))
+    transcriptFlushTimer.unref?.()
+  }
+
+  // Opportunistic reload guard: a synchronous StorageApi write inside `pagehide`
+  // survives navigation where a timer never fires. Best-effort and removable —
+  // `dispose()` detaches it, and environments without a window skip it.
+  let detachPageHide: (() => void) | undefined
+  try {
+    const candidate = (globalThis as { window?: unknown }).window as
+      | { addEventListener?: unknown; removeEventListener?: unknown }
+      | undefined
+    if (
+      candidate !== undefined &&
+      typeof candidate.addEventListener === 'function' &&
+      typeof candidate.removeEventListener === 'function'
+    ) {
+      const onPageHide = (): void => {
+        flushPendingTranscripts()
+      }
+      ;(candidate.addEventListener as (type: string, listener: () => void) => void)(
+        'pagehide',
+        onPageHide,
+      )
+      detachPageHide = (): void => {
+        try {
+          ;(candidate.removeEventListener as (type: string, listener: () => void) => void)(
+            'pagehide',
+            onPageHide,
+          )
+        } catch {
+          // best-effort; detaching must not break principal teardown
+        }
+      }
+    }
+  } catch {
+    // best-effort; a host without a subscribable window keeps timer + flush
+  }
+
   // ---- outbox storage ----------------------------------------------------
   //
   // FOLD THE LEGACY QUEUE IN ON FIRST USE, because the alternative is losing
@@ -487,11 +605,11 @@ export function createSideCache(init: SideCacheInit): SideCache {
         items: items.slice(-REPLICA_TRANSCRIPT_ITEM_CAP),
         savedAt: now(),
       }
-      writeJson(storage, transcriptWindowKey(conversationKey), transcripts[conversationKey])
+      pendingShardKeys.add(conversationKey)
 
       // Move a touched conversation to the newest end. Repeated live updates
-      // for the already-newest conversation do not rewrite even the small
-      // index, so the async bridge sees one hot shard key to debounce.
+      // for the already-newest conversation do not even mark the small index
+      // dirty, so a busy stream coalesces to one hot shard key.
       const previousPosition = transcriptLru.indexOf(conversationKey)
       const orderChanged = previousPosition !== transcriptLru.length - 1
       if (previousPosition >= 0) transcriptLru.splice(previousPosition, 1)
@@ -500,18 +618,26 @@ export function createSideCache(init: SideCacheInit): SideCache {
         const stale = transcriptLru.shift()
         if (stale === undefined) break
         delete transcripts[stale]
+        pendingShardKeys.delete(stale)
         try {
           storage.removeItem(transcriptWindowKey(stale))
         } catch {
           // best-effort; the index makes an unremoved stale shard unreachable
         }
       }
-      if (!transcriptIndexPersisted || orderChanged) writeTranscriptIndex()
+      if (!transcriptIndexPersisted || orderChanged) transcriptIndexDirty = true
+      scheduleTranscriptFlush()
     },
     outboxStorage: () => outboxAt(outboxKey),
     outboxAwaitingStorage: () => outboxAt(awaitingKey),
     outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
+    flush: () => {
+      flushPendingTranscripts()
+    },
     dispose: () => {
+      flushPendingTranscripts()
+      detachPageHide?.()
+      detachPageHide = undefined
       init.storageEventApi?.removeEventListener('storage', onStorage)
     },
   }
