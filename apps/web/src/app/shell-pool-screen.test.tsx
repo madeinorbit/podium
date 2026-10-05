@@ -56,7 +56,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
           dock.issues.length,
           approvals.length,
           sessions.length,
-          links.readIssue('synthetic-issue-0')?.seq ?? 0,
+          links.readIssue('synthetic-0')?.seq ?? 0,
           machines.length,
         ].join(':')}
       </div>
