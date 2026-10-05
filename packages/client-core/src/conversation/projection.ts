@@ -1,4 +1,4 @@
-import type { MessageRecordWire, TranscriptItem, TranscriptTag } from '@podium/model'
+import type { MessageRecordWire, TranscriptTag } from '@podium/model'
 import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
