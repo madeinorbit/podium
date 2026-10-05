@@ -1248,7 +1248,7 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     // relation-only baseline; bucket-size invariance is checked below.
     expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
       outside: 0,
-      plain: { written: 165, deleted: 4, iterated: 112, copied: 0 },
+      plain: { written: 164, deleted: 4, iterated: 112, copied: 0 },
     })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
