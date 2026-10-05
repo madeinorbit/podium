@@ -28,6 +28,8 @@ export function checkBoard(runtime: ClientRuntime, pool: MobxPool, options: Boar
     sessions = referenceState(runtime).sessions
   const expected = deriveIssuesViewModel({
     ...options,
+    now: options.now ?? pool.clock.current,
+    openIssueId: options.openIssueId ?? null,
     issues,
     sessions,
     display: { ...DEFAULT_DISPLAY, ...options.display },

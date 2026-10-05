@@ -64,6 +64,6 @@ export function useBoardDropIndex() {
   const pool = useWorklistPool()
   return useCallback((options: BoardColumnOptions & { id: string }) => {
     const value = pool?.row('issueBoardDropIndex', JSON.stringify(options))
-    return typeof value === 'number' ? value : 0
+    return value && typeof value !== 'symbol' ? value.index ?? 0 : 0
   }, [pool])
 }

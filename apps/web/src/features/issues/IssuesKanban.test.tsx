@@ -30,8 +30,8 @@ vi.mock('@/app/store-worklist-pool', () => {
     if (entity === 'issueBoardCard') return { issue: fixture.issues.get(JSON.parse(key).id), fleet: [] }
     if (entity === 'issueBoardDropIndex') {
       const options = JSON.parse(key)
-      return plannedDropIndex([...fixture.issues.values()].filter(issue => issue.stage === options.stage),
-        fixture.issues.get(options.id)!, options.stage, options.ordering)
+      return { index: plannedDropIndex([...fixture.issues.values()].filter(issue => issue.stage === options.stage),
+        fixture.issues.get(options.id)!, options.stage, options.ordering) }
     }
     return undefined
   }

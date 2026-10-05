@@ -16,6 +16,15 @@ import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './kernelReplica'
 import { makeIssue } from './test-issue'
 
+const screenFixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel>() }))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => null,
+  useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
+    row: (entity: string, key: string) => entity === 'issueBoardRow' ? screenFixture.issues.get(key)
+      : entity === 'issueBoardCard' ? { issue: screenFixture.issues.get(JSON.parse(key).id), fleet: [] } : undefined,
+  }),
+}))
+
 const principal = JSON.stringify(['installation-a', 'alice'])
 const assemblies: KernelAssembly[] = []
 beforeEach(() => localStorage.clear())
@@ -39,6 +48,7 @@ async function open(factory: IDBFactory) {
   }
 }
 function screenOutput(models: IssueViewModel[]) {
+  screenFixture.issues = new Map(models.map(issue => [issue.id, issue]))
   const common = {
     focusId: null,
     selected: [],
@@ -53,9 +63,10 @@ function screenOutput(models: IssueViewModel[]) {
       display={DEFAULT_DISPLAY}
       groups={ISSUE_STAGES.map((stage) => ({
         stage,
+        count: models.filter(issue => issue.stage === stage).length,
         rows: models
           .filter((i) => i.stage === stage)
-          .map((issue) => ({ issue, depth: 0, childCount: 0, expanded: false })),
+          .map((issue) => ({ id: issue.id, depth: 0, childCount: 0, expanded: false })),
       }))}
       onToggleExpand={vi.fn()}
       onStatusPick={vi.fn()}
@@ -71,15 +82,12 @@ function screenOutput(models: IssueViewModel[]) {
       {...common}
       columns={ISSUE_STAGES.map((stage) => ({
         stage,
-        issues: models.filter((i) => i.stage === stage),
+        ids: models.filter((i) => i.stage === stage).map(issue => issue.id),
       }))}
-      allIssues={models}
-      sessions={[]}
+      filter={{}}
       now={Date.parse('2026-10-01T12:00:00Z')}
       badges={DEFAULT_DISPLAY.badges}
       ordering="priority"
-      stageCounts={new Map()}
-      epicProgress={new Map()}
       onMoveIssue={vi.fn()}
       onApprove={vi.fn()}
     />,

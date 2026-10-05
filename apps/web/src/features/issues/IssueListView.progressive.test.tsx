@@ -58,6 +58,18 @@ function rows(count: number): IssueRow[] {
   }))
 }
 
+const fixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel>() }))
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
+    row: (_entity: string, id: string) => fixture.issues.get(id),
+  }),
+}))
+function groupOf(rows: IssueRow[]) {
+  for (const row of rows) fixture.issues.set(row.issue.id, row.issue)
+  return { stage: 'backlog' as const, count: rows.filter(row => row.issue.stage === 'backlog').length,
+    rows: rows.map(({ issue, ...rest }) => ({ ...rest, id: issue.id })) }
+}
+
 const baseProps = {
   display: { ...DEFAULT_DISPLAY, layout: 'list' as const },
   onOpen: vi.fn(),
@@ -73,7 +85,7 @@ const baseProps = {
 describe('IssueListView bounded rendering', () => {
   it('keeps the 674-row list DOM and accessibility metadata bounded', () => {
     const { container } = render(
-      <IssueListView groups={[{ stage: 'backlog', rows: rows(674) }]} {...baseProps} />,
+      <IssueListView groups={[groupOf(rows(674))]} {...baseProps} />,
     )
 
     const mounted = container.querySelectorAll('[data-issue-id]')
@@ -84,7 +96,7 @@ describe('IssueListView bounded rendering', () => {
   })
 
   it('mounts and scrolls a focused issue without retaining its prefix', () => {
-    const group = [{ stage: 'backlog' as const, rows: rows(95) }]
+    const group = [groupOf(rows(95))]
     const { container, rerender } = render(<IssueListView groups={group} {...baseProps} />)
     const scroll = screen.getByTestId('issues-list')
     Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 240 })
@@ -102,7 +114,7 @@ describe('IssueListView bounded rendering', () => {
     const onContextMenu = vi.fn()
     const { container } = render(
       <IssueListView
-        groups={[{ stage: 'backlog', rows: rows(95) }]}
+        groups={[groupOf(rows(95))]}
         {...baseProps}
         onOpen={onOpen}
         onContextMenu={onContextMenu}
@@ -122,7 +134,7 @@ describe('IssueListView bounded rendering', () => {
     const onScrollTop = vi.fn()
     render(
       <IssueListView
-        groups={[{ stage: 'backlog', rows: rows(95) }]}
+        groups={[groupOf(rows(95))]}
         {...baseProps}
         initialScrollTop={1_200}
         onScrollTop={onScrollTop}
@@ -136,7 +148,7 @@ describe('IssueListView bounded rendering', () => {
   })
 
   it('restores selected styling when a row leaves and re-enters the list scope', () => {
-    const group = [{ stage: 'backlog' as const, rows: rows(95) }]
+    const group = [groupOf(rows(95))]
     const { container, rerender } = render(
       <IssueListView groups={group} {...baseProps} selected={['issue-3']} />,
     )
@@ -146,7 +158,7 @@ describe('IssueListView bounded rendering', () => {
 
     rerender(
       <IssueListView
-        groups={[{ stage: 'backlog', rows: rows(95).slice(20) }]}
+        groups={[groupOf(rows(95).slice(20))]}
         {...baseProps}
         selected={['issue-3']}
       />,
@@ -183,7 +195,7 @@ describe('IssueListView bounded rendering', () => {
       const groupRows = [...rows(boundary), parent, ...(expanded ? [child] : [])]
       return (
         <IssueListView
-          groups={[{ stage: 'backlog', rows: groupRows }]}
+          groups={[groupOf(groupRows)]}
           {...baseProps}
           onToggleExpand={() => setExpanded((value) => !value)}
         />

@@ -100,7 +100,7 @@ export function createBoardLayout(pool: MobxPool) {
       if (at !== undefined) return at === 0 && [...path].sort(byId)[0] === id
       seen.set(next, path.length)
       path.push(next)
-      const value = parent(next)
+      const value: Loaded<string> = parent(next)
       if (value === LOADING) return LOADING
       next = value
     }

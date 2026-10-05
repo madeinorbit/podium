@@ -736,8 +736,10 @@ export function createIssueBoardSource(
         }
         case 'issueBoardMenu':
           return menu(JSON.parse(id))
-        case 'issueBoardDropIndex':
-          return layout.dropIndex(JSON.parse(id))
+        case 'issueBoardDropIndex': {
+          const index = layout.dropIndex(JSON.parse(id))
+          return index === LOADING ? LOADING : { index }
+        }
         case 'issueExplorerModel':
           return explorer(JSON.parse(id))
         case 'issueBoardRow':

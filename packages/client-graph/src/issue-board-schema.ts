@@ -133,7 +133,7 @@ export interface IssueBoardSourceRows {
   issueBoardColumn: IssueId[]
   issueBoardOpenIds: IssueId[]
   issueBoardMenu: MissionActionInputs
-  issueBoardDropIndex: number
+  issueBoardDropIndex: { index: number }
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
   issueBoardProjection: BoardProjection
@@ -202,6 +202,7 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
   issueBoardDropIndex: {
     key: 'serializedColumnAndMovedId',
     source: 'pool:issueBoardColumn+issue-sort-key',
+    fields: ['index'],
     residency: 'drag-gesture',
   },
   issueExplorerModel: {
