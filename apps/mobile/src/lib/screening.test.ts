@@ -210,9 +210,6 @@ describe('pool screening incrementality', () => {
           head = next.queue[0]!
           expect(head).toBe(target.id)
         })
-        if (measured.reads > 3) {
-          console.log('DEBUG priority scale', scale, 'reads:', measured.reads)
-        }
         cells.push({ scale, summaryReads: measured.reads, head })
       } finally {
         stop()
