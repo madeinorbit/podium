@@ -50,15 +50,18 @@ vi.mock('./SessionLifecycle', () => ({ MobileSessionLifecycle: () => null }))
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./TranscriptList', async () => {
+  const { observer } = await import('mobx-react-lite')
   const { Pressable, Text, View } = await import('react-native')
   return {
-    TranscriptList: ({
-      items,
+    TranscriptList: observer(({
+      transcript,
+    items = transcript?.items ?? [],
       onLoadOlder,
       onFollowChange,
       onSearchChange,
     }: {
-      items: readonly TranscriptItem[]
+      transcript?: import('@podium/client-core/conversation').TranscriptLog
+      items?: readonly TranscriptItem[]
       onLoadOlder?: () => void
       onFollowChange?: (following: boolean) => void
       onSearchChange?: (searching: boolean) => void
@@ -83,7 +86,7 @@ vi.mock('./TranscriptList', async () => {
           <Text key={entry.id}>{entry.text}</Text>
         ))}
       </View>
-    ),
+    )),
   }
 })
 

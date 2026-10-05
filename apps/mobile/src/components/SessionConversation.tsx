@@ -1,18 +1,13 @@
 import {
-  type ConversationController,
+  type Conversation,
+  PHONE_WARM_CONVERSATIONS,
   type ConversationPendingTurn,
-  createConversationController,
   hubConnection,
-  nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  createTranscriptController,
-  transcriptActivitySignal,
-} from '@podium/client-core/transcript'
 import {
   chatActivity,
   composerState,
@@ -28,10 +23,12 @@ import {
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { action, observable, reaction, when } from 'mobx'
+import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
 import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import { useHub } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextIssues as useIssues,
@@ -40,7 +37,7 @@ import {
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
-  useSessionContextDraft as useSessionDraft,
+  mobileConversationPorts,
   useSessionContextSessions as useSessions,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -115,21 +112,8 @@ function EmptyTranscript({ warming }: { warming: boolean }) {
   )
 }
 
-/**
- * THE COMPOSER OWNS THE DRAFT (this issue).
- *
- * The screen subscribes to the controller SURFACE only (no draft), so typing
- * never re-renders the transcript or the screen chrome. This leaf is the only
- * place that subscribes to the draft: the text field, Send-enabled (via
- * canSend inside Composer), draft saving (onDraftChange -> store) and the
- * other-device copy (stored draft -> replaceDraft) all live here. Stop reads
- * the draft only when pressed, via getSnapshot at press time, so its control
- * stays stable across keystrokes. Follows the desktop shell boundary
- * (subscribeSurface/getSurfaceSnapshot, apps/web use-chat-send.ts).
- */
-function SessionComposer({
-  controller,
-  sessionId,
+const SessionComposer = observer(function SessionComposer({
+  conversation,
   placeholder,
   onSend,
   caption,
@@ -141,8 +125,7 @@ function SessionComposer({
   turnActive,
   canInterrupt,
 }: {
-  controller: ConversationController
-  sessionId: SessionView['sessionId']
+  conversation: Conversation
   placeholder: string
   onSend: (text: string, files?: readonly SentAttachment[]) => void
   caption?: string | null
@@ -154,16 +137,11 @@ function SessionComposer({
   turnActive: boolean
   canInterrupt: boolean
 }) {
-  const getDraft = useCallback(() => controller.getSnapshot().draft, [controller])
-  const draft = useSyncExternalStore(controller.subscribe, getDraft)
-  const storedDraft = useSessionDraft(sessionId)
-  useEffect(() => {
-    controller.replaceDraft(storedDraft)
-  }, [controller, storedDraft])
-  const setDraft = useCallback((text: string) => controller.setDraft(text), [controller])
+  const draft = conversation.draft
+  const setDraft = useCallback((text: string) => { conversation.draft = text }, [conversation])
   const handleStop = useCallback(() => {
-    void controller.interrupt(controller.getSnapshot().draft)
-  }, [controller])
+    void conversation.sends.interrupt(conversation.draft)
+  }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
   return (
     <Composer
@@ -180,7 +158,7 @@ function SessionComposer({
       onStop={onStop}
     />
   )
-}
+})
 
 /**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
@@ -199,16 +177,94 @@ function SessionComposer({
  * Everything in this component is the transcript half of the old SessionScreen,
  * moved rather than rewritten.
  */
-export function SessionConversation({
+export function SessionConversation(props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history'>) {
+  const owner = useStoreHandle<MobileTrpc>()
+  const pool = useMobilePool()
+  const sessionId = props.session.sessionId
+  const readiness = useSessionConversationPorts(sessionId)
+  const ports = useMemo(() => pool ? mobileConversationPorts(pool, sessionId) : readiness, [pool, sessionId])
+  const history = useRef({ following: true, searching: false })
+  const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
+  useLayoutEffect(() => action(() => recognized.set(!props.deferInitialTranscript))(), [recognized, props.deferInitialTranscript])
+  const model = useConversation(sessionId, drafts => ({
+    sessionId,
+    drafts,
+    readSession: () => pool?.sessionPanes.session(sessionId),
+    hub: owner.hub,
+    connection: hubConnection(owner.hub),
+    scheduler: {
+      visible: () => AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+      onVisibilityChange: listener => {
+        const subscription = AppState.addEventListener('change', listener)
+        return () => subscription.remove()
+      },
+    },
+    transcript: {
+      retainHistory: () => !history.current.following || history.current.searching,
+      initialLimit: 80, pageLimit: 80,
+      source: {
+        read: request => when(() => recognized.get()).then(() => owner.access.trpc.sessions.transcriptRead.query(request)),
+        subscribe: (id, since, listener) => {
+          let off = () => {}
+          const stop = reaction(() => recognized.get(), ready => {
+            off()
+            off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+          }, { fireImmediately: true })
+          return () => { stop(); off() }
+        },
+      },
+      cache: {
+        read: id => owner.replica.transcriptWindow(id),
+        write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+      },
+    },
+    sends: {
+      records: ports.records, outbox: ports.outbox,
+      initialPending: [
+        ...(props.initialPendingText ? [{ id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: props.initialPendingText, wire: props.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const, reconcile: 'next-user-item' as const }] : []),
+        ...ports.outbox.held().map((send, index): ConversationPendingTurn => ({ id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId, text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'message', ...(send.failure ? { error: send.failure.message, ...(send.failure.retryable ? {} : { retryable: false }) } : {}) })),
+      ],
+      initialJustSent: props.initialPendingText !== undefined,
+      createDeliveryId: () => `msg_${randomUUID()}`,
+      lookupRecords: ids => owner.access.trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
+      deliver: async turn => {
+        try {
+          const session = pool?.sessionPanes.session(sessionId)
+          const composer = composerState({ session: session ?? props.session, headless: false, turnRunning: false, compact: false })
+          const held = ports.outbox.held().some(send => send.mutationId === turn.deliveryId)
+          const transport = held ? { kind: 'send' as const, wake: false } : chatSendTransport(composer)
+          if (transport.kind === 'refused') throw new Error(transport.reason)
+          return await owner.access.sendChat({ sessionId, text: turn.wire, wake: transport.wake }, asMutationId(turn.deliveryId))
+        } catch (error) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
+          throw error
+        }
+      },
+      retract: id => owner.access.trpc.messages.cancel.mutate({ id }).then(message => (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus),
+      discard: id => owner.access.discardChat(asMutationId(id)),
+      dismissNotice: id => owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
+      dismissOffer: at => owner.access.dismissOffer(sessionId, at),
+      optimisticDismissOffer: false,
+      interrupt: id => interruptSession(owner.access.trpc.sessions, sessionId, id),
+      optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
+    },
+  }), { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready })
+  return model ? <SessionConversationBody {...props} model={model} history={history.current} /> : <TranscriptSkeleton />
+}
+
+const SessionConversationBody = observer(function SessionConversationBody({
   session,
+  model,
+  history,
   issue,
   onOpenTerminalRef,
   findRequest = 0,
   initialPendingText,
   onInitialPendingSettled,
-  deferInitialTranscript = false,
 }: {
   session: SessionView
+  model: Conversation
+  history: { following: boolean; searching: boolean }
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this
@@ -229,7 +285,6 @@ export function SessionConversation({
     return {
       trpc: s.trpc,
       replica: s.replica,
-      setSessionDraft: s.setSessionDraft,
       sendChat: s.sendChat,
       discardChat: s.discardChat,
       dismissOffer: s.dismissOffer,
@@ -238,7 +293,6 @@ export function SessionConversation({
       httpOrigin: s.httpOrigin,
     }
   }, [storeHandle])
-  const hub = useHub()
   const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   const [requestedRef, setRequestedRef] = useState<string | undefined>(undefined)
   // Catalogs belong to the open inspector, not conversation startup.
@@ -264,9 +318,6 @@ export function SessionConversation({
     return machineName || 'This machine'
   }, [machine, machineName])
   const currentQuestion = useSessionContextQuestion(sessionId)
-  const ports = useSessionConversationPorts(sessionId)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one seed when this addressed conversation's ports become ready
-  const draftSeed = useMemo(() => ports.draft, [sessionId, ports.ready])
   const trpc = store.trpc
   /**
    * THE SEND ROUTE, READ PER SEND (POD-4688). The conversation controller is
@@ -274,180 +325,16 @@ export function SessionConversation({
    * rebuilt when the session's state moves — the route is a ref the deliver
    * closure reads at call time instead of a memo input.
    */
-  const sendRouteRef = useRef({
-    sendable: false,
-    canResume: false,
-    refusalReason: undefined as string | undefined,
-  })
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const keyboardLift = useKeyboardLift()
 
-  const followingTranscript = useRef(true)
-  const searchingTranscript = useRef(false)
-  const followTranscript = useCallback((following: boolean) => {
-    followingTranscript.current = following
-  }, [])
-  const searchTranscript = useCallback((searching: boolean) => {
-    searchingTranscript.current = searching
-  }, [])
-  const transcriptController = useMemo(
-    () =>
-      createTranscriptController({
-        sessionId,
-        initialLimit: 80,
-        pageLimit: 80,
-        retainHistory: () => !followingTranscript.current || searchingTranscript.current,
-        source: {
-          read: (request) => trpc.sessions.transcriptRead.query(request),
-          subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
-        },
-        cache: {
-          read: (sid) => store.replica.transcriptWindow(sid),
-          write: (sid, items) => store.replica.putTranscriptWindow(sid, [...items]),
-        },
-        connection: {
-          connected: () => hub.connectionHealth().status !== 'down',
-          subscribe: (listener) =>
-            hub.onConnectionHealth((health) => listener(health.status !== 'down')),
-        },
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-      }),
-    [hub, sessionId, store.replica, trpc.sessions.transcriptRead],
-  )
-  const transcript = useSyncExternalStore(
-    transcriptController.subscribe,
-    transcriptController.getSnapshot,
-  )
-  const items = transcript.items
+  const followTranscript = useCallback((following: boolean) => (history.following = following), [history])
+  const searchTranscript = useCallback((searching: boolean) => (history.searching = searching), [history])
+  const transcript = model.transcript
+  const conversation = model.sends
   const loaded = transcript.initialLoaded
-  // The controller owns this seed after construction. The engine may retire its
-  // copy when the provisional session settles, but only a transcript echo may
-  // retire the pending turn shown here.
-  const initialPending: ConversationPendingTurn[] = initialPendingText
-    ? [
-        {
-          id: 'pending-first-turn',
-          deliveryId: 'pending-first-turn',
-          text: initialPendingText,
-          wire: initialPendingText,
-          at: Date.now(),
-          state: 'sent',
-          kind: 'message',
-          // Typed at start, not sent as a message: no record follows it, and
-          // the first user entry in its history is it.
-          reconcile: 'next-user-item',
-        },
-      ]
-    : []
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the spawn seed belongs to this session's controller lifetime
-  const conversationController = useMemo(
-    () =>
-      createConversationController({
-        sessionId,
-        transcript: transcriptController,
-        // Where each sent message stands, by id, from the synced records
-        // (POD-4764) — not a poll of the ledger, and never its text.
-        records: ports.records,
-        outbox: ports.outbox,
-        // Its own sends the feed no longer carries — it was away while they
-        // were confirmed — asked by id at start and on every reconnect (POD-4811).
-        lookupRecords: (ids) =>
-          trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
-        connection: hubConnection(hub),
-        initialDraft: draftSeed,
-        // The messages the outbox still holds for this session come back as the
-        // bubbles they were (POD-4762): still sending — the controller waits on
-        // them again — or "not sent" with their retry.
-        initialPending: [
-          ...initialPending,
-          ...ports.outbox.held().map(
-            (send, index): ConversationPendingTurn => ({
-              id: `outbox-${index}-${send.mutationId}`,
-              deliveryId: send.mutationId,
-              text: send.text,
-              wire: send.text,
-              at: send.queuedAt,
-              state: send.state,
-              kind: 'message',
-              ...(send.failure
-                ? {
-                    error: send.failure.message,
-                    ...(send.failure.retryable ? {} : { retryable: false }),
-                  }
-                : {}),
-            }),
-          ),
-        ],
-        initialJustSent: initialPendingText !== undefined,
-        onDraftChange: (text) => store.setSessionDraft(sessionId, text),
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        deliver: async (turn) => {
-          try {
-            // THE ONE CHAT SEND PATH (POD-4762), messages and offer answers
-            // alike: the durable outbox, keyed by the turn's own id. It
-            // resolves when the server answered or the outbox gave up, so the
-            // bubble reads its state from the send rather than from a timer,
-            // and "Try again" re-issues the same message instead of a new one.
-            // A message the outbox already holds (a reloaded conversation
-            // following it, or a retry of one that gave up) is waited on or
-            // re-issued as it is, whatever the route says now.
-            const heldByOutbox = ports.outbox
-              .held()
-              .some((held) => held.mutationId === turn.deliveryId)
-            const transport = heldByOutbox
-              ? ({ kind: 'send', wake: false } as const)
-              : chatSendTransport(sendRouteRef.current)
-            if (transport.kind === 'refused') throw new Error(transport.reason)
-            return await store.sendChat(
-              { sessionId, text: turn.wire, wake: transport.wake },
-              asMutationId(turn.deliveryId),
-            )
-          } catch (error) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-            throw error
-          }
-        },
-        // The status after the request: `cancelled` when the retract won (POD-4776).
-        retract: (id) =>
-          trpc.messages.cancel
-            .mutate({ id })
-            .then(
-              (message) =>
-                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
-            ),
-        discard: (deliveryId) => store.discardChat(asMutationId(deliveryId)),
-        dismissNotice: (id) => trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-        dismissOffer: (offerCreatedAt) => store.dismissOffer(sessionId, offerCreatedAt),
-        // The store's recoverable outbox owns the optimistic overlay. Keeping a
-        // second local hide here unmounted the action card before a rejected
-        // enqueue could put its retryable error beside the dismissal control.
-        optimisticDismissOffer: false,
-        interrupt: (messageId) => interruptSession(trpc.sessions, sessionId, messageId),
-        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      }),
-    [
-      sessionId,
-      store.dismissOffer,
-      store.sendChat,
-      ports.records,
-      ports.outbox,
-      ports.ready,
-      store.discardChat,
-      store.setSessionDraft,
-      storeHandle,
-      draftSeed,
-      transcriptController,
-      trpc.messages,
-      trpc.sessions,
-      hub,
-    ],
-  )
-  const conversation = useSyncExternalStore(
-    conversationController.subscribeSurface,
-    conversationController.getSurfaceSnapshot,
-  )
+  const itemCount = transcript.ids.length
   const pendingTurns = useMemo<LocalPendingTurn[]>(
     () => conversation.bubbles.map(pendingTurnOf),
     [conversation.bubbles],
@@ -463,31 +350,7 @@ export function SessionConversation({
   // growing the field does not relayout the transcript under the operator.
   const [composerHeight, setComposerHeight] = useState(0)
   const [askHeight, setAskHeight] = useState(0)
-  useEffect(() => {
-    if (deferInitialTranscript) return
-    void transcriptController.start()
-    return () => transcriptController.stop()
-  }, [deferInitialTranscript, transcriptController])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mark each newly rendered item batch, including an unchanged controller
-  useEffect(() => {
-    transcriptController.markRendered()
-  }, [items, transcriptController])
-
-  // The live stream can drop what the agent wrote; the row and a heartbeat
-  // re-read it, as the desktop chat does [POD-4643].
-  const activitySignal = transcriptActivitySignal(session)
-  const sessionLive = session.status === 'live' || session.status === 'starting'
-  useEffect(() => {
-    transcriptController.observeActivity({ signal: activitySignal, live: sessionLive })
-  }, [activitySignal, sessionLive, transcriptController])
-
-  useEffect(() => {
-    if (!ports.ready) return
-    conversationController.start()
-    return () => conversationController.stop()
-  }, [conversationController, ports.ready])
-
+  useEffect(() => { transcript.markRendered() }, [itemCount, transcript])
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
     if (pendingSeedSession.current !== sessionId) return
@@ -495,23 +358,6 @@ export function SessionConversation({
     pendingSeedSession.current = null
     onInitialPendingSettled?.()
   }, [conversation.pending, initialPendingText, onInitialPendingSettled, sessionId])
-
-  const latestOperatorPrompt = transcript.latestOperatorPrompt
-  useEffect(() => {
-    conversationController.updateContext({
-      agentSince: session.agentState?.since,
-      agentPhase: session.agentState?.phase,
-      offer: session.offer,
-      canInterrupt: nativeSessionCanInterrupt(session.status),
-      latestOperatorPrompt,
-    })
-  }, [
-    conversationController,
-    latestOperatorPrompt,
-    session.agentState,
-    session.offer,
-    session.status,
-  ])
 
   /**
    * WHAT GOES ON THE WIRE IS NOT WHAT GOES IN THE BUBBLE.
@@ -532,7 +378,7 @@ export function SessionConversation({
         attached.length > 0
           ? `${attached.map((file) => file.path).join('\n')}\n${trimmed}`
           : trimmed
-      void conversationController.submit({
+      void conversation.submit({
         text: trimmed,
         wire,
         ...(attached.length > 0
@@ -540,34 +386,34 @@ export function SessionConversation({
           : {}),
       })
     },
-    [conversationController],
+    [conversation],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
-      void conversationController.retry(turn.id)
+      void conversation.retry(turn.id)
     },
-    [conversationController],
+    [conversation],
   )
   // "Send again" on a message the server says did not arrive (POD-4764): its
   // words go back into the composer and the operator sends them — a NEW
   // message, by choice. Never a resend of the one that failed.
   const sendAgain = useCallback(
     (turn: PendingTurn) => {
-      void conversationController.sendAgain(turn.id)
+      void conversation.sendAgain(turn.id)
     },
-    [conversationController],
+    [conversation],
   )
   const discard = useCallback(
     (turn: PendingTurn) => {
-      void conversationController.discard(turn.id)
+      void conversation.discard(turn.id)
     },
-    [conversationController],
+    [conversation],
   )
 
   const loadOlder = useCallback(() => {
-    void transcriptController.loadOlder()
-  }, [transcriptController])
+    void transcript.loadOlder()
+  }, [transcript])
 
   const transcriptStatus = transcript.offlineAsOf
     ? `Offline transcript copy · as of ${new Date(transcript.offlineAsOf).toLocaleString()}`
@@ -615,11 +461,6 @@ export function SessionConversation({
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
-  sendRouteRef.current = {
-    sendable: composer.sendable,
-    canResume: composer.canResume,
-    refusalReason: composer.refusalReason,
-  }
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
@@ -699,19 +540,19 @@ export function SessionConversation({
    */
   const acceptOffer = useCallback(
     (prompt: string, offerCreatedAt: string): Promise<void> =>
-      conversationController.sendOffer(prompt, offerCreatedAt).then(() => {}),
-    [conversationController],
+      conversation.sendOffer(prompt, offerCreatedAt).then(() => {}),
+    [conversation],
   )
   const retractPending = useCallback(
-    (id: string) => void conversationController.retract(id),
-    [conversationController],
+    (id: string) => void conversation.retract(id),
+    [conversation],
   )
   const quoteIntoDraft = useCallback((text: string) => {
     setDraftInsertion({ id: insertionSeq.current++, text })
   }, [])
   const dismissOfferRow = useCallback(
-    (offerCreatedAt: string) => conversationController.dismissOffer(offerCreatedAt),
-    [conversationController],
+    (offerCreatedAt: string) => conversation.dismissOffer(offerCreatedAt),
+    [conversation],
   )
   const openOfferEvidence = useCallback(() => {
     if (issue) setPeekIssue(issue)
@@ -732,16 +573,13 @@ export function SessionConversation({
     }),
     [activity, session.agentState?.phase, session.agentState?.since, session.status],
   )
-  const streamingActive =
-    activity?.tone === 'working' &&
-    items.at(-1)?.role === 'assistant' &&
-    items.at(-1)?.answer !== true
+  const streamingActive = activity?.tone === 'working'
   const emptyState = useMemo(
     () =>
-      loaded && items.length === 0 && pendingTurns.length === 0 && !offer && !pendingQuestion ? (
+      loaded && itemCount === 0 && pendingTurns.length === 0 && !offer && !pendingQuestion ? (
         <EmptyTranscript warming={warming} />
       ) : undefined,
-    [loaded, items.length, pendingTurns.length, offer, pendingQuestion, warming],
+    [loaded, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
   )
   const footerNode = useMemo(
     () =>
@@ -782,7 +620,7 @@ export function SessionConversation({
       ) : null}
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
-          resolved={loaded || items.length > 0}
+          resolved={loaded || itemCount > 0}
           placeholder={<TranscriptSkeleton />}
         >
           <PullToRefreshBoundary
@@ -791,7 +629,7 @@ export function SessionConversation({
             onRefresh={onRefresh}
           >
             <TranscriptList
-              items={items}
+              transcript={transcript}
               transcriptQuestion={transcriptQuestion}
               live={session.status === 'live'}
               assetContext={assetContext}
@@ -848,8 +686,7 @@ export function SessionConversation({
             </View>
           ) : null}
           <SessionComposer
-            controller={conversationController}
-            sessionId={sessionId}
+            conversation={model}
             placeholder={composer.placeholder}
             onSend={send}
             caption={composerCaption}
@@ -872,7 +709,7 @@ export function SessionConversation({
       />
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   flex: {

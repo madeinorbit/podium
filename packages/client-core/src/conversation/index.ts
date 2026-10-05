@@ -1,4 +1,4 @@
-export * from './controller'
+export * from './contracts'
 export * from './projection'
 export * from './connection'
 export * from './model'

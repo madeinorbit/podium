@@ -6,10 +6,10 @@ import { expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../worklist-proto/harness/src/work-meter'
 import { latestPendingQuestion } from '../values/ask-question'
 import {
-  type TranscriptControllerOptions,
+  type TranscriptSourceOptions,
   type TranscriptPage,
   type TranscriptSource,
-} from '../transcript/controller'
+} from '../transcript/contracts'
 
 const cursor = (offset: number) =>
   Buffer.from(JSON.stringify(['file', offset, `id${offset}`, 0])).toString('base64url')
@@ -31,7 +31,7 @@ async function fixture(
   items: TranscriptItem[],
   initialLimit = 1024,
   retainHistory = true,
-  questions?: TranscriptControllerOptions['questions'],
+  questions?: TranscriptSourceOptions['questions'],
 ) {
   let page: TranscriptPage = { items, head: 'head', tail: items.at(-1)?.cursor, hasMore: true }
   let listener: Parameters<TranscriptSource['subscribe']>[2] | undefined

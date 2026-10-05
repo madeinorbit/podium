@@ -2,15 +2,15 @@
 // expose only direct observables. Each legacy transcript push enters a real log action.
 import { action, computed, observable, reaction } from 'mobx'
 import type {
-  ConversationControllerOptions,
+  ConversationSendOptions,
   ConversationContext,
   ConversationState,
   ConversationSurfaceState,
-} from './controller'
+} from './contracts'
 import { Sends } from './sends'
 import { TranscriptLog } from './transcript-log'
 
-export function createSendsFixture(options: ConversationControllerOptions) {
+export function createSendsFixture(options: ConversationSendOptions) {
   const context = observable.box<ConversationContext>({ canInterrupt: false }, { deep: false })
   const draft = observable.box(options.initialDraft ?? '')
   let active = false
