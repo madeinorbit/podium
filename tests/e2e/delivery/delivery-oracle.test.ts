@@ -290,18 +290,28 @@ describe('bubblesOf — what a chat surface draws', () => {
 describe('pushed device conversation records', () => {
   const session = asSessionId('records-session')
   const record = (id: string, sessionId = session): MessageRecordWire => ({
-    id, sessionId, senderUserId: 'sender', body: 'hello', status: 'confirmed',
+    id,
+    sessionId,
+    senderUserId: 'sender',
+    body: 'hello',
+    status: 'confirmed',
     createdAt: '2026-10-04T12:00:00Z',
   })
 
   it('keeps conversations separate, follows v1 and v2 feed keys, and releases subscriptions', () => {
-    const view = new RecordsView(), port = view.forSession(session), wake = vi.fn()
+    const view = new RecordsView(),
+      port = view.forSession(session),
+      wake = vi.fn()
     const off = port.subscribe(wake)
-    const mine = record('mine'), other = record('other', asSessionId('other-session'))
-    view.apply([
-      { seq: 1, entity: 'message', id: mine.id, op: 'upsert', value: mine },
-      { seq: 2, entity: 'message', entityId: other.id, op: 'upsert', value: other },
-    ], 2)
+    const mine = record('mine'),
+      other = record('other', asSessionId('other-session'))
+    view.apply(
+      [
+        { seq: 1, entity: 'message', id: mine.id, op: 'upsert', value: mine },
+        { seq: 2, entity: 'message', entityId: other.id, op: 'upsert', value: other },
+      ],
+      2,
+    )
     expect(port.getSnapshot()).toEqual([mine])
     expect(port.getSnapshot()).toBe(port.getSnapshot())
     expect(view.all()).toEqual([mine, other])
@@ -313,7 +323,9 @@ describe('pushed device conversation records', () => {
   })
 
   it('drops evicted records, permits fresh readmission, and ignores an older replay', () => {
-    const view = new RecordsView(), port = view.forSession(session), mine = record('mine')
+    const view = new RecordsView(),
+      port = view.forSession(session),
+      mine = record('mine')
     view.apply([{ seq: 1, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 1)
     view.apply([{ seq: 2, entity: 'message', entityId: mine.id, op: 'evict' }], 2)
     expect(port.getSnapshot()).toEqual([])

@@ -578,9 +578,11 @@ const ObservedTranscriptRow = observer(function ObservedTranscriptRow({
   for (const block of seed.blocks ?? []) {
     ids.add(block.item.id)
   }
-  const items = [...ids].map(id => transcript.byId.get(id)).filter((item): item is TranscriptItem => item !== undefined)
+  const items = [...ids]
+    .map((id) => transcript.byId.get(id))
+    .filter((item): item is TranscriptItem => item !== undefined)
   const model = buildMobileTranscript(items, { collapseContext })
-  const row = model.rows.find(row => row.key === seed.key)
+  const row = model.rows.find((row) => row.key === seed.key)
   return row ? <TranscriptFeedRow row={row} {...props} /> : null
 })
 
@@ -1034,7 +1036,10 @@ export const TranscriptList = observer(function TranscriptList({
 }) {
   // Order is the list's subscription. Message versions belong to row observers.
   const order = transcript ? JSON.stringify(transcript.ids.slice()) : undefined
-  const items = useMemo(() => transcript ? untracked(() => transcript.items) : suppliedItems ?? [], [transcript, order, suppliedItems])
+  const items = useMemo(
+    () => (transcript ? untracked(() => transcript.items) : (suppliedItems ?? [])),
+    [transcript, order, suppliedItems],
+  )
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1095,16 +1100,19 @@ export const TranscriptList = observer(function TranscriptList({
     const calls = new Map<string, string[]>()
     const users = new Map<string, string[]>()
     for (const row of model.rows) {
-      const ids = [...new Set([row.item.id, ...(row.blocks ?? []).map(block => block.item.id)])]
+      const ids = [...new Set([row.item.id, ...(row.blocks ?? []).map((block) => block.item.id)])]
       sources.set(row.key, ids)
-      for (const block of row.blocks ?? []) if (block.item.toolUseId) calls.set(block.item.toolUseId, ids)
+      for (const block of row.blocks ?? [])
+        if (block.item.toolUseId) calls.set(block.item.toolUseId, ids)
       if (row.item.role === 'user') users.set(row.item.id, ids)
     }
     let previousUser: string | undefined
     for (const item of items) {
-      if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) calls.get(item.toolUseId)?.push(item.id)
+      if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId)
+        calls.get(item.toolUseId)?.push(item.id)
       if (item.role === 'user') {
-        if (item.text === '' && item.toolPaths?.length && previousUser) users.get(previousUser)?.push(item.id)
+        if (item.text === '' && item.toolPaths?.length && previousUser)
+          users.get(previousUser)?.push(item.id)
         else previousUser = item.id
       } else previousUser = undefined
     }
@@ -1154,9 +1162,13 @@ export const TranscriptList = observer(function TranscriptList({
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
   const rows = visibleModel.rows
-  const searchModel = searching && transcript
-    ? buildMobileTranscript(transcript.ids.map(id => transcript.byId.get(id)!), { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined })
-    : visibleModel
+  const searchModel =
+    searching && transcript
+      ? buildMobileTranscript(
+          transcript.ids.map((id) => transcript.byId.get(id)!),
+          { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined },
+        )
+      : visibleModel
   const matches = useMemo(
     () => matchMobileTranscript(searchModel, findOpen ? query : ''),
     [findOpen, query, searchModel],

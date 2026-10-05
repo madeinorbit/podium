@@ -1,17 +1,17 @@
 // Test adapters preserve the old behavior scenarios while the stores themselves
 // expose only direct observables. Each legacy transcript push enters a real log action.
 import { action, computed, observable, reaction } from 'mobx'
-import type {
-  ConversationSendOptions,
-  ConversationContext,
-} from './contracts'
+import type { ConversationSendOptions, ConversationContext } from './contracts'
 import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
 import type { ConversationBubble, ConversationPendingTurn } from './projection'
 import { Sends } from './sends'
 import { TranscriptLog } from './transcript-log'
 
 interface FixtureOptions extends ConversationSendOptions {
-  transcript: { getSnapshot(): { items: readonly TranscriptItem[] }; subscribe(listener: () => void): () => void }
+  transcript: {
+    getSnapshot(): { items: readonly TranscriptItem[] }
+    subscribe(listener: () => void): () => void
+  }
   initialDraft?: string
   onDraftChange?: (text: string) => void
 }
@@ -74,7 +74,10 @@ export function createSendsFixture(options: FixtureOptions) {
     interruptError: model.interruptError,
     interruptMessageId: model.interruptMessageId,
   }))
-  const snapshot = computed<FixtureSurface & { draft: string }>(() => ({ ...surface.get(), draft: model.draft }))
+  const snapshot = computed<FixtureSurface & { draft: string }>(() => ({
+    ...surface.get(),
+    draft: model.draft,
+  }))
   // A mounted observer keeps derived identities cached. Release it with the fixture.
   const retain = reaction(
     () => surface.get(),

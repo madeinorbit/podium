@@ -49,17 +49,21 @@ function metered(rt: Runtime): { view: Runtime; meter: Meter } {
       meter.wakes++
       listener(...args)
     }
-  const read = <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A): R => {
-    meter.reads++
-    return fn(...args)
-  }
+  const read =
+    <A extends unknown[], R>(fn: (...args: A) => R) =>
+    (...args: A): R => {
+      meter.reads++
+      return fn(...args)
+    }
   const view = Object.create(rt) as Runtime
   Object.assign(view, {
     readLocal: read(rt.readLocal),
     listIds: read(rt.listIds),
     listRow: read(rt.listRow),
-    onLocals: (keys: Parameters<Runtime['onLocals']>[0], listener: Parameters<Runtime['onLocals']>[1]) =>
-      rt.onLocals(keys, woken(listener)),
+    onLocals: (
+      keys: Parameters<Runtime['onLocals']>[0],
+      listener: Parameters<Runtime['onLocals']>[1],
+    ) => rt.onLocals(keys, woken(listener)),
     onList: (name: Parameters<Runtime['onList']>[0], listener: Parameters<Runtime['onList']>[1]) =>
       rt.onList(name, woken(listener)),
   })
@@ -172,7 +176,9 @@ describe('keyed adapter inputs (POD-5433)', () => {
         // Focus is local-only (a dock tab replicates through the outbox, which
         // moves the header's outbox count).
         const next = referenceState(f.rt).focusedPane === 'A' ? 'B' : 'A'
-        const cost = await costOf(f, () => runInAction(() => referenceState(f.rt).setFocusedPane(next)))
+        const cost = await costOf(f, () =>
+          runInAction(() => referenceState(f.rt).setFocusedPane(next)),
+        )
         expect(cost).toEqual(zero(cost))
       } finally {
         f.dispose()
@@ -183,7 +189,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
       const f = await fixture(scale)
       try {
         const cost = await costOf(f, () =>
-          referenceState(f.rt).setSessionDraft(asSessionId(f.session), "hello"),
+          referenceState(f.rt).setSessionDraft(asSessionId(f.session), 'hello'),
         )
         expect(cost).toEqual({ ...zero(cost), chatContext: cost.chatContext })
         expect(cost.chatContext).toBeGreaterThan(0)
@@ -198,7 +204,10 @@ describe('keyed adapter inputs (POD-5433)', () => {
   for (const scale of [1, 4] as const) {
     it(`a repo change re-links only the sessions under a moved path (${scale}x)`, async () => {
       const f = await fixture(scale)
-      const change = vi.spyOn(CommandLaunchSource.prototype as unknown as { change(entity: string): void }, 'change')
+      const change = vi.spyOn(
+        CommandLaunchSource.prototype as unknown as { change(entity: string): void },
+        'change',
+      )
       const sessionLinks = () => change.mock.calls.filter(([entity]) => entity === 'session').length
       const discover = async (repos: GitRepositoryWire[]) => {
         await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
@@ -223,7 +232,9 @@ describe('keyed adapter inputs (POD-5433)', () => {
             const cwd = (row as { cwd?: string }).cwd ?? ''
             return cwd === path || cwd.startsWith(`${path}/`)
           }).length
-        let at = -1, tree = -1, under = 0
+        let at = -1,
+          tree = -1,
+          under = 0
         for (const [i, repo] of repos.entries())
           for (const [j, worktree] of repo.worktrees.entries()) {
             const count = residentsUnder(worktree.path)
@@ -278,7 +289,9 @@ describe('keyed adapter inputs (POD-5433)', () => {
         f.chat.read('chatSessionOrder', 'order')
         f.chat.read('chatIssueOrder', 'order')
         await flush()
-        const stop = autorun(() => { f.chat.read('chatSessionOrder', 'order') })
+        const stop = autorun(() => {
+          f.chat.read('chatSessionOrder', 'order')
+        })
         const order = f.chat.read('chatSessionOrder', 'order')
         const { orderLists, orderIds, addressedOrders } = f.chat.counts
         await writeHeartbeat(f.ctx)
@@ -309,13 +322,17 @@ describe('keyed adapter inputs (POD-5433)', () => {
     try {
       const machines = f.ctx.corpus.machines as unknown as { id: string; name: string }[]
       expect(machines.length).toBeGreaterThan(1)
-      const first = machines[0]?.id ?? '', second = machines[1]?.id ?? ''
+      const first = machines[0]?.id ?? '',
+        second = machines[1]?.id ?? ''
       // Synchronous on purpose: a new machine set also starts the runtime's
       // repo refresh, and the scenario's discovery answers with no machines.
       f.ctx.hub.emit('machines', machines)
       const kept = f.pool.header.get('machine', second)
       expect(kept).toBeDefined()
-      f.ctx.hub.emit('machines', machines.map((row, at) => (at === 0 ? { ...row, name: 'Renamed host' } : { ...row })))
+      f.ctx.hub.emit(
+        'machines',
+        machines.map((row, at) => (at === 0 ? { ...row, name: 'Renamed host' } : { ...row })),
+      )
       expect(f.pool.header.get('machine', first)).toMatchObject({ name: 'Renamed host' })
       // A fresh but equal row keeps its identity: no reader of it wakes.
       expect(f.pool.header.get('machine', second)).toBe(kept)

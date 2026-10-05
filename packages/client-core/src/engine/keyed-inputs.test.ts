@@ -41,10 +41,13 @@ describe('keyed inputs (POD-5433)', () => {
   })
 
   it('diffs a list by id: unchanged rows keep identity, changed ids and order are named', () => {
-    const a = repo('/a'), b = repo('/b')
+    const a = repo('/a'),
+      b = repo('/b')
     const c = channel({ repos: [a, b] })
     const changes: { ids: string[]; order: boolean }[] = []
-    c.inputs.onList('repos', (change) => changes.push({ ids: [...change.ids], order: change.order }))
+    c.inputs.onList('repos', (change) =>
+      changes.push({ ids: [...change.ids], order: change.order }),
+    )
     const before = c.inputs.listRow('repos', discoveryRepoId(a))
     // A fresh RPC array with equal rows: no change, identity kept.
     c.write({ repos: [repo('/a'), repo('/b')] })

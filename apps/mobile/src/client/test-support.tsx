@@ -282,9 +282,12 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     })
   }
   if (!fixture.attachRuntime) {
-    await waitFor(() => {
-      if (!ready) throw new Error('Mobile pool is attaching')
-    }, { timeout: 5000 })
+    await waitFor(
+      () => {
+        if (!ready) throw new Error('Mobile pool is attaching')
+      },
+      { timeout: 5000 },
+    )
     // Paint may ask for cold inputs after source attachment. Settle the production
     // batched loader; custom counter fixtures retain control of their own windows.
     for (let turn = 0; turn < 100; turn++) {

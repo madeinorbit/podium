@@ -616,7 +616,14 @@ it('a streamed replacement renders exactly the last message row', async () => {
     { id: 'first', role: 'assistant', text: 'Settled first message' },
     { id: 'last', role: 'assistant', text: 'Streaming partial' },
   ])
-  const view = render(<TranscriptList transcript={transcript} transcriptQuestion={null} live onAnswer={async () => {}} />)
+  const view = render(
+    <TranscriptList
+      transcript={transcript}
+      transcriptQuestion={null}
+      live
+      onAnswer={async () => {}}
+    />,
+  )
   expect(screen.getByText('Streaming partial')).toBeTruthy()
   const before = markdownRenders.get('Settled first message')
   const listPaints = viewportData.length
@@ -638,7 +645,14 @@ it('reveals the first streamed text through the existing row observer', async ()
     source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
   })
   transcript.merge([{ id: 'last', role: 'assistant', text: '' }])
-  const view = render(<TranscriptList transcript={transcript} transcriptQuestion={null} live onAnswer={async () => {}} />)
+  const view = render(
+    <TranscriptList
+      transcript={transcript}
+      transcriptQuestion={null}
+      live
+      onAnswer={async () => {}}
+    />,
+  )
   const listPaints = viewportData.length
   act(() => transcript.merge([{ id: 'last', role: 'assistant', text: 'First streamed text' }]))
   await waitFor(() => expect(screen.getByText('First streamed text')).toBeTruthy())

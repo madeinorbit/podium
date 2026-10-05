@@ -1,15 +1,8 @@
-import type {
-  MessageRecordWire,
-  SessionId,
-  SessionOffer,
-  TranscriptTag,
-} from '@podium/model'
+import type { MessageRecordWire, SessionId, SessionOffer, TranscriptTag } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { OutboxChatSend } from '../engine/chat-send'
-import {
-  type ConversationPendingTurn,
-} from './projection'
+import { type ConversationPendingTurn } from './projection'
 
 /** This session's message records, as the synced feed carries them (POD-4764). */
 export interface ConversationRecords {

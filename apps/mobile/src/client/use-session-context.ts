@@ -220,13 +220,22 @@ export function useSessionConversationPorts(id: SessionId): Ports {
 }
 
 /** These subscriptions outlive a screen while its Conversation is warm. */
-export function mobileConversationPorts(pool: MobxPool, id: SessionId): Pick<Ports, 'records' | 'outbox'> {
+export function mobileConversationPorts(
+  pool: MobxPool,
+  id: SessionId,
+): Pick<Ports, 'records' | 'outbox'> {
   const read = () => {
     const reader = pool.row('mobileSessionReader', 'reader')
     return reader && !pending(reader) ? reader.conversationPorts(id) : EMPTY_PORTS_INPUT
   }
   return {
-    records: { getSnapshot: () => read().records, subscribe: listener => reaction(() => read().records, listener) },
-    outbox: { held: () => read().sends, subscribe: listener => reaction(() => read().sends, listener) },
+    records: {
+      getSnapshot: () => read().records,
+      subscribe: (listener) => reaction(() => read().records, listener),
+    },
+    outbox: {
+      held: () => read().sends,
+      subscribe: (listener) => reaction(() => read().sends, listener),
+    },
   }
 }

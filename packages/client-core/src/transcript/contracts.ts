@@ -125,4 +125,3 @@ export interface TranscriptState {
 export interface TranscriptRefreshOptions {
   disclose?: boolean
 }
-

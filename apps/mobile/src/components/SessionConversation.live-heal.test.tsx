@@ -53,40 +53,42 @@ vi.mock('./TranscriptList', async () => {
   const { observer } = await import('mobx-react-lite')
   const { Pressable, Text, View } = await import('react-native')
   return {
-    TranscriptList: observer(({
-      transcript,
-    items = transcript?.ids.map(id => transcript.byId.get(id)!) ?? [],
-      onLoadOlder,
-      onFollowChange,
-      onSearchChange,
-    }: {
-      transcript?: import('@podium/client-core/conversation').TranscriptLog
-      items?: readonly TranscriptItem[]
-      onLoadOlder?: () => void
-      onFollowChange?: (following: boolean) => void
-      onSearchChange?: (searching: boolean) => void
-    }) => (
-      <View>
-        <Pressable accessibilityLabel="Read history" onPress={() => onFollowChange?.(false)}>
-          <Text>Read</Text>
-        </Pressable>
-        <Pressable accessibilityLabel="Load history" onPress={onLoadOlder}>
-          <Text>Older</Text>
-        </Pressable>
-        <Pressable accessibilityLabel="Follow newest" onPress={() => onFollowChange?.(true)}>
-          <Text>Follow</Text>
-        </Pressable>
-        <Pressable accessibilityLabel="Find history" onPress={() => onSearchChange?.(true)}>
-          <Text>Find</Text>
-        </Pressable>
-        <Pressable accessibilityLabel="Finish find" onPress={() => onSearchChange?.(false)}>
-          <Text>Finish</Text>
-        </Pressable>
-        {items.map((entry) => (
-          <Text key={entry.id}>{entry.text}</Text>
-        ))}
-      </View>
-    )),
+    TranscriptList: observer(
+      ({
+        transcript,
+        items = transcript?.ids.map((id) => transcript.byId.get(id)!) ?? [],
+        onLoadOlder,
+        onFollowChange,
+        onSearchChange,
+      }: {
+        transcript?: import('@podium/client-core/conversation').TranscriptLog
+        items?: readonly TranscriptItem[]
+        onLoadOlder?: () => void
+        onFollowChange?: (following: boolean) => void
+        onSearchChange?: (searching: boolean) => void
+      }) => (
+        <View>
+          <Pressable accessibilityLabel="Read history" onPress={() => onFollowChange?.(false)}>
+            <Text>Read</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Load history" onPress={onLoadOlder}>
+            <Text>Older</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Follow newest" onPress={() => onFollowChange?.(true)}>
+            <Text>Follow</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Find history" onPress={() => onSearchChange?.(true)}>
+            <Text>Find</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Finish find" onPress={() => onSearchChange?.(false)}>
+            <Text>Finish</Text>
+          </Pressable>
+          {items.map((entry) => (
+            <Text key={entry.id}>{entry.text}</Text>
+          ))}
+        </View>
+      ),
+    ),
   }
 })
 
@@ -151,7 +153,7 @@ async function mount(initial?: TranscriptItem[]) {
       },
     },
   })
-  moveRow = next => {
+  moveRow = (next) => {
     view.replica.applyChanges('sessions', [next], [])
     setViewSession(next)
   }

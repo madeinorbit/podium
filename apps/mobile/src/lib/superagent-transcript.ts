@@ -27,11 +27,7 @@ import type { TranscriptItem } from '@podium/model'
  * each streaming paint shapes only this row instead of the complete history.
  * Blank live text adds nothing (the spinner covers that beat).
  */
-export function liveTranscriptItem(
-  liveText: string,
-  running: boolean,
-): TranscriptItem | undefined {
+export function liveTranscriptItem(liveText: string, running: boolean): TranscriptItem | undefined {
   const text = liveText.trim()
   return running && text ? { id: 'super:live', role: 'assistant', text } : undefined
 }
-

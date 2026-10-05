@@ -172,13 +172,21 @@ export class Conversation {
     if (hub) {
       this.stops.push(
         hub.on('turnPreview', (sessionId, frame) => {
-          if (sessionId === (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)) this.frames.enqueue(() => this.applyPreview(frame))
+          if (
+            sessionId ===
+            (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)
+          )
+            this.frames.enqueue(() => this.applyPreview(frame))
         }),
       )
       if (this.options.headless)
         this.stops.push(
           hub.on('headlessActivity', (sessionId, event) => {
-            if (sessionId === (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)) this.frames.enqueue(() => this.applyHeadless(event))
+            if (
+              sessionId ===
+              (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)
+            )
+              this.frames.enqueue(() => this.applyHeadless(event))
           }),
         )
     }
@@ -212,15 +220,25 @@ export class Conversation {
     this.sends.start()
     if (this.options.readTurnRunning) {
       let sawRunning = false
-      this.stops.push(reaction(this.options.readTurnRunning, running => {
-        if (running) {
-          sawRunning = true
-          runInAction(() => { this.turnRunning = true; this.clearTurnFailure(); this.sends.finishTurn(null) })
-        } else if (running === false && sawRunning) {
-          sawRunning = false
-          this.finishTurn()
-        }
-      }, { fireImmediately: true }))
+      this.stops.push(
+        reaction(
+          this.options.readTurnRunning,
+          (running) => {
+            if (running) {
+              sawRunning = true
+              runInAction(() => {
+                this.turnRunning = true
+                this.clearTurnFailure()
+                this.sends.finishTurn(null)
+              })
+            } else if (running === false && sawRunning) {
+              sawRunning = false
+              this.finishTurn()
+            }
+          },
+          { fireImmediately: true },
+        ),
+      )
     }
     this.startPromise = this.transcript.start()
     void this.restoreFailure()
@@ -228,7 +246,14 @@ export class Conversation {
   }
 
   async restoreFailure(): Promise<void> {
-    if (!this.options.headless || !this.options.latestTurnFailure || this.activityVersion > 0 || this.restoringFailure || this.failureRestored) return
+    if (
+      !this.options.headless ||
+      !this.options.latestTurnFailure ||
+      this.activityVersion > 0 ||
+      this.restoringFailure ||
+      this.failureRestored
+    )
+      return
     this.restoringFailure = true
     const version = this.activityVersion
     try {
@@ -237,9 +262,14 @@ export class Conversation {
       const failure = await this.options.latestTurnFailure()
       this.failureRestored = true
       if (!this.disposed && version === this.activityVersion)
-        runInAction(() => { this.restoredFailure = failure ? freezePlain(failure) : null })
-    } catch { /* A failed read leaves the live conversation usable. */ }
-    finally { this.restoringFailure = false }
+        runInAction(() => {
+          this.restoredFailure = failure ? freezePlain(failure) : null
+        })
+    } catch {
+      /* A failed read leaves the live conversation usable. */
+    } finally {
+      this.restoringFailure = false
+    }
   }
 
   clear(): void {
@@ -280,7 +310,9 @@ export class Conversation {
     // Cache hydration occurs before Sends is constructed. start() sets its baseline.
     this.sends?.reconcile(change)
     if (change.added.length > 0 && this.headless?.text !== undefined) {
-      this.headless = this.headless.status ? freezePlain({ status: this.headless.status, label: this.headless.label }) : null
+      this.headless = this.headless.status
+        ? freezePlain({ status: this.headless.status, label: this.headless.label })
+        : null
     }
   }
 

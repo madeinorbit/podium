@@ -9,10 +9,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
-import {
-  useSessionContextSession,
-  useSessionContextSessions,
-} from './use-session-context'
+import { useSessionContextSession, useSessionContextSessions } from './use-session-context'
 
 beforeEach(() => localStorage.clear())
 afterEach(() => {
@@ -102,13 +99,9 @@ it.each([
     runtime!.access.setSelectedWorktree('/synthetic/project/guests'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () =>
-    runtime!.access.setSelectedWorktree('/synthetic/missing'),
-  )
+  await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
-  await check('session switch', () =>
-    runtime!.access.navigateToSession('synthetic-session-2'),
-  )
+  await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
   )
@@ -139,5 +132,4 @@ it.each([
     `Phone pool name|Phone draft|${12 * scale + 2}`,
   )
   expect(failures).toEqual([])
-
 })
