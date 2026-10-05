@@ -29,7 +29,7 @@ it.each([128, 512])('seeds %i startup sessions without per-row persistent tree w
   try {
     const index = createColdIndex(SCHEMA)
     index.apply({ type: 'replace', rows: Array.from({ length: count }, (_, n) =>
-      ({ kind: 'session', id: `startup-${n}`, value: row(n) }) as RowRecord) })
+      ({ kind: 'session', id: `startup-${n}`, value: row(n) }) as unknown as RowRecord) })
     expect(index.sessionQuestionFact('startup-1')?.machineId).toBe('m1')
     expect(index.latestMachineSession(['m0', 'm1'])).toBeDefined()
     console.info('startup persistent session writes', JSON.stringify({ count, writes }))
@@ -111,7 +111,7 @@ it('matches a final relation state and subsequent collapse winner flips after bo
     }
   }
   expect(read(bulk)).toEqual(read(sequential))
-  const fork = bulk.forkSessionQuestions(() => false), held = fork.fact('startup-1')
+  const fork = bulk.forkSessionQuestions(() => false, id => bulk.sessionOrderKey(id)), held = fork.fact('startup-1')
   for (const change of [sessions[1]!, { ...sessions[1]!, value: undefined },
     { ...sessions[0]!, value: { ...row(0), createdAt: '2028-01-01T00:00:00Z' } } as RowRecord]) {
     bulk.apply({ type: 'update', rows: [change] }); sequential.apply({ type: 'update', rows: [change] })

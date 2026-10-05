@@ -147,19 +147,19 @@ it('keeps one move, fallback, path lookup and unrelated heartbeat flat at 1x/4x'
     const reactions = new Reactions({ state: () => state, publish: patch => Object.assign(state, patch),
       hub: {} as never, notices: { info } as never, isVisible: () => true, markSessionRead: vi.fn(), markIssueRead: vi.fn() })
     try {
-      const first = await measureWork(() => insideReader('navigation path', () => runInAction(() => {
+      const first = await measureWork(async () => insideReader('navigation path', () => runInAction(() => {
         expect(f.provider.worktreeForCwd!('/dest/src')).toBe('/dest')
         state.selectedWorktree = '/gone'
         expect(reactions.worktreeFallback()).toBe(true)
         expect(state.selectedWorktree).toBe('/old')
       })), { pool: f.pool })
-      const move = await measureWork(() => insideReader('navigation move', () => {
+      const move = await measureWork(async () => insideReader('navigation move', () => {
         f.publish({ type: 'update', rows: [session('target', '/dest')] })
         runInAction(() => expect(reactions.worktreeFollow(changes)).toBe(true))
       }), { pool: f.pool })
       expect(state.selectedWorktree).toBe('/dest'); expect(info).not.toHaveBeenCalled()
       changes = []
-      const unrelated = await measureWork(() => insideReader('navigation heartbeat', () => {
+      const unrelated = await measureWork(async () => insideReader('navigation heartbeat', () => {
         f.publish({ type: 'update', rows: [session('history-0', '/foreign-0', { displayRef: 'POD-2-A', lastActiveAt: '2020-01-02' })] })
       }), { pool: f.pool })
       expect(changes).toEqual([]); expect(calls).not.toHaveBeenCalled()

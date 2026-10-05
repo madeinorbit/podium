@@ -316,7 +316,7 @@ export class Reactions {
   worktreeFollow(changes: readonly NavigationTopologySession[] = []): boolean {
     const st = this.ports.state()
     if (st.navigation.worktreeForCwd) {
-      const visible = new Set(this.isVisible() ? visibleTabIds(st) : [])
+      const visible = new Set<string>(this.isVisible() ? visibleTabIds(st) : [])
       const notices: { title: string; destination: string | undefined }[] = []
       let follow: string | null = null
       // Only identities changed since the previous navigation wake participate.

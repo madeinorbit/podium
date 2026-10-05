@@ -97,7 +97,7 @@ it('selects one mission without visiting unrelated resident keys at 1x/4x', asyn
       const issueKeys = vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => { throw new Error('whole resident issue keys') })
       const sessionKeys = vi.spyOn(pool.tables.session, 'keys').mockImplementation(() => { throw new Error('whole resident session keys') })
       try {
-        const result = await measureWork(() => insideReader('one mission selection', () => actions.selectIssue(root.id)), { pool })
+        const result = await measureWork(async () => insideReader('one mission selection', () => actions.selectIssue(root.id)), { pool })
         expect(store.navigateWorkspace).toHaveBeenLastCalledWith({ selectedIssueId: root.id, tabId: pane.sessionId, firstPane: true })
         return result.work
       } finally { issueKeys.mockRestore(); sessionKeys.mockRestore(); row.mockRestore() }
