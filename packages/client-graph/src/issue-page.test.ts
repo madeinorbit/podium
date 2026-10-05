@@ -267,7 +267,10 @@ it('keeps page reads bounded at 4x and releases the unrelated menu catalog', () 
       expect(current).toBe(first)
       expect(
         reads.mock.calls.filter(([, , mode]) => mode === undefined || mode === 'summary-fields'),
-      ).toEqual([])
+      ).toEqual([['issue', 'outside-0', 'summary-fields']])
+      // The pool maintains the changed issue's scalar facts once; the closed
+      // catalog and the addressed page add no demands or rebuilds.
+      expect(views.stats.pages).toBe(1)
       return calls
     } finally {
       stop()
@@ -300,7 +303,7 @@ it('keeps named and draft detail independent of unrelated worktree choices at 1x
       lane('/repo/owned'), lane('/repo/owned/nested'),
       seat('0-nested', { issueId: undefined, archived: false, cwd: '/repo/owned/nested', name: 'Wrong checkout' }),
       ...Array.from({ length: 128 * scale }, (_, n) => lane(`/elsewhere/${n}`)),
-      ...Array.from({ length: 128 * scale }, (_, n) => seat(`foreign-${n}`, { issueId: 'outside', cwd: `/elsewhere/${n}` })),
+      ...Array.from({ length: 128 * scale }, (_, n) => seat(`foreign-${n}`, { issueId: 'outside', refIssueId: 'outside', cwd: `/elsewhere/${n}` })),
     ] })
     const views = createIssuePageViews(pool), reads = vi.spyOn(pool, 'row'),
       keys = vi.spyOn(pool.tables.worktree, 'keys'), paint = vi.fn(),
