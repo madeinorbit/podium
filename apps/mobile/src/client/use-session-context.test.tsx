@@ -146,6 +146,11 @@ vi.mock('../components/TaskSheet', () => ({
     ) : null
   },
 }))
+// SessionActionCard reaches OfferArtifactStrip -> ArtifactViewer -> the native
+// expo graph (linear-gradient/video) outside the six phone readers under test.
+// The sibling machine-offline suite stubs the same boundary; keep it stubbed
+// here so this file collects without loading native-only modules.
+vi.mock('../components/ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('../components/PendingInteractionBand', () => ({ PendingInteractionBand: () => null }))
 vi.mock('../components/SessionCard', () => ({
   SessionCard: ({ model, onLongPress }: { model: SessionCardModel; onLongPress?: () => void }) => (
