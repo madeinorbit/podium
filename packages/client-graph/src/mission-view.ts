@@ -593,8 +593,7 @@ export class MissionViewReader {
    * hand (one cached value per session, shared with navigation and the
    * partitions), else its row, which this read loads. */
   private sessionFacts(sessionId: string): SessionFacts | typeof LOADING | undefined {
-    const session = this.session(sessionId)
-    return session === LOADING || !session ? session : factsOf(session)
+    return this.historySession(sessionId)
   }
   private idOrder = (a: string, b: string): number => {
     const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
@@ -638,9 +637,42 @@ export class MissionViewReader {
     const row = this.rawSession(id)
     return row as Loaded<SessionView>
   }
-  /** The seated or archived side's ids, and the cold ones whose summary
-   * does not say which: those settle from their rows (read here anyway). */
-  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
+  private sessionScalar<T>(name: string, read: (session: SessionView) => T) {
+    return keyedComputed(`MissionSession.${name}`, (id: string): Loaded<T> => {
+      const session = this.rawSession(id)
+      return session === LOADING || session === undefined ? session : read(session)
+    })
+  }
+  private readonly historyFields = {
+    activity: this.sessionScalar('historyActivity', session => session.lastActiveAt),
+    input: this.sessionScalar('historyInput', session => session.lastInputAt),
+    transcript: this.sessionScalar('historyTranscript', session => session.transcriptAvailable),
+    kind: this.sessionScalar('historyKind', session => session.agentKind),
+    moved: this.sessionScalar('historyMoved', session => Boolean(session.handoffTarget)),
+    phase: this.sessionScalar('historyPhase', session => session.agentState?.phase ?? 'unknown'),
+    roster: this.sessionScalar('historyRoster', session => !session.headless && session.agentKind !== 'shell'),
+  }
+  /** A display-only change stops at these scalar getters; it never wakes the
+   * archived roster aggregates that observe this record. */
+  private readonly historySession = keyedComputed('MissionSession.history', (id: string): Loaded<SessionFacts> => settled(() => {
+    const archived = requireLoaded(this.archivedSession(id))
+    if (archived === undefined) return undefined
+    const field = this.historyFields
+    return {
+      sessionId: id, archived,
+      lastActiveAt: requireLoaded(field.activity(id))!,
+      lastInputAt: requireLoaded(field.input(id)),
+      transcriptAvailable: requireLoaded(field.transcript(id)),
+      agentKind: requireLoaded(field.kind(id))!,
+      moved: requireLoaded(field.moved(id))!,
+      phase: requireLoaded(field.phase(id))!,
+      roster: requireLoaded(field.roster(id))!,
+    }
+  }))
+  /** Membership and archived flags alone determine each side. A heartbeat
+   * keeps these ID arrays observed without walking the history again. */
+  private readonly seatIdValues = keyedComputed('MissionSeats.ids', (key: string): readonly string[] | typeof LOADING => {
+    const [relation, id, archived] = JSON.parse(key) as [SeatRelation, string, boolean]
     const ids: string[] = []
     let pending = false
     for (const sessionId of this.pool.graph.many('issue', id, relation)) {
@@ -649,6 +681,11 @@ export class MissionViewReader {
       else if (flag === archived) ids.push(sessionId)
     }
     return pending ? LOADING : ids
+  })
+  /** The seated or archived side's ids, and the cold ones whose summary
+   * does not say which: those settle from their rows (read here anyway). */
+  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
+    return this.seatIdValues(JSON.stringify([relation, id, archived]))
   }
   private readonly archivedSession = keyedComputed('MissionSession.archived', (id: string) => {
     const row = this.rawSession(id)
@@ -1084,6 +1121,8 @@ export class MissionViewReader {
   }
   dispose = () => {
     for (const deck of this.decks.values()) deck.dispose()
+    this.historySession.clear(); this.seatIdValues.clear()
+    for (const field of Object.values(this.historyFields)) field.clear()
     this.nodes.clear(); this.factsById.clear(); this.decks.clear(); this.archivedSession.clear(); this.sessionRoster.clear(); this.sessionCreatedAt.clear(); this.sessionAtWork.clear(); this.sessionAsking.clear(); this.sessionOpen.clear()
   }
 }
