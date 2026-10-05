@@ -27,19 +27,23 @@ export interface PoolSource<E extends SourceEntity> {
  * policies; the frame coalesces wakes, cancels queued work at teardown, and
  * releases the owner once. Refresh owns its existing publication action so
  * runtime reads and effects keep their original transaction boundary. */
-export function defineSource<Args extends unknown[], Row>(definition: {
+export function defineSource<Args extends [unknown?, unknown?], Row>(definition: {
   readById: (...args: Args) => Loaded<Row>
   refresh?: () => void
   release: () => void
   disposedValue?: Loaded<Row>
 }) {
   let scheduled = false, disposed = false
+  // Source readers take at most two keys. Preserve their typed arity without
+  // allocating or iterating a rest-argument array on every row read.
+  const read = (key: Args[0], id: Args[1]): Loaded<Row> => {
+    if (disposed) return Object.hasOwn(definition, 'disposedValue') ? definition.disposedValue : LOADING
+    const readById = definition.readById as (key: Args[0], id: Args[1]) => Loaded<Row>
+    return readById(key, id)
+  }
   return {
     get disposed(): boolean { return disposed },
-    read(...args: Args): Loaded<Row> {
-      if (disposed) return Object.hasOwn(definition, 'disposedValue') ? definition.disposedValue : LOADING
-      return definition.readById(...args)
-    },
+    read: read as (...args: Args) => Loaded<Row>,
     schedule(): void {
       if (scheduled || disposed || !definition.refresh) return
       scheduled = true
