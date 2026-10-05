@@ -691,7 +691,6 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       topologyMoved = event.type === 'replace'
       if (event.type === 'replace') {
         clear()
-        sessionQuestions.clear()
         issueQuestions.clear()
         positions.clear()
         positionSeq = 0
@@ -727,13 +726,18 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       identityEvent = event
       for (const record of event.rows)
         if (record.kind === 'issue') issueQuestions.set(record.id, record.value as Row | undefined)
-      for (const record of event.rows) {
-        if (record.kind === 'session') {
+      if (event.type === 'replace') {
+        // Relations are final before seeding; collapse and order need no replay.
+        sessionQuestions.replace((function* () {
+          for (const record of event.rows) if (record.kind === 'session')
+            yield [record.id, record.value as Row | undefined] as const
+        })())
+      } else {
+        for (const record of event.rows) if (record.kind === 'session')
           sessionQuestions.set(record.id, record.value as Row | undefined)
+        for (const [entity, id] of [...delta.flips, ...delta.orders]) if (entity === 'session') {
+          sessionQuestions.visibilityChanged(id)
         }
-      }
-      for (const [entity, id] of [...delta.flips, ...delta.orders]) if (entity === 'session') {
-        sessionQuestions.visibilityChanged(id)
       }
     },
   }

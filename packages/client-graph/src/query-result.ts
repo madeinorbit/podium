@@ -87,8 +87,8 @@ function replace<T>(root: Node<T> | undefined, before: Item<T> | undefined,
 }
 /** Initial demand has no published root to preserve. Sort its entries once
  * and construct each immutable node once; subsequent edits use persistent paths. */
-function build<T>(items: Item<T>[]): Node<T> | undefined {
-  items.sort(compare<T>)
+function build<T>(items: Item<T>[], compareItems: (a: Item<T>, b: Item<T>) => number = compare<T>): Node<T> | undefined {
+  items.sort(compareItems)
   function range(start: number, end: number): Node<T> | undefined {
     if (start === end) return undefined
     const middle = (start + end) >>> 1
@@ -300,6 +300,50 @@ export function createKeyedAnswer<T>(
     },
     snapshot: () => snapshot(root),
     fork: () => createKeyedAnswer(compareValues, point, { root, keys }),
+  }
+}
+
+/** An unpublished bootstrap accumulator. Ordered reads finish it into the
+ * ordinary persistent tree; the temporary map is released at that boundary. */
+export function createKeyedAnswerBuilder<T>(
+  compareValues?: (a: T, b: T) => number,
+  point?: (value: T) => number,
+): { answer: KeyedAnswer<T>; finish(): KeyedAnswer<T> } {
+  let pending: Map<string, Item<T>> | undefined = new Map()
+  let complete: KeyedAnswer<T> | undefined
+  function finish(): KeyedAnswer<T> {
+    if (pending) {
+      const items = [...pending.values()]
+      const compareItems = compareValues
+        ? (a: Item<T>, b: Item<T>) => compareValues(a.value, b.value) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        : compare<T>
+      complete = createKeyedAnswer(compareValues, point, {
+        root: build(items, compareItems),
+        keys: build(items.map(value => ({ id: value.id, order: value.id, value }))),
+      })
+      pending = undefined
+    }
+    return complete!
+  }
+  return {
+    finish,
+    answer: {
+      has: id => pending ? pending.has(id) : finish().has(id),
+      get: id => pending ? pending.get(id)?.value : finish().get(id),
+      set(id, order, value) {
+        if (!pending) { finish().set(id, order, value); return }
+        const before = pending.get(id)
+        if (before?.order === order && before.value === value) return
+        pending.set(id, { id, order, value, ...(point ? { point: point(value) } : {}) })
+      },
+      delete(id) { if (pending) pending.delete(id); else finish().delete(id) },
+      first: () => finish().first(),
+      after: (value, id) => finish().after(value, id),
+      firstBounded: (bound, side, after, id) => finish().firstBounded(bound, side, after, id),
+      snapshot: () => finish().snapshot(),
+      fork: () => finish().fork(),
+    },
   }
 }
 

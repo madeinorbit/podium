@@ -1,6 +1,6 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { createKeyedAnswer, createQueryResult, joinQueryResults } from './query-result'
+import { createKeyedAnswer, createKeyedAnswerBuilder, createQueryResult, joinQueryResults } from './query-result'
 import { LOADING } from './worklist/rollup'
 
 function fixture(prefix = '') {
@@ -374,5 +374,53 @@ describe('maintained query answers', () => {
     } finally {
       stop()
     }
+  })
+})
+
+
+describe('unpublished keyed answer construction', () => {
+  it('matches incremental ordering, ties, duplicates and scalar bounds before persistent edits', () => {
+    type Value = { id: string; rank: number; deadline: number }
+    for (const custom of [false, true]) for (const ranks of [[], [1], [0, 1, 2, 3], [3, 2, 1, 0],
+      Array.from({ length: 37 }, (_, n) => n * 17 % 5)]) {
+      const compare = custom ? (a: Value, b: Value) => a.rank - b.rank : undefined
+      const point = (value: Value) => value.deadline
+      const builder = createKeyedAnswerBuilder(compare, point), inserted = createKeyedAnswer(compare, point)
+      const put = (id: string, rank: number) => {
+        const value = { id, rank, deadline: rank % 3 }
+        builder.answer.set(id, String(rank), value); inserted.set(id, String(rank), value)
+      }
+      ranks.forEach((rank, n) => put(`s${n}`, rank))
+      put('duplicate', 9); put('duplicate', 1)
+      builder.answer.delete('s1'); inserted.delete('s1')
+      expect(builder.answer.has('duplicate')).toBe(true)
+      expect(builder.answer.get('duplicate')).toEqual(inserted.get('duplicate'))
+      const answer = builder.finish(), snapshot = answer.snapshot(), fork = answer.fork()
+      expect(snapshot).toEqual(inserted.snapshot())
+      for (const value of snapshot) {
+        expect(answer.after(value, value.id)).toEqual(inserted.after(value, value.id))
+        for (const side of ['atMost', 'above'] as const)
+          expect(answer.firstBounded(1, side, value, value.id)).toEqual(inserted.firstBounded(1, side, value, value.id))
+      }
+      const changed = { id: 'duplicate', rank: -1, deadline: 100 }
+      builder.answer.set('duplicate', '-1', changed); inserted.set('duplicate', '-1', changed)
+      expect(answer.snapshot()).toEqual(inserted.snapshot())
+      expect(fork.snapshot()).toEqual(snapshot)
+      fork.delete('duplicate')
+      expect(answer.has('duplicate')).toBe(true)
+      expect(snapshot).toContainEqual({ id: 'duplicate', rank: 1, deadline: 1 })
+      expect(builder.finish()).toBe(answer)
+    }
+  })
+
+  it('finishes at the first ordered read and preserves previously returned snapshots', () => {
+    const builder = createKeyedAnswerBuilder<number>()
+    builder.answer.set('b', 'b', 2)
+    const before = builder.answer.snapshot()
+    builder.answer.set('a', 'a', 1)
+    expect(before).toEqual([2])
+    expect(builder.finish().snapshot()).toEqual([1, 2])
+    builder.answer.delete('b')
+    expect(builder.finish().snapshot()).toEqual([1])
   })
 })

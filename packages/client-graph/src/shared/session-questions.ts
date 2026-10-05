@@ -1,7 +1,7 @@
 import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
-import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
+import { createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
 import type { SessionActivityQuestion } from './session-activity'
 
 type Row = Readonly<Record<string, unknown>>
@@ -51,6 +51,8 @@ export interface SessionQuestions {
   readonly visits: number
   readonly activityVisits: number
   clear(): void
+  /** Replace unpublished bootstrap facts, then expose ordinary persistent answers. */
+  replace(rows: Iterable<readonly [string, Row | undefined]>): void
   fork(collapsed: (id: string) => boolean, order: (id: string) => string): SessionQuestions
   set(id: string, row: Row | undefined): void
   setFacts(id: string, value: SessionQuestionFacts | undefined): void
@@ -112,6 +114,14 @@ export function createSessionQuestions(
   let references = seed?.references.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
   let visits = 0, activityVisits = 0
+  let building = false
+  let builders: (() => unknown)[] = []
+  function newAnswer<T>(compare?: (a: T, b: T) => number, point?: (value: T) => number): KeyedAnswer<T> {
+    if (!building) return createKeyedAnswer(compare, point)
+    const builder = createKeyedAnswerBuilder(compare, point)
+    builders.push(builder.finish)
+    return builder.answer
+  }
   const touch = (key: string) => revisions.set(key, key, ++version)
   function fileClose(id: string, value: SessionQuestionFacts | undefined) {
     const previous = closeMembers.get(id)
@@ -134,10 +144,10 @@ export function createSessionQuestions(
     const before = collection.get(key), previous = before?.answer.get(id)
     if (previous && next && compare(previous, next) === 0) return
     if (previous === next) return
-    const answer = before?.answer.fork() ?? createKeyedAnswer<T>(compare)
+    const answer = (building ? before?.answer : before?.answer.fork()) ?? newAnswer<T>(compare)
     if (next) answer.set(id, '', next)
     else answer.delete(id)
-    if (answer.first()) collection.set(key, key, { id: key, answer })
+    if (next || answer.first()) collection.set(key, key, { id: key, answer })
     else collection.delete(key)
     touch(key)
   }
@@ -195,24 +205,43 @@ export function createSessionQuestions(
     facts.set(id, id, next)
     file(next)
   }
-  return {
+  const api: SessionQuestions = {
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
       { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, version, replacement }),
     clear() {
-      facts = createKeyedAnswer<SessionQuestionFacts>()
-      triage = createKeyedAnswer<TriageSession>(compareTriageSessions)
-      recent = createKeyedAnswer<RecentSession>(compareRecent)
-      machines = createKeyedAnswer<Bucket<MachineSession>>()
-      activities = createKeyedAnswer<Bucket<Activity>>()
-      revisions = createKeyedAnswer<number>()
-      future = createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
-      expired = createKeyedAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
-      closeMembers = createKeyedAnswer<CloseMember>()
-      closeCounts = createKeyedAnswer<IssueCloseMemberCounts>()
-      references = createKeyedAnswer<Bucket<ReferenceSession>>()
+      facts = newAnswer<SessionQuestionFacts>()
+      triage = newAnswer<TriageSession>(compareTriageSessions)
+      recent = newAnswer<RecentSession>(compareRecent)
+      machines = newAnswer<Bucket<MachineSession>>()
+      activities = newAnswer<Bucket<Activity>>()
+      revisions = newAnswer<number>()
+      future = newAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
+      expired = newAnswer<TimedTriageSession>(compareTriageSessions, value => value.deadline)
+      closeMembers = newAnswer<CloseMember>()
+      closeCounts = newAnswer<IssueCloseMemberCounts>()
+      references = newAnswer<Bucket<ReferenceSession>>()
       replacement = ++version
+    },
+    replace(rows) {
+      building = true
+      try {
+        api.clear()
+        for (const [id, row] of rows) api.set(id, row)
+      } finally {
+        building = false
+        for (const finish of builders) finish()
+        builders = []
+        // No bootstrap writer survives publication, including nested buckets.
+        for (const bucket of machines.snapshot()) bucket.answer = bucket.answer.fork()
+        for (const bucket of activities.snapshot()) bucket.answer = bucket.answer.fork()
+        for (const bucket of references.snapshot()) bucket.answer = bucket.answer.fork()
+        facts = facts.fork(); triage = triage.fork(); recent = recent.fork()
+        machines = machines.fork(); activities = activities.fork(); revisions = revisions.fork()
+        future = future.fork(); expired = expired.fork()
+        closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork()
+      }
     },
     set(id, row) {
       if (!row) { setFacts(id, undefined); return }
@@ -309,4 +338,5 @@ export function createSessionQuestions(
     activityRevision: question => Math.max(replacement,
       ...question.roots.map(root => revisions.get(`activity:${question.match ?? 'within'}:${root}`) ?? 0)),
   }
+  return api
 }
