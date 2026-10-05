@@ -99,8 +99,9 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
         })
       })
       expect(value).toEqual(counts(1, 1))
-      expect(row.mock.calls.filter(([entity, , mode]) => entity === 'issue' && mode === 'summary'))
-        .toEqual([['issue', 'target', 'summary']])
+      expect(
+        row.mock.calls.filter(([entity, , mode]) => entity === 'issue' && mode === 'summary'),
+      ).toEqual([['issue', 'target', 'summary']])
       const repeated = await measure('shipping fallback repeat', () => {
         expect(pool.headerViews.shipping()).toEqual(counts(1, 1))
       })
@@ -142,7 +143,9 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       )
       expect(value).toEqual(counts(2, 0))
       const boundary = await measure('non-containing sibling path', () =>
-        pool.header.apply([{ kind: 'window', id: 'window', value: window('/shared-sibling/file') }]),
+        pool.header.apply([
+          { kind: 'window', id: 'window', value: window('/shared-sibling/file') },
+        ]),
       )
       expect(value).toEqual(counts(6, 4))
       const explicit = await measure('explicit issue beats path fallback', () =>
@@ -161,18 +164,36 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
           const candidate = pool.row('issue', id, 'summary') as
-            | { id: string; seq: number; worktreePath: string; archived?: boolean; deletedAt?: string }
+            | {
+                id: string
+                seq: number
+                worktreePath: string
+                archived?: boolean
+                deletedAt?: string
+              }
             | typeof LOADING
             | undefined
           if (
-            !candidate || candidate === LOADING || candidate.archived || candidate.deletedAt ||
+            !candidate ||
+            candidate === LOADING ||
+            candidate.archived ||
+            candidate.deletedAt ||
             !candidate.worktreePath ||
-            !('/shared/src/file' === candidate.worktreePath ||
-              '/shared/src/file'.startsWith(candidate.worktreePath.endsWith('/')
-                ? candidate.worktreePath : `${candidate.worktreePath}/`))
-          ) continue
-          if (!best || candidate.worktreePath.length > best.worktreePath.length ||
-            (candidate.worktreePath === best.worktreePath && candidate.seq < best.seq))
+            !(
+              '/shared/src/file' === candidate.worktreePath ||
+              '/shared/src/file'.startsWith(
+                candidate.worktreePath.endsWith('/')
+                  ? candidate.worktreePath
+                  : `${candidate.worktreePath}/`,
+              )
+            )
+          )
+            continue
+          if (
+            !best ||
+            candidate.worktreePath.length > best.worktreePath.length ||
+            (candidate.worktreePath === best.worktreePath && candidate.seq < best.seq)
+          )
             best = candidate
         }
         expect(best?.id).toBe('target')
@@ -182,8 +203,24 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       ).length
       samples.push({
         scale,
-        actions: { first, repeated, unrelated, peer, peerArchived, repo, rank, restored, moved,
-          returned, archived, readmitted, deleted, boundary, explicit, closed },
+        actions: {
+          first,
+          repeated,
+          unrelated,
+          peer,
+          peerArchived,
+          repo,
+          rank,
+          restored,
+          moved,
+          returned,
+          archived,
+          readmitted,
+          deleted,
+          boundary,
+          explicit,
+          closed,
+        },
         control,
         controlSummaries,
       })
@@ -195,7 +232,9 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
     }
   }
   console.info('[shipping fallback work1x4x]', JSON.stringify(samples))
-  for (const action of Object.keys(samples[0]!.actions) as (keyof (typeof samples)[number]['actions'])[])
+  for (const action of Object.keys(
+    samples[0]!.actions,
+  ) as (keyof (typeof samples)[number]['actions'])[])
     for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
       expect(samples[1]!.actions[action].work[counter], `${action}:${counter}`).toBe(
         samples[0]!.actions[action].work[counter],
@@ -228,9 +267,16 @@ it('uses cold containing-issue facts and follows addressed eligibility and repla
   try {
     expect(seen.at(-1)).toEqual(counts(1, 1))
     expect(pool.tables.issue.has('target')).toBe(false)
-    publish({ type: 'update', rows: [issue('target', 1, '/shared/src', {
-      stage: 'done', closedAt: stamp, repoId: 'ancestor',
-    })] })
+    publish({
+      type: 'update',
+      rows: [
+        issue('target', 1, '/shared/src', {
+          stage: 'done',
+          closedAt: stamp,
+          repoId: 'ancestor',
+        }),
+      ],
+    })
     expect(seen.at(-1)).toEqual(counts(3, 3))
     publish({ type: 'update', rows: [issue('target', 1, '/shared/src', { archived: true })] })
     expect(seen.at(-1)).toEqual(counts(2, 0))
