@@ -148,7 +148,7 @@ export function createIssueIdentities(
         affected.add(record.id)
       }
       // Complete composition before filing aliases, including on replacement.
-      for (const id of affected) setRepo(id, records.get(id)?.prefix ?? holders.get(id)?.prefix)
+      for (const id of affected) setRepo(id, records.has(id) ? records.get(id)?.prefix : holders.get(id)?.prefix)
       for (const record of event.rows) if (record.kind === 'issue') this.set(record.id, record.value as unknown as Row | undefined)
       return affected
     },

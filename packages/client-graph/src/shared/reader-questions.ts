@@ -460,6 +460,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
               ids.add(id); repoPaths.set(id, newPath); touch(`issueRepoPath:${newPath}`)
             } else repoPaths.delete(id)
           }
+          if (record.kind === 'worktree' && row && !Object.hasOwn(row, 'prefix')) continue
           const before = repoPrefixes.get(id), next = typeof row?.prefix === 'string' ? row.prefix : undefined
           if (before !== next) {
             if (before) { prefixRepos.get(before)?.delete(id); touch(`session:prefix:${before}`) }
