@@ -106,12 +106,16 @@ describe('pool screening incrementality', () => {
     issue({ id: asIssueId(`scale-${at}`), priority: 2, seq: at + 1 })
 
   /** Issue summary reads through the pool while `run` executes. */
-  function countSummaryReads(pool: MobxPool, run: () => void): number {
+  function countSummaryReads(pool: MobxPool, run: () => void): { reads: number; ids: string[] } {
     let reads = 0
+    const ids: string[] = []
     const raw = pool.row.bind(pool) as (...args: unknown[]) => unknown
     const spy = vi.spyOn(pool, 'row')
     spy.mockImplementation(((...args: unknown[]) => {
-      if (args[0] === 'issue' && args[2] === 'summary') reads++
+      if (args[0] === 'issue' && args[2] === 'summary') {
+        reads++
+        ids.push(args[1] as string)
+      }
       return raw(...args)
     }) as never)
     try {
@@ -119,7 +123,7 @@ describe('pool screening incrementality', () => {
     } finally {
       spy.mockRestore()
     }
-    return reads
+    return { reads, ids }
   }
 
   it('re-reads one summary on an unrelated proposal edit, flat at 1x/4x', () => {
@@ -150,7 +154,12 @@ describe('pool screening incrementality', () => {
           expect(next.booting).toBe(false)
           expect(next.queue).toEqual(first.queue)
         })
-        cells.push({ scale, proposals: count, summaryReads })
+        if (summaryReads.reads > 3) {
+          const hist = new Map<string, number>()
+          for (const id of summaryReads.ids) hist.set(id, (hist.get(id) ?? 0) + 1)
+          console.log('DEBUG reads:', summaryReads.reads, [...hist.entries()])
+        }
+        cells.push({ scale, proposals: count, summaryReads: summaryReads.reads })
       } finally {
         opened.dispose()
       }
@@ -174,7 +183,7 @@ describe('pool screening incrementality', () => {
         expect(first.queue[first.queue.length - 1]).toBe(opened.issues[0]!.id)
         const target = opened.issues[0]!
         let head = ''
-        const summaryReads = countSummaryReads(opened.pool, () => {
+        const measured = countSummaryReads(opened.pool, () => {
           opened.pool.apply({
             type: 'update',
             rows: [
@@ -190,7 +199,12 @@ describe('pool screening incrementality', () => {
           head = next.queue[0]!
           expect(head).toBe(target.id)
         })
-        cells.push({ scale, summaryReads, head })
+        if (measured.reads > 3) {
+          const hist = new Map<string, number>()
+          for (const id of measured.ids) hist.set(id, (hist.get(id) ?? 0) + 1)
+          console.log('DEBUG reads:', measured.reads, [...hist.entries()])
+        }
+        cells.push({ scale, summaryReads: measured.reads, head })
       } finally {
         opened.dispose()
       }

@@ -44,7 +44,8 @@ interface ScreeningEntry {
  * proposal change never re-reads this entry. */
 function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
   const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
-  if (row === LOADING || !row || !isScreenableRoot(row)) return row
+  if (row === LOADING) return LOADING
+  if (!row || !isScreenableRoot(row)) return undefined
   const seen = new Set<string>([row.id])
   let parentId = row.parentId,
     pending = false
