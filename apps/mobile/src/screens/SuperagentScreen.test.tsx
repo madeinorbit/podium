@@ -602,6 +602,8 @@ describe('SuperagentScreen chrome', () => {
     })
     expect(requestFrame).toHaveBeenCalledTimes(4)
     view.unmount()
+    // Provider teardown disposes its warm Conversation cache after React cleanup.
+    await frameAct(() => {})
     expect(cancelFrame).toHaveBeenCalledWith(4)
   })
 

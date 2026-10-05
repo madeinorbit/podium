@@ -131,10 +131,11 @@ function authority(initial?: TranscriptItem[]) {
 }
 
 let moveRow: (next: SessionView) => void = () => {}
+let setViewSession: (next: SessionView) => void = () => {}
 
 function Screen({ initial }: { initial: SessionView }) {
   const [session, setSession] = useState(initial)
-  moveRow = setSession
+  setViewSession = setSession
   return <SessionConversation session={session} issue={undefined} />
 }
 
@@ -150,10 +151,9 @@ async function mount(initial?: TranscriptItem[]) {
       },
     },
   })
-  const updateProps = moveRow
   moveRow = next => {
     view.replica.applyChanges('sessions', [next], [])
-    updateProps(next)
+    setViewSession(next)
   }
   await screen.findByText(initial?.at(-1)?.text ?? 'What is 7 times 7?')
   return io
