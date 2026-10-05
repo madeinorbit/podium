@@ -125,7 +125,7 @@ export class PoolSources {
   }
 
   view<T extends object>(key: string, create: () => T): T {
-    if (this.disposed) return create()
+    if (this.disposed) throw new Error('Pool source registry disposed before view creation')
     let value = this.views.get(key)
     if (!value) { value = create(); this.views.set(key, value) }
     return value as T

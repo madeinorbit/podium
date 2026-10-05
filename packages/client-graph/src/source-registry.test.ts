@@ -91,6 +91,13 @@ it('releases a subscribed class owner once when shared by a source and a screen 
   expect(observed).toEqual([1])
 })
 
+it('does not create a subscribed screen view after registry disposal', () => {
+  const registry = new PoolSources(), create = vi.fn(() => ({ dispose() {} }))
+  registry.dispose()
+  expect(() => registry.view('late screen', create)).toThrow('disposed before view creation')
+  expect(create).not.toHaveBeenCalled()
+})
+
 it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
   const custom = new SourceProbe<'sourceTypeProbe'>({ sourceTypeProbe: { count: 3 } })
