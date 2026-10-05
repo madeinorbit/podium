@@ -102,7 +102,7 @@ it('bounds conversation open, addressed edits and closed readers at 1x/4x, with 
       expect(records.records.map(row => row.id)).toEqual(['z-message', 'a-message'])
       expect(interactions).toMatchObject({ blocked: true, question: { id: 'z-ask' }, pending: 0 })
       expect(picked).toMatchObject({ question: { id: 'z-ask' }, loading: false })
-      expect(read.mock.calls.filter(([entity]) => entity === 'messageRecord' || entity === 'pendingInteraction')
+      expect(read.mock.calls.filter(([entity]) => String(entity) === 'messageRecord' || String(entity) === 'pendingInteraction')
         .every(([, id]) => ['z-message', 'a-message', 'z-ask', 'a-ask'].includes(id))).toBe(true)
       const otherMessage = live.writeMessage('other-message-0', { ...live.messages.get('other-message-0')!, body: 'Changed elsewhere' })
       const otherAsk = live.writeAsk('other-ask-0', { ...live.asks.get('other-ask-0')!, status: 'answered' })
@@ -112,7 +112,7 @@ it('bounds conversation open, addressed edits and closed readers at 1x/4x, with 
       const selected = await measureWork(async () => edit(), { pool: live.pool })
       expect(records.records[0]?.body).toBe('Changed here')
       expect(selected.work.derivations).toBe(1)
-      stop(); stop = undefined
+      stop?.(); stop = undefined
       const closedEdit = live.writeMessage('z-message', { ...live.messages.get('z-message')!, body: 'Changed closed' })
       const closed = await measureWork(async () => closedEdit(), { pool: live.pool })
       expect(compact(closed.work)).toMatchObject({ rows: 0, derivations: 0 })
@@ -162,8 +162,8 @@ it('bounds newest/count demand without reading ordinary history or non-newest pa
       const dismiss = f.writeMessage('z-message', { ...f.messages.get('z-message')!, status: 'confirmed' })
       const dismissWork = await measureWork(async () => dismiss(), { pool: f.pool })
       expect(current).toMatchObject({ count: 128 * scale + 1, notice: { messageId: 'a-message' } })
-      expect(reads.mock.calls.filter(([entity]) => entity === 'messageRecord').map(([, id]) => id)).toEqual(['z-message', 'a-message'])
-      expect(reads.mock.calls.some(([entity]) => entity === 'noticeMessageCatalog' || entity === 'noticeCatalog')).toBe(false)
+      expect(reads.mock.calls.filter(([entity]) => String(entity) === 'messageRecord').map(([, id]) => id)).toEqual(['z-message', 'a-message'])
+      expect(reads.mock.calls.some(([entity]) => String(entity) === 'noticeMessageCatalog' || String(entity) === 'noticeCatalog')).toBe(false)
       expect(f.source.counts).toMatchObject({ collectionReads: 2, attentionBuilds: 1, attentionUpdates: 1, catalogBuilds: 0, outboxReads: 0 })
       stop()
       expect(f.source.demand).toEqual({ keys: 0, catalog: false, attention: false, recovery: false })
