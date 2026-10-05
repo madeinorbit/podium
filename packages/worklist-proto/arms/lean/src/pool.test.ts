@@ -1,6 +1,6 @@
 import { fixedLocals } from '@podium/client-graph/shared/locals-source'
-import { autorun } from 'mobx'
-import { describe, expect, it } from 'vitest'
+import { autorun, observable } from 'mobx'
+import { describe, expect, it, vi } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture'
 import { startCensus } from '../../../harness/src/mobx-census'
@@ -24,6 +24,29 @@ function boot() {
 }
 
 describe('lean memory prototype', () => {
+  it('shares observed row computations independently of explicit mount membership', () => {
+    const { pool } = boot()
+    // Isolate row lifetime from the existing many-edge schema failure in filing.
+    const row = observable.box({ title: 'first' }, { deep: false })
+    vi.spyOn(pool.filing, 'get').mockImplementation(() => ({
+      order: ['one'], views: new Map([['one', row.get()]]),
+    }) as ReturnType<typeof pool.filing.get>)
+    const census = startCensus()
+    const value = pool.mountRow('one')
+    expect(value.get()).toEqual({ title: 'first' })
+    const count = () => census.snapshot().entries.filter(entry => entry.kind === 'computed').length
+    expect(count()).toBe(0)
+    const first = autorun(() => value.get()), second = autorun(() => value.get())
+    expect(count()).toBe(1)
+    first(); second()
+    expect(pool.mounted.size).toBe(1)
+    const again = autorun(() => value.get())
+    expect(count()).toBe(2)
+    again(); pool.unmountRow('one')
+    expect(pool.mounted.size).toBe(0)
+    census.stop(); pool.dispose()
+  })
+
   it('has one filing computed and creates row computeds only for mounted readers', () => {
     const census = startCensus()
     const { pool } = boot()
