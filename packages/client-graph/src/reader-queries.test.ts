@@ -333,8 +333,8 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
   {
     name: 'settings',
     read: (pool) => ({
-      setup: pool.settingsViews.setup(),
-      sessions: pool.settingsViews.sessions(),
+      setup: pool.settingsViews.setup(['/query']),
+      count: pool.settingsViews.sessionCount(),
     }),
   },
   { name: 'automation sessions', read: (pool) => automationViews(pool).session('cold-session-0') },

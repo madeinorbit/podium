@@ -498,8 +498,8 @@ async function measureScreenCells(
       ),
     }))
     add('settings', ['SettingsView', 'SettingsScreen', 'NewIssueScreen', 'WorkflowForm'], () => ({
-      setup: pool.settingsViews.setup(),
-      sessions: pool.settingsViews.sessions(),
+      setup: pool.settingsViews.setup(['/synthetic']),
+      count: pool.settingsViews.sessionCount(),
       present: pool.settingsViews.sessionPresent(SESSION),
     }))
     add('preferences', ['SettingsView', 'SettingsScreen', 'WorkScreen'], () =>
