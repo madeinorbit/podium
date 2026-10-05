@@ -582,6 +582,8 @@ class MissionNode {
 const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
 const catalogValue = cachedGroup('missionCatalog', (node: MissionNode) => node.view.readCatalogIssue(node.id))
 const rulesValue = cachedGroup('missionRules', (node: MissionNode) => node.view.readRulesIssue(node.id))
+const localTipsValue = cachedGroup('missionTips.local', (node: MissionNode) => node.view.readTips(node.id, true))
+const liveTipsValue = cachedGroup('missionTips.live', (node: MissionNode) => node.view.readTips(node.id, false))
 const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
 const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
 const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
@@ -1123,6 +1125,10 @@ export class MissionViewReader {
       .sort((a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)))[0]
   }
   tips(origin: string, local = false): IssueNavigationModel[] {
+    if (this.pool.graph.size('issue', origin, 'spinOffs') === 0) return []
+    return (local ? localTipsValue : liveTipsValue)(this.node(origin))
+  }
+  readTips(origin: string, local: boolean): IssueNavigationModel[] {
     const seen = new Set<string>(), descendants: IssueNavigationModel[] = []
     let pending = false
     const stack = [origin]
@@ -1132,13 +1138,17 @@ export class MissionViewReader {
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
+        // The relation preserves the legacy first discovered-from edge.
+        // Parenting is an ID question; it need not wait for rich issue rows.
+        if (this.pool.graph.one('issue', id, 'discoveredFrom') !== parentId) continue
         const visible = settled(() => this.facts(id).visible)
-        if (visible === LOADING) { pending = true; stack.push(id); continue }
-        if (!visible) continue
+        if (visible === false) continue
+        // Metadata, dependent-source fields and staffing are independent
+        // inputs for this same candidate. Request them in the same window.
         const issue = settled(() => this.rulesIssue(id))
-        if (issue === LOADING) { pending = true; stack.push(id); continue }
-        // Legacy's first discovered-from edge is the origin, not every edge.
-        if (!issue || originId(issue) !== parentId) continue
+        const live = local ? false : settled(() => this.live(id))
+        if (visible === LOADING || issue === LOADING || live === LOADING) { pending = true; stack.push(id); continue }
+        if (!issue) continue
         descendants.push(issue); stack.push(id)
       }
     }
@@ -1147,18 +1157,17 @@ export class MissionViewReader {
     const branches = new Map<string, IssueNavigationModel[]>()
     for (const issue of descendants) {
       if (!leftMission(issue) && (local || !this.live(issue.id))) continue
-      let branch = issue, parentId = originId(branch)
+      let branchId: string = issue.id, parentId = this.pool.graph.one('issue', issue.id, 'discoveredFrom')
       const path = new Set<string>([issue.id])
       while (parentId && parentId !== origin) {
         if (path.has(parentId)) { parentId = null; break }
         path.add(parentId)
-        const parent = this.rulesIssue(parentId)
-        if (!parent) break
-        branch = parent; parentId = originId(branch)
+        branchId = parentId
+        parentId = this.pool.graph.one('issue', parentId, 'discoveredFrom')
       }
       if (parentId !== origin) continue
-      const candidates = branches.get(branch.id) ?? []
-      candidates.push(issue); branches.set(branch.id, candidates)
+      const candidates = branches.get(branchId) ?? []
+      candidates.push(issue); branches.set(branchId, candidates)
     }
     return [...branches.values()].flatMap(candidates => {
       const tip = this.preferred(candidates, local)
