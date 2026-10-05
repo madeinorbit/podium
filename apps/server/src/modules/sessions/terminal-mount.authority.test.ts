@@ -30,7 +30,7 @@ import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { FitAddon } from '@xterm/addon-fit'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mountSession } from '@podium/terminal-client/session-mount'
+import { mountSession } from '@podium/terminal-client'
 
 const SESSION = asSessionId('s-authority')
 

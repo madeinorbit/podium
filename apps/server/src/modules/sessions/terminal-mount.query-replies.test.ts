@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionTerminal } from './terminal'
-import { mountSession, type MountedSession } from '@podium/terminal-client/session-mount'
+import { mountSession, type MountedSession } from '@podium/terminal-client'
 
 const SESSION = asSessionId('phone-query-replies')
 const cleanups: Array<() => void> = []
