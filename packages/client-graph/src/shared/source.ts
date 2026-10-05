@@ -62,14 +62,14 @@ export interface LocalsSource {
 
 /** One row in the kernel's per-row change stream (spec §2). */
 export interface RowRecord {
-  kind: 'issue' | 'session' | 'worktree'
+  kind: 'issue' | 'session' | 'worktree' | 'repo' | 'machine'
   id: string
   /**
    * The row value, or `undefined` when the row left the replica's scope.
    * Evict carries no tombstone: arms delete the row and every index bucket
    * holding it (spec §2, maintenance rule).
    */
-  value: SliceIssue | SliceSession | SliceWorktree | undefined
+  value: SliceIssue | SliceSession | SliceWorktree | Readonly<Record<string, unknown>> | undefined
 }
 
 /**

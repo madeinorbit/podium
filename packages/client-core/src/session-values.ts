@@ -39,10 +39,18 @@ export interface SessionHomes {
 
 /** Companions are authoritative, including on old, unparsed offline rows. */
 export function sessionValues(session: SessionValueInput, homes: SessionHomes = {}): SessionValues {
-  const borrowed = viewInputs.get(session)
-  if (borrowed && borrowed.session !== session)
-    return sessionValues(borrowed.session, { ...borrowed.homes, ...homes })
-  homes = { ...borrowed?.homes, ...homes }
+  if (arguments.length === 1) {
+    const joined = session as SessionValueInput & Partial<SessionValues>
+    return {
+      readAt: joined.readAt ?? null,
+      unread: joined.unread ?? activityAfterRead(joined.readAt ?? null, session.lastActiveAt ?? ''),
+      snoozedUntil: joined.snoozedUntil,
+      displayRef: joined.displayRef,
+      machineName: joined.machineName ?? '',
+      condition: joined.condition,
+      handoffTarget: joined.handoffTarget,
+    }
+  }
   const { userState, repo, machine, handoffMachine } = homes
   const readAt = userState?.readAt ?? null
   let displayRef: string | undefined
@@ -79,28 +87,12 @@ interface Memo {
 const views: Memo = { next: new WeakMap() }
 const MISSING = Object.freeze({})
 const LOADING = Object.freeze({})
-const viewInputs = new WeakMap<object, { session: SessionValueInput; homes: SessionHomes }>()
-
-/** Keep the homes of an existing view when optimism copies its own fields.
- * This metadata stays in memory; neither serialized caches nor raw rows gain it. */
-export function inheritSessionHomes<T extends object>(source: object, target: T): T {
-  const inputs = viewInputs.get(source)
-  if (inputs) viewInputs.set(target, { session: target as SessionValueInput, homes: inputs.homes })
-  return target
-}
-
 /** One frozen shallow read view per row and companion identity.
  * Personal companions include the optimistic paint before this join. */
 export function sessionView<T extends SessionValueInput>(
   session: T,
   homes: SessionHomes = {},
 ): T & SessionValues {
-  // Optimism may replace just the personal home of an existing read view.
-  // Rejoin its original inputs, never the computed cells or stale cache fields.
-  const borrowed = viewInputs.get(session)
-  if (borrowed && borrowed.session !== session)
-    return sessionView(borrowed.session, { ...borrowed.homes, ...homes }) as T & SessionValues
-  homes = { ...borrowed?.homes, ...homes }
   let memo = views
   for (const key of [
     session,
@@ -125,7 +117,6 @@ export function sessionView<T extends SessionValueInput>(
   const value = { ...session, ...values }
   Object.setPrototypeOf(value, Object.getPrototypeOf(session))
   memo.value = Object.freeze(value)
-  viewInputs.set(memo.value, { session, homes })
   return memo.value as T & SessionValues
 }
 

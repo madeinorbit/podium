@@ -13,7 +13,6 @@ export function issueInput(
   projection: Input | undefined,
   userState: Input | undefined,
   gitState: Input | undefined,
-  repo: Input | undefined,
   deps: readonly SliceDepEdge[],
   blocked: boolean,
   sessionFacts: SliceIssue['sessionFacts'],
@@ -24,7 +23,6 @@ export function issueInput(
     projection,
     userState ?? NONE,
     gitState ?? NONE,
-    repo ?? NONE,
     deps,
     sessionFacts ?? NONE,
   ]) {
@@ -45,7 +43,6 @@ export function issueInput(
     tuckedAt: userState?.tuckedAt ?? null,
     pinned: userState?.pinned ?? false,
     gitState: git,
-    repoPath: repo?.repoPath ?? '',
     deps,
     blocked,
     sessionFacts,

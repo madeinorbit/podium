@@ -55,7 +55,6 @@ import {
 } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
-import { inheritSessionHomes } from './session-values'
 
 const log = createLogger('client-core:overlay')
 
@@ -847,7 +846,7 @@ export function foldRowOverlays<T extends object>(
   const patches: OverlayPatch[] = []
   for (const o of overlays) if (o.op === 'patch') patches.push(o.patch)
   if (patches.length === 0) return row
-  const merged = inheritSessionHomes(row, Object.assign({}, row, ...patches)) as T
+  const merged = Object.assign({}, row, ...patches) as T
   if (movedAnyCell(row, merged, patches)) return merged
   // An absent row that the patches leave saying "nothing set" stays absent.
   return absent ? undefined : row
