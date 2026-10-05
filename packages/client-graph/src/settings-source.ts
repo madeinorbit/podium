@@ -1,6 +1,6 @@
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
 import {
-  compareStructural, observable, onBecomeObserved, onBecomeUnobserved,
+  _isComputingDerivation, compareStructural, observable, onBecomeObserved, onBecomeUnobserved,
   runInAction, type IObservableValue,
 } from 'mobx'
 import type { SettingsEntity, SettingsRows } from './settings-schema'
@@ -15,7 +15,6 @@ type Entry = {
   entity: SettingsEntity
   id: string
   value: IObservableValue<Reading>
-  loaded: boolean
   observed: boolean
   release: () => void
 }
@@ -35,11 +34,14 @@ export class SettingsSource {
 
   read(entity: SettingsEntity, id: string): Reading {
     if (this.disposed) return LOADING
+    // Imperative questions read the runtime's existing keyed inputs directly;
+    // only an observed question needs a stored source row and subscription.
+    if (!_isComputingDerivation()) return this.lookup(entity, id)
     const key = `${entity}:${id}`
     let entry = this.rows.get(key)
     if (!entry) {
       const value = observable.box<Reading>(LOADING, { deep: false, name: `settingsSource.${key}` })
-      entry = { entity, id, value, loaded: false, observed: false, release: () => {} }
+      entry = { entity, id, value, observed: false, release: () => {} }
       const current = entry
       onBecomeObserved(value, () => {
         current.observed = true
@@ -49,17 +51,14 @@ export class SettingsSource {
         current.observed = false
         current.release()
         current.release = () => {}
-        if (this.rows.get(key) === current) this.rows.delete(key)
-        this.pending.delete(key)
+        if (this.rows.get(key) === current) {
+          this.rows.delete(key)
+          this.pending.delete(key)
+        }
       })
       this.rows.set(key, entry)
       this.pending.add(key)
       this.schedule()
-    } else if (entry.loaded && !entry.observed) {
-      // An imperative question has no subscriber to keep its value current.
-      // Read that address again, rather than subscribing an invisible row.
-      const current = entry
-      runInAction(() => this.load(current))
     }
     return entry.value.get()
   }
@@ -116,20 +115,22 @@ export class SettingsSource {
     if (this.pending.size) this.schedule()
   }
 
-  private load(entry: Entry): void {
-    let next: Reading
-    switch (entry.entity) {
-      case 'settingsMachine': next = this.owner.listRow('machines', entry.id); break
-      case 'settingsRepository': next = this.owner.listRow('repos', entry.id); break
-      case 'settingsCatalog': next = entry.id === 'catalog'
+  private lookup(entity: SettingsEntity, id: string): Reading {
+    switch (entity) {
+      case 'settingsMachine': return this.owner.listRow('machines', id)
+      case 'settingsRepository': return this.owner.listRow('repos', id)
+      case 'settingsCatalog': return id === 'catalog'
         ? { machines: this.owner.listIds('machines'), repositories: this.owner.listIds('repos') }
-        : undefined; break
-      case 'settingsWindow': next = entry.id === 'window'
+        : undefined
+      case 'settingsWindow': return id === 'window'
         ? { settingsTab: this.owner.readLocal('settingsTab') }
-        : undefined; break
+        : undefined
     }
+  }
+
+  private load(entry: Entry): void {
+    const next = this.lookup(entry.entity, entry.id)
     if (!compareStructural(entry.value.get(), next)) entry.value.set(next)
-    entry.loaded = true
   }
 
   private schedule(): void {

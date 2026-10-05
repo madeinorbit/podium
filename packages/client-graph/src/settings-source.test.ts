@@ -19,7 +19,7 @@ it('reads only changed settings keys and no list membership on scalar updates at
       onList: (name: string, changed: (change: KeyedListChange) => void) => { lists.set(name, changed); return () => { lists.delete(name) } },
       onLocals: (_keys: readonly string[], changed: typeof local) => { local = changed; return () => {} },
     } as unknown as SettingsOwner)
-    let stop = () => {}, stopCatalog = () => {}, stopWindow = () => {}, paints = 0
+    let stop = () => {}, stopCatalog = () => {}, stopWindow = () => {}, paints = 0, catalogValue: unknown
     const read = () => source.read('settingsMachine', 'm0')
     const measure = (name: string, action: () => void) => measureWork(async () => {
       insideReader(name, action)
@@ -27,13 +27,11 @@ it('reads only changed settings keys and no list membership on scalar updates at
     })
     try {
       // Explicitly requested rows install together, outside the update guard.
-      expect(read()).toBe(LOADING)
-      await Promise.resolve()
       stop = autorun(() => { read(); paints++ })
-      stopCatalog = autorun(() => { source.read('settingsCatalog', 'catalog') })
+      stopCatalog = autorun(() => { catalogValue = source.read('settingsCatalog', 'catalog') })
       stopWindow = autorun(() => { source.read('settingsWindow', 'window') })
       await Promise.resolve()
-      const catalog = source.read('settingsCatalog', 'catalog')
+      const catalog = catalogValue
       ids.mockClear(); row.mockClear(); paints = 0
       const changed = await measure('settings changed machine', () => {
         machines.set('m0', { id: 'm0', name: 'Renamed' })
@@ -43,7 +41,7 @@ it('reads only changed settings keys and no list membership on scalar updates at
       expect(ids).not.toHaveBeenCalled()
       expect(paints).toBe(1)
       expect(read()).toMatchObject({ name: 'Renamed' })
-      expect(source.read('settingsCatalog', 'catalog')).toBe(catalog)
+      expect(catalogValue).toBe(catalog)
       row.mockClear(); paints = 0
       const unrelated = await measure('settings unrelated machine', () => {
         machines.set('m1', { id: 'm1', name: 'Other renamed' })
@@ -70,7 +68,6 @@ it('reads only changed settings keys and no list membership on scalar updates at
       // keyed removal; they are distinct from a single-row scalar update.
       machines.delete('m0')
       lists.get('machines')!({ ids: new Set(['m0']), order: true })
-      expect(read()).toBe(LOADING)
       await Promise.resolve()
       expect(read()).toBeUndefined()
       const next = source.read('settingsCatalog', 'catalog')

@@ -1,4 +1,5 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
@@ -85,16 +86,21 @@ describe('declared settings readers', () => {
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
     const { pool, read, publish } = fixture()
-    expect(pool.row('settingsCatalog', 'catalog')).toBe(LOADING)
-    expect(pool.row('settingsWindow', 'window')).toBe(LOADING)
-    expect(pool.row('settingsMachine', 'host')).toBe(LOADING)
+    const initial: Record<string, unknown> = {}
+    const initialStop = autorun(() => {
+      initial.catalog = pool.row('settingsCatalog', 'catalog')
+      initial.window = pool.row('settingsWindow', 'window')
+      initial.machine = pool.row('settingsMachine', 'host')
+    })
+    disposals.push(initialStop)
+    expect(initial.catalog).toBe(LOADING)
+    expect(initial.window).toBe(LOADING)
+    expect(initial.machine).toBe(LOADING)
     expect(read).not.toHaveBeenCalled()
     await Promise.resolve()
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
     expect(pool.row('settingsWindow', 'window')).toEqual({ settingsTab: 'accounts' })
-    expect(pool.row('settingsMachine', 'missing')).toBe(LOADING)
-    await Promise.resolve()
     expect(pool.row('settingsMachine', 'missing')).toBeUndefined()
     const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))
     const wake = vi.fn(), stop = view.subscribe(wake)

@@ -54,6 +54,36 @@ function flat(first: Record<string, Step>, second: typeof first) {
   }
 }
 
+it('answers imperative settings questions directly without subscribing or warming catalogs at 1x/4x', async () => {
+  const samples = []
+  for (const scale of [1, 4] as const) {
+    const f = fixture(scale)
+    try {
+      const machine = await f.measure('imperative named machine', () => {
+        expect(f.source.read('settingsMachine', 'm0')).toMatchObject({ name: 'Machine 0' })
+      })
+      expect(machine).toMatchObject({ ids: 0, rows: 1, locals: 0 })
+      const repository = await f.measure('imperative named repository', () => {
+        expect(f.source.read('settingsRepository', 'r0')).toMatchObject({ path: '/repo/0' })
+      })
+      expect(repository).toMatchObject({ ids: 0, rows: 1, locals: 0 })
+      const window = await f.measure('imperative settings tab', () => {
+        expect(f.source.read('settingsWindow', 'window')).toEqual({ settingsTab: 'sessions' })
+      })
+      expect(window).toMatchObject({ ids: 0, rows: 0, locals: 1 })
+      expect(f.lists.size).toBe(0)
+      expect(f.locals.size).toBe(0)
+      const idle = await f.measure('after imperative questions', () => {
+        f.emit('machines', 'm0'); f.emit('repos', 'r0'); f.tab('updates')
+      })
+      expect(idle).toMatchObject({ ids: 0, rows: 0, locals: 0 })
+      samples.push({ scale, actions: { machine, repository, window, idle } })
+    } finally { f.source.dispose(); await Promise.resolve() }
+  }
+  console.info('[settings imperative first demand work1x4x]', JSON.stringify(samples))
+  flat(samples[0]!.actions, samples[1]!.actions)
+})
+
 it('loads only the settings window from first demand and does no work while closed at 1x/4x', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
@@ -68,7 +98,9 @@ it('loads only the settings window from first demand and does no work while clos
       expect(value).toEqual({ settingsTab: 'sessions' })
       expect(first).toMatchObject({ ids: 0, rows: 0, locals: 1 })
       expect(f.lists.size).toBe(0)
-      const repeat = await f.measure('repeat settings tab', () => { f.source.read('settingsWindow', 'window') })
+      const repeat = await f.measure('repeat settings tab', () => {
+        const current = autorun(() => f.source.read('settingsWindow', 'window')); current()
+      })
       expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 0 })
       const changed = await f.measure('settings tab changed', () => f.tab('updates'))
       expect(value).toEqual({ settingsTab: 'updates' })
@@ -99,7 +131,9 @@ it('loads one declared machine or repository and follows only observed keys at 1
       expect(first).toMatchObject({ ids: 0, rows: 1, locals: 0 })
       expect(f.row.mock.calls).toEqual([['machines', 'm0']])
       expect([...f.lists.keys()]).toEqual(['machines'])
-      const repeat = await f.measure('repeat named settings machine', () => { f.source.read('settingsMachine', 'm0') })
+      const repeat = await f.measure('repeat named settings machine', () => {
+        const current = autorun(() => f.source.read('settingsMachine', 'm0')); current()
+      })
       expect(repeat).toMatchObject({ ids: 0, rows: 0, locals: 0 })
       const changed = await f.measure('observed settings machine changed', () => {
         f.machines.set('m0', { ...f.machines.get('m0')!, name: 'Renamed' })
