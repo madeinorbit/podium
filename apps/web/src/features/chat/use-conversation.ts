@@ -7,7 +7,7 @@ import { useStoreHandle, useConversation as useOwnedConversation } from '@podium
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { asMutationId, asSessionId, HarnessAgent, isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
+import { asMutationId, asSessionId, HarnessAgent, isMachineOfflineForLiveTerminal, type MachineWire, type SessionId } from '@podium/model/browser'
 import { action, actionBound, compareShallow, computed, makeObservable, observable, observableRef, reaction, runInAction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -58,7 +58,7 @@ export class WebConversation extends Conversation {
     presentation.bind(this.transcript)
     if (!options.headless) this.stopPresence = reaction(() => {
       const machineId = this.session?.machineId
-      const machine = machineId ? loaded(pool.row('machine', machineId)) : undefined
+      const machine = machineId ? loaded(pool.row('machine', machineId)) as MachineWire | undefined : undefined
       return machine ? isMachineOfflineForLiveTerminal(machine) : undefined
     }, (offline, previous) => {
       if (offline === false && previous === true) void this.transcript.refresh({ disclose: true }).catch(() => {})
