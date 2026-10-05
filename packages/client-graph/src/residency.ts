@@ -74,6 +74,9 @@ import {
 } from './shared/schema'
 import { drop, type IngestOut, type IngestTarget, put, type StoredRow } from './tables'
 
+// Public tracking admission, with no per-id atom for imperative cold probes.
+const trackedRead = createAtom('residency.trackedRead')
+
 /** The kinds the feed can read by id (`RowSource.row`). */
 export type LoadableEntity = 'issue' | 'session'
 
@@ -255,7 +258,7 @@ export class Residency {
    * partition check). Never every cold row: the index holds those.
    */
   ids(entity: EntityName, tracked = false): readonly string[] {
-    if (tracked) {
+    if (tracked && trackedRead.reportObserved()) {
       let atom = this.idAtoms.get(entity)
       let fresh = false
       if (!atom) {
@@ -699,7 +702,7 @@ export class Residency {
 
   /** Make "is `id` cold" a tracked read: an atom for this id, on first question. */
   private observe(entity: EntityName, id: string): void {
-    // Public reportObserved admits only tracked demand to the registry.
+    if (!trackedRead.reportObserved()) return
     const key = `${entity}:${id}`
     let atom = this.atoms.get(key)
     let fresh = false

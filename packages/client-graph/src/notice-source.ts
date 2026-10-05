@@ -16,6 +16,7 @@ interface Recovery { ids: readonly string[]; rows: Map<string, OutboxDeadLetterE
 const RECORD_KINDS = { messageRecord: 'messageRecords', pendingInteraction: 'pendingInteractions' } as const
 const CATALOG = 'noticeCatalog:catalog', ATTENTION = 'noticeAttention:attention'
 const MESSAGES = 'noticeMessageCatalog:catalog', RECOVERY = 'noticeRecoveryCatalog:catalog'
+const trackedRead = createAtom('notices.trackedRead')
 
 // Reverse the timestamp key for the existing ascending identity tree. The end
 // marker reverses prefix order too. Equal timestamps retain ID order.
@@ -112,6 +113,7 @@ export class NoticeSource {
   }
 
   private watch(entity: NoticeEntity, id: string): boolean {
+    if (!trackedRead.reportObserved()) return false
     const key = `${entity}:${id}`
     let atom = this.watched.get(key)
     if (!atom) {

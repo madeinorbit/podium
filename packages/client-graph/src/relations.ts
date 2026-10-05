@@ -72,6 +72,9 @@ export interface PoolRelationsOptions {
 }
 
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
+// This constant atom admits tracked reads without allocating a slot for an
+// imperative maintenance probe. It never changes; the slot owns invalidation.
+const trackedRead = createAtom('relations.trackedRead')
 
 /** A slot's members, tracked when read: iterating one observes its atom. */
 class TrackedIds implements Iterable<string> {
@@ -249,6 +252,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /** Make a slot read tracked: an atom for this slot, on the first read inside a derivation. */
   private observe(key: string): void {
+    if (!trackedRead.reportObserved()) return
     let atom = this.atoms.get(key)
     let fresh = false
     if (atom === undefined) {

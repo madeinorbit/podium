@@ -7,13 +7,19 @@ export interface KeyedComputedOptions<K, V> {
   requiresReaction?: boolean
 }
 
+export type KeyedComputed<K, V, A extends unknown[] = []> = ((key: K, ...args: A) => V) & {
+  clear(): void
+  keys(): IterableIterator<K>
+  readonly size: number
+}
+
 /** Like mobx-utils computedFn, with one identity key. Equal keys must mean
  * equal computations, including any extra arguments captured on the first read. */
 export function keyedComputed<K, V, A extends unknown[] = []>(
   name: string | ((key: K) => string | undefined),
   fn: (key: K, ...args: A) => V,
   { equals = compareDefault, context, requiresReaction = false }: KeyedComputedOptions<K, V> = {},
-): ((key: K, ...args: A) => V) & { clear(): void } {
+): KeyedComputed<K, V, A> {
   const cache = new Map<K, IComputedValue<V>>()
   const read = (key: K, ...args: A): V => {
     const cached = cache.get(key)
@@ -35,5 +41,7 @@ export function keyedComputed<K, V, A extends unknown[] = []>(
     })
     return value.get()
   }
-  return Object.assign(read, { clear: () => cache.clear() })
+  return Object.defineProperty(Object.assign(read, {
+    clear: () => cache.clear(), keys: () => cache.keys(),
+  }), 'size', { get: () => cache.size }) as KeyedComputed<K, V, A>
 }

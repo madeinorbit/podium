@@ -11,6 +11,7 @@ per argument key, shared while observed and released when its last observer
 leaves. An untracked read computes directly and creates no cache entry. Keys
 use identity; extra arguments must describe the same computation for the same
 key. `clear()` drops the registry, including during owner disposal.
+`keys()` and `size` expose the current observed registry for diagnostics.
 
 Result comparison defaults to `compareDefault` (identity, MobX 7’s name for `comparer.default`), never structural.
 Pass `equals` explicitly only where the caller needs a different comparison.

@@ -5,6 +5,8 @@ import type { MobxPool } from './pool'
 import type { PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
+const trackedRead = createAtom('issueExit.trackedRead')
+
 /** Borrow the kernel's canonical exit evidence on demand. No exit ledger,
  * entity cache or mutation owner is copied into this source.
  *
@@ -29,7 +31,7 @@ export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Rep
     counts,
     read(_entity, id): Loaded<IssuePageSourceRows['issueExit']> {
       if (disposed) return LOADING
-      {
+      if (trackedRead.reportObserved()) {
         const known = demanded.get(id)
         const atom: IAtom = known ?? createAtom(`issueExit:${id}`, undefined, () => {
           if (demanded.get(id) === atom) demanded.delete(id)

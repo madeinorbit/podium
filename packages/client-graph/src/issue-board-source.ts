@@ -905,7 +905,7 @@ export function createIssueBoardSource(
     stats: () => ({
       residentRows: stops.size,
       demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length,
-      cached: cache.size,
+      cached: cache.size + placements.size,
     }),
   }
 }

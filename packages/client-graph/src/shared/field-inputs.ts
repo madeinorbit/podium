@@ -1,5 +1,7 @@
 import { createAtom, type IAtom } from 'mobx'
 
+const trackedRead = createAtom('fieldInputs.trackedRead')
+
 /** A stable, frozen read facade over keyed inputs. Reading a field subscribes
  * only to that field; publication never compares or traverses another value.
  * Owned atoms exist only while a derivation observes the field. An owner can
@@ -23,9 +25,12 @@ export function createFieldInputs<T extends object>(
           {
             enumerable: true,
             get() {
-              const atom = atoms.get(key) ?? borrowAtom?.(key) ??
-                createAtom(`${name}:${String(key)}`, undefined, () => { atoms.delete(key) })
-              if (atom.reportObserved()) atoms.set(key, atom)
+              if (trackedRead.reportObserved()) {
+                const atom = atoms.get(key) ?? borrowAtom?.(key) ??
+                  createAtom(`${name}:${String(key)}`, undefined, () => { atoms.delete(key) })
+                atoms.set(key, atom)
+                atom.reportObserved()
+              }
               return valueAt(key)
             },
           },

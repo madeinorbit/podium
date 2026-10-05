@@ -3,6 +3,8 @@ import { createAtom, type IAtom, runInAction } from 'mobx'
 import { declarePreference, type PreferenceRow } from './preference-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
+const trackedRead = createAtom('preference.trackedRead')
+
 /** Read-only pool storage. Only MobxPool.row calls read; the runtime's routed UI
  * port retains hydration, optimism, rollback, rescope and write ownership. */
 export class PreferenceSource {
@@ -32,16 +34,19 @@ export class PreferenceSource {
     if (this.disposed) return LOADING
     // Validate the routing home before either observing or reading the owner.
     if (!this.homes.has(key)) this.homes.set(key, declarePreference(key))
-    let atom = this.atoms.get(key)
-    if (!atom) {
-      atom = createAtom(`preference:${key}`, undefined, () => {
-        this.atoms.delete(key)
-        this.rows.delete(key)
-        this.homes.delete(key)
-        this.pending.delete(key)
-      })
+    if (trackedRead.reportObserved()) {
+      let atom = this.atoms.get(key)
+      if (!atom) {
+        atom = createAtom(`preference:${key}`, undefined, () => {
+          this.atoms.delete(key)
+          this.rows.delete(key)
+          this.homes.delete(key)
+          this.pending.delete(key)
+        })
+        this.atoms.set(key, atom)
+      }
+      atom.reportObserved()
     }
-    if (atom.reportObserved()) this.atoms.set(key, atom)
     const row = this.rows.get(key)
     if (row !== undefined) return row
     this.pending.add(key)
