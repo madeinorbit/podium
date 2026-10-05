@@ -1,7 +1,6 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { beginSidebarCheck } from '@podium/client-core/perf'
 import { runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { checkHeader } from './header-check'
@@ -16,7 +15,6 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
   report({ state: 'waiting', checks, differences: 0 })
   const timer = setInterval(() => {
     if (disposed) return
-    const finish = beginSidebarCheck(runtime)
     try {
       const result = runInAction(() => checkHeader(pool, referenceState(runtime), {
         metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.header.received.quotas,
@@ -28,7 +26,6 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
         differences: result.differences, pending: result.pending,
         first: result.first ? { sectionIndex: result.first.sectionIndex, field: result.first.field } : null })
     } catch { report({ state: 'error', checks, differences: 0 }) }
-    finally { finish() }
   }, intervalMs)
   return () => { if (!disposed) { disposed = true; clearInterval(timer); report({ state: 'off', checks, differences: 0 }) } }
 }

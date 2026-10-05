@@ -1,10 +1,10 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asIssueId, asUserId } from '@podium/model/browser'
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
@@ -13,14 +13,8 @@ import {
   useWorklistPool,
   worklistPoolSurvivors,
 } from '../src/app/store-worklist-pool'
-import { SidebarPerfPanel } from '../src/features/worklist/SidebarPerfPanel'
 import { SidebarRail } from '../src/features/worklist/SidebarRail'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
-import {
-  bindSidebarRowMeasurements,
-  createPaintBoundary,
-  observeSidebarInputs,
-} from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
@@ -39,30 +33,6 @@ let toggleRail: ((value: boolean) => void) | undefined
 let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
 const failures: string[] = []
 const root = createRoot(document.getElementById('root')!)
-let proofPerf: ReturnType<typeof createSidebarPerf> | undefined
-
-/** The product panel disables store-stats in pool mode. The regression owns
- * its instrumentation so an accidental legacy reader cannot hide behind that. */
-function WorklistProofMeasurements() {
-  const owner = useStoreHandle()
-  const [perf] = useState(() => createSidebarPerf())
-  useLayoutEffect(() => {
-    perf.reset()
-    proofPerf = perf
-    const paint = createPaintBoundary()
-    const unbind = bindSidebarPerf(owner, perf, paint.afterPaint)
-    const unbindRows = bindSidebarRowMeasurements({ owner, perf })
-    const stopInput = observeSidebarInputs(perf, paint.afterPaint)
-    return () => {
-      stopInput()
-      unbindRows()
-      unbind()
-      paint.dispose()
-      if (proofPerf === perf) proofPerf = undefined
-    }
-  }, [owner, perf])
-  return null
-}
 
 function Fixture() {
   const [rail, setRail] = useState(false)
@@ -95,14 +65,7 @@ function Fixture() {
         {rail ? <SidebarRail /> : <SidebarUnified />}
       </aside>
       <div className="p-6 text-sm text-text-dim">Synthetic StoreProvider fixture · {'pool'}</div>
-      {worklistProof ? (
-        <>
-          <CommandPaletteBoundary />
-          <WorklistProofMeasurements />
-        </>
-      ) : (
-        <SidebarPerfPanel />
-      )}
+      {worklistProof && <CommandPaletteBoundary />}
     </main>
   )
 }
@@ -152,7 +115,6 @@ const fixture = {
     dropped: number
     runtimes: Array<{ publishes: number; slices: Record<string, number> }>
   } => storeStats.snapshot(),
-  perf: () => proofPerf?.read() ?? globalThis.__podiumSidebarPerf?.read(),
   survivors: worklistPoolSurvivors,
 }
 Object.assign(window, { __sidebarRenderer: fixture })

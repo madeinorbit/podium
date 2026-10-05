@@ -11,10 +11,7 @@ const targetSeq = String(1000 + count - 1)
 const out = resolve(`.artifacts/sidebar-renderer/${count}`)
 await mkdir(out, { recursive: true })
 const origin = 'http://127.0.0.1:41655'
-const requireCheck = process.argv.includes('--check-s5')
 const worklistProof = process.argv.includes('--no-legacy-worklist')
-if (worklistProof && requireCheck)
-  throw new Error('The legacy comparison diagnostic must be off for the no-derivation proof')
 const server = Bun.spawn(
   [
     'timeout',
@@ -123,7 +120,7 @@ try {
         console.error(response.status(), response.url(), (await response.text()).slice(0, 4000))
     })
     await page.goto(
-      `${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}&perfPanel=1${worklistProof ? '&worklistProof=1' : ''}${requireCheck && mode === 'pool' ? '&mobxSidebarCheck=1' : ''}`,
+      `${origin}/test/sidebar-renderer.browser.html?rows=${count}&mobxSidebar=${mode === 'pool' ? 1 : 0}${worklistProof ? '&worklistProof=1' : ''}`,
       { timeout: 60000, waitUntil: 'networkidle' },
     )
     await page
@@ -155,13 +152,6 @@ try {
     )
     await page.evaluate(() => document.fonts.ready)
     await checkpoint('bootstrap')
-    if (requireCheck && mode === 'pool')
-      await page.waitForFunction(
-        () => globalThis.__podiumSidebarPerf?.read().check.state === 'match',
-        null,
-        { timeout: 30000 },
-      )
-    const check = await page.evaluate(() => window.__sidebarRenderer.perf()?.check)
     const initial = await readPaint(page)
     await page.screenshot({ path: `${out}/${mode}.png`, fullPage: true })
     await page.getByText('Only responsive target', { exact: true }).click()
@@ -176,7 +166,6 @@ try {
         ),
     )
     const navigation = await page.evaluate(() => window.__sidebarRenderer.state())
-    const click = await page.evaluate(() => window.__sidebarRenderer.perf()?.input)
     await checkpoint('issue selection')
     await page.getByTestId('snoozed-fold-toggle').click()
     await page.getByTestId('closed-fold-toggle').click()
@@ -211,7 +200,6 @@ try {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     )
-    const update = await page.evaluate(() => window.__sidebarRenderer.perf()?.lastUpdate)
     await checkpoint('incoming update', true)
     const updated = await readPaint(page)
     if (worklistProof) {
@@ -335,11 +323,8 @@ try {
       initial,
       navigation,
       guestNavigation,
-      click,
-      check,
       folded,
       filter,
-      update,
       updated,
       rail,
       builds,
@@ -354,7 +339,6 @@ try {
     filter: unknown
     updated: unknown
     rail: unknown
-    update: { work: { rows: number } }
   }
   const pool = results['pool'] as typeof legacy
   for (const field of ['initial', 'folded', 'filter', 'updated', 'rail'] as const)
@@ -370,8 +354,6 @@ try {
     legacy.guestNavigation.pane !== pool.guestNavigation.pane
   )
     throw new Error('Guest navigation differs')
-  if ((pool.update?.work.rows ?? Infinity) > (legacy.update?.work.rows ?? 0))
-    throw new Error('Pool row commits exceed legacy')
   await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2))
   console.log(`Sidebar browser parity green; evidence ${out}`)
   if (worklistProof)

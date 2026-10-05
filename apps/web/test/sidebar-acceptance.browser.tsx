@@ -2,7 +2,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
-import { bindSidebarPerf, createSidebarPerf, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle, useRuntimeSelector } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -15,7 +15,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import type { EntityRecord } from '@podium/sync/replica'
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 
@@ -38,10 +38,6 @@ import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { IssuePage } from '../src/features/issues/IssuePage'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
-import {
-  bindSidebarRowMeasurements,
-  createPaintBoundary,
-} from '../src/features/worklist/sidebar-measurements'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { seedAcceptanceCache } from './sidebar-acceptance-seed'
 import '../src/index.css'
@@ -114,7 +110,6 @@ const root = createRoot(document.getElementById('root')!)
 
 type Interval = { start: number; end: number; kind: string; derivations?: number; rows?: number }
 type CaptureStats = ReturnType<typeof storeStats.snapshot>
-type PanelSnapshot = ReturnType<ReturnType<typeof createSidebarPerf>['read']>
 let active = false
 let intervals: Interval[] = []
 if (measured)
@@ -124,7 +119,6 @@ if (measured)
       record: (interval: Interval) => intervals.push(interval),
     },
   })
-let perf: ReturnType<typeof createSidebarPerf> | undefined
 const patched = new WeakSet<object>()
 function patchBoundary(object: object, key: string, kind: string) {
   const obj = object as Record<string, (...args: unknown[]) => unknown>
@@ -176,40 +170,6 @@ async function assemble(name: string) {
 }
 
 function MeasurementBinding() {
-  const runtime = useStoreHandle()
-  const [meter] = useState(() => createSidebarPerf())
-  useLayoutEffect(() => {
-    perf = meter
-    const record = meter.record
-    meter.record = (work) => {
-      if (active && work.start !== undefined && work.end !== undefined)
-        intervals.push({
-          start: work.start,
-          end: work.end,
-          kind: work.rows
-            ? 'sidebar row render'
-            : work.derivations
-              ? 'sidebar derivation'
-              : 'state delivery/selector',
-          derivations: work.derivations ?? 0,
-          rows: work.rows ?? 0,
-        })
-      record(work)
-    }
-    const paint = createPaintBoundary()
-    const unbind = bindSidebarPerf(runtime, meter, paint.afterPaint)
-    const unbindRows = bindSidebarRowMeasurements({
-      owner: runtime,
-      perf: meter,
-    })
-    return () => {
-      unbindRows()
-      unbind()
-      paint.dispose()
-      meter.record = record
-      if (perf === meter) perf = undefined
-    }
-  }, [runtime, meter])
   return null
 }
 
@@ -388,18 +348,15 @@ const fixture = {
   settled: () => database.settled(),
   begin() {
     storeStats.reset()
-    const poolReport = perf?.read().pool
-    perf?.reset()
-    if (poolReport) perf?.pool(poolReport.connected, poolReport.rows)
     intervals = []
     active = true
   },
-  stop(): { intervals: Interval[]; stats: CaptureStats; panel: PanelSnapshot | undefined } {
+  stop(): { intervals: Interval[]; stats: CaptureStats; panel: undefined } {
     active = false
-    return { intervals, stats: storeStats.snapshot(), panel: perf?.read() }
+    return { intervals, stats: storeStats.snapshot(), panel: undefined }
   },
   stats: (): CaptureStats => storeStats.snapshot(),
-  perf: () => perf?.read(),
+  perf: () => undefined,
   state: () => ({
     switches: startupSwitches,
     selected: owner?.access.selectedIssueId,

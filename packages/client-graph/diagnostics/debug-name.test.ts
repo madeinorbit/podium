@@ -31,20 +31,20 @@ describe('pool diagnostic names', () => {
     expect(debugName(() => 'IssueModel@I1.facts')).toBe('IssueModel@I1.facts')
   })
 
-  it.each(['?perfPanel=1', '?mobxSidebarCheck=1'])('keeps production names with %s', async (search) => {
+  it.each(['?mobxSidebarCheck=1'])('keeps production names with %s', async (search) => {
     const { debugName } = await names({ search })
     expect(debugName(() => 'pool.file.I1')).toBe('pool.file.I1')
   })
 
-  it.each(['?perfPanel=0&mobxSidebarCheck=0', '?mobxSidebar=1'])('omits names with %s', async (search) => {
+  it.each(['?mobxSidebarCheck=0', '?mobxSidebar=1'])('omits names with %s', async (search) => {
     const { debugName } = await names({ search })
     expect(debugName(() => 'pool.file.I1')).toBeUndefined()
   })
 
   it('reads diagnostic flags once at startup', async () => {
     const { debugName } = await names()
-    vi.stubGlobal('location', { search: '?perfPanel=1' })
-    expect(debugName(() => 'pool.file.I1')).toBeUndefined()
+    vi.stubGlobal('location', { search: '?mobxSidebarCheck=1' })
+    expect(debugName(() => 'pool.file.I1')).toBe('pool.file.I1')
   })
 
   it('lets memory tools opt in before constructing the pool', async () => {

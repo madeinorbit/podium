@@ -34,7 +34,6 @@ import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
-import { SidebarPerfPanel } from '@/features/worklist/SidebarPerfPanel'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   COLUMN_FOLD_EASE,
@@ -917,7 +916,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
           It also keeps tracking the shell's target while closed. */}
       <IssueExplorerProvider>
         {menuHost}
-        <SidebarPerfPanel />
         <DockShellLifecycle />
         <div
           className="desktop-shell issue-scope"

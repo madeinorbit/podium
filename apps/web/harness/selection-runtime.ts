@@ -91,7 +91,7 @@ try {
         }).observe(document, { childList: true, subtree: true, attributes: true })
         Object.assign(window, { __selectionCapture: capture })
       })
-      await page.goto(`http://127.0.0.1:41659/test/sidebar-acceptance.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&scale=${scale === '4x' ? 4 : 1}&surface=sidebar&measure=1&perfPanel=1&panelMode=chat`)
+      await page.goto(`http://127.0.0.1:41659/test/sidebar-acceptance.browser.html?mobxSidebar=${mode === 'pool' ? 1 : 0}&scale=${scale === '4x' ? 4 : 1}&surface=sidebar&measure=1&panelMode=chat`)
       await page.waitForFunction(() => window.__acceptance?.ready() && document.querySelector('[data-issue-row]'))
       await page.evaluate(() => document.fonts.ready)
       await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))))

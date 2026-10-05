@@ -1,6 +1,5 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { beginSidebarCheck } from '@podium/client-core/perf'
 import { runInAction } from 'mobx'
 import type { MobxPool } from '../src/pool'
 import { checkMissionViewFromStore } from './mission-view-check'
@@ -20,9 +19,7 @@ export function installMissionViewCheck(runtime: ClientRuntime, pool: MobxPool):
     if (disposed) return
     const delay = quietUntil - performance.now()
     if (delay > 0) { timer = setTimeout(check, delay); return }
-    const end = beginSidebarCheck(runtime)
-    try { result = runInAction(() => checkMissionViewFromStore(pool, referenceState(runtime))) }
-    finally { end() }
+    result = runInAction(() => checkMissionViewFromStore(pool, referenceState(runtime)))
   }
   const api = { request: () => { if (!timer && !disposed) timer = setTimeout(check, 250) }, read: () => result }
   Object.assign(window, { __missionViewCheck: api })

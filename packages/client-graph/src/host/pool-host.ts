@@ -1,6 +1,5 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { reportSidebarPool } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import type { WorklistPoolHandle } from '../create'
@@ -119,7 +118,6 @@ export function createPoolHost({
   ): () => void {
     const stopStart = start?.(runtime) ?? (() => {})
     const stopPrepared = preparePoolScreens(screens, runtime)
-    reportSidebarPool(runtime, null, false)
     const slot = slotFor(runtime)
     slot.error = null
     let disposed = false

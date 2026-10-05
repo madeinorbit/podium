@@ -36,7 +36,6 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import type { PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
-import { measureSidebarRow } from './sidebar-measurements'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
@@ -444,4 +443,4 @@ const ResolvedIssueMenu = observer(function ResolvedIssueMenu({
  * `shortcutDigit`/`now` are scalars, `progress`/`origin` keep stable
  * references for unchanged rows, and every callback is a stable reference.
  */
-export const UnifiedIssueRow = memo(measureSidebarRow(UnifiedIssueRowInner))
+export const UnifiedIssueRow = memo(UnifiedIssueRowInner)

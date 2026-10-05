@@ -15,7 +15,6 @@ import {
   type RowSourceReplica,
   type RowSourceRuntime,
 } from './shared/row-source'
-import { measureWorklistPoolDelivery, observeWorklistPoolPerf } from './sidebar-perf'
 import type { PoolSummaryFields } from './source-registry'
 import {
   createPoolTransactions,
@@ -298,7 +297,6 @@ export function createRuntimeWorklistPool(
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
   let stopHeader: (() => void) | undefined
-  let stopPerf: (() => void) | undefined
   try {
     locals = createEngineLocals(runtime)
     handle = createWorklistPool(
@@ -309,10 +307,7 @@ export function createRuntimeWorklistPool(
         ...(rows.source.issueIdsByRef
           ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] }
           : {}),
-        subscribe: (listener) =>
-          rows.source.subscribe((event) => {
-            measureWorklistPoolDelivery(runtime, () => listener(event))
-          }),
+        subscribe: (listener) => rows.source.subscribe(listener),
       },
       locals.source,
       // POD-5423: the worklist's lanes are filed only while a screen that
@@ -346,7 +341,6 @@ export function createRuntimeWorklistPool(
         handle.pool,
         runtime as Parameters<typeof attachHeaderSource>[1],
       )
-    stopPerf = observeWorklistPoolPerf(runtime, handle.pool)
     if (transactions !== null) {
       spawnPools.set(runtime, handle.pool)
       transactions.bind(rows)
@@ -374,7 +368,6 @@ export function createRuntimeWorklistPool(
       stopWriter?.()
       spawnPools.delete(runtime)
       stopHeader?.()
-      stopPerf?.()
       try {
         attached.dispose()
       } finally {

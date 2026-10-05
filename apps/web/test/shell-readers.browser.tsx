@@ -2,7 +2,7 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
 /** Real production consumers and one offline runtime. Every row is synthetic. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
-import { beginSidebarCheck, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
@@ -314,16 +314,11 @@ const driver = {
     const { checkShell, poolShellSnapshot } = await import(
       '@podium/client-graph/diagnostics/shell-check'
     )
-    const finish = beginSidebarCheck(runtime)
-    try {
-      for (let round = 0; round < 64; round++) {
-        poolShellSnapshot(pool)
-        if (!pool.hydrate()) break
-      }
-      return checkShell(pool, referenceState(runtime))
-    } finally {
-      finish()
+    for (let round = 0; round < 64; round++) {
+      poolShellSnapshot(pool)
+      if (!pool.hydrate()) break
     }
+    return checkShell(pool, referenceState(runtime))
   },
   snapshot(): SidebarSnapshot {
     const sections = [...document.querySelectorAll<HTMLElement>('[data-proof]')].map((node) => ({

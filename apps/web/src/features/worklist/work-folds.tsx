@@ -18,7 +18,6 @@ import { NotSavedMark } from '@/components/NotSavedMark'
 import { cn } from '@/lib/utils'
 import { closedFoldKey, snoozedFoldKey } from './fold-keys'
 import { useCollapsed } from './sidebar-common'
-import { measureSidebarRow } from './sidebar-measurements'
 import { ID_GUTTER_W } from './WorkRowShell'
 
 /** The two TAIL folds — suspended work, settled closures — in the 3a voice: a
@@ -614,4 +613,4 @@ export function ClosedIssueFold<T>({
   )
 }
 
-export const FoldedWorkRow = measureSidebarRow(FoldedWorkRowInner)
+export const FoldedWorkRow = FoldedWorkRowInner

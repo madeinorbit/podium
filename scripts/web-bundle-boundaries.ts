@@ -34,7 +34,7 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/cached.ts', 'src/clock.ts', 'src/create.ts', 'src/debug-name.ts', 'src/enumerate.ts',
   'src/models.ts', 'src/pool.ts', 'src/query-result.ts', 'src/reader-queries.ts',
   'src/relations.ts', 'src/residency.ts', 'src/source-registry.ts', 'src/tables.ts', 'src/views.ts',
-  'src/runtime-pool.ts', 'src/sidebar-perf.ts',
+  'src/runtime-pool.ts',
   'src/host/pool-host.ts', 'src/host/screens.ts',
   'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
   'src/header-source.ts', 'src/header-views.ts',

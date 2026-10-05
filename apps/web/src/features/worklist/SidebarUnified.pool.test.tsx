@@ -53,24 +53,50 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
   }
 })
 
-vi.mock('./sidebar-measurements', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./sidebar-measurements')>()
+vi.mock('./UnifiedIssueRow', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./UnifiedIssueRow')>()
   const { useLayoutEffect } = await import('react')
-  return {
-    ...original,
-    measureSidebarRow:
-      (Row: (props: Record<string, unknown>) => unknown) => (props: Record<string, unknown>) => {
-        const row = props['row'] as { issue?: { id: string } } | undefined
-        const issue = props['issue'] as { id: string } | undefined
-        const session = props['session'] as { sessionId: string } | undefined
-        const id = row?.issue?.id ?? issue?.id ?? session?.sessionId
-        useLayoutEffect(() => {
-          if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
-        })
-        return Row(props)
-      },
-    sidebarMeasurementsRequested: () => false,
+  const Counted = (props: Parameters<typeof original.UnifiedIssueRow>[0]) => {
+    // Props carry the issue model under different keys depending on the caller.
+    const record = props as unknown as Record<string, unknown>
+    const row = record['row'] as { issue?: { id: string } } | undefined
+    const issue = (record['issue'] as { id: string } | undefined) ?? row?.issue
+    const id = issue?.id ?? (record['issueId'] as string | undefined)
+    useLayoutEffect(() => {
+      if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
+    })
+    return original.UnifiedIssueRow(props)
   }
+  return { ...original, UnifiedIssueRow: Counted }
+})
+vi.mock('./sidebar-common', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./sidebar-common')>()
+  const { useLayoutEffect } = await import('react')
+  const CountedPanelRow = (props: Parameters<typeof original.PanelRow>[0]) => {
+    const session = (props as unknown as { session?: { sessionId: string } }).session
+    const id = session?.sessionId
+    useLayoutEffect(() => {
+      if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
+    })
+    return original.PanelRow(props)
+  }
+  return { ...original, PanelRow: CountedPanelRow }
+})
+vi.mock('./work-folds', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./work-folds')>()
+  const { useLayoutEffect } = await import('react')
+  const CountedFolded = (props: Parameters<typeof original.FoldedWorkRow>[0]) => {
+    const record = props as unknown as Record<string, unknown>
+    const row = record['row'] as { issue?: { id: string } } | undefined
+    const issue = (record['issue'] as { id: string } | undefined) ?? row?.issue
+    const session = record['session'] as { sessionId: string } | undefined
+    const id = issue?.id ?? session?.sessionId
+    useLayoutEffect(() => {
+      if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
+    })
+    return original.FoldedWorkRow(props)
+  }
+  return { ...original, FoldedWorkRow: CountedFolded }
 })
 vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({ MobilePromoCard: () => null }))
 

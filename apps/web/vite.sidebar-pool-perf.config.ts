@@ -1,4 +1,4 @@
-/** The real pool attachment and panel, with synthetic data and no live backend. */
+/** The real pool attachment with synthetic data and no live backend. */
 
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -16,7 +16,6 @@ export default defineConfig({
   plugins: [tailwindcss()],
   optimizeDeps: {
     entries: [
-      'test/sidebar-pool-perf.browser.html',
       'test/store-worklist-pool.browser.html',
       'test/sidebar-renderer.browser.html',
     ],

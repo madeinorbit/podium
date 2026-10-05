@@ -91,8 +91,6 @@
     "test:native-machine-updates": "bun scripts/test-heavy.ts -- bun --conditions=@podium/source scripts/native-machine-update.integration.ts",
     "test:multi-instance": "bun scripts/test-heavy.ts -- bash -c \"bun scripts/prepare-skew-checkouts.ts && bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts ./scripts/state-root-runtime.integration.bun.test.ts ./scripts/named-dev-release.integration.bun.test.ts ./scripts/customer-upgrade-skew.integration.bun.test.ts ./scripts/rehearse-upgrade.integration.bun.test.ts && bun --bun node_modules/vitest/vitest.mjs run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh && bash scripts/repair-stranded-update.test.sh\"",
     "test:browser": "bun scripts/browser-lane.ts",
-    "test:sidebar-panel": "bun scripts/validation-admission.ts heavy --label sidebar-panel-proof -- bun apps/web/harness/sidebar-panel-proof.ts",
-    "test:sidebar-pool-panel": "bun scripts/validation-admission.ts heavy --label sidebar-pool-panel-proof -- bun apps/web/harness/sidebar-pool-panel-proof.ts",
     "test:sidebar-renderer": "bun scripts/validation-admission.ts heavy --label sidebar-renderer-proof -- bun apps/web/harness/sidebar-renderer-proof.ts",
     "oracle": "bun scripts/oracle.ts",
     "test:bun": "bun scripts/test-heavy.ts -- bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts scripts/server-owned-janitor.integration.bun.test.ts apps/server/src/sync-worker/worker.bun.test.ts apps/server/src/sync-worker/worker-compiled.bun.test.ts apps/server/src/sync/bootstrap-worker.bun.test.ts --test-name-pattern ''",

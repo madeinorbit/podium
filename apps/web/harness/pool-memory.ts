@@ -245,7 +245,7 @@ async function open(arm: 'legacy' | 'pool', cell: string) {
     Date.now = () => Date.parse('2026-09-20T12:00:00Z') + Math.floor(performance.now() - began)
   })
   const began = performance.now()
-  const query = `?mobxSidebar=${arm === 'pool' ? 1 : 0}${arm === 'pool' ? '&perfPanel=1' : ''}&scale=${cell === '4x' ? 4 : 1}${cell === 'h10a1' ? '&cell=h10a1' : ''}`
+  const query = `?mobxSidebar=${arm === 'pool' ? 1 : 0}&scale=${cell === '4x' ? 4 : 1}${cell === 'h10a1' ? '&cell=h10a1' : ''}`
   await page.goto(url + query, { waitUntil: 'load' })
   await page.waitForFunction(
     () => window.__memory?.ready() && document.querySelector('[data-issue-row]') !== null,

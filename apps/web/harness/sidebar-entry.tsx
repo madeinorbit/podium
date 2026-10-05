@@ -22,7 +22,6 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
-import { SidebarPerfSession } from '@/features/worklist/SidebarPerfPanel'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   ResizableAside,
@@ -31,20 +30,12 @@ import {
 } from '@/features/worklist/sidebar-common'
 import { useColumnFold } from '@/features/worklist/use-column-fold'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { sidebarHarnessOwner } from './sidebar-store'
 import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
 const mode = params.get('mode') ?? 'dark'
 const width = Number(params.get('width') ?? 306)
-
-function PerformanceFixture(): JSX.Element | null {
-  const [open, setOpen] = useState(params.get('perfPanel') === '1')
-  return open ? (
-    <SidebarPerfSession owner={sidebarHarnessOwner} onClose={() => setOpen(false)} />
-  ) : null
-}
 
 document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', mode === 'dark')
@@ -159,8 +150,5 @@ const surface = params.get('fold') ? (
 // Delete (POD-1077) and throws without its provider, which `AppShell` supplies
 // in the real tree. The harness is only honest about the menu if it has one.
 createRoot(document.getElementById('root') as HTMLElement).render(
-  <ConfirmProvider>
-    {params.get('perfPanel') === '1' && <PerformanceFixture />}
-    {surface}
-  </ConfirmProvider>,
+  <ConfirmProvider>{surface}</ConfirmProvider>,
 )

@@ -1,7 +1,6 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
-import { bindSidebarPerf, createSidebarPerf } from '@podium/client-core/perf'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
@@ -186,24 +185,6 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(create).toHaveBeenCalledTimes(1)
     expect(replicaFactory).toHaveBeenCalledTimes(1)
     history.replaceState(null, '', '/')
-  })
-
-  it('publishes resident counts on late panel open and clears them on sign-out', async () => {
-    render()
-    const pool = await ready()
-    const perf = createSidebarPerf()
-    const close = bindSidebarPerf(runtime!, perf)
-    const row = vi.spyOn(pool, 'row')
-    expect(runtime).not.toHaveProperty('getSnapshot')
-    try {
-      expect(perf.read().pool).toEqual({ connected: true, rows: 1 })
-      for (let i = 0; i < 100; i++) perf.read()
-      expect(row).not.toHaveBeenCalled()
-      render(null)
-      expect(perf.read().pool).toEqual({ connected: false, rows: null })
-    } finally {
-      close()
-    }
   })
 
   it('cancels an attachment disposed before its import resolves', async () => {

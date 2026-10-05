@@ -18,7 +18,7 @@ function requested(): boolean {
   try {
     if (typeof location === 'undefined') return false
     const params = new URLSearchParams(location.search)
-    return params.get('perfPanel') === '1' || params.get('mobxSidebarCheck') === '1'
+    return params.get('mobxSidebarCheck') === '1'
   } catch {
     return false
   }

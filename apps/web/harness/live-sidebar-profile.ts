@@ -97,7 +97,6 @@ const buildDir = resolve(
   process.argv.find((a) => a.startsWith('--build-dir='))?.slice(12) ?? 'apps/web/dist',
 )
 const limit = Number(process.argv.find((a) => a.startsWith('--limit='))?.slice(8) ?? 20)
-const closeMeter = process.argv.includes('--close-meter')
 const timingOnly = process.argv.includes('--timing-only')
 const verifyMenu = process.argv.includes('--verify-menu')
 const issuePageAction = process.argv.includes('--issue-page-action')
@@ -267,7 +266,6 @@ try {
   const idleMs = Number(process.argv.find((a) => a.startsWith('--idle-ms='))?.slice(10) ?? 0)
   if (idleMs > 0) {
     const before = await page.evaluate(() => ({
-      perf: (window as any).__podiumSidebarPerf?.read(),
       shell: (window as any).__liveShellCensus?.(),
       launch: (window as any).__liveLaunchCensus?.(),
       chat: (window as any).__liveChatCensus?.(),
@@ -277,7 +275,6 @@ try {
     await page.waitForTimeout(idleMs)
     const profile = await stopIdle()
     const after = await page.evaluate(() => ({
-      perf: (window as any).__podiumSidebarPerf?.read(),
       shell: (window as any).__liveShellCensus?.(),
       launch: (window as any).__liveLaunchCensus?.(),
       chat: (window as any).__liveChatCensus?.(),
@@ -287,10 +284,6 @@ try {
     await writeFile(resolve(root, 'idle.json'), JSON.stringify({ idleMs, before, after }))
     console.log(JSON.stringify({ idleMs, profiled: Boolean(profile) }))
   }
-  const initialCounters = await page.evaluate(() => (window as any).__podiumSidebarPerf?.read())
-  if (initialCounters?.pool?.rows != null)
-    console.log(JSON.stringify({ poolRowsAtStart: initialCounters.pool.rows }))
-  if (closeMeter) await page.getByRole('button', { name: 'Close performance panel' }).click()
   const rows = await page.locator('[data-issue-row]').evaluateAll((nodes) =>
     nodes.map((n) => ({
       id: n.getAttribute('data-issue-row')!,
@@ -632,7 +625,6 @@ try {
             .filter((node) => !node.getClientRects().length)
             .reduce((count, node) => count + node.querySelectorAll('*').length, 0),
         },
-        sidebar: (window as any).__podiumSidebarPerf?.read(),
       }))
       const launchAfter = await page.evaluate(() => (window as any).__liveLaunchCensus?.() ?? {})
       const chatAfter = await page.evaluate(() => (window as any).__liveChatCensus?.() ?? {})

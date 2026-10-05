@@ -137,7 +137,7 @@ async function open(mode: 'pool' | 'legacy', scale: string, surface = 'sidebar',
     }
     Object.assign(window, { __capture: capture })
   })
-  const query = `?mobxSidebar=${mode === 'pool' ? 1 : 0}&scale=${scale === '4x' ? 4 : 1}&surface=${surface}&measure=${measure ? 1 : 0}&perfPanel=${measure ? 1 : 0}&panelMode=chat${scale === 'h10a1' ? '&cell=h10a1' : ''}`
+  const query = `?mobxSidebar=${mode === 'pool' ? 1 : 0}&scale=${scale === '4x' ? 4 : 1}&surface=${surface}&measure=${measure ? 1 : 0}&panelMode=chat${scale === 'h10a1' ? '&cell=h10a1' : ''}`
   await page.goto(url + query, { waitUntil: 'load' })
   await page.waitForFunction(() => window.__acceptance?.ready() && document.querySelector('[data-issue-row]') !== null)
   await page.evaluate(() => document.fonts.ready)

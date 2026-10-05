@@ -4,7 +4,6 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  * report contains counts, opaque row IDs, positions and fixed field names. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { beginSidebarCheck } from '@podium/client-core/perf'
 import { type IssueViewModel } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -158,14 +157,12 @@ export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, poo
   report({ ...empty, state: 'waiting', checks })
   const timer = setInterval(() => {
     if (disposed) return
-    const finish = beginSidebarCheck(runtime)
     try {
       const store = referenceState(runtime)
       const result = runInAction(() => checkIssuePages(pool,
         allIssueViewModels(store.replica, store.issueProjections, store.issueUserStates), store.sessions))
       report({ ...result, state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks: ++checks })
     } catch { report({ ...empty, state: 'error', checks }) }
-    finally { finish() }
   }, intervalMs)
   return () => { if (!disposed) { disposed = true; clearInterval(timer); report({ ...empty, state: 'off', checks }) } }
 }

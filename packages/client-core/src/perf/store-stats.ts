@@ -1,5 +1,3 @@
-import { sidebarPerfFor } from './sidebar-perf'
-
 /** Opt-in local diagnostics. Never retains app snapshots or payloads. */
 export const STORE_STATS_LIMITS = {
   runtimes: 32,
@@ -103,8 +101,6 @@ function record(owner: object, metric: Metric, name?: string): void {
   if (!enabled) return
   const id = runtimeId(owner)
   add(counts(id), metric, name)
-  if (metric === 'sliceDerivations')
-    sidebarPerfFor(aliases.get(owner) ?? owner)?.record({ derivations: 1 })
   if (active) {
     let c = active.runtimes.find((c) => c.runtime === id)
     if (!c && active.runtimes.length < STORE_STATS_LIMITS.runtimes) {
@@ -129,18 +125,6 @@ export function recordIssueRowBuild(owner: object): void {
 /** Pass this through a React Profiler onRender callback. Counts that subtree's commits, not renders. */
 export function recordStoreReactCommit(owner: object): void {
   if (enabled) record(owner, 'reactCommits')
-}
-/** Actual row commits, distinct from issue-view construction and subtree commits. */
-export function recordStoreRowRedraw(owner: object, start: number, end: number): void {
-  if (enabled) sidebarPerfFor(aliases.get(owner) ?? owner)?.record({ rows: 1, start, end })
-}
-/** No clock read when diagnostics are closed, or for another principal's runtime. */
-export function startStoreStatsMeasure(owner: object): number | undefined {
-  return enabled && sidebarPerfFor(aliases.get(owner) ?? owner) ? performance.now() : undefined
-}
-export function endStoreStatsMeasure(owner: object, start: number | undefined): void {
-  if (enabled && start !== undefined)
-    sidebarPerfFor(aliases.get(owner) ?? owner)?.record({ start, end: performance.now() })
 }
 export function recordStorePublish(
   owner: object,

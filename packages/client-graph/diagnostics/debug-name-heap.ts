@@ -98,7 +98,6 @@ try {
   for (const [mode, origin, query, enabled] of [
     ['production', `http://127.0.0.1:${address.port}`, '', false],
     ['development', dev.resolvedUrls!.local[0]!.replace(/\/$/, ''), '', true],
-    ['production perf panel', `http://127.0.0.1:${address.port}`, '?perfPanel=1', true],
     ['production sidebar check', `http://127.0.0.1:${address.port}`, '?mobxSidebarCheck=1', true],
     ['production memory tool', `http://127.0.0.1:${address.port}`, '?toolNames=1', true],
   ] as const) {
