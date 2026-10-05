@@ -421,6 +421,8 @@ export const DeckRowPlaceholder = observer(function DeckRowPlaceholder({
   window: DeckWindow
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
+  const value = settled(() => row.text)
+  const text = value === LOADING ? undefined : value
   useLayoutEffect(() => {
     const node = ref.current
     // React treats hidden as a boolean DOM property. Set the enumerated value
@@ -431,9 +433,7 @@ export const DeckRowPlaceholder = observer(function DeckRowPlaceholder({
     return () => {
       node?.removeEventListener('beforematch', found)
     }
-  }, [deckWindow.beginFind, row.key])
-  const value = settled(() => row.text)
-  const text = value === LOADING ? undefined : value
+  }, [deckWindow.beginFind, row.key, text])
   return (
     <div
       style={{ height: deckWindow.size(row.key), position: 'relative' }}

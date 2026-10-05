@@ -1009,17 +1009,26 @@ export class MissionViewReader {
   }
   departures(deck: MissionDeckModel): MissionDeparture[] {
     const members = requireLoaded(deck.members), found: MissionDeparture[] = [], seen = new Set<string>()
+    let pending = false
     for (const id of [...members].sort()) {
       if (!this.facts(id).visible) continue
       if (this.pool.graph.size('issue', id, 'spinOffs') === 0) continue
-      const empty = !requireLoaded(this.roster(id)).some(openSession)
-      for (const tip of this.tips(id)) {
-        if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
-        seen.add(tip.id)
-        const issue = requireLoaded(this.issue(tip.id))!
-        found.push({ issue, originId: id, state: this.presentation(issue, requireLoaded(this.roster(tip.id))).state })
-      }
+      const result = settled(() => {
+        const empty = !requireLoaded(this.roster(id)).some(openSession)
+        for (const tip of this.tips(id)) {
+          if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
+          const value = settled(() => {
+            const issue = requireLoaded(this.issue(tip.id))!
+            const crew = requireLoaded(this.roster(tip.id))
+            return { issue, originId: id, state: this.presentation(issue, crew).state }
+          })
+          if (value === LOADING) pending = true
+          else { seen.add(tip.id); found.push(value) }
+        }
+      })
+      if (result === LOADING) pending = true
     }
+    if (pending) throw LOADING
     return found.sort((a, b) => a.issue.seq - b.issue.seq)
   }
   private presentStrict(id: string) { return requireLoaded(this.present(id)) }
@@ -1076,6 +1085,7 @@ export class MissionViewReader {
         descendants.push(issue); stack.push(id)
       }
     }
+    if (!local) for (const issue of descendants) if (settled(() => this.live(issue.id)) === LOADING) pending = true
     if (pending) throw LOADING
     const branches = new Map<string, IssueNavigationModel[]>()
     for (const issue of descendants) {

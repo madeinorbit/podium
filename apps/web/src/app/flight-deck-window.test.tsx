@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useMemo, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import {
   type DeckWindowRow,
   DeckRowPlaceholder,
@@ -118,6 +119,21 @@ function selectText(node: Node, start: number, end: number) {
 }
 
 describe('mission row window', () => {
+  it('attaches native Find when a cold placeholder gains searchable text', () => {
+    let loaded = false
+    const row = { key: 'cold', size: 32, get text() { if (!loaded) throw LOADING; return 'Arrived task' } }
+    const window = { enabled: true, contains: () => false, size: () => 32, text: () => undefined,
+      measure: () => () => {}, reveal: vi.fn(), beginFind: vi.fn() }
+    const current = render(<DeckRowPlaceholder row={row} window={window} />)
+    expect(current.container.querySelector('[hidden]')).toBeNull()
+    loaded = true
+    current.rerender(<DeckRowPlaceholder row={{ ...row }} window={window} />)
+    const proxy = current.container.querySelector('[hidden="until-found"]')!
+    expect(proxy.textContent).toBe('Arrived task')
+    fireEvent(proxy, new Event('beforematch', { bubbles: true }))
+    expect(window.beginFind).toHaveBeenCalledWith('cold')
+  })
+
   for (const scale of [1, 4])
     it(`bounds mounted rows at ${scale}x while traversing the whole list`, async () => {
       const values = rows(406 * scale),
