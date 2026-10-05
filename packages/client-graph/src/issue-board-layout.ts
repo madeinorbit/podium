@@ -1,7 +1,7 @@
 import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
-import { filterChips, issueRowsByStage } from '@podium/client-core/values'
+import type { BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
+import { filterBoardIssues, filterChips, issueRowsByStage } from '@podium/client-core/values'
 import { asIssueId, ISSUE_BOARD_STAGES, isFinished, type IssueStage } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural, observe, untracked } from 'mobx'
@@ -61,6 +61,17 @@ export function createBoardLayout(pool: MobxPool) {
     return flag === 'deferred' ? deferred : !row.blocked && !deferred && !isFinished(row)
   })
   const textIds = keyedComputed('IssueBoard.textIds', (needle: string) => pool.queries.localTextIds(needle))
+  const matchesFacet = keyedComputed('IssueBoard.matchesFacet', (key: string): Loaded<boolean> => {
+    const [id, queryKey] = JSON.parse(key) as [string, string]
+    const query = JSON.parse(queryKey) as BoardQuery
+    const row = pool.row('issue', id, 'summary-fields') as Loaded<BoardFilterIssue>
+    if (!row || row === LOADING) return row
+    const { text: _text, status, ...filter } = query.filter ?? {}
+    // Facets narrow the candidates; this per-issue scalar answer also keeps
+    // the shared filter semantics when the source supplies broader IDs.
+    return filterBoardIssues([row], { ...filter,
+      status: status === 'ready' || status === 'deferred' ? undefined : status }).length === 1
+  })
   const matching = keyedComputed('IssueBoard.matchingIds', (key: string): Loaded<string[]> => {
     const query = JSON.parse(key) as BoardQuery
     countIssueBoard('queries')
@@ -70,6 +81,9 @@ export function createBoardLayout(pool: MobxPool) {
     for (const id of pool.queries.ids(questionOf(query))) {
       if (text && !text.has(id)) continue
       if (!scope(JSON.stringify([id, query.showAgentTasks ?? false]))) continue
+      const matches = matchesFacet(JSON.stringify([id, key]))
+      if (matches === LOADING) return LOADING
+      if (!matches) continue
       if (query.filter?.status === 'ready' || query.filter?.status === 'deferred') {
         const value = status(JSON.stringify([id, query.filter.status]))
         if (value === LOADING) return LOADING
@@ -294,12 +308,12 @@ export function createBoardLayout(pool: MobxPool) {
       return flat === LOADING ? LOADING : flat?.flatMap(group => group.rows.map(row => row.id)) ?? []
     },
     stats: () => ({ demandKeys: matching.size,
-      cached: [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]
+      cached: [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]
         .reduce((total, cache) => total + cache.size, columnResults.size) }),
     dispose() {
       for (const result of [...columnResults.values()]) result.dispose()
       columnResults.clear()
-      for (const cache of [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
+      for (const cache of [scope, parent, column, status, textIds, matchesFacet, matching, members, root, sortKey, columnIds, roots, inColumn, presentRoots, position, rows, board]) cache.clear()
     },
   }
 }
