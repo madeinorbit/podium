@@ -138,10 +138,14 @@ export function searchMobileSections(
   return cache.update(pool, sections, query)
 }
 
-/** Matching can scan resident refs; unchanged matches allocate no row array.
- * A changed match copies its lane only, keeping other native sections intact.
- * The kept bands belong to one search over one pool: ending the search or a
- * new pool (another principal) drops them, so a screen holds one instance. */
+/** Matching is one shared title/ref id-set pass (POD-5561) plus one label
+ * read per worktree; unchanged matches allocate no row array. A changed
+ * match copies its lane only, keeping other native sections intact. No row
+ * is painted here — painting happens per visible row in WorkListRow — so a
+ * keystroke costs the short-string scan plus worktree label reads, never a
+ * paint per candidate across bands, snoozed and closed. The kept bands
+ * belong to one search over one pool: ending the search or a new pool
+ * (another principal) drops them, so a screen holds one instance. */
 export class MobileSearchSections {
   private readonly bands = new Map<string, MobileWorkSection>()
   private previous: readonly MobileWorkSection[] = []
@@ -158,16 +162,19 @@ export class MobileSearchSections {
       this.pool = pool
     }
     if (!needle) return sections
-    const now = mobilePaintNow(pool)
-    const matches = (id: string, kind: 'issue' | 'worktree', folded = false): boolean => {
-      const value = pool.mobileWork.row({ id, kind })
+    // POD-5561: one shared title/ref pass over the feed-maintained short
+    // lowercase strings, returning an id set. Tracked by the text revision,
+    // so the keystroke projection re-runs on title/seq edits only — never
+    // per row and never on the clock. The pass builds no fact objects and
+    // reads no descriptions; status text is not searched locally.
+    const textIds = pool.queries.localTextIds(needle)
+    // Worktrees are not issues, so the shared set cannot cover them. Their
+    // labels (`repo · branch`) are already short strings: one row read per
+    // worktree, no paint, bounded by the worktree count rather than issues.
+    const worktreeMatches = (ref: MobileWorkSection['data'][number]): boolean => {
+      const value = pool.mobileWork.row({ id: ref.id, kind: 'worktree' })
       if (!value || typeof value === 'symbol') return false
-      const paint = mobileRowPaint(value, now)
-      const text =
-        paint.kind === 'issue'
-          ? `${paint.ref} ${paint.label}`
-          : `${paint.label.slice(0, paint.branch ? -(paint.branch.length + 3) : undefined)} ${paint.branch ?? ''}`
-      return `${text}${folded ? '' : ` ${paint.statusLine}`}`.toLowerCase().includes(needle)
+      return value.label.toLowerCase().includes(needle)
     }
     const active = new Set<string>(),
       next: MobileWorkSection[] = []
@@ -176,20 +183,12 @@ export class MobileSearchSections {
       const old = this.bands.get(source.key)
       const data = filteredNative(
         source.data,
-        (ref) => matches(ref.id, ref.kind),
+        (ref) => (ref.kind === 'issue' ? textIds.has(ref.id) : worktreeMatches(ref)),
         old?.data,
         sameMobileRef,
       )
-      const snoozedIds = filteredNative(
-        source.snoozedIds,
-        (id) => matches(id, 'issue', true),
-        old?.snoozedIds,
-      )
-      const closedIds = filteredNative(
-        source.closedIds,
-        (id) => matches(id, 'issue', true),
-        old?.closedIds,
-      )
+      const snoozedIds = filteredNative(source.snoozedIds, (id) => textIds.has(id), old?.snoozedIds)
+      const closedIds = filteredNative(source.closedIds, (id) => textIds.has(id), old?.closedIds)
       const section =
         old &&
         old.data === data &&

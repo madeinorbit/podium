@@ -361,7 +361,7 @@ export function WorkScreen() {
                   title={query.trim() ? 'No matching work' : 'No work yet'}
                   body={
                     query.trim()
-                      ? 'Try another task title, reference, or status.'
+                      ? 'Try another task title or reference.'
                       : 'Tasks and their agents appear here as soon as work begins.'
                   }
                 />

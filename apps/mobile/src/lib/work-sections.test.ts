@@ -41,9 +41,11 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       rootClosed: lane('closedRows'),
     },
     sidebar: {
-      sections: () => ({
-        bands: groups.map((group) => ({ key: group.key, label: group.key, worktreeIds: [] })),
-      }),
+      bandKeys: () => groups.map((group) => group.key),
+      band: (_state: unknown, key: string) => {
+        const found = groups.find((group) => group.key === key)
+        return found ? { key, label: key, worktreeIds: [] } : undefined
+      },
     },
     issue: (id: string) =>
       facts.has(id)
@@ -211,6 +213,7 @@ describe('MobileSearchSections', () => {
   const pool = () =>
     ({
       clock: { current: 0, reached: () => {} },
+      queries: { localTextIds: () => new Set<string>() },
       mobileWork: { row: ({ id }: { id: string }) => rows.get(id) },
     }) as unknown as MobxPool
   const band: MobileWorkSection = {
@@ -241,5 +244,96 @@ describe('MobileSearchSections', () => {
     expect(restarted?.data.map((ref) => ref.id)).toEqual(['a'])
 
     expect(cache.update(pool(), [band], 'alpha')[0]).not.toBe(restarted)
+  })
+
+  it('matches one shared id-set pass with zero issue row reads, flat at 1x/4x', () => {
+    // The legacy arm painted every candidate: one mobileWork.row + paint per
+    // row across data, snoozed and closed per keystroke (S+I → 4(S+I)). It
+    // reads every issue here and fails the zero-issue-reads assertion below.
+    const cells: {
+      scale: number
+      issues: number
+      textPasses: number
+      issueRows: number
+      treeRows: number
+    }[] = []
+    for (const scale of [1, 4]) {
+      const issueCount = 300 * scale
+      const titles = new Map<string, string>()
+      for (let at = 0; at < issueCount; at++) {
+        titles.set(`issue-${at}`, at === 71 ? 'unique phone target' : `routine task ${at}`)
+      }
+      // Snoozed/closed lanes scale with the corpus; worktrees do not.
+      const snoozed = Array.from({ length: 25 * scale }, (_, at) => `issue-snoozed-${at}`)
+      for (const id of snoozed) titles.set(id, `snoozed routine ${id}`)
+      const closed = Array.from({ length: 25 * scale }, (_, at) => `issue-closed-${at}`)
+      for (const id of closed) titles.set(id, `closed routine ${id}`)
+      const trees = [
+        { id: 'tree-a', label: 'phone · feature-a' },
+        { id: 'tree-b', label: 'phone · feature-b' },
+      ]
+      const calls = { textPasses: 0, issueRows: 0, treeRows: 0 }
+      const graph = {
+        clock: { current: 0, reached: () => {} },
+        queries: {
+          localTextIds: (needle: string) => {
+            calls.textPasses++
+            const n = needle.trim().toLowerCase()
+            const out = new Set<string>()
+            for (const [id, title] of titles) if (title.includes(n)) out.add(id)
+            return out
+          },
+        },
+        mobileWork: {
+          row: ({ id, kind }: { id: string; kind: 'issue' | 'worktree' }) => {
+            if (kind === 'issue') {
+              calls.issueRows++
+              return undefined
+            }
+            calls.treeRows++
+            return { label: trees.find((t) => t.id === id)?.label ?? '' }
+          },
+        },
+      } as unknown as MobxPool
+      const section: MobileWorkSection = {
+        key: 'project:/r',
+        label: 'r',
+        kind: 'project',
+        total: issueCount + trees.length,
+        data: [
+          ...[...titles.keys()]
+            .filter((id) => !id.startsWith('issue-snoozed-') && !id.startsWith('issue-closed-'))
+            .map((id) => ({ id, kind: 'issue', listKey: id })),
+          ...trees.map((t) => ({ id: t.id, kind: 'worktree', listKey: t.id })),
+        ] as unknown as MobileWorkSection['data'],
+        snoozedIds: snoozed,
+        closedIds: closed,
+        foldKey: 'fold:/r',
+        collapsed: false,
+      }
+      const found = new MobileSearchSections().update(graph, [section], 'unique phone target')
+      expect(found.map((s) => s.data.map((ref) => ref.id))).toEqual([[`issue-71`]])
+      expect(found[0]?.snoozedIds).toEqual([])
+      expect(found[0]?.closedIds).toEqual([])
+      // One shared title/ref pass per keystroke, not one pass per band/lane.
+      expect(calls.textPasses).toBe(1)
+      // No issue row is read or painted while matching — matched or not.
+      expect(calls.issueRows).toBe(0)
+      // Worktree labels are short strings read once each; the count is the
+      // worktree count, independent of the issue corpus.
+      expect(calls.treeRows).toBe(trees.length)
+      cells.push({
+        scale,
+        issues: issueCount + snoozed.length + closed.length,
+        textPasses: calls.textPasses,
+        issueRows: calls.issueRows,
+        treeRows: calls.treeRows,
+      })
+    }
+    const [oneX, fourX] = cells
+    expect(fourX?.issues).toBe((oneX?.issues ?? 0) * 4)
+    expect(fourX?.textPasses).toBe(oneX?.textPasses)
+    expect(fourX?.issueRows).toBe(0)
+    expect(fourX?.treeRows).toBe(oneX?.treeRows)
   })
 })

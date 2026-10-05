@@ -2418,27 +2418,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/lib/work-sections.ts",
-      "holder": "MobileSearchSections/update/matches/callback/paint",
-      "rule": "reader-summary",
-      "tokens": "aacea8faae94c3ec2439dc24dc08160adc58d7bf2661e4914cdca93889b65d2f",
-      "gate": [
-        "exit:then:aec3b8cf13b528309e4b5d2cf082bf7cedb0297051af72ce7dbfd1d81caaf186",
-        "exit:then:9e3f4f019b0a2ddb67c66d76dcdac426213ca675ae454e6fff30677aeec7b748"
-      ],
-      "origin": [
-        "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
-      ],
-      "fingerprint": "aa31f815546367fddc9198946c7c1fb78ec4152f1ca16c3e1f15e465fb71b10f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MobileSearchSections/update/matches/callback/paint",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/screens/InboxScreen.tsx",
       "holder": "NeedsYouCard/fromTranscript",
       "rule": "reader-summary",
