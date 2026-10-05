@@ -109,18 +109,27 @@ it('reads no repo catalog at first demand and bounds update row reads and deriva
       expect(keys).not.toHaveBeenCalled()
       expect(first.work.rows).toBe(0)
       expect(first.work.elements).toBe(0)
-      const legacy = await measureWork(async () => insideReader('planted old prefix catalog', () => {
-        const prefixes = new Set<string>()
-        for (const id of pool.tables.repo.keys()) {
-          const row = pool.row('repo', id) as { prefix?: string } | undefined
-          if (row?.prefix) prefixes.add(row.prefix)
-        }
-        expect([...prefixes].sort().join(',')).toBe(value)
-      }), { pool })
+      const legacy = await measureWork(
+        async () =>
+          insideReader('planted old prefix catalog', () => {
+            const prefixes = new Set<string>()
+            for (const id of pool.tables.repo.keys()) {
+              const row = pool.row('repo', id) as { prefix?: string } | undefined
+              if (row?.prefix) prefixes.add(row.prefix)
+            }
+            expect([...prefixes].sort().join(',')).toBe(value)
+          }),
+        { pool },
+      )
       expect(legacy.work.rows).toBe(128 * scale)
       // The changed prefix string is genuine aggregate output. Its length can
       // grow; the reader and mutation must not read that many repository rows.
-      samples.push({ first: first.work, metadata: metadata.work, rename: rename.work, legacy: legacy.work })
+      samples.push({
+        first: first.work,
+        metadata: metadata.work,
+        rename: rename.work,
+        legacy: legacy.work,
+      })
     } finally {
       stop?.()
       ids.mockRestore()

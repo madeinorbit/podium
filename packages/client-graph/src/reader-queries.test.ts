@@ -35,22 +35,42 @@ const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
 
 it('addresses ancestor scope independently of presentation, resident overlays and source replacement', () => {
-  const issue = (patch: object = {}): RowRecord => ({ kind: 'issue', id: 'scope-parent', value: {
-    id: 'scope-parent', title: 'Parent', stage: 'in_progress', audience: 'human',
-    createdAt: old, updatedAt: old, repoPath: '/scope', seq: 1, priority: 2,
-    labels: [], deps: [], description: '', ...patch,
-  } } as RowRecord)
+  const issue = (patch: object = {}): RowRecord =>
+    ({
+      kind: 'issue',
+      id: 'scope-parent',
+      value: {
+        id: 'scope-parent',
+        title: 'Parent',
+        stage: 'in_progress',
+        audience: 'human',
+        createdAt: old,
+        updatedAt: old,
+        repoPath: '/scope',
+        seq: 1,
+        priority: 2,
+        labels: [],
+        deps: [],
+        description: '',
+        ...patch,
+      },
+    }) as RowRecord
   let source = createColdIndex(SCHEMA)
   source.apply({ type: 'replace', rows: [issue()] })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    cold: () => source, load: () => undefined, schedule: () => () => {},
+    cold: () => source,
+    load: () => undefined,
+    schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows: [issue()] })
   const seen: unknown[] = []
-  const stop = autorun(() => { seen.push(pool.queries.issueScope('scope-parent')) })
+  const stop = autorun(() => {
+    seen.push(pool.queries.issueScope('scope-parent'))
+  })
   const publish = (record: RowRecord) => {
     const event = { type: 'update' as const, rows: [record] }
-    source.apply(event); pool.apply(event)
+    source.apply(event)
+    pool.apply(event)
   }
   try {
     expect(seen).toEqual([{ draft: false, deleted: false, archived: false, agent: false }])
@@ -58,7 +78,9 @@ it('addresses ancestor scope independently of presentation, resident overlays an
     expect(seen).toHaveLength(1)
     // A local table overlay wins even while the source is already ahead.
     source.apply({ type: 'update', rows: [issue({ audience: 'agent' })] })
-    runInAction(() => pool.tables.issue.set('scope-parent', issue({ isDraftVessel: true }).value as never))
+    runInAction(() =>
+      pool.tables.issue.set('scope-parent', issue({ isDraftVessel: true }).value as never),
+    )
     expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: false })
     runInAction(() => pool.tables.issue.delete('scope-parent'))
     expect(seen.at(-1)).toEqual({ draft: false, deleted: false, archived: false, agent: true })
@@ -71,7 +93,10 @@ it('addresses ancestor scope independently of presentation, resident overlays an
     source.apply({ type: 'replace', rows: [issue({ audience: 'agent', isDraftVessel: true })] })
     pool.apply({ type: 'replace', rows: [] })
     expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: true })
-  } finally { stop(); pool.dispose() }
+  } finally {
+    stop()
+    pool.dispose()
+  }
 })
 
 it('keeps spawn placement in its declared source subset across reassignment, readmission and rescope', () => {
@@ -280,7 +305,8 @@ function fixture(scale = 1, bootOnly = false) {
 
 it('rebuilds observed identities once on replacement without probing every cold member first', () => {
   const f = fixture(4, true)
-  let seen: string[] = [], publications = 0
+  let seen: string[] = [],
+    publications = 0
   const stop = autorun(() => {
     seen = f.pool.queries.ids({ kind: 'commandIssues' }).sort()
     publications++
@@ -293,7 +319,7 @@ it('rebuilds observed identities once on replacement without probing every cold 
     expect(publications).toBe(2)
     expect(contains.mock.calls.length).toBeLessThan(16)
     contains.mockClear()
-    const rows = f.rows.filter(row => row.id !== 'cold-issue-0')
+    const rows = f.rows.filter((row) => row.id !== 'cold-issue-0')
     f.index.apply({ type: 'replace', rows })
     f.pool.apply({ type: 'replace', rows })
     expect(seen).toHaveLength(511)
@@ -550,13 +576,14 @@ describe('readers behind declared cold questions', () => {
         const membership = vi.spyOn(pool.queries, 'ids').mockReturnValue([])
         const repos = vi.spyOn(pool.queries, 'repoIds').mockReturnValue([])
         const count = vi.spyOn(pool.queries, 'count').mockReturnValue(0)
-        const addressed = reader.name === 'phone prefix'
-          ? vi.spyOn(pool.queries, 'hasIssuePrefix').mockReturnValue(false)
-          : reader.name === 'settings'
-            ? vi.spyOn(pool.queries, 'setupSessionCount').mockReturnValue(0)
-            : reader.name === 'automation sessions'
-              ? vi.spyOn(pool.queries, 'setupSessionPresent').mockReturnValue(false)
-              : undefined
+        const addressed =
+          reader.name === 'phone prefix'
+            ? vi.spyOn(pool.queries, 'hasIssuePrefix').mockReturnValue(false)
+            : reader.name === 'settings'
+              ? vi.spyOn(pool.queries, 'setupSessionCount').mockReturnValue(0)
+              : reader.name === 'automation sessions'
+                ? vi.spyOn(pool.queries, 'setupSessionPresent').mockReturnValue(false)
+                : undefined
         const damaged = snapshot(
           reader.name,
           runInAction(() => reader.read(pool)),
