@@ -13,14 +13,14 @@ function fixture(scale: number) {
   const issues = Array.from({ length: 128 * scale + 1 }, (_, index) => ({
     id: index ? `child-${String(index).padStart(4, '0')}` : 'root', seq: index + 1,
     parentId: index ? 'root' : null, title: `Task ${index}`, stage: 'in_progress',
-    description: '', deps: [], createdAt: stamp, updatedAt: stamp, readAt: stamp,
+    description: '', deps: [], repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, readAt: stamp,
   })) as unknown as IssueNavigationModel[]
   const sessions = issues.map((issue, index) => ({
     sessionId: `seat-${index}`, issueId: issue.id, title: `Agent ${index}`, cwd: '/synthetic',
     agentKind: 'codex', status: 'live', archived: false, createdAt: stamp, lastActiveAt: stamp,
     agentState: { phase: 'working', since: stamp },
   })) as unknown as SessionView[]
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, { worklist: 'demand' })
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
