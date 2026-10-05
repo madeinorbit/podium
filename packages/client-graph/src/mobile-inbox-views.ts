@@ -9,6 +9,59 @@ import { issuePages } from './issue-page'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
+type ScreeningSummary = Pick<
+  IssueViewModel,
+  | 'id'
+  | 'stage'
+  | 'parentId'
+  | 'archived'
+  | 'deletedAt'
+  | 'isDraftVessel'
+  | 'audience'
+  | 'priority'
+  | 'seq'
+>
+const isScreenableRoot = (issue: ScreeningSummary) =>
+  issue.stage === 'proposed' &&
+  !issue.archived &&
+  !issue.deletedAt &&
+  !issue.isDraftVessel &&
+  issue.audience !== 'agent'
+/** Order key for the queue: priority ascending, then newest first. Fixed-width
+ * complements keep lexicographic order equal to the numeric sort, so the
+ * keeper's tree maintains the queue order one changed key at a time. */
+const screeningOrderKey = (issue: ScreeningSummary) => {
+  const priority = Math.trunc(issue.priority ?? 0) + 0x80000000
+  const newestFirst = 0xffffffff - Math.max(0, Math.trunc(issue.seq ?? 0))
+  return `${String(priority).padStart(10, '0')}:${String(newestFirst).padStart(10, '0')}`
+}
+interface ScreeningEntry {
+  id: ScreeningSummary['id']
+  key: string
+}
+/** One proposed issue's queue membership, read through its own summary plus
+ * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
+ * proposal change never re-reads this entry. */
+function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
+  const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
+  if (row === LOADING || !row || !isScreenableRoot(row)) return row
+  const seen = new Set<string>([row.id])
+  let parentId = row.parentId,
+    pending = false
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = pool.row('issue', parentId, 'summary') as Loaded<ScreeningSummary>
+    if (parent === LOADING) {
+      pending = true
+      break
+    }
+    if (!parent) break
+    if (parent.stage === 'proposed') return undefined
+    parentId = parent.parentId
+  }
+  if (pending) return LOADING
+  return { id: row.id, key: screeningOrderKey(row) }
+}
 /** Constructed only with the enabled attachment. Shared computed readers keep
  * callbacks and retained chips addressed to this pool and this principal. */
 export function createMobileInboxViews(pool: MobxPool) {
@@ -61,54 +114,27 @@ export function createMobileInboxViews(pool: MobxPool) {
   )
   const screening = computed(
     () => {
-      type Summary = Pick<
-        IssueViewModel,
-        | 'id'
-        | 'stage'
-        | 'parentId'
-        | 'archived'
-        | 'deletedAt'
-        | 'isDraftVessel'
-        | 'audience'
-        | 'priority'
-        | 'seq'
-      >
-      const summaries = new Map<string, Summary>()
-      let loading = booting()
-      for (const id of pool.queries.ids({ kind: 'proposedIssues' })) {
-        const row = pool.row('issue', id, 'summary') as Loaded<Summary>
-        if (row === LOADING) loading = true
-        else if (row) summaries.set(id, row)
-      }
-      const underProposal = (issue: Summary) => {
-        const seen = new Set<string>([issue.id])
-        let id = issue.parentId
-        while (id && !seen.has(id)) {
-          seen.add(id)
-          let parent = summaries.get(id)
-          if (!parent) {
-            const row = pool.row('issue', id, 'summary') as Loaded<Summary>
-            if (row === LOADING) { loading = true; return false }
-            if (row) { summaries.set(id, row); parent = row }
-          }
-          if (!parent) return false
-          if (parent.stage === 'proposed') return true
-          id = parent.parentId
-        }
-        return false
-      }
-      const queue = [...summaries.values()]
-        .filter(
-          (issue) =>
-            issue.stage === 'proposed' &&
-            !issue.archived &&
-            !issue.deletedAt &&
-            !issue.isDraftVessel &&
-            issue.audience !== 'agent' &&
-            !underProposal(issue),
-        )
-        .sort((a, b) => a.priority - b.priority || b.seq - a.seq)
-        .map((issue) => issue.id)
+      // Incremental eligible root IDs and order: the shared keeper maintains
+      // one entry per proposed issue (its own summary plus its ancestor
+      // chain) and publishes queue IDs through a persistent ordered tree. A
+      // single proposal change re-reads only the changed keys; unchanged
+      // rows share the previous branches and no proposal payload is
+      // reprojected. The wrapper only re-derives the ordered ID list when
+      // that maintained answer actually changes.
+      const answers = pool.queries.project(
+        { kind: 'proposedIssues' },
+        'mobileInbox.screening',
+        (id) => readScreeningEntry(pool, id),
+      )
+      const loading = booting() || answers === LOADING
+      const queue =
+        answers === LOADING
+          ? []
+          : [...answers]
+              .sort(
+                (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.id < b.id ? -1 : 1),
+              )
+              .map((entry) => entry.id)
       return { queue, booting: loading }
     },
     { equals: compareStructural },
