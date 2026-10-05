@@ -14,7 +14,7 @@ import type { MobxPool } from './pool'
 import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
 import { defineSource, type PoolSource, type PoolSourceRows } from './source-registry'
-import { LOADING, type Loaded } from './worklist/rollup'
+import type { Loaded } from './worklist/rollup'
 
 /** A read-side extension of the ONE pool. No sessions/issue viewmodel array is
  * acquired from the runtime, and only resident session rows enter the indexes. */

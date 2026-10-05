@@ -23,6 +23,7 @@ import { paneHasSessions, paneSession } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { createFieldInputs } from './shared/field-inputs'
+import { defineSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Loaded<IssueViewModel> {
@@ -146,18 +147,23 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
   const window = observable.box<MobileSessionRows['mobileSessionWindow'] | undefined>(undefined, {
     deep: false,
   })
-  let demanded = false,
-    scheduled = false,
-    disposed = false
+  let demanded = false
   const pending = new Set<keyof MobileSessionRows['mobileSessionWindow']>()
   function schedule(key: keyof MobileSessionRows['mobileSessionWindow']) {
-    if (!demanded || disposed) return
+    if (!demanded || source.disposed) return
     pending.add(key)
-    if (!demanded || scheduled || disposed) return
-    scheduled = true
-    queueMicrotask(() => {
-      scheduled = false
-      if (disposed) return
+    source.schedule()
+  }
+  const source = defineSource({
+    readById(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
+      if (entity === 'mobileSessionReader') return reader
+      if (!demanded) {
+        demanded = true
+        schedule(cursorKey)
+      }
+      return window.get() ?? LOADING
+    },
+    refresh() {
       const keys = [...pending]
       pending.clear()
       runInAction(() => {
@@ -166,30 +172,18 @@ export function createMobileSessionSource(owner: ClientRuntime, pool: MobxPool) 
         }
         if (window.get() === undefined) window.set(inputs.row)
       })
-    })
-  }
-  // The cursor keeps its addressed field; spawn prompts belong to the pool log.
-  if (!owner.replica.subscribeCursor)
-    throw new Error('Phone session context requires the replica cursor signal')
-  const stops = [owner.replica.subscribeCursor(() => schedule(cursorKey))]
-  return {
-    read(entity: keyof MobileSessionRows): Loaded<MobileSessionRows[keyof MobileSessionRows]> {
-      if (disposed) return LOADING
-      if (entity === 'mobileSessionReader') return reader
-      if (!demanded) {
-        demanded = true
-        schedule(cursorKey)
-      }
-      return window.get() ?? LOADING
     },
-    dispose() {
-      if (disposed) return
-      disposed = true
+    release() {
       for (const stop of stops) stop()
       pending.clear()
       runInAction(() => window.set(undefined))
     },
-  }
+  })
+  // The cursor keeps its addressed field; spawn prompts belong to the pool log.
+  if (!owner.replica.subscribeCursor)
+    throw new Error('Phone session context requires the replica cursor signal')
+  const stops = [owner.replica.subscribeCursor(() => schedule(cursorKey))]
+  return source
 }
 
 export async function attachMobileSessionContext(owner: ClientRuntime, pool: MobxPool) {

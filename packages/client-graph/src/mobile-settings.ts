@@ -36,43 +36,24 @@ type DiagnosticsOwner = Pick<ClientRuntime, 'replica'>
 export async function createMobileSettingsSource(
   owner: DiagnosticsOwner,
 ): Promise<PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }> {
-  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
+  const [{ observable, runInAction, compareStructural }, rollup, { defineSource }] = await Promise.all([
     import('mobx'),
     import('./worklist/rollup'),
+    import('./source-registry'),
   ])
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const value = observable.box<MobileSettingsDiagnostics | undefined>(undefined, {
     deep: false,
     equals: compareStructural,
   })
-  let demanded = false,
-    scheduled = false,
-    disposed = false
+  let demanded = false
   if (!owner.replica.rowCount) throw new Error('Phone diagnostics require keyed replica counts')
   const counts = { batches: 0 }
   function schedule(): void {
-    if (!demanded || scheduled || disposed) return
-    scheduled = true
-    queueMicrotask(() => {
-      scheduled = false
-      if (disposed) return
-      const next = {
-        issueCount: owner.replica.rowCount!('issueProjections'),
-        conversationCount: owner.replica.rowCount!('conversations'),
-        cursor: owner.replica.getCursor(),
-      }
-      runInAction(() => value.set(next))
-      counts.batches++
-    })
+    if (demanded) source.schedule()
   }
-  // Keyed (POD-5433): the two counts move only with their lists; the cursor
-  // has its own signal.
-  if (!owner.replica.subscribeCursor) throw new Error('Phone diagnostics require the replica cursor signal')
-  const stops = [owner.replica.subscribeRows('issueProjections', schedule), owner.replica.subscribeRows('conversations', schedule), owner.replica.subscribeCursor(schedule)]
-  return {
-    counts,
-    read(_entity, id): Loaded<MobileSettingsDiagnostics> {
-      if (disposed) return LOADING
+  const source = defineSource({
+    readById(_entity: keyof MobileSettingsRows, id: string): Loaded<MobileSettingsDiagnostics> {
       if (id !== 'diagnostics') return undefined
       demanded = true
       const current = value.get()
@@ -82,11 +63,23 @@ export async function createMobileSettingsSource(
       }
       return current
     },
-    dispose(): void {
-      if (disposed) return
-      disposed = true
+    refresh() {
+      const next = {
+        issueCount: owner.replica.rowCount!('issueProjections'),
+        conversationCount: owner.replica.rowCount!('conversations'),
+        cursor: owner.replica.getCursor(),
+      }
+      runInAction(() => value.set(next))
+      counts.batches++
+    },
+    release() {
       for (const stop of stops) stop()
       queueMicrotask(() => runInAction(() => value.set(undefined)))
     },
-  }
+  })
+  // Keyed (POD-5433): the two counts move only with their lists; the cursor
+  // has its own signal.
+  if (!owner.replica.subscribeCursor) throw new Error('Phone diagnostics require the replica cursor signal')
+  const stops = [owner.replica.subscribeRows('issueProjections', schedule), owner.replica.subscribeRows('conversations', schedule), owner.replica.subscribeCursor(schedule)]
+  return Object.assign(source, { counts })
 }

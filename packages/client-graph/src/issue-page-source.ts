@@ -3,8 +3,8 @@ import { createDemandAtoms } from '@podium/mobx-helpers'
 import { runInAction } from 'mobx'
 import type { IssuePageSourceRows } from './issue-page-schema'
 import type { MobxPool } from './pool'
-import type { PoolSource } from './source-registry'
-import { LOADING, type Loaded } from './worklist/rollup'
+import { defineSource } from './source-registry'
+import type { Loaded } from './worklist/rollup'
 
 /** Borrow the kernel's canonical exit evidence on demand. No exit ledger,
  * entity cache or mutation owner is copied into this source.
@@ -14,7 +14,6 @@ import { LOADING, type Loaded } from './worklist/rollup'
  * of the ids it names, and an id leaves the set when its last reader goes. */
 export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Replica, 'exitKind' | 'subscribeAddressedBatch'> }): () => void {
   const demanded = createDemandAtoms<string>((id) => `issueExit:${id}`)
-  let disposed = false
   const subscribe = owner.replica.subscribeAddressedBatch?.bind(owner.replica)
   if (!subscribe) throw new Error('Issue page requires the addressed replica boundary')
   const counts = { wakes: 0 }
@@ -26,15 +25,13 @@ export function attachIssuePageSource(pool: MobxPool, owner: { replica: Pick<Rep
     counts.wakes += atoms.length
     runInAction(() => { for (const atom of atoms) atom.reportChanged() })
   })
-  const source: PoolSource<'issueExit'> & { counts: typeof counts } = {
-    counts,
-    read(_entity, id): Loaded<IssuePageSourceRows['issueExit']> {
-      if (disposed) return LOADING
+  const source = Object.assign(defineSource({
+    readById(_entity: 'issueExit', id: string): Loaded<IssuePageSourceRows['issueExit']> {
       demanded.observe(id)
       return { kind: owner.replica.exitKind?.('issueProjection', id) }
     },
-    dispose() { if (!disposed) { disposed = true; stop(); demanded.clear() } },
-  }
+    release() { stop(); demanded.clear() },
+  }), { counts })
   pool.sources.register(['issueExit'], source)
   return () => source.dispose()
 }

@@ -45,8 +45,8 @@ type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'readLoc
 export async function createSuperagentSource(owner: SuperagentOwner): Promise<PoolSource<keyof SuperagentRows> & {
   counts: { batches: number; threadLists: number; eventCollections: number; addressedEvents: number; questionCollections: number }
 }> {
-  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
-    import('mobx'), import('./worklist/rollup'),
+  const [{ observable, runInAction, compareStructural }, rollup, { defineSource }] = await Promise.all([
+    import('mobx'), import('./worklist/rollup'), import('./source-registry'),
   ])
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const replica = owner.replica
@@ -58,14 +58,18 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     private readonly loaded = observable.set<string>()
     private readonly demanded = new Set<string>()
     private readonly addressedThreads = new Set<string>()
-    private scheduled = false
     /** Keyed (POD-5433): what each wake moved. */
     private threadsDirty = true
     private localDirty = true
     private bootingDirty = true
     private booting = true
     private eventsDirty = true
-    private disposed = false
+    private readonly source = defineSource({
+      readById: this.readById.bind(this),
+      refresh: this.refresh.bind(this),
+      release: this.release.bind(this),
+    })
+    private get disposed(): boolean { return this.source.disposed }
     private readonly stops: (() => void)[]
     readonly counts = { batches: 0, threadLists: 0, eventCollections: 0, addressedEvents: 0, questionCollections: 0 }
 
@@ -104,7 +108,10 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     }
 
     read(entity: keyof SuperagentRows, id: string): Loaded<SuperagentRows[keyof SuperagentRows]> {
-      if (this.disposed) return LOADING
+      return this.source.read(entity, id) as Loaded<SuperagentRows[keyof SuperagentRows]>
+    }
+
+    private readById(entity: keyof SuperagentRows, id: string): Loaded<SuperagentRows[keyof SuperagentRows]> {
       if (entity === 'superThread' && !this.demanded.has('threads')) {
         this.addressedThreads.add(id)
         if (!this.loaded.has(`thread:${id}`)) { this.schedule(); return LOADING }
@@ -175,57 +182,57 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       this.set('superagentEventTail:tail', { ids: events.sort((a, b) => a.eventId - b.eventId).slice(-40).map(row => row.id) })
     }
 
-    private schedule() {
-      if (this.scheduled || this.disposed) return
-      this.scheduled = true
-      queueMicrotask(() => {
-        this.scheduled = false
-        if (this.disposed) return
-        runInAction(() => {
-          if (this.threadsDirty || [...this.addressedThreads].some(id => !this.loaded.has(`thread:${id}`))) {
-            for (const id of this.addressedThreads) {
-              const row = owner.listRow('superThreads', id)
-              this.thread(id, row)
-              this.loaded.add(`thread:${id}`)
-            }
-            if (!this.demanded.has('threads')) this.threadsDirty = false
+    private schedule(): void {
+      this.source.schedule()
+    }
+
+    private refresh(): void {
+      runInAction(() => {
+        if (this.threadsDirty || [...this.addressedThreads].some(id => !this.loaded.has(`thread:${id}`))) {
+          for (const id of this.addressedThreads) {
+            const row = owner.listRow('superThreads', id)
+            this.thread(id, row)
+            this.loaded.add(`thread:${id}`)
           }
-          if (this.demanded.has('threads')) {
-            if (this.threadsDirty) {
-              this.threadsDirty = false
-              this.threads(owner.listIds('superThreads').flatMap(id => owner.listRow('superThreads', id) ?? []))
-            }
-            const before = this.booting
-            if (this.bootingDirty) {
-              this.bootingDirty = false
-              this.booting = replica.getCursor() === null &&
-                replica.rowCount!('sessions') === 0 && replica.rowCount!('issueProjections') === 0
-            }
-            if (this.localDirty || this.booting !== before) {
-              this.localDirty = false
-              this.set('superagentLocal:local', { superThreadId: owner.readLocal('superThreadId'), paneA: owner.readLocal('paneA'),
-                selectedWorktree: owner.readLocal('selectedWorktree'), booting: this.booting })
-            }
-            this.loaded.add('threads')
+          if (!this.demanded.has('threads')) this.threadsDirty = false
+        }
+        if (this.demanded.has('threads')) {
+          if (this.threadsDirty) {
+            this.threadsDirty = false
+            this.threads(owner.listIds('superThreads').flatMap(id => owner.listRow('superThreads', id) ?? []))
           }
-          if (this.demanded.has('events') && this.eventsDirty) {
-            const events = replica.rows('issueEvents'), keep = new Set(events.map(row => row.id))
-            for (const key of this.rows.keys()) if (key.startsWith('superagentEvent:') && !keep.has(key.slice(16))) this.rows.delete(key)
-            for (const row of events) this.set(`superagentEvent:${row.id}`, row)
-            this.tail(); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
+          const before = this.booting
+          if (this.bootingDirty) {
+            this.bootingDirty = false
+            this.booting = replica.getCursor() === null &&
+              replica.rowCount!('sessions') === 0 && replica.rowCount!('issueProjections') === 0
           }
-          if (this.demanded.has('position')) {
-            this.set('superagentReadPosition:issueEvents', owner.readPosition.get('issueEvents'))
-            this.loaded.add('position')
+          if (this.localDirty || this.booting !== before) {
+            this.localDirty = false
+            this.set('superagentLocal:local', { superThreadId: owner.readLocal('superThreadId'), paneA: owner.readLocal('paneA'),
+              selectedWorktree: owner.readLocal('selectedWorktree'), booting: this.booting })
           }
-          this.counts.batches++
-        })
+          this.loaded.add('threads')
+        }
+        if (this.demanded.has('events') && this.eventsDirty) {
+          const events = replica.rows('issueEvents'), keep = new Set(events.map(row => row.id))
+          for (const key of this.rows.keys()) if (key.startsWith('superagentEvent:') && !keep.has(key.slice(16))) this.rows.delete(key)
+          for (const row of events) this.set(`superagentEvent:${row.id}`, row)
+          this.tail(); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
+        }
+        if (this.demanded.has('position')) {
+          this.set('superagentReadPosition:issueEvents', owner.readPosition.get('issueEvents'))
+          this.loaded.add('position')
+        }
+        this.counts.batches++
       })
     }
 
-    dispose() {
-      if (this.disposed) return
-      this.disposed = true
+    dispose(): void {
+      this.source.dispose()
+    }
+
+    private release() {
       for (const stop of this.stops) stop()
       this.addressedThreads.clear()
       this.demanded.clear()

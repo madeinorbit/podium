@@ -39,8 +39,8 @@ export class SessionPaneSource {
     // Keyed (POD-5433): only these four locals wake the pane window.
     this.stop = runtime.onLocals(['panelMode', 'dockShells', 'reposLoaded'], update)
   }
-  read(_entity: 'sessionPaneWindow', _id: string) {
-    return this.source.read(_entity, _id)
+  read(_entity: 'sessionPaneWindow', _id: string): SessionPaneRows['sessionPaneWindow'] | undefined {
+    return this.source.read(_entity, _id) as SessionPaneRows['sessionPaneWindow'] | undefined
   }
 
   private readById(_entity: 'sessionPaneWindow', _id: string) {

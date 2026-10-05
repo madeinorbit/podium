@@ -4,7 +4,7 @@ import { RelationBuckets } from './relations'
 import { createFieldInputs } from './shared/field-inputs'
 import { SHELL_RELATIONS, SHELL_SCHEMA, type ShellEntity, type ShellRows } from './shell-schema'
 import { defineSource, type PoolSource } from './source-registry'
-import { LOADING, type Loaded } from './worklist/rollup'
+import type { Loaded } from './worklist/rollup'
 
 /** Read-side attachment. Locals are already authoritative engine values;
  * replica deltas read just the addressed lane, not the legacy ship collection. */
