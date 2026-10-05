@@ -1047,7 +1047,7 @@ export function TranscriptList({
   const retractPendingRow = useCallback((id: string) => retractPendingRef.current?.(id), [])
 
   const pending = useMemo(
-    () => transcriptQuestion === undefined ? latestPendingQuestion(items) : transcriptQuestion,
+    () => (transcriptQuestion === undefined ? latestPendingQuestion(items) : transcriptQuestion),
     [items, transcriptQuestion],
   )
   const pendingKey = pending ? transcriptItemKey(pending) : null

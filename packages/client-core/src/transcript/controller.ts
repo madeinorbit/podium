@@ -1,6 +1,6 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { cursorInsertionIndex } from '../values/cursor-order'
 import { isAskUserQuestion } from '../values/ask-question'
+import { cursorInsertionIndex } from '../values/cursor-order'
 
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
@@ -273,44 +273,60 @@ class LatestTranscriptId {
   private readonly ids: string[] = []
   private readonly locations = new Map<string, number>()
   constructor(private readonly position: (id: string) => number) {}
-  clear(): void { this.ids.length = 0; this.locations.clear() }
-  latest(): string | undefined { return this.ids[0] }
+  clear(): void {
+    this.ids.length = 0
+    this.locations.clear()
+  }
+  latest(): string | undefined {
+    return this.ids[0]
+  }
   private newer(a: number, b: number): boolean {
     return this.position(this.ids[a]!) > this.position(this.ids[b]!)
   }
   private swap(a: number, b: number): void {
-    const first = this.ids[a]!, second = this.ids[b]!
-    this.ids[a] = second; this.ids[b] = first
-    this.locations.set(first, b); this.locations.set(second, a)
+    const first = this.ids[a]!,
+      second = this.ids[b]!
+    this.ids[a] = second
+    this.ids[b] = first
+    this.locations.set(first, b)
+    this.locations.set(second, a)
   }
   private repair(at: number): void {
     while (at > 0) {
       const parent = (at - 1) >>> 1
       if (!this.newer(at, parent)) break
-      this.swap(at, parent); at = parent
+      this.swap(at, parent)
+      at = parent
     }
     for (;;) {
-      const left = at * 2 + 1, right = left + 1
+      const left = at * 2 + 1,
+        right = left + 1
       let next = at
       if (left < this.ids.length && this.newer(left, next)) next = left
       if (right < this.ids.length && this.newer(right, next)) next = right
       if (next === at) return
-      this.swap(at, next); at = next
+      this.swap(at, next)
+      at = next
     }
   }
   set(id: string, present: boolean): void {
     const location = this.locations.get(id)
     if (present) {
-      if (location !== undefined) { this.repair(location); return }
+      if (location !== undefined) {
+        this.repair(location)
+        return
+      }
       this.locations.set(id, this.ids.length)
-      this.ids.push(id); this.repair(this.ids.length - 1)
+      this.ids.push(id)
+      this.repair(this.ids.length - 1)
       return
     }
     if (location === undefined) return
     const last = this.ids.pop()!
     this.locations.delete(id)
     if (location < this.ids.length) {
-      this.ids[location] = last; this.locations.set(last, location)
+      this.ids[location] = last
+      this.locations.set(last, location)
       this.repair(location)
     }
   }
@@ -339,8 +355,8 @@ export class TranscriptController {
   private probing: Promise<boolean> | null = null
   private indexedItems: readonly TranscriptItem[] = []
   private readonly itemPositions = new Map<string, number>()
-  private readonly userPrompts = new LatestTranscriptId(id => this.itemPositions.get(id) ?? -1)
-  private readonly questions = new LatestTranscriptId(id => this.itemPositions.get(id) ?? -1)
+  private readonly userPrompts = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
+  private readonly questions = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
@@ -763,12 +779,15 @@ export class TranscriptController {
     }
     let facts: Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion'> | undefined
     if (patch.items && patch.items !== this.state.items) {
-      const userId = this.userPrompts.latest(), questionId = this.questions.latest()
+      const userId = this.userPrompts.latest(),
+        questionId = this.questions.latest()
       const userPosition = userId === undefined ? undefined : this.itemPositions.get(userId)
-      const questionPosition = questionId === undefined ? undefined : this.itemPositions.get(questionId)
+      const questionPosition =
+        questionId === undefined ? undefined : this.itemPositions.get(questionId)
       const question = questionPosition === undefined ? undefined : patch.items[questionPosition]
       facts = {
-        latestOperatorPrompt: userPosition === undefined ? null : patch.items[userPosition]?.text ?? null,
+        latestOperatorPrompt:
+          userPosition === undefined ? null : (patch.items[userPosition]?.text ?? null),
         pendingQuestion: question && !question.toolResult ? question : null,
       }
     }

@@ -34,8 +34,8 @@ import { useHub } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextIssues as useIssues,
-  useSessionContextMachine,
   useSessionContextIssue,
+  useSessionContextMachine,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
@@ -586,8 +586,7 @@ export function SessionConversation({
   const transcriptQuestion = transcript.pendingQuestion
   const pendingAsk = useMemo(
     () =>
-      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)
-        ?.item ?? null,
+      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)?.item ?? null,
     [transcriptQuestion, need, phase, session.status],
   )
   const pendingQuestion = transcriptQuestion ?? pendingAsk

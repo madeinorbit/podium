@@ -15,24 +15,36 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderWithMobileStore } from '../client/test-support'
 import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { renderWithMobileStore } from '../client/test-support'
 
 const legacyQuestions = vi.hoisted(() => vi.fn())
 const factQuestions = vi.hoisted(() => vi.fn())
 const listFacts = vi.hoisted(() => vi.fn())
 vi.mock('@podium/client-core/values', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/values')>()
-  return { ...actual, latestPendingQuestion: (...args: Parameters<typeof actual.latestPendingQuestion>) => { legacyQuestions(); return actual.latestPendingQuestion(...args) } }
+  return {
+    ...actual,
+    latestPendingQuestion: (...args: Parameters<typeof actual.latestPendingQuestion>) => {
+      legacyQuestions()
+      return actual.latestPendingQuestion(...args)
+    },
+  }
 })
 vi.mock('@podium/client-core/transcript', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/transcript')>()
-  return { ...actual, createTranscriptController: (...args: Parameters<typeof actual.createTranscriptController>) => {
-    const controller = actual.createTranscriptController(...args)
-    const query = controller.latestPendingQuestion.bind(controller)
-    controller.latestPendingQuestion = () => { factQuestions(); return query() }
-    return controller
-  } }
+  return {
+    ...actual,
+    createTranscriptController: (...args: Parameters<typeof actual.createTranscriptController>) => {
+      const controller = actual.createTranscriptController(...args)
+      const query = controller.latestPendingQuestion.bind(controller)
+      controller.latestPendingQuestion = () => {
+        factQuestions()
+        return query()
+      }
+      return controller
+    },
+  }
 })
 
 afterEach(cleanup)
@@ -64,7 +76,12 @@ vi.mock('./PullToRefreshBoundary', () => ({
 vi.mock('./SessionLifecycle', () => ({ MobileSessionLifecycle: () => null }))
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
-vi.mock('./TranscriptList', () => ({ TranscriptList: (props: Parameters<typeof import('./TranscriptList').TranscriptList>[0]) => { listFacts(props.items.length, props.transcriptQuestion); return null } }))
+vi.mock('./TranscriptList', () => ({
+  TranscriptList: (props: Parameters<typeof import('./TranscriptList').TranscriptList>[0]) => {
+    listFacts(props.items.length, props.transcriptQuestion)
+    return null
+  },
+}))
 
 const { SessionConversation } = await import('./SessionConversation')
 
@@ -100,26 +117,52 @@ describe('phone session Stop', () => {
   it('uses source facts and does no retained-history question work on phase updates at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {
-      legacyQuestions.mockClear(); factQuestions.mockClear(); listFacts.mockClear()
-      const items = [{ id: 'prompt', role: 'user', text: 'Original prompt' }, ...Array.from({ length: 128 * scale }, (_, index) => ({ id: `a${index}`, role: 'assistant', text: 'Retained history' }))]
+      legacyQuestions.mockClear()
+      factQuestions.mockClear()
+      listFacts.mockClear()
+      const items = [
+        { id: 'prompt', role: 'user', text: 'Original prompt' },
+        ...Array.from({ length: 128 * scale }, (_, index) => ({
+          id: `a${index}`,
+          role: 'assistant',
+          text: 'Retained history',
+        })),
+      ]
       let change: (() => void) | undefined
       function Harness() {
         const [session, setSession] = useState(working)
-        change = () => setSession({ ...working, agentState: { ...working.agentState, since: '2026-09-23T12:00:01.000Z' } } as SessionView)
+        change = () =>
+          setSession({
+            ...working,
+            agentState: { ...working.agentState, since: '2026-09-23T12:00:01.000Z' },
+          } as SessionView)
         return <SessionConversation session={session} issue={undefined} />
       }
-      const view = await renderWithMobileStore(<Harness />, { sessions: [working], api: { sessions: {
-        transcriptRead: { query: async () => ({ items, hasMore: false }) },
-        answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-        interrupt: { mutate: async () => ({ ok: true }) },
-      } } })
+      const view = await renderWithMobileStore(<Harness />, {
+        sessions: [working],
+        api: {
+          sessions: {
+            transcriptRead: { query: async () => ({ items, hasMore: false }) },
+            answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+            interrupt: { mutate: async () => ({ ok: true }) },
+          },
+        },
+      })
       await waitFor(() => expect(listFacts).toHaveBeenLastCalledWith(items.length, null))
       expect(legacyQuestions).not.toHaveBeenCalled()
-      factQuestions.mockClear(); legacyQuestions.mockClear()
-      const phase = await measureWork(async () => { act(() => change?.()) })
+      factQuestions.mockClear()
+      legacyQuestions.mockClear()
+      const phase = await measureWork(async () => {
+        act(() => change?.())
+      })
       expect(factQuestions).not.toHaveBeenCalled()
       expect(legacyQuestions).not.toHaveBeenCalled()
-      samples.push({ scale, phase, factQueries: factQuestions.mock.calls.length, legacyQueries: legacyQuestions.mock.calls.length })
+      samples.push({
+        scale,
+        phase,
+        factQueries: factQuestions.mock.calls.length,
+        legacyQueries: legacyQuestions.mock.calls.length,
+      })
       view.unmount()
     }
     expect(samples[1]!.phase).toEqual(samples[0]!.phase)
