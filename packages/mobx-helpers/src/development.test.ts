@@ -24,7 +24,7 @@ it('enables action, computed and reaction diagnostics while permitting ordinary 
   warn.mockClear()
   const stop = autorun(() => {})
   stop()
-  expect(warn).toHaveBeenCalledWith(expect.stringContaining("doesn't read any observable"))
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining('without reading any observable'))
   warn.mockClear()
   runInAction(() => value.set(3))
   expect(allowImperativeRead(() => derived.get())).toBe(3)
