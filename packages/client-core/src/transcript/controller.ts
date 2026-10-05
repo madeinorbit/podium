@@ -97,6 +97,7 @@ export interface TranscriptState {
   items: TranscriptItem[]
   latestOperatorPrompt: string | null
   pendingQuestion: TranscriptItem | null
+  latestRecordedAt: number | null
   head: string | undefined
   tail: string | undefined
   hasMoreOlder: boolean
@@ -268,7 +269,7 @@ export function prependTranscriptItems(
   return fresh.length === 0 ? prev : [...fresh, ...prev]
 }
 
-/** IDs only, ordered by the controller's existing raw-item position relation. */
+/** IDs only, ordered by a maintained source fact. */
 class LatestTranscriptId {
   private readonly ids: string[] = []
   private readonly locations = new Map<string, number>()
@@ -357,6 +358,11 @@ export class TranscriptController {
   private readonly itemPositions = new Map<string, number>()
   private readonly userPrompts = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
   private readonly questions = new LatestTranscriptId((id) => this.itemPositions.get(id) ?? -1)
+  private readonly recordedAt = new Map<string, number>()
+  private readonly recordedItems = new LatestTranscriptId((id) => this.recordedAt.get(id) ?? -Infinity)
+  private readonly userEchoes = new Map<string, { text: string; paths: string }>()
+  private readonly userTexts = new Map<string, number>()
+  private readonly userPaths = new Map<string, number>()
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
@@ -366,6 +372,7 @@ export class TranscriptController {
       items: [],
       latestOperatorPrompt: null,
       pendingQuestion: null,
+      latestRecordedAt: null,
       head: undefined,
       tail: undefined,
       hasMoreOlder: true,
@@ -395,9 +402,38 @@ export class TranscriptController {
     return item && !item.toolResult ? item : null
   }
 
+  /** Match the existing optimistic-turn rule by text, or by ordered file paths. */
+  hasUserEcho(text: string, paths: readonly string[] = []): boolean {
+    return paths.length > 0
+      ? this.userPaths.has(JSON.stringify(paths))
+      : this.userTexts.has(text.trim())
+  }
+
+  private moveEchoCount(counts: Map<string, number>, before: string | undefined, after: string | undefined): void {
+    if (before === after) return
+    if (before !== undefined) {
+      const count = counts.get(before) ?? 0
+      if (count <= 1) counts.delete(before)
+      else counts.set(before, count - 1)
+    }
+    if (after !== undefined) counts.set(after, (counts.get(after) ?? 0) + 1)
+  }
+
   private fileFacts(item: TranscriptItem): void {
     this.userPrompts.set(item.id, item.role === 'user' && item.text.trim().length > 0)
     this.questions.set(item.id, isAskUserQuestion(item))
+    const at = item.ts === undefined ? NaN : Date.parse(item.ts)
+    if (Number.isFinite(at)) this.recordedAt.set(item.id, at)
+    else this.recordedAt.delete(item.id)
+    this.recordedItems.set(item.id, Number.isFinite(at))
+    const previous = this.userEchoes.get(item.id)
+    const next = item.role === 'user'
+      ? { text: item.text.trim(), paths: JSON.stringify(item.toolPaths ?? []) }
+      : undefined
+    this.moveEchoCount(this.userTexts, previous?.text, next?.text)
+    this.moveEchoCount(this.userPaths, previous?.paths, next?.paths)
+    if (next) this.userEchoes.set(item.id, next)
+    else this.userEchoes.delete(item.id)
   }
 
   subscribe = (listener: Listener): (() => void) => {
@@ -771,13 +807,18 @@ export class TranscriptController {
       this.itemPositions.clear()
       this.userPrompts.clear()
       this.questions.clear()
+      this.recordedAt.clear()
+      this.recordedItems.clear()
+      this.userEchoes.clear()
+      this.userTexts.clear()
+      this.userPaths.clear()
       patch.items.forEach((item, index) => {
         this.itemPositions.set(item.id, index)
         this.fileFacts(item)
       })
       this.indexedItems = patch.items
     }
-    let facts: Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion'> | undefined
+    let facts: Pick<TranscriptState, 'latestOperatorPrompt' | 'pendingQuestion' | 'latestRecordedAt'> | undefined
     if (patch.items && patch.items !== this.state.items) {
       const userId = this.userPrompts.latest(),
         questionId = this.questions.latest()
@@ -785,10 +826,12 @@ export class TranscriptController {
       const questionPosition =
         questionId === undefined ? undefined : this.itemPositions.get(questionId)
       const question = questionPosition === undefined ? undefined : patch.items[questionPosition]
+      const recordedId = this.recordedItems.latest()
       facts = {
         latestOperatorPrompt:
           userPosition === undefined ? null : (patch.items[userPosition]?.text ?? null),
         pendingQuestion: question && !question.toolResult ? question : null,
+        latestRecordedAt: recordedId === undefined ? null : this.recordedAt.get(recordedId) ?? null,
       }
     }
     this.state = { ...this.state, ...patch, ...facts }

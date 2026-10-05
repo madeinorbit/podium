@@ -1,20 +1,15 @@
 import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import { useModelCatalog } from '@podium/client-core/react'
-import {
-  mergeTranscriptFrame,
-  prependTranscriptItems,
-  reconcileTranscriptSnapshot,
-} from '@podium/client-core/transcript'
+import { createTranscriptController, type TranscriptState } from '@podium/client-core/transcript'
 import type { SuperagentSliceValue } from '@podium/client-core/values'
 import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import {
-  readTranscriptPage,
   useHttpOrigin,
   useHub,
   useReplica,
@@ -44,7 +39,7 @@ import {
   type SuperagentBackendPick,
   superagentTurnChoice,
 } from '../lib/superagent-backend'
-import { dropEchoedTurns, liveTranscriptItem, markTurnsFailed } from '../lib/superagent-transcript'
+import { liveTranscriptItem, markTurnsFailed } from '../lib/superagent-transcript'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -66,6 +61,11 @@ import { color, font, sans, space } from '../theme/theme'
  *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
+const EMPTY_TRANSCRIPT: Pick<TranscriptState, 'items' | 'initialLoaded' | 'pendingQuestion' | 'latestRecordedAt'> = {
+  items: [], initialLoaded: false, pendingQuestion: null, latestRecordedAt: null,
+}
+const emptyTranscript = () => EMPTY_TRANSCRIPT
+const subscribeEmptyTranscript = () => () => {}
 
 type LocalPendingTurn = PendingTurn & { wire: string }
 
@@ -112,8 +112,6 @@ export function SuperagentScreen() {
   const tabBarInset = useTabBarInset()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
-  const [items, setItems] = useState<TranscriptItem[]>([])
-  const [transcriptLoaded, setTranscriptLoaded] = useState(false)
   const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [liveText, setLiveText] = useState('')
   const pendingLiveText = useRef('')
@@ -144,6 +142,30 @@ export function SuperagentScreen() {
   const publishedSid =
     superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
   const podiumSid = ackedSid ?? publishedSid
+  const followingTranscript = useRef(true)
+  const searchingTranscript = useRef(false)
+  const followTranscript = useCallback((following: boolean) => { followingTranscript.current = following }, [])
+  const searchTranscript = useCallback((searching: boolean) => { searchingTranscript.current = searching }, [])
+  const transcriptController = useMemo(() => podiumSid === undefined ? undefined : createTranscriptController({
+    sessionId: podiumSid,
+    initialLimit: 80,
+    pageLimit: 80,
+    retainHistory: () => !followingTranscript.current || searchingTranscript.current,
+    source: {
+      read: (request) => trpc.sessions.transcriptRead.query(request),
+      subscribe: (sid, since, listener) => hub.subscribeTranscript(sid, since, listener),
+    },
+    cache: {
+      read: (sid) => replica.transcriptWindow(sid),
+      write: (sid, next) => replica.putTranscriptWindow(sid, [...next]),
+    },
+  }), [hub, podiumSid, replica, trpc.sessions.transcriptRead])
+  const transcript = useSyncExternalStore<typeof EMPTY_TRANSCRIPT>(
+    transcriptController?.subscribe ?? subscribeEmptyTranscript,
+    transcriptController?.getSnapshot ?? emptyTranscript,
+  )
+  const items = transcript.items
+  const transcriptLoaded = transcript.initialLoaded
   const currentQuestion = usePoolQuestion(podiumSid)
   const transcriptSession = usePoolTranscriptSession(podiumSid)
   const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
@@ -186,12 +208,6 @@ export function SuperagentScreen() {
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.
   const turnSeq = useRef(0)
-  // Scroll-back paging state. Refs, not state: paging must not retrigger the
-  // load/subscribe effect, and onLoadOlder can fire in bursts.
-  const paging = useRef<{ head?: string; hasMore: boolean; loading: boolean }>({
-    hasMore: false,
-    loading: false,
-  })
 
   const cancelLiveTextFrame = useCallback(() => {
     // A callback can already be dequeued when cancellation runs. Invalidate its
@@ -267,46 +283,10 @@ export function SuperagentScreen() {
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
   useEffect(() => {
-    if (!podiumSid) {
-      setTranscriptLoaded(false)
-      setItems([])
-      return
-    }
-    let alive = true
-    let unsubscribe: (() => void) | null = null
-    const cached = replica.transcriptWindow(podiumSid)
-    setItems(cached?.items ?? [])
-    setTranscriptLoaded(false)
-    paging.current = { hasMore: false, loading: false }
-    const attach = (since: string | undefined) => {
-      if (!alive) return
-      unsubscribe = hub.subscribeTranscript(podiumSid, since, (delta, meta) => {
-        setItems((prev) =>
-          meta.reset
-            ? reconcileTranscriptSnapshot(prev, delta, delta.at(-1)?.cursor)
-            : mergeTranscriptFrame(prev, delta),
-        )
-      })
-    }
-    readTranscriptPage(trpc, podiumSid)
-      .then((page) => {
-        if (!alive) return
-        setItems(page.items)
-        setTranscriptLoaded(true)
-        if (page.items.length > 0) replica.putTranscriptWindow(podiumSid, page.items)
-        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
-        attach(page.tail)
-      })
-      .catch(() => {
-        if (!alive) return
-        setTranscriptLoaded(true)
-        attach(undefined)
-      })
-    return () => {
-      alive = false
-      unsubscribe?.()
-    }
-  }, [trpc, hub, podiumSid, replica])
+    if (!transcriptController) return
+    void transcriptController.start()
+    return () => transcriptController.stop()
+  }, [transcriptController])
 
   // DURABLE FAILURE RESTORATION (POD-4806). A turn that never reached a
   // harness leaves no transcript and the live turn-end error is gone after a
@@ -333,24 +313,9 @@ export function SuperagentScreen() {
     }
   }, [podiumSid, transcriptLoaded, trpc])
 
-  useEffect(() => {
-    if (!podiumSid || items.length === 0) return
-    replica.putTranscriptWindow(podiumSid, items)
-  }, [items, podiumSid, replica])
-
   const loadOlder = useCallback(() => {
-    const p = paging.current
-    if (!podiumSid || !p.hasMore || p.loading || !p.head) return
-    p.loading = true
-    readTranscriptPage(trpc, podiumSid, p.head)
-      .then((page) => {
-        paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
-        setItems((prev) => prependTranscriptItems(prev, page.items))
-      })
-      .catch(() => {
-        paging.current.loading = false
-      })
-  }, [trpc, podiumSid])
+    void transcriptController?.loadOlder().catch(() => {})
+  }, [transcriptController])
 
   // Live turn activity: the in-progress assistant text and the turn boundaries.
   // The settled reply arrives on the transcript stream, so turn-end only has to
@@ -415,9 +380,14 @@ export function SuperagentScreen() {
 
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
-    if (pendingTurns.length === 0) return
-    setPendingTurns((prev) => [...dropEchoedTurns(prev, settled)])
-  }, [settled, pendingTurns.length])
+    if (!transcriptController || pendingTurns.length === 0) return
+    setPendingTurns((previous) => {
+      const next = previous.filter((turn) => !transcriptController.hasUserEcho(
+        turn.text, (turn.files ?? []).map((file) => file.path),
+      ))
+      return next.length === previous.length ? previous : next
+    })
+  }, [transcriptController, settled, pendingTurns.length])
 
   // Once the transcript has echoed the optimistic row, transport is complete.
   // Real computation keeps its own `running` mark; a very fast completed turn
@@ -532,7 +502,6 @@ export function SuperagentScreen() {
       // The server drops the thread's harness+headless binding, so the old
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
-      setItems([])
       setClearedSid(podiumSid)
       setAckedSid(undefined)
       attachments.clear()
@@ -563,11 +532,11 @@ export function SuperagentScreen() {
     const failureAt = Date.parse(restoredFailure.at)
     if (
       Number.isFinite(failureAt) &&
-      settled.some((item) => item.ts !== undefined && Date.parse(item.ts) > failureAt)
+      transcript.latestRecordedAt !== null && transcript.latestRecordedAt > failureAt
     )
       return null
     return restoredFailure
-  }, [restoredFailure, settled, pendingTurns.length, working])
+  }, [restoredFailure, transcript.latestRecordedAt, pendingTurns.length, working])
   const restoredRow = useMemo((): LocalPendingTurn | null => {
     if (!visibleRestoredFailure?.userText) return null
     return {
@@ -630,6 +599,7 @@ export function SuperagentScreen() {
             >
               <TranscriptList
                 items={settled}
+                transcriptQuestion={transcript.pendingQuestion}
                 liveItem={liveItem}
                 live={working}
                 collapseContext
@@ -656,6 +626,8 @@ export function SuperagentScreen() {
                   tone: working ? 'working' : 'idle',
                 }}
                 onLoadOlder={loadOlder}
+                onFollowChange={followTranscript}
+                onSearchChange={searchTranscript}
                 refreshControl={refreshControl}
                 refreshAccessibilityProps={refreshAccessibilityProps}
                 emptyComponent={
