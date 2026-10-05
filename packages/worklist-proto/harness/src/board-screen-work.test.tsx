@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { poolScreenCellsAt } from './pool-screen-work'
 import screenWorkExceptions from './screen-work.expected-failures.json'
@@ -16,6 +16,7 @@ it('keeps every board row, derivation and collection-element counter flat for sc
     readers.flatMap(({ reader, actions }) => Object.entries(actions).flatMap(([action, kinds]) =>
       (kinds ?? []).map((kind: string) => ({ action, kind, reader, issue })))))
   const classified = classifyScreenWork(verdicts, exceptions)
+  mkdirSync(new URL('../browser/results/', import.meta.url), { recursive: true })
   writeFileSync(new URL('../browser/results/work-board-screens.json', import.meta.url),
     JSON.stringify({ at1x, at4x, verdicts, ...classified }, null, 2) + '\n')
   console.info('[board work] existing failures', JSON.stringify(classified.expectedFailures))
