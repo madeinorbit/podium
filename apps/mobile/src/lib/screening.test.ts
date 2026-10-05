@@ -171,10 +171,6 @@ describe('pool screening incrementality', () => {
         opened.dispose()
       }
     }
-      } finally {
-        opened.dispose()
-      }
-    }
     const [oneX, fourX] = cells
     expect(fourX?.proposals).toBe((oneX?.proposals ?? 0) * 4)
     // One touched summary re-reads its own entry; the other P-1 share the
