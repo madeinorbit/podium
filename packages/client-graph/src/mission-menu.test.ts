@@ -135,7 +135,7 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
       { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
     ])
-    const row = vi.spyOn(pool, 'row'), ids = vi.spyOn(pool.headerViews, 'ids')
+    const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(pool.headerViews, 'row'), ids = vi.spyOn(pool.headerViews, 'ids')
     let menu!: ReturnType<typeof observe<ReturnType<typeof readMissionActionInputs>>>
     const measured = await measureWork(async () => insideReader('menu', () => {
       menu = observe(() => readMissionActionInputs(view, [], 'picked'))
@@ -151,7 +151,7 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
         .toEqual(handoffAvailability(value.session, reposToViews([target, clone, ...others]), value.machines, value.issue))
       expect(value.machines).toHaveLength(1)
       expect(ids).not.toHaveBeenCalled()
-      expect(row.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
+      expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
       work.push({ rows: measured.work.rows ?? 0, elements: measured.work.elements })
       row.mockClear()
       pool.header.apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
