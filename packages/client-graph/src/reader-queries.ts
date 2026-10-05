@@ -41,6 +41,10 @@ export class ReaderQueries {
   private readonly linkedPrefixes = new Map<string, Set<string>>()
   private readonly repoOverrides = new Map<string, string | undefined>()
   private readonly repoStops = new Map<string, () => void>()
+  private readonly repoPrefixCounts = new Map<string, number>()
+  private readonly repoPrefixes: string[] = []
+  private readonly repoPrefixAtom = createAtom('history.repositoryPrefixKey')
+  private repoPrefixValue = ''
   private readonly sessionReferenceAtoms = new Map<string, { atom: IAtom; value: string | undefined }>()
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
   private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
@@ -292,6 +296,31 @@ export class ReaderQueries {
     if (afterPrefix && afterPrefix !== beforePrefix) this.publishIssuePrefix(afterPrefix)
   }
   private changeRepoIdentity(id: string, prefix: string | undefined): void {
+    const previous = this.repoOverrides.get(id)
+    if (previous !== prefix) {
+      let changed = false
+      if (previous) {
+        const count = this.repoPrefixCounts.get(previous) ?? 0
+        if (count > 1) this.repoPrefixCounts.set(previous, count - 1)
+        else {
+          this.repoPrefixCounts.delete(previous)
+          this.repoPrefixes.splice(this.repoPrefixPosition(previous), 1)
+          changed = true
+        }
+      }
+      if (prefix) {
+        const count = this.repoPrefixCounts.get(prefix) ?? 0
+        this.repoPrefixCounts.set(prefix, count + 1)
+        if (count === 0) {
+          this.repoPrefixes.splice(this.repoPrefixPosition(prefix), 0, prefix)
+          changed = true
+        }
+      }
+      if (changed) {
+        this.repoPrefixValue = this.repoPrefixes.join(',')
+        this.repoPrefixAtom.reportChanged()
+      }
+    }
     this.repoOverrides.set(id, prefix)
     const identities = this.issueIdentities(), before = identities.repoPrefix(id)
     const bare = identities.setRepo(id, prefix)
@@ -301,6 +330,22 @@ export class ReaderQueries {
         for (const question of this.linkedPrefixes.get(key) ?? []) this.publishLinkedIssue(question)
         this.publishIssuePrefix(key)
       }
+  }
+  private repoPrefixPosition(prefix: string): number {
+    let lo = 0, hi = this.repoPrefixes.length
+    while (lo < hi) {
+      const at = (lo + hi) >>> 1
+      if (this.repoPrefixes[at]! < prefix) lo = at + 1
+      else hi = at
+    }
+    return lo
+  }
+  /** Registered resident repo prefixes, including repos with no issues.
+   * Membership is filed with the existing addressed identity facts. */
+  repositoryPrefixKey(): string {
+    this.repoPrefixAtom.reportObserved()
+    this.counts.scalarVisits++
+    return this.repoPrefixValue
   }
   /** One prefix's maintained membership: terminal links require a live issue;
    * inbox references also admit deleted issue identities. No catalog demand. */
@@ -855,6 +900,9 @@ export class ReaderQueries {
     for (const stop of this.repoStops.values()) stop()
     this.repoStops.clear()
     this.repoOverrides.clear()
+    this.repoPrefixCounts.clear()
+    this.repoPrefixes.length = 0
+    this.repoPrefixValue = ''
     for (const result of [...this.results.values()]) result.dispose()
     this.results.clear()
     this.identities.clear()

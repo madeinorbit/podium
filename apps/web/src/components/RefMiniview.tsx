@@ -540,12 +540,7 @@ export function RefPrefixSync(): JSX.Element {
 
 function PoolRefPrefixSync(): JSX.Element {
   const read = useCallback((pool: MobxPool) => {
-    const prefixes = new Set<string>()
-    for (const id of pool.tables.repo.keys()) {
-      const repo = pool.row('repo', id) as { prefix?: string } | undefined
-      if (repo?.prefix) prefixes.add(repo.prefix)
-    }
-    return [...prefixes].sort().join(',')
+    return pool.queries.repositoryPrefixKey()
   }, [])
   const issuePrefixKey = useWorklistPoolProjection(read, '')
   return <RefPrefixSyncContents issuePrefixKey={issuePrefixKey} />
