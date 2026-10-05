@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId } from '@podium/model'
-import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { openScreeningPool, readPoolScreening } from '../../test/pool-board-fixture'
 import { reconcileScreeningIds } from '../client/use-inbox-data'
@@ -106,6 +106,19 @@ describe('pool screening incrementality', () => {
   const proposal = (at: number) =>
     issue({ id: asIssueId(`scale-${at}`), priority: 2, seq: at + 1 })
 
+  /** Observe the queue through the production projection path (the phone
+   * screen's useMobilePoolProjection), so the keeper maintains entries
+   * across the update instead of releasing while unobserved. */
+  function observeScreening(pool: MobxPool, screening: () => unknown) {
+    const projection = createPoolProjection(pool, () => screening(), {
+      name: 'screening-guard',
+    })
+    projection.getSnapshot()
+    return projection.subscribe(() => {
+      projection.getSnapshot()
+    })
+  }
+
   /** Issue summary reads through the pool while `run` executes. */
   function countSummaryReads(pool: MobxPool, run: () => void): { reads: number } {
     let reads = 0
@@ -134,9 +147,7 @@ describe('pool screening incrementality', () => {
       // The keeper maintains entries only while observed; the phone screen
       // observes the queue through its projection, so the guard holds the
       // same observation across the update.
-      const stop = autorun(() => {
-        opened.views.screening()
-      })
+      const stop = observeScreening(opened.pool, () => opened.views.screening())
       try {
         const first = opened.views.screening()
         expect(first.booting).toBe(false)
@@ -176,9 +187,7 @@ describe('pool screening incrementality', () => {
     for (const scale of [1, 4]) {
       const count = 25 * scale
       const opened = openScreeningPool(Array.from({ length: count }, (_, at) => proposal(at)))
-      const stop = autorun(() => {
-        opened.views.screening()
-      })
+      const stop = observeScreening(opened.pool, () => opened.views.screening())
       try {
         const first = opened.views.screening()
         expect(first.booting).toBe(false)
