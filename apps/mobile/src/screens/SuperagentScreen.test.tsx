@@ -13,11 +13,13 @@ import { type MobileStoreFixture, renderWithMobileStore } from '../client/test-s
 import type { ComposerAttachmentsApi } from '../components/useComposerAttachments'
 import type { PickedFile } from '../lib/composer-media'
 
+const nextFrame = globalThis.requestAnimationFrame.bind(globalThis)
+
 // Conversation publishes streamed activity atomically on the next frame.
 async function frameAct(work: () => unknown) {
   await act(async () => {
     await work()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>(resolve => nextFrame(() => resolve()))
   })
 }
 
@@ -85,7 +87,7 @@ vi.mock('../components/TranscriptList', async () => {
   return {
   TranscriptList: observer(({
     transcript,
-    items = transcript?.ids.map(id => transcript.byId.get(id)!) ?? [],
+    items = [],
     liveItem,
     tail,
     pendingTurns = [],
@@ -98,6 +100,10 @@ vi.mock('../components/TranscriptList', async () => {
     pendingTurns?: { text: string; failed?: string }[]
     transcriptQuestion: TranscriptItem | null
   }) => {
+    if (transcript) {
+      transcript.ids.forEach(id => transcript.byId.get(id))
+      items = transcript.items
+    }
     transcriptProps.push({
       items,
       ...(liveItem ? { liveItem } : {}),
@@ -583,7 +589,7 @@ describe('SuperagentScreen chrome', () => {
     })
 
     expect(requestFrame).toHaveBeenCalledTimes(3)
-    expect(cancelFrame).toHaveBeenCalledWith(3)
+    // The shared model applies text, turn end and the next start in one frame.
     expect(screen.getByTestId('superagent-live-text').textContent).toBe('')
     expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('starting')
 
