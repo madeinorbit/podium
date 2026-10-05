@@ -125,7 +125,7 @@ it('derives sidebar ownership inside the applying action without refiling seats'
     createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
   }
   const seat = {
-    sessionId: 'seat', issueId: owner.id, headless: true, agentKind: 'codex',
+    sessionId: 'seat', issueId: owner.id, agentKind: 'codex',
     cwd: LANE, title: 'Seat', status: 'live', archived: false,
     lastActiveAt: new Date(NOW).toISOString(),
   }
@@ -138,6 +138,7 @@ it('derives sidebar ownership inside the applying action without refiling seats'
   const stop = autorun(() => { pool.sidebarRosters.candidates(LANE) })
   const file = vi.spyOn(pool.sidebarRosters as unknown as { fileSeat(id: string): void }, 'fileSeat')
   try {
+    expect(pool.graph.one('session', seat.sessionId, 'worktree')).toBe(LANE)
     expect(pool.issueObject(owner.id).placed).toBe(true)
     expect([...pool.sidebarRosters.candidates(LANE)]).toEqual([])
     runInAction(() => {
