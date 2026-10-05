@@ -279,6 +279,7 @@ describe('keyed adapter inputs (POD-5433)', () => {
         f.chat.read('chatSessionOrder', 'order')
         f.chat.read('chatIssueOrder', 'order')
         await flush()
+        const stop = autorun(() => { f.chat.read('chatSessionOrder', 'order') })
         const order = f.chat.read('chatSessionOrder', 'order')
         const { orderLists, orderIds, addressedOrders } = f.chat.counts
         await writeHeartbeat(f.ctx)
@@ -288,6 +289,16 @@ describe('keyed adapter inputs (POD-5433)', () => {
         expect(f.chat.counts.orderLists).toBe(orderLists)
         expect(f.chat.counts.orderIds).toBe(orderIds)
         expect(f.chat.counts.addressedOrders - addressedOrders).toBeLessThanOrEqual(4)
+        stop()
+        await writeHeartbeat(f.ctx)
+        await flush()
+        expect(f.chat.counts.orderIds).toBe(orderIds)
+        // A normal computed suspends at the last observer. An untracked
+        // read derives a fresh answer rather than retaining the whole list.
+        const untrackedOrder = f.chat.read('chatSessionOrder', 'order')
+        expect(untrackedOrder).toEqual(order)
+        expect(untrackedOrder).not.toBe(order)
+        expect(f.chat.counts.orderIds).toBeGreaterThan(orderIds)
       } finally {
         f.dispose()
       }

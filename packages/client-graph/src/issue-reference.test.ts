@@ -1,4 +1,4 @@
-import { runInAction } from 'mobx'
+import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { MobxPool } from './pool'
@@ -91,6 +91,42 @@ it('releases unresolved chips before hydration and never revives them on a late 
     expect(f.pool.references.hasRequest('POD-999')).toBe(false)
     expect(f.load).not.toHaveBeenCalled()
   } finally { f.pool.dispose() }
+})
+
+it('queues an unresolved reference only after observation, outside the read', async () => {
+  const f = fixture(1, false)
+  try {
+    expect(f.pool.references.id('POD-999')).toBe(LOADING)
+    await Promise.resolve()
+    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(f.pool.hydrate()).toBe(0)
+    let requestedDuringRead = false
+    const stop = autorun(() => {
+      f.pool.references.id('POD-999')
+      requestedDuringRead ||= f.pool.references.hasRequest('POD-999')
+    })
+    expect(requestedDuringRead).toBe(false)
+    await Promise.resolve()
+    expect(f.pool.references.hasRequest('POD-999')).toBe(true)
+    stop()
+    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(f.pool.hydrate()).toBe(0)
+  } finally { f.pool.dispose() }
+})
+
+it('cancels observed reference demand before its microtask or after pool disposal', async () => {
+  const f = fixture(1, false)
+  const stop = autorun(() => { f.pool.references.id('POD-999') })
+  stop()
+  await Promise.resolve()
+  expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+  expect(f.pool.hydrate()).toBe(0)
+  const off = autorun(() => { f.pool.references.id('POD-998') })
+  f.pool.dispose()
+  await Promise.resolve()
+  expect(f.pool.references.hasRequest('POD-998')).toBe(false)
+  expect(f.authority).not.toHaveBeenCalled()
+  off()
 })
 
 it('uses canonical identity, first bare alias ownership and separate live/all prefix membership', () => {

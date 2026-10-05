@@ -147,7 +147,7 @@ export class IssueReferences implements IssueReferenceReader {
       this.demand.set(key, created)
       demand = created
     }
-    if (!demand.atom.reportObserved()) this.demand.delete(key)
+    if (!demand.atom.reportObserved() && !demand.observed) this.demand.delete(key)
     const pending = this.requests.get(key)
     if (pending !== undefined) {
       if (typeof pending !== 'string') return pending
