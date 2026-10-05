@@ -49,8 +49,7 @@ import type {
   MissionRowPresentation,
   MissionViewValues,
 } from '@podium/client-graph/mission-view'
-import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
-import { requireLoaded } from '@podium/client-graph/mission-deck-model'
+import { MissionDeckIssueModel, requireLoaded } from '@podium/client-graph/mission-view'
 import { cachedKey } from '@podium/client-graph/cached'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model'

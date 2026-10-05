@@ -51,7 +51,7 @@ import type {
   MissionViewValues,
 } from '@podium/client-graph/mission-view'
 import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
-import { requireLoaded } from '@podium/client-graph/mission-deck-model'
+import { requireLoaded } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
