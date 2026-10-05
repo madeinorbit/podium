@@ -17,7 +17,8 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
     session && typeof session !== 'symbol' ? [session as SessionView] : []
   const issues: RefIssueLike[] = []
   let loading = typeof session === 'symbol'
-  const issueId = parsed?.kind === 'issue' ? pool.queries.issueReferenceId(ref) : sessions[0]?.issueId
+  const issueId =
+    parsed?.kind === 'issue' ? pool.queries.issueReferenceId(ref) : sessions[0]?.issueId
   let next = issueId
   const seen = new Set<string>()
   let haveSeat = false
