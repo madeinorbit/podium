@@ -1,0 +1,619 @@
+{
+  "version": 1,
+  "mode": "timing",
+  "arm": "5239-scalar-before",
+  "comparisonArm": "5239-scalar-before",
+  "round": 0,
+  "surface": "web",
+  "scale": 4,
+  "sha": "34af388548a25fa9d5f57c2e7b7050eaa5a111fb",
+  "productTreeSha256": "2cf991ce4ac07c1d441c2ff2227063350fe5aea48dfa89e26f9178b0f65f1fb3",
+  "purpose": "measurement",
+  "harnessSha256": "fdeba930501eac78f782e29f7754838f9c3737568cd93502cecb2c6a481a554a",
+  "durationTimeDomain": "threadTicks",
+  "startupBoundary": "sidebar-issue-row",
+  "httpCache": "disabled by bootstrap request routing",
+  "warmStartup": "Reload with retained durable data and preferences; cursor resume without augmented snapshot",
+  "sameOriginTracePriming": true,
+  "semanticSha256": "b6ad3a359fa48bd74c113577bd43484507e2acc0ce08cb81843a8296a94cf82a",
+  "controlOnly": false,
+  "backgroundOnly": false,
+  "query": "",
+  "variants": [],
+  "paired": false,
+  "build": {
+    "wireSchemaDigest": "cb9f0786c0a97c2c",
+    "wireVersion": 4,
+    "appVersion": "dev+34af388",
+    "sourceSha": "34af388",
+    "bundleVersion": "bundle+BtL9OZI_"
+  },
+  "diagnostic": false,
+  "corpus": {
+    "syntheticIssues": 19468,
+    "syntheticSessions": 17216,
+    "extraLiveIssues": 2,
+    "extraLiveSessions": 5
+  },
+  "largeMissionTargets": [
+    {
+      "id": "i13916",
+      "repoId": "r0",
+      "assignedDescendantSessions": 306
+    },
+    {
+      "id": "i8355",
+      "repoId": "r3",
+      "assignedDescendantSessions": 283
+    }
+  ],
+  "startedAt": "2026-10-05T01:39:20.623Z",
+  "host": "flatblock",
+  "cpu": "AMD EPYC Processor (with IBPB)",
+  "cores": 8,
+  "loadStart": [
+    8.81,
+    9.36,
+    9.3
+  ],
+  "actions": [
+    {
+      "action": "app-cold-start",
+      "variant": "production",
+      "query": "",
+      "phaseMetrics": [],
+      "visibleRows": [
+        {
+          "id": "i4053",
+          "text": "⠿POD-40544054unflake rollup 6unread10d agoOpenAIClaude CodeGrok146/13 subtasks done · 1 blocked"
+        },
+        {
+          "id": "i8933",
+          "text": "POD-89348934rescope harness 48738d agoClaude CodeOpenAI62/10 subtasks done · 1 blocked"
+        },
+        {
+          "id": "i10176",
+          "text": "⠿POD-1017710177collapse worktree 9740unread13d agoClaude CodeOpenAIOpenCode1823/39 subtasks done · 10 in review⤷ 10249"
+        },
+        {
+          "id": "i14941",
+          "text": "⠿POD-1494214942replay timer 146074d agoClaude CodeOpenCodeOpenAI148/17 subtasks done · 5 in review⤷ 15765"
+        },
+        {
+          "id": "i4560",
+          "text": "⠿POD-45614561reindex harness 33unread7h agoOpenAIneeds review⤷ 4801"
+        },
+        {
+          "id": "i351",
+          "text": "POD-352352rescope palette 363d agoOpenCodeClaude Codereview"
+        },
+        {
+          "id": "i7892",
+          "text": "⠿POD-78937893replay timer 489911d agoClaude Codeneeds review⤷ 9695"
+        },
+        {
+          "id": "i6787",
+          "text": "⠿WEB-67886788reindex fold 49022d agoOpenAIneeds review"
+        },
+        {
+          "id": "i9553",
+          "text": "⠿DOC-95549554unflake harness 490547:55Claude Codereview"
+        },
+        {
+          "id": "i11562",
+          "text": "POD-1156311563reconcile session 97651d agoneeds review"
+        },
+        {
+          "id": "i12634",
+          "text": "⠿POD-1263512635stabilize worktree 97687:39Claude CodeOpenAIreview"
+        },
+        {
+          "id": "i11229",
+          "text": "⠿POD-1123011230replay fold 977175:41OpenAIreview"
+        },
+        {
+          "id": "i18952",
+          "text": "WEB-1895318953retire rollup 1463442:11Claude Codereview"
+        },
+        {
+          "id": "i18976",
+          "text": "POD-1897718977quieten sidebar 14637unread4d agoOpenAI2needs review"
+        },
+        {
+          "id": "i5761",
+          "text": "⠿POD-57625762collapse harness 499813d agoClaude Code3in progress⤷ 7058"
+        }
+      ],
+      "startedAt": "2026-10-05T01:39:29.528Z",
+      "load": [
+        10.05,
+        9.6,
+        9.38
+      ],
+      "inputToPaintMs": 10238.458,
+      "selectedDomMs": 10099.348,
+      "profiled": false,
+      "mainThreadCpuMs": 8386.996,
+      "layoutCpuMs": 160.884,
+      "mainThreadBusyMs": 9502.615,
+      "layoutMs": 215.152,
+      "taskWindowMs": 11343.704,
+      "scriptWindowMs": 8435.052000000001,
+      "layoutWindowMs": 154.608,
+      "trace": "app-cold-start-0.trace.json.gz",
+      "cpu": null,
+      "population": {
+        "issueDep": 14181,
+        "issueEvent": 4,
+        "issueGitState": 20,
+        "issueProjection": 19470,
+        "issueUserState": 19468,
+        "machine": 8,
+        "repo": 9,
+        "session": 17221,
+        "sessionUserState": 17216
+      }
+    },
+    {
+      "action": "app-warm-start",
+      "variant": "production",
+      "query": "",
+      "phaseMetrics": [],
+      "visibleRows": [
+        {
+          "id": "i4053",
+          "text": "⠿POD-40544054unflake rollup 6unread10d agoOpenAIClaude CodeGrok146/13 subtasks done · 1 blocked"
+        },
+        {
+          "id": "i8933",
+          "text": "POD-89348934rescope harness 48738d agoClaude CodeOpenAI62/10 subtasks done · 1 blocked"
+        },
+        {
+          "id": "i10176",
+          "text": "⠿POD-1017710177collapse worktree 9740unread13d agoClaude CodeOpenAIOpenCode1823/39 subtasks done · 10 in review⤷ 10249"
+        },
+        {
+          "id": "i14941",
+          "text": "⠿POD-1494214942replay timer 146074d agoClaude CodeOpenCodeOpenAI148/17 subtasks done · 5 in review⤷ 15765"
+        },
+        {
+          "id": "i4560",
+          "text": "⠿POD-45614561reindex harness 33unread7h agoOpenAIneeds review⤷ 4801"
+        },
+        {
+          "id": "i351",
+          "text": "POD-352352rescope palette 363d agoOpenCodeClaude Codereview"
+        },
+        {
+          "id": "i7892",
+          "text": "⠿POD-78937893replay timer 489911d agoClaude Codeneeds review⤷ 9695"
+        },
+        {
+          "id": "i6787",
+          "text": "⠿WEB-67886788reindex fold 49022d agoOpenAIneeds review"
+        },
+        {
+          "id": "i9553",
+          "text": "⠿DOC-95549554unflake harness 490547:50Claude Codereview"
+        },
+        {
+          "id": "i11562",
+          "text": "POD-1156311563reconcile session 97651d agoneeds review"
+        },
+        {
+          "id": "i12634",
+          "text": "⠿POD-1263512635stabilize worktree 97687:34Claude CodeOpenAIreview"
+        },
+        {
+          "id": "i11229",
+          "text": "⠿POD-1123011230replay fold 977175:38OpenAIreview"
+        },
+        {
+          "id": "i18952",
+          "text": "WEB-1895318953retire rollup 1463442:06Claude Codereview"
+        },
+        {
+          "id": "i18976",
+          "text": "POD-1897718977quieten sidebar 14637unread4d agoOpenAI2needs review"
+        },
+        {
+          "id": "i5761",
+          "text": "⠿POD-57625762collapse harness 499813d agoClaude Code3in progress⤷ 7058"
+        }
+      ],
+      "startedAt": "2026-10-05T01:39:48.493Z",
+      "load": [
+        9.74,
+        9.54,
+        9.36
+      ],
+      "inputToPaintMs": 7355.72,
+      "selectedDomMs": 7346.292,
+      "profiled": false,
+      "mainThreadCpuMs": 5855.558,
+      "layoutCpuMs": 164.661,
+      "mainThreadBusyMs": 6573.124,
+      "layoutMs": 173.253,
+      "taskWindowMs": 7495.116999999998,
+      "scriptWindowMs": 2490.846999999999,
+      "layoutWindowMs": 148.747,
+      "trace": "app-warm-start-1.trace.json.gz",
+      "cpu": null
+    }
+  ],
+  "unavailable": [],
+  "background": [],
+  "errors": [
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:30.163 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:30.164 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:30.176 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:30.232 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:30.294 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:54.131 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838",
+    "warning: Service Worker registration blocked by Playwright",
+    "error: 01:39:54.134 ERROR web:sw service worker registration failed available=true platform=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36 \nTypeError: Cannot read properties of undefined (reading 'waiting')\n    at http://127.0.0.1:19561/assets/workbox-window.prod.es5-Bd17z0YL.js:2:2838"
+  ],
+  "pids": [
+    {
+      "role": "collector",
+      "pid": 1665767
+    },
+    {
+      "role": "harness",
+      "pid": 1665922
+    }
+  ],
+  "bootstraps": [
+    {
+      "totalRows": 87597,
+      "rows": 87584,
+      "originalRows": 13,
+      "fromSeq": 799,
+      "at": "2026-10-05T01:39:30.335Z"
+    }
+  ],
+  "status": "complete",
+  "controls": [
+    {
+      "issue": {
+        "id": "iss_3807bfc8-cbbd-4745-9ec9-bc38350908b9",
+        "repoId": "repo_003955a76e5b5106",
+        "seq": 1,
+        "title": "Comparison target A",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "i",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19561-9f8b42ad/zz-podium-e2e-repo-19561/.worktrees/issue-1-comparison-target-a",
+        "branch": "issue/1-comparison-target-a",
+        "parentBranch": "main",
+        "machineId": "3ff5b7cb-d738-4ac7-bb6e-9c9e709341d3",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-05T01:39:26.599Z",
+        "updatedAt": "2026-10-05T01:39:26.646Z",
+        "agentId": "7e1bb4e8-5d8c-4564-a7fe-130c4809c46b",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19561-9f8b42ad/zz-podium-e2e-repo-19561",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-1",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "d594faed-aea4-4a41-adfa-2d4e09a9c338",
+        "agentId": "d594faed-aea4-4a41-adfa-2d4e09a9c338",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3ff5b7cb-d738-4ac7-bb6e-9c9e709341d3",
+        "accountId": "native:claude-code"
+      },
+      "secondSession": {
+        "sessionId": "089558cc-69fc-4150-9510-125dd6c9f4e3",
+        "agentId": "089558cc-69fc-4150-9510-125dd6c9f4e3",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3ff5b7cb-d738-4ac7-bb6e-9c9e709341d3",
+        "accountId": "native:claude-code"
+      }
+    },
+    {
+      "issue": {
+        "id": "iss_beb9364b-36de-4eef-b3c9-7ddf3e8bc02c",
+        "repoId": "repo_003955a76e5b5106",
+        "seq": 2,
+        "title": "Comparison target B",
+        "description": "Synthetic benchmark mission body",
+        "stage": "in_progress",
+        "archived": false,
+        "priority": 2,
+        "type": "task",
+        "assignee": "agent:claude-code",
+        "labels": [],
+        "sortKey": "9",
+        "blockedByNotes": [],
+        "worktreePath": "/tmp/podium-e2e-19561-9f8b42ad/zz-podium-e2e-repo-19561/.worktrees/issue-2-comparison-target-b",
+        "branch": "issue/2-comparison-target-b",
+        "parentBranch": "main",
+        "machineId": "3ff5b7cb-d738-4ac7-bb6e-9c9e709341d3",
+        "defaultAgent": "claude-code",
+        "defaultModel": "auto",
+        "defaultEffort": "auto",
+        "needsHuman": false,
+        "audience": "human",
+        "revision": 2,
+        "createdAt": "2026-10-05T01:39:26.775Z",
+        "updatedAt": "2026-10-05T01:39:26.826Z",
+        "agentId": "0bbd0495-fd52-4c61-86a5-d995b2380c05",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "origin": "human",
+        "draft": false,
+        "commentCount": 0,
+        "readAt": null,
+        "tuckedAt": null,
+        "pinned": false,
+        "repoPath": "/tmp/podium-e2e-19561-9f8b42ad/zz-podium-e2e-repo-19561",
+        "prefix": "ZZP",
+        "displayRef": "ZZP-2",
+        "deps": [],
+        "dependents": [],
+        "blocked": false,
+        "ready": true,
+        "deferred": false,
+        "childCount": 0,
+        "childDoneCount": 0
+      },
+      "session": {
+        "sessionId": "27a0a9c5-e3a5-4eed-bee6-6adf0c36cf58",
+        "agentId": "27a0a9c5-e3a5-4eed-bee6-6adf0c36cf58",
+        "harness": "claude-code",
+        "model": null,
+        "effort": null,
+        "machine": "transport-test-host",
+        "machineId": "3ff5b7cb-d738-4ac7-bb6e-9c9e709341d3",
+        "accountId": "native:claude-code"
+      }
+    }
+  ],
+  "preflightAttempts": [
+    {
+      "seq": 795,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "starting",
+        "starting",
+        "live",
+        "starting"
+      ]
+    },
+    {
+      "seq": 799,
+      "sessions": 5,
+      "statuses": [
+        "live",
+        "live",
+        "live",
+        "live",
+        "live"
+      ]
+    }
+  ],
+  "preflightSessions": [
+    {
+      "entityId": "7e1bb4e8-5d8c-4564-a7fe-130c4809c46b",
+      "sessionId": "7e1bb4e8-5d8c-4564-a7fe-130c4809c46b",
+      "title": "issue-1-comparison-target-a",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "d594faed-aea4-4a41-adfa-2d4e09a9c338",
+      "sessionId": "d594faed-aea4-4a41-adfa-2d4e09a9c338",
+      "title": "Comparison session A",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "0bbd0495-fd52-4c61-86a5-d995b2380c05",
+      "sessionId": "0bbd0495-fd52-4c61-86a5-d995b2380c05",
+      "title": "issue-2-comparison-target-b",
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "27a0a9c5-e3a5-4eed-bee6-6adf0c36cf58",
+      "sessionId": "27a0a9c5-e3a5-4eed-bee6-6adf0c36cf58",
+      "title": "Comparison session B",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    },
+    {
+      "entityId": "089558cc-69fc-4150-9510-125dd6c9f4e3",
+      "sessionId": "089558cc-69fc-4150-9510-125dd6c9f4e3",
+      "title": "Comparison session A2",
+      "transcriptAvailable": true,
+      "driverFamily": "terminal",
+      "status": "live"
+    }
+  ],
+  "preflightRows": 87597,
+  "browser": "153.0.8010.12",
+  "diskCaptureStart": {
+    "availableBytes": 10829471744
+  },
+  "lease": {
+    "name": "bench:flatblock",
+    "host": "ludovico",
+    "acquiredAt": "2026-10-05T01:39:28.866034+00:00",
+    "grant": {
+      "command": "acquire",
+      "ok": true,
+      "exitCode": 0,
+      "data": {
+        "granted": true,
+        "alreadyHeld": false,
+        "lock": {
+          "repoId": "repo_36de69e67e87fbaf",
+          "name": "bench:flatblock",
+          "holder": {
+            "sessionId": "3939b4b5-55c0-474d-bfed-10e23b477905",
+            "issueId": "iss_e456aa58-619c-4261-9578-b1200c61431d",
+            "label": "issue:#5239",
+            "alive": true,
+            "workspace": "/home/mgw/src/other/podium/.worktrees/issue-5239-pool-build-cost-at-startup"
+          },
+          "note": null,
+          "acquiredAt": "2026-10-05T01:39:28.851Z",
+          "expiresAt": "2026-10-05T01:49:28.851Z",
+          "secondsLeft": 600,
+          "queue": []
+        }
+      },
+      "text": "acquired 'bench:flatblock' (expires in 10m0s)"
+    }
+  },
+  "captureStartedAt": "2026-10-05T01:39:29.239Z",
+  "captureLoadStart": [
+    10.05,
+    9.6,
+    9.38
+  ],
+  "hostCpuStart": [
+    423396757,
+    7349101,
+    192682951,
+    1864175695,
+    13202299,
+    0,
+    19396071,
+    0,
+    0,
+    0
+  ],
+  "socketUrls": [
+    "ws://127.0.0.1:19561/client?v=4&vmin=4&cap=sync.http.v1",
+    "ws://127.0.0.1:19561/client?v=4&vmin=4&cap=sync.http.v1"
+  ],
+  "frameKinds": {
+    "welcome": 4,
+    "machinesChanged": 14,
+    "approvalsChanged": 2,
+    "hostMetricsChanged": 9,
+    "pong": 10,
+    "feedResume": 2,
+    "feedDelta": 6,
+    "sessionAgentStateChanged": 1
+  },
+  "startupMarks": [
+    {
+      "name": "app-cold-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3256692621008,
+          "pid": 1666873
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3256702720356,
+          "pid": 1666873
+        }
+      ]
+    },
+    {
+      "name": "app-warm-start",
+      "marks": [
+        {
+          "name": "comparison:navigation-start",
+          "ph": "I",
+          "ts": 3256711585461,
+          "pid": 1666873
+        },
+        {
+          "name": "comparison:startup-dom",
+          "ph": "I",
+          "ts": 3256718931753,
+          "pid": 1666873
+        }
+      ]
+    }
+  ],
+  "population": {
+    "issueDep": 14181,
+    "issueEvent": 4,
+    "issueGitState": 20,
+    "issueProjection": 19470,
+    "issueUserState": 19468,
+    "machine": 8,
+    "repo": 9,
+    "session": 17222,
+    "sessionUserState": 17216,
+    "userLayout": 2
+  },
+  "endedAt": "2026-10-05T01:40:02.709Z",
+  "loadEnd": [
+    9.79,
+    9.58,
+    9.38
+  ],
+  "hostCpuEnd": [
+    423409614,
+    7349101,
+    192686079,
+    1864184684,
+    13202962,
+    0,
+    19396450,
+    0,
+    0,
+    0
+  ],
+  "traffic": {
+    "feedDeltas": 6,
+    "outputFrames": 0,
+    "syntheticHeartbeat": 0,
+    "syntheticIssue": 0,
+    "syntheticOutput": 0
+  }
+}

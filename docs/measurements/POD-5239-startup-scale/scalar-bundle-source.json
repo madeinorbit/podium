@@ -1,0 +1,9 @@
+{
+  "entry": "index-Cdrr-1iB.js",
+  "at": "2026-10-05T01:43:05.382Z",
+  "checks": {
+    "scalarBulk": true,
+    "coldIndexWiring": true,
+    "keyedBuilder": true
+  }
+}

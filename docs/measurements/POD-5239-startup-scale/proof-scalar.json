@@ -1,0 +1,14 @@
+{
+  "oldColdIndexSha": "34af388548",
+  "candidateSha": "4750df3f36b09758b0b6948fe4fafc18ab79b3e2",
+  "oldExit": 1,
+  "candidateExit": 0,
+  "files": [
+    "packages/client-graph/src/query-result.test.ts",
+    "packages/client-graph/src/startup-session-index.test.ts",
+    "packages/client-graph/src/reader-question-bounds.test.ts",
+    "packages/client-graph/src/issue-close-questions.test.ts",
+    "packages/client-graph/src/shared/cold-index.test.ts",
+    "packages/client-graph/src/linked-identity.test.ts"
+  ]
+}

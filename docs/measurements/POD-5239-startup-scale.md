@@ -1,11 +1,11 @@
 # Startup time at scale
 
-The first local fix removes a redundant tree traversal when a query value changes
-without changing its ordering key. The work guard improves from 21 to 12 comparisons
-at 1,024 entries and from 25 to 14 at 4,096 entries. One matched 4× startup pair
-shows lower cold wall time and lower cold and warm CPU, while warm wall time rises.
-These single samples on a loaded host establish the mechanism, not a reliable
-latency estimate or a certified startup budget.
+Three local fixes remove redundant tree traversals and per-entry persistent path
+construction during startup. The largest observed CPU decrease is in scalar
+session bootstrap: 8.39 to 7.23 seconds cold and 5.86 to 5.15 seconds warm. Armed
+work guards and focused equivalence tests establish the mechanism. Each fix has
+one matched 4× pair on a loaded host; these observations do not establish a
+reliable latency estimate or a certified startup budget.
 
 ## Matched startup pair
 
@@ -104,7 +104,7 @@ The [bulk baseline](POD-5239-startup-scale/before-bulk.json),
 [bulk guard provenance](POD-5239-startup-scale/proof-bulk.json) preserve this
 distinction. Build and guard logs remain in the private remote checkout.
 
-## Landing and remaining work
+## Landing provenance
 
 The first fix landed at `51da487185` after rebasing onto the coordinator branch.
 Measurements name the pre-rebase candidates; later landings are not additional
@@ -112,14 +112,15 @@ timed runs. The bulk-root fix landed at `2a450299a5`, preserving POD-5240's web
 build inputs and lazy-loading changes; its additional build-key repair adds
 mobile inputs.
 
-The initial profile locates larger repeated tree construction in scalar session
-indexes. The coordinator cleared bulk seeding at bootstrap with the same trees,
-equivalence coverage and public question semantics. That is the next local fix.
-No server, sync, residency or operator runtime changes are included.
+The blocking build boundary repair landed at `34af388548` before the scalar pair.
+Its [report](POD-5582-startup-bundle.md) explains the coordinator's updated
+always-pool startup contract, the explicit source boundary and unchanged byte
+ceilings. Both build dependencies are closed. No server, sync, residency or
+operator runtime changes are included.
 
-## Scalar bootstrap candidate — not landed
+## Scalar session bootstrap
 
-Candidate `46c559b032` accumulates unpublished session-index entries before
+Candidate `4750df3f36` accumulates unpublished session-index entries before
 constructing the ordinary immutable trees. Initial relations are already final,
 so seeding uses their collapse and ordering answers without replaying each row's
 visibility update. Published edits still use the original persistent paths;
@@ -127,18 +128,41 @@ bootstrap maps and writer wrappers are released before publication.
 
 The wiring guard spies persistent entry writes through the session module's
 keyed-answer factory. It fails when the old cold-index seeding path is restored:
-453 writes at 128 sessions and 1,773 at 512. The candidate records zero at both
+456 writes at 128 sessions and 1,776 at 512. The candidate records zero at both
 sizes. These are the guard's counted writes, not a census of all allocations.
-All 41 tests in five focused files pass, covering ordered answers, scalar bounds,
+All 47 tests in six focused files pass, covering ordered answers, scalar bounds,
 counts, witnesses, close facts, replacements, duplicate IDs, deletion, clock
-rewind, collapse and fork isolation. The [initial scalar proof ledger](POD-5239-startup-scale/proof-scalar-initial.json)
-names the candidate and the old file used to arm the guard.
+rewind, collapse, reference winners and fork isolation. The [final proof ledger](POD-5239-startup-scale/proof-scalar.json)
+names the candidate and the baseline file used to arm the guard. The earlier
+[pre-reference proof](POD-5239-startup-scale/proof-scalar-initial.json) is retained
+as background rather than final evidence.
 
-No scalar timing result or landing is claimed. The next baseline build, at
-`2a450299a5`, fails the new eager-pool bundle guard. Its fresh emitted entry
-`index-BbFqtKoj.js` statically imports `create-BkFPl1fP.js`, which contains
-`pool.ts`. The module graph includes the path from `main.tsx` through `AppShell`,
-`SidebarUnified`, `pool-sidebar` and the graph barrel. POD-5582 tracks the blocking
-boundary repair. The adjacent POD-5579 identity-query landing must also be rebased
-in, with reference-bucket equivalence checked, before the one matched scalar pair.
-The build was not bypassed and no benchmark lease is held.
+| Runtime | Cold first row Paint | Cold main thread CPU | Warm first row Paint | Warm main thread CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Before `34af388548` | 10,238.5 ms | 8,387.0 ms | 7,355.7 ms | 5,855.6 ms |
+| Scalar bulk seeding `4750df3f36` | 8,635.3 ms | 7,235.0 ms | 6,267.8 ms | 5,150.6 ms |
+| Change | −15.7% | −13.7% | −14.8% | −12.0% |
+
+The first load average is 8.81 before and 5.48 after. The pair retains the same
+4× input and capture contract as above; CPU and wall observations both decrease,
+with host load still a confounder. Both normal production builds succeed. The
+baseline bundle is `BtL9OZI_` and the candidate is `Cdrr-1iB`; the newest archived
+source maps contain the keyed builder, scalar bulk seeding and cold-index wiring.
+The [baseline capture](POD-5239-startup-scale/before-scalar.json),
+[candidate capture](POD-5239-startup-scale/after-scalar.json) and
+[bundle source checks](POD-5239-startup-scale/scalar-bundle-source.json) preserve
+that provenance. The benchmark lease was released immediately after each pair.
+
+## Limits
+
+These changes remove a demonstrated local tree-construction hotspot. Bootstrap
+still ingests the complete corpus and constructs its relation and scalar metadata;
+that work continues to grow with total data. Sorting arbitrary initial inputs is
+still O(n log n), while tree-node construction is linear. None of these results
+proves a visible-row-only startup architecture or a target latency budget.
+
+The timings cover web startup at 4× only. There is no new phone timing, principal
+switch timing or retained-heap claim, and no full suite or lean gate was run.
+Results from separate fix pairs must not be compounded: intervening pilot
+landings and host load differ. Further loading or partial-bootstrap changes need
+the operator's architecture decision through the coordinator.
