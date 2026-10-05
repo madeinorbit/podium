@@ -1,5 +1,8 @@
-import { compareStructural, observable, runInAction } from 'mobx'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'
+import {
+  compareStructural, observable, onBecomeObserved, onBecomeUnobserved,
+  runInAction, type IObservableValue,
+} from 'mobx'
 import type { SettingsEntity, SettingsRows } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -7,45 +10,126 @@ export type SettingsOwner = Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onLi
 
 type Discovery = 'machines' | 'repos'
 const ENTITY = { machines: 'settingsMachine', repos: 'settingsRepository' } as const
+type Reading = Loaded<SettingsRows[SettingsEntity]>
+type Entry = {
+  entity: SettingsEntity
+  id: string
+  value: IObservableValue<Reading>
+  loaded: boolean
+  observed: boolean
+  release: () => void
+}
 
-/** A read-only source on the existing engine. The first demand batches the
- * catalog and window together. Keyed (POD-5433): machines and repos arrive by
- * id, so a publication rewrites only the rows that changed; the window wakes
- * on `settingsTab` alone. Session history is supplied by the pool, not here. */
+/** Declared source rows load independently. Catalog demand names ids only;
+ * named row and window demand never installs the other discovery payloads.
+ * Observed rows follow their keys, and release their channel on unmount. */
 export class SettingsSource {
-  private readonly rows = observable.map<string, object>(undefined, { deep: false })
+  private readonly rows = new Map<string, Entry>()
+  private readonly pending = new Set<string>()
+  private readonly lists = new Map<Discovery, { readers: number; stop: () => void }>()
+  private window: { readers: number; stop: () => void } | undefined
   private scheduled = false
-  private demanded = false
   private disposed = false
-  private readonly stops: (() => void)[]
-  /** Ids per list to rewrite at the next drain; null = the whole list. */
-  private readonly dirty: Record<Discovery, Set<string> | null> = { machines: null, repos: null }
-  private orderDirty = true
-  private windowDirty = true
-  private readonly loaded = observable.box(false)
 
-  constructor(private readonly owner: SettingsOwner) {
-    const list = (name: Discovery) => (change: KeyedListChange) => {
-      const ids = this.dirty[name]
-      if (ids !== null) for (const id of change.ids) ids.add(id)
-      if (change.order) this.orderDirty = true
-      if (this.demanded) this.schedule()
+  constructor(private readonly owner: SettingsOwner) {}
+
+  read(entity: SettingsEntity, id: string): Reading {
+    if (this.disposed) return LOADING
+    const key = `${entity}:${id}`
+    let entry = this.rows.get(key)
+    if (!entry) {
+      const value = observable.box<Reading>(LOADING, { deep: false, name: `settingsSource.${key}` })
+      entry = { entity, id, value, loaded: false, observed: false, release: () => {} }
+      const current = entry
+      onBecomeObserved(value, () => {
+        current.observed = true
+        current.release = this.follow(current)
+      })
+      onBecomeUnobserved(value, () => {
+        current.observed = false
+        current.release()
+        current.release = () => {}
+        if (this.rows.get(key) === current) this.rows.delete(key)
+        this.pending.delete(key)
+      })
+      this.rows.set(key, entry)
+      this.pending.add(key)
+      this.schedule()
+    } else if (entry.loaded && !entry.observed) {
+      // An imperative question has no subscriber to keep its value current.
+      // Read that address again, rather than subscribing an invisible row.
+      const current = entry
+      runInAction(() => this.load(current))
     }
-    this.stops = [
-      owner.onList('machines', list('machines')),
-      owner.onList('repos', list('repos')),
-      owner.onLocals(['settingsTab'], () => {
-        this.windowDirty = true
-        if (this.demanded) this.schedule()
-      }),
-    ]
+    return entry.value.get()
   }
 
-  read(entity: SettingsEntity, id: string): Loaded<SettingsRows[SettingsEntity]> {
-    if (this.disposed) return LOADING
-    this.demanded = true
-    if (!this.loaded.get()) { this.schedule(); return LOADING }
-    return this.rows.get(`${entity}:${id}`) as SettingsRows[SettingsEntity] | undefined
+  private follow(entry: Entry): () => void {
+    switch (entry.entity) {
+      case 'settingsMachine': return this.followList('machines')
+      case 'settingsRepository': return this.followList('repos')
+      case 'settingsCatalog': {
+        if (entry.id !== 'catalog') return () => {}
+        const machine = this.followList('machines'), repo = this.followList('repos')
+        return () => { machine(); repo() }
+      }
+      case 'settingsWindow': {
+        if (entry.id !== 'window') return () => {}
+        this.window ??= { readers: 0, stop: this.owner.onLocals(['settingsTab'], () => {
+          this.pending.add('settingsWindow:window')
+          this.schedule()
+        }) }
+        this.window.readers++
+        return () => {
+          if (this.window && --this.window.readers === 0) {
+            this.window.stop()
+            this.window = undefined
+          }
+        }
+      }
+    }
+  }
+
+  private followList(name: Discovery): () => void {
+    let list = this.lists.get(name)
+    if (!list) {
+      list = { readers: 0, stop: this.owner.onList(name, change => this.changed(name, change)) }
+      this.lists.set(name, list)
+    }
+    list.readers++
+    const current = list
+    return () => {
+      if (--current.readers === 0) {
+        current.stop()
+        this.lists.delete(name)
+      }
+    }
+  }
+
+  private changed(name: Discovery, change: KeyedListChange): void {
+    for (const id of change.ids) {
+      const key = `${ENTITY[name]}:${id}`
+      if (this.rows.get(key)?.observed) this.pending.add(key)
+    }
+    if (change.order && this.rows.get('settingsCatalog:catalog')?.observed)
+      this.pending.add('settingsCatalog:catalog')
+    if (this.pending.size) this.schedule()
+  }
+
+  private load(entry: Entry): void {
+    let next: Reading
+    switch (entry.entity) {
+      case 'settingsMachine': next = this.owner.listRow('machines', entry.id); break
+      case 'settingsRepository': next = this.owner.listRow('repos', entry.id); break
+      case 'settingsCatalog': next = entry.id === 'catalog'
+        ? { machines: this.owner.listIds('machines'), repositories: this.owner.listIds('repos') }
+        : undefined; break
+      case 'settingsWindow': next = entry.id === 'window'
+        ? { settingsTab: this.owner.readLocal('settingsTab') }
+        : undefined; break
+    }
+    if (!compareStructural(entry.value.get(), next)) entry.value.set(next)
+    entry.loaded = true
   }
 
   private schedule(): void {
@@ -55,30 +139,12 @@ export class SettingsSource {
       this.scheduled = false
       if (this.disposed) return
       runInAction(() => {
-        for (const name of ['machines', 'repos'] as const) {
-          const pending = this.dirty[name]
-          this.dirty[name] = new Set()
-          if (pending === null) this.orderDirty = true
-          const ids = pending ?? this.owner.listIds(name)
-          for (const id of ids) {
-            // Keyed inputs return undefined for removed ids. A changed row
-            // does not need the entire list to establish its membership.
-            const key = `${ENTITY[name]}:${id}`, value = this.owner.listRow(name, id)
-            if (value === undefined) this.rows.delete(key)
-            else if (!compareStructural(this.rows.get(key), value)) this.rows.set(key, value)
-          }
+        const keys = [...this.pending]
+        this.pending.clear()
+        for (const key of keys) {
+          const entry = this.rows.get(key)
+          if (entry) this.load(entry)
         }
-        if (this.orderDirty) {
-          this.orderDirty = false
-          const catalog = { machines: [...this.owner.listIds('machines')], repositories: [...this.owner.listIds('repos')] }
-          if (!compareStructural(this.rows.get('settingsCatalog:catalog'), catalog)) this.rows.set('settingsCatalog:catalog', catalog)
-        }
-        if (this.windowDirty) {
-          this.windowDirty = false
-          const window = { settingsTab: this.owner.readLocal('settingsTab') }
-          if (!compareStructural(this.rows.get('settingsWindow:window'), window)) this.rows.set('settingsWindow:window', window)
-        }
-        this.loaded.set(true)
       })
     })
   }
@@ -86,8 +152,16 @@ export class SettingsSource {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    for (const stop of this.stops) stop()
-    // Detach during provider render; release observable rows after render.
-    queueMicrotask(() => runInAction(() => { this.rows.clear(); this.loaded.set(false) }))
+    const entries = [...this.rows.values()]
+    for (const entry of entries) {
+      entry.release()
+      entry.release = () => {}
+    }
+    this.window = undefined
+    this.rows.clear()
+    this.pending.clear()
+    queueMicrotask(() => runInAction(() => {
+      for (const entry of entries) entry.value.set(LOADING)
+    }))
   }
 }
