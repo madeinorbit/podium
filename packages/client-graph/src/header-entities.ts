@@ -29,6 +29,7 @@ export function createHeaderEntities() {
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
   const idleCapUnmet = observable.box(0)
+  const repositoryPathsRevision = observable.box(0)
   // Kernel facade rows use ascending canonical IDs. Membership changes alone
   // invalidate this order; per-session activity never sorts the whole fleet.
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
@@ -105,9 +106,16 @@ export function createHeaderEntities() {
       members.get(`${entity}:${id}:${relation}`) ?? [],
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     idleCapUnmetCount: () => idleCapUnmet.get(),
+    repositoryPathsRevision: () => repositoryPathsRevision.get(),
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
+        // Net contributions preserve the old sorted path multiset's equality
+        // without materializing it. Only paths in changed rows enter this batch.
+        const pathChanges = new Map<string, number>()
+        const adjustPath = (path: string | undefined, delta: 1 | -1) => {
+          if (path !== undefined) pathChanges.set(path, (pathChanges.get(path) ?? 0) + delta)
+        }
         for (const record of records) {
           const table = tables[record.kind]
           const previous = table.get(record.id)
@@ -126,13 +134,28 @@ export function createHeaderEntities() {
             const after = (record.value as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
             if (before !== after) idleCapUnmet.set(idleCapUnmet.get() + after - before)
           }
+          if (record.kind === 'repository') {
+            const key = HEADER_SCHEMA.repository.revisionFields.paths
+            const before = (previous as HeaderRows['repository'] | undefined)?.[key]
+            const after = (record.value as HeaderRows['repository'] | undefined)?.[key]
+            if (before !== after) {
+              adjustPath(before, -1)
+              adjustPath(after, 1)
+            }
+          }
           if (record.value === undefined) table.delete(record.id)
           else table.set(record.id, record.value)
           change(record.kind, record.id, record.value)
         }
+        for (const delta of pathChanges.values()) {
+          if (delta === 0) continue
+          repositoryPathsRevision.set(repositoryPathsRevision.get() + 1)
+          break
+        }
       })
     },
     clear(): void {
+      if (tables.repository.size) repositoryPathsRevision.set(repositoryPathsRevision.get() + 1)
       for (const table of Object.values(tables)) table.clear()
       members.clear()
       orders.clear()

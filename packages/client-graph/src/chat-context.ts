@@ -123,10 +123,10 @@ export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
   })
 }
 export function chatRepositoryKey(pool: MobxPool): string {
-  return headerIds(pool, 'repository').flatMap(id => {
-    const row = pool.row('repository', id) as { path: string } | undefined
-    return row ? [row.path] : []
-  }).sort().join('\n')
+  // This opaque key only drives a path-change effect. The header owner
+  // maintains the revision from changed path contributions at ingestion.
+  const revision = pool.header.repositoryPathsRevision()
+  return revision === 0 ? '' : String(revision)
 }
 
 export function createChatContextReader(pool: MobxPool) {

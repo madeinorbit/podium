@@ -40,6 +40,7 @@ export const HEADER_SCHEMA = {
     source: 'engine:repos',
     model: 'GitRepositoryWire',
     cold: 'never',
+    revisionFields: { paths: 'path' },
   },
   hostMetric: {
     key: 'machineId ?? hostname',
