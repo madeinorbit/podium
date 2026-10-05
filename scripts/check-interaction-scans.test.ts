@@ -292,8 +292,8 @@ describe('interaction scan census', () => {
         'reader.sessions();',
       )
       writeFileSync(join(root, 'apps/web/src/sample.test.ts'), 'reader.issues();')
-      expect(productionFiles(root).length).toBe(6)
-      expect(scanRepository(root).length).toBe(6)
+      expect(productionFiles(root).length).toBe(INTERACTION_ROOTS.length + 1)
+      expect(scanRepository(root).length).toBe(INTERACTION_ROOTS.length + 1)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
