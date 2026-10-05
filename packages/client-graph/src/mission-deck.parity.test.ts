@@ -12,7 +12,7 @@ import { MobxPool } from './pool'
 import { missionView } from './mission-view'
 import { LOADING } from './loading'
 
-for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly at ${scale}x in every spine mode`, () => {
+for (const scale of [1, 4] as const) it(`matches the synthetic mission and graft regressions at ${scale}x in every spine mode`, () => {
   const corpus = buildCorpus(scale)
   const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus),
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
@@ -34,9 +34,12 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
   pool.apply({ type: 'replace', rows })
   try {
-    // Run the raw-member and retired-crew regressions before the ordinary
-    // roots; the remainder still covers every root at each scale.
-    const roots = new Set([scale === 4 ? 'i11834' : 'i2696', ...issues.map(issue => missionRootFor(issues, issue.id)?.id)])
+    // Render the corpus's large mission, then the addressed graft/resume
+    // regressions. The old reference scans the world for each selected root;
+    // enumerating every unrelated leaf makes this guard quadratic in scale.
+    const selected = scale === 1 ? ['i0', 'i292', 'i2696'] : ['i0', 'i11616', 'i11834']
+    for (const id of selected) expect(issues.some(issue => issue.id === id), `corpus regression ${id}`).toBe(true)
+    const roots = new Set(selected.map(id => missionRootFor(issues, id)?.id))
     for (const root of roots) for (const mode of ['full', 'working', 'needs-you'] as const) {
       let result!: ReturnType<typeof checkMissionView>
       let handoff: ReturnType<typeof deriveHandoffNow> | undefined
@@ -61,4 +64,4 @@ for (const scale of [1, 4] as const) it(`matches the synthetic corpus directly a
       } finally { stop() }
     }
   } finally { pool.dispose() }
-}, 600_000)
+}, 120_000)
