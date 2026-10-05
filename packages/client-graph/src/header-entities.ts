@@ -2,6 +2,7 @@ import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
+import { RelationBuckets } from './shared/relation-buckets'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,
@@ -35,8 +36,7 @@ export function createHeaderEntities() {
     ]),
   ) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
   const orders = observable.map<HeaderEntity, readonly string[]>(undefined, { deep: false })
-  const members = observable.map<string, readonly string[]>(undefined, { deep: false })
-  const refs = observable.map<string, string>(undefined, { deep: false })
+  const relations = new RelationBuckets({ trackedForward: true })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
   const idleCapUnmet = observable.box(0)
@@ -61,7 +61,7 @@ export function createHeaderEntities() {
       !machine.revokedAt &&
       !machine.supersededBy &&
       machine.serviceAssignment?.agentExecution !== false &&
-      !members.get(`machine:${id}:metrics`)?.length &&
+      !relations.many(`machine:${id}:metrics`).length &&
       Number.isFinite(seen)
     const explicit = machineOrder.get(id)
     const order =
@@ -128,21 +128,9 @@ export function createHeaderEntities() {
     for (const relation of HEADER_RELATIONS) {
       if (relation.from !== entity) continue
       const address = `${entity}:${id}:${relation.name}`
-      const previous = refs.get(address)
       const target = next && (next as Record<string, unknown>)[relation.key]
-      const current = typeof target === 'string' && target ? target : undefined
-      if (previous === current) continue
-      if (previous) {
-        const key = `${relation.to}:${previous}:${relation.inverse}`
-        const remaining = (members.get(key) ?? []).filter((member) => member !== id)
-        if (remaining.length) members.set(key, remaining)
-        else members.delete(key)
-      }
-      if (current) {
-        const key = `${relation.to}:${current}:${relation.inverse}`
-        members.set(key, [...(members.get(key) ?? []), id])
-        refs.set(address, current)
-      } else refs.delete(address)
+      const current = typeof target === 'string' && target ? [target] : []
+      relations.move(address, id, current, target => `${relation.to}:${target}:${relation.inverse}`)
     }
   }
 
@@ -171,9 +159,9 @@ export function createHeaderEntities() {
     firstId: (entity: HeaderEntity): string | undefined =>
       orders.get(entity)?.[0] ?? tables[entity].keys().next().value,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
-    one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
+    one: (entity: string, id: string, relation: string) => relations.one(`${entity}:${id}:${relation}`),
     members: (entity: string, id: string, relation: string) =>
-      members.get(`${entity}:${id}:${relation}`) ?? [],
+      relations.many(`${entity}:${id}:${relation}`),
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
@@ -276,9 +264,8 @@ export function createHeaderEntities() {
     clear(): void {
       if (tables.repository.size) repositoryPathsRevision.set(repositoryPathsRevision.get() + 1)
       for (const table of Object.values(tables)) table.clear()
-      members.clear()
+      relations.clear()
       orders.clear()
-      refs.clear()
       sessionIds.clear()
       shipping.clear()
       idleCapUnmet.set(0)

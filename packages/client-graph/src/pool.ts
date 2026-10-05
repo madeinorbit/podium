@@ -69,7 +69,6 @@ import {
   compareStructural,
   type IObservableArray,
   type IObservableValue,
-  makeObservable,
   type ObservableMap,
   observable,
   observe,
@@ -567,114 +566,6 @@ export class MobxPool {
       selectedId: () => this.selection.keys().next().value ?? null,
       foldLatch: () => this.foldLatch.get(),
       demand: () => this.worklist.need(),
-    })
-    makeObservable<
-      MobxPool,
-      | 'models'
-      | 'headerState'
-      | 'preferenceSource'
-      | 'positionsSeen'
-      | 'settingsEnabled'
-      | 'setupOrderVersion'
-      | 'firstTaskCount'
-      | 'seatList'
-      | 'seatVerdicts'
-      | 'reseatAll'
-      | 'ownIndex'
-      | 'sourceIndex'
-      | 'indexSeen'
-      | 'emptyIndex'
-      | 'target'
-      | 'selectedId'
-      | 'select'
-      | 'followTable'
-      | 'clearSeats'
-      | 'referenceReader'
-      | 'issueIdByRef'
-      | 'disposed'
-      | 'object'
-      | 'release'
-      | 'hidden'
-      | 'transactions'
-      | 'spawnLog'
-    >(this, {
-      diagnostics: false,
-      sidebar: false,
-      mobileWork: false,
-      references: false,
-      referenceReader: false,
-      issueIdByRef: false,
-      formalParent: false,
-      disposed: false,
-      sidebarRosters: false,
-      tables: false,
-      queries: false,
-      header: false,
-      headerState: false,
-      preferenceSource: false,
-      sources: false,
-      sessionPanes: false,
-      positionsSeen: false,
-      settingsEnabled: false,
-      setupOrderVersion: false,
-      settingsViews: false,
-      firstTaskCount: false,
-      seatList: false,
-      seatVerdicts: false,
-      reseatAll: false,
-      ownIndex: false,
-      sourceIndex: false,
-      indexSeen: false,
-      emptyIndex: false,
-      coldIndex: false,
-      attachSettings: false,
-      attachPreferences: false,
-      preferenceKeys: false,
-      preferenceCounts: false,
-      headerViews: false,
-      relations: false,
-      graph: false,
-      selection: false,
-      readStates: false,
-      clock: false,
-      inputs: false,
-      visibleInputs: false,
-      worklist: false,
-      groups: false,
-      foldLatch: false,
-      rollupInputs: false,
-      object: false,
-      issueObject: false,
-      knownIssue: false,
-      hasFirstTask: false,
-      release: false,
-      edit: false,
-      transactions: false,
-      spawnLog: false,
-      attachTransactions: false,
-      spawnPlaceholders: false,
-      notSaved: false,
-      mutate: false,
-      row: false,
-      rosterCandidates: false,
-      readCursor: false,
-      models: false,
-      target: false,
-      selectedId: false,
-      clearSeats: false,
-      residency: false,
-      resident: false,
-      lazyMany: false,
-      hidden: false,
-      hydrate: false,
-      model: false,
-      issue: false,
-      apply: false,
-      applyLocals: false,
-      dispose: false,
-      select: false,
-      // Maintenance called inside actions, never observed.
-      followTable: false,
     })
     // Every issue in memory is a filing candidate: taken when its row enters
     // the table, released when it leaves (inside the action that moved it).

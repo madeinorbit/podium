@@ -11,6 +11,7 @@ import {
 } from './command-launch-schema'
 import { allResidentSessions } from './enumerate'
 import type { MobxPool } from './pool'
+import { RelationBuckets } from './shared/relation-buckets'
 import { createFieldInputs } from './shared/field-inputs'
 import type { PoolSource, PoolSourceRows } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -27,8 +28,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   private readonly orders = observable.map<CommandEntity, readonly string[]>(undefined, {
     deep: false,
   })
-  private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
-  private readonly edges = new Map<string, readonly string[]>()
+  private readonly relations = new RelationBuckets()
   private worktreesByPath = new Map<string, string[]>()
   private repositoriesByRoot = new Map<string, string[]>()
   /** Resident sessions by their cwd and every '/'-prefix of it: a discovery
@@ -282,23 +282,8 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     for (const relation of COMMAND_RELATIONS) {
       if (relation.from !== entity) continue
       const address = `${entity}:${id}:${relation.to}:${relation.name}`
-      const previous = this.edges.get(address) ?? [],
-        next = this.targets(row as Record<string, unknown> | undefined, relation)
-      if (compareStructural(previous, next)) continue
-      for (const target of previous)
-        if (!next.includes(target)) {
-          const key = `${relation.to}:${target}:${relation.name}`,
-            ids = (this.members.get(key) ?? []).filter((member) => member !== id)
-          if (ids.length) this.members.set(key, ids)
-          else this.members.delete(key)
-        }
-      for (const target of next)
-        if (!previous.includes(target)) {
-          const key = `${relation.to}:${target}:${relation.name}`
-          this.members.set(key, [...(this.members.get(key) ?? []), id])
-        }
-      if (next.length) this.edges.set(address, next)
-      else this.edges.delete(address)
+      const next = this.targets(row as Record<string, unknown> | undefined, relation)
+      this.relations.move(address, id, next, target => `${relation.to}:${target}:${relation.name}`)
     }
   }
 
@@ -313,7 +298,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     ) as Loaded<PoolSourceRows[K]>
   }
   related(entity: string, id: string, name: string): readonly string[] {
-    return this.members.get(`${entity}:${id}:${name}`) ?? []
+    return this.relations.many(`${entity}:${id}:${name}`)
   }
   dispose(): void {
     if (this.disposed) return
@@ -322,9 +307,8 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     runInAction(() => {
       for (const table of Object.values(this.tables)) table.clear()
       this.orders.clear()
-      this.members.clear()
+      this.relations.clear()
     })
-    this.edges.clear()
     this.worktreesByPath.clear()
     this.repositoriesByRoot.clear()
     this.sessionsByPath.clear()

@@ -1,5 +1,6 @@
 import type { ClientRuntime, KeyedListChange, KeyedListName } from '@podium/client-core/engine'
 import { compareStructural, observable, runInAction } from 'mobx'
+import { RelationBuckets } from './shared/relation-buckets'
 import { createFieldInputs } from './shared/field-inputs'
 import { SHELL_RELATIONS, SHELL_SCHEMA, type ShellEntity, type ShellRows } from './shell-schema'
 import type { PoolSource } from './source-registry'
@@ -12,8 +13,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
   private readonly orders = observable.map<ShellEntity, readonly string[]>(undefined, {
     deep: false,
   })
-  private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
-  private readonly refs = new Map<string, string>()
+  private readonly relations = new RelationBuckets()
   private readonly stops: (() => void)[]
   private disposed = false
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
@@ -117,21 +117,10 @@ export class ShellSource implements PoolSource<ShellEntity> {
     else if (next && !order.includes(id)) this.orders.set(entity, [...order, id])
     for (const relation of SHELL_RELATIONS) {
       if (relation.from !== entity) continue
-      const key = `${address}:${relation.name}`,
-        previous = this.refs.get(key)
-      const value = next && Reflect.get(next, relation.key),
-        target = typeof value === 'string' && value ? value : undefined
-      if (previous === target) continue
-      for (const member of new Set([previous, target])) {
-        if (!member) continue
-        const bucket = `${relation.to}:${member}:${relation.name}`
-        const rest = (this.members.get(bucket) ?? []).filter((key) => key !== id)
-        if (member === target) rest.push(id)
-        if (rest.length) this.members.set(bucket, rest)
-        else this.members.delete(bucket)
-      }
-      if (target) this.refs.set(key, target)
-      else this.refs.delete(key)
+      const value = next && Reflect.get(next, relation.key)
+      const targets = typeof value === 'string' && value ? [value] : []
+      this.relations.move(`${address}:${relation.name}`, id, targets,
+        target => `${relation.to}:${target}:${relation.name}`)
     }
   }
   private replace(entity: ShellEntity, entries: readonly (readonly [string, object])[]): void {
@@ -155,7 +144,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
   }
   related(entity: string, id: string, name: string): readonly string[] {
     const relation = SHELL_RELATIONS.find((value) => value.from === entity && value.name === name)
-    return relation ? (this.members.get(`${relation.to}:${id}:${name}`) ?? []) : []
+    return relation ? (this.relations.many(`${relation.to}:${id}:${name}`)) : []
   }
   dispose(): void {
     if (this.disposed) return
@@ -164,8 +153,7 @@ export class ShellSource implements PoolSource<ShellEntity> {
     runInAction(() => {
       this.rows.clear()
       this.orders.clear()
-      this.members.clear()
-      this.refs.clear()
+      this.relations.clear()
     })
   }
 }

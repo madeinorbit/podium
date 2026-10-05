@@ -1,6 +1,7 @@
 import type { Replica } from '@podium/client-core/replica'
 import { compareStructural, observable, runInAction } from 'mobx'
 import { AUTOMATION_RELATIONS, type AutomationEntity, type AutomationRows } from './automation-schema'
+import { RelationBuckets } from './shared/relation-buckets'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Borrow the existing replica rows at a batched demand boundary. Addressed
@@ -8,8 +9,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
  * There is no snapshot selector, feed, outbox, RPC or mutation owner here. */
 export class AutomationSource {
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
-  private readonly refs = observable.map<string, string>(undefined, { deep: false })
-  private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
+  private readonly relations = new RelationBuckets({ trackedForward: true, sorted: true })
   private readonly loaded = observable.box(false)
   private scheduled = false
   private demanded = false
@@ -44,10 +44,10 @@ export class AutomationSource {
   }
 
   relation(entity: string, id: string, name: string): string | undefined {
-    return this.refs.get(`${entity}:${id}:${name}`)
+    return this.relations.one(`${entity}:${id}:${name}`)
   }
   related(entity: string, id: string, name: string): readonly string[] {
-    return this.members.get(`${entity}:${id}:${name}`) ?? []
+    return this.relations.many(`${entity}:${id}:${name}`)
   }
 
   private change(entity: 'automation' | 'automationRun', id: string, next: object | undefined): void {
@@ -57,21 +57,10 @@ export class AutomationSource {
     else this.rows.delete(address)
     for (const relation of AUTOMATION_RELATIONS) {
       if (relation.from !== entity) continue
-      const key = `${address}:${relation.name}`, previous = this.refs.get(key)
       const value = next && Reflect.get(next, relation.key)
-      const target = typeof value === 'string' && value ? value : undefined
-      if (previous === target) continue
-      if (previous) {
-        const inverse = `${relation.to}:${previous}:${relation.inverse}`
-        const rest = (this.members.get(inverse) ?? []).filter(member => member !== id)
-        if (rest.length) this.members.set(inverse, rest)
-        else this.members.delete(inverse)
-      }
-      if (target) {
-        const inverse = `${relation.to}:${target}:${relation.inverse}`
-        this.members.set(inverse, [...(this.members.get(inverse) ?? []), id].sort())
-        this.refs.set(key, target)
-      } else this.refs.delete(key)
+      const targets = typeof value === 'string' && value ? [value] : []
+      this.relations.move(`${address}:${relation.name}`, id, targets,
+        target => `${relation.to}:${target}:${relation.inverse}`)
     }
   }
 
@@ -109,7 +98,7 @@ export class AutomationSource {
     this.disposed = true
     this.off()
     queueMicrotask(() => runInAction(() => {
-      this.rows.clear(); this.refs.clear(); this.members.clear(); this.loaded.set(false)
+      this.rows.clear(); this.relations.clear(); this.loaded.set(false)
     }))
   }
 }
