@@ -226,6 +226,7 @@ async function main() {
     git('diff', '--exit-code', sourceSha, captureSha, '--', 'apps/web/src', 'packages')
   }
   await mkdir(root, { recursive: true })
+  console.log(`SPEED_GATE_PID ${process.pid}`)
   const began = performance.now()
   let leased = false
   let externalGranted = false
