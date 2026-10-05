@@ -139,7 +139,7 @@ describe('pool screening incrementality', () => {
         expect(first.booting).toBe(false)
         expect(first.queue).toHaveLength(count)
         const target = opened.issues[7]!
-        const summaryReads = countSummaryReads(opened.pool, () => {
+        const update = () =>
           opened.pool.apply({
             type: 'update',
             rows: [
@@ -150,16 +150,27 @@ describe('pool screening incrementality', () => {
               },
             ],
           })
+        const duringApply = countSummaryReads(opened.pool, update)
+        const duringRead = countSummaryReads(opened.pool, () => {
           const next = opened.views.screening()
           expect(next.booting).toBe(false)
           expect(next.queue).toEqual(first.queue)
         })
-        if (summaryReads.reads > 3) {
-          const hist = new Map<string, number>()
-          for (const id of summaryReads.ids) hist.set(id, (hist.get(id) ?? 0) + 1)
-          console.log('DEBUG reads:', summaryReads.reads, [...hist.entries()])
-        }
-        cells.push({ scale, proposals: count, summaryReads: summaryReads.reads })
+        console.log(
+          'DEBUG scale',
+          scale,
+          'apply:',
+          duringApply.reads,
+          'reread:',
+          duringRead.reads,
+          'ids:',
+          [...new Set(duringApply.ids.concat(duringRead.ids))].slice(0, 8),
+        )
+        cells.push({ scale, proposals: count, summaryReads: duringApply.reads + duringRead.reads })
+      } finally {
+        opened.dispose()
+      }
+    }
       } finally {
         opened.dispose()
       }
