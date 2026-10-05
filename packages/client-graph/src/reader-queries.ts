@@ -253,7 +253,10 @@ export class ReaderQueries {
         this.linkedIssueAtoms.set(question, { atom, value, identifier, referenceOnly })
         const add = (map: Map<string, Set<string>>, key: string) => {
           let ids = map.get(key)
-          if (!ids) map.set(key, ids = new Set())
+          if (!ids) {
+            ids = new Set()
+            map.set(key, ids)
+          }
           ids.add(question)
         }
         for (const key of keys) add(this.linkedAliases, key)
