@@ -511,7 +511,7 @@ export function createIssueBoardSource(
       const readAt = pool.readCursor(id) ?? null,
         readTime = Date.parse(readAt ?? '')
       let unread = !Number.isFinite(readTime) || Date.parse(value.updatedAt) > readTime
-      if (visible) {
+      if (visible && !pool.graph.many('issue', id, 'pageSessions')[Symbol.iterator]().next().done) {
         const activity = pool.visibleInputs.seatSummary?.(id).activity
         if (activity != null && activity > readTime) unread = true
       }
