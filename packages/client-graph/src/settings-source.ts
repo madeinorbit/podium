@@ -60,9 +60,10 @@ export class SettingsSource {
           this.dirty[name] = new Set()
           if (pending === null) this.orderDirty = true
           const ids = pending ?? this.owner.listIds(name)
-          const known = new Set(this.owner.listIds(name))
           for (const id of ids) {
-            const key = `${ENTITY[name]}:${id}`, value = known.has(id) ? this.owner.listRow(name, id) : undefined
+            // Keyed inputs return undefined for removed ids. A changed row
+            // does not need the entire list to establish its membership.
+            const key = `${ENTITY[name]}:${id}`, value = this.owner.listRow(name, id)
             if (value === undefined) this.rows.delete(key)
             else if (!compareStructural(this.rows.get(key), value)) this.rows.set(key, value)
           }
