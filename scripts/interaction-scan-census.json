@@ -19034,358 +19034,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/catchUp/carried",
-      "rule": "materialize:Set",
-      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
-      "gate": [
-        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
-        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
-      ],
-      "origin": [
-        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
-      ],
-      "fingerprint": "3d6ddf27cb7bd47e42d6117662fba46d6d6022834bb8241c9709c4103dc6a10f",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/catchUp/carried",
-      "rule": "consume:map",
-      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
-      "gate": [
-        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
-        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
-      ],
-      "origin": [
-        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
-      ],
-      "fingerprint": "db5967eb2d26e787609acd48885289d926649a35941206ddb6e8c576341fdd1b",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/observeRecords",
-      "rule": "loop:for-of",
-      "tokens": "179c87b3174962c57ef6b9b56591ed5044cb258e5ba7bb7097f6fd5894c06dd6",
-      "gate": [],
-      "origin": [
-        "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
-      ],
-      "fingerprint": "fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/patch",
-      "rule": "consume:map",
-      "tokens": "2fde65ab5c3ddae9deec7d84796e36e4fd5c7b19ecce9c62568fba27a10db4b3",
-      "gate": [
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
-        "then:8735c0a54303e0a7d0051a3b8156d2a4566199aecbba597a4a75ccfb76bd88d0"
-      ],
-      "origin": [
-        "1508cccef48341c43530b3443bbc51b9f041fb561721430ef7040810a58d949d"
-      ],
-      "fingerprint": "0eab31048dd7e1dc93f8a5ffd52820344e45717e1a34848db125d82a8dd23f9d",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5621",
-      "trigger": "A send outcome replaces this conversation's pending turns.",
-      "bound": "Only this conversation's held pending turns are mapped; work is independent of transcript length.",
-      "reason": "Pending values are frozen without reading or enumerating transcript history.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/settleFromLookup",
-      "rule": "loop:for-of",
-      "tokens": "128dc58329b42987d686119410a9b87ea9b5d7e59f79be228bb2941289fcc0a0",
-      "gate": [
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "3ea58f6dcea72fe63b90443e5869968520edab2150fa28c8ab2cc3beab718190"
-      ],
-      "fingerprint": "0ea0751270b198db981cb044a2ccd55a42944e1d763955b32a36b3e4acc586e9",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/settleFromLookup/carried",
-      "rule": "materialize:Set",
-      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
-      "gate": [
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
-      ],
-      "fingerprint": "0a2ab122da6ac4ee6cdf403ac05a5893b9277af37bb8e97cc4c4ba9ecac976e7",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/sends.ts",
-      "holder": "Sends/settleFromLookup/carried",
-      "rule": "consume:map",
-      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
-      "gate": [
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
-      ],
-      "fingerprint": "f793c38ce1d435bf5cf7723ccea52e97f5c0ff3ef19e797de158f9028fcb61db",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
-      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
-      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
-      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/boundFollowingWindow/tail",
-      "rule": "consume:slice",
-      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
-      "gate": [
-        "exit:then:d59720cbd2484aec41113428fb4d2bd12de587a465329f96676ab9784a148aaf"
-      ],
-      "origin": [
-        "5faf488eafb9a7d64cb052b86063c5ddc4aaf4e8ddb687600820b7dadd5b8c47"
-      ],
-      "fingerprint": "3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/merge",
-      "rule": "loop:for-of",
-      "tokens": "3429875fdb369d306b8b9b0a2237b9a7e99d21d60ed4d22fa2a679ad503d3e16",
-      "gate": [
-        "exit:then:c43e8c57ccec5b6cd84a76b71db82a2d02afd65be1a45156c24952b5d117e6a4",
-        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
-      ],
-      "fingerprint": "6678e36d5749a674dc2d4d1bb8cc3c9666cdbe616288a5097ea6ebb24b42ecb8",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/merge/bounded",
-      "rule": "helper-consumer",
-      "tokens": "12862e0ac72c76c1fae271e057264c6f4de16cec95b0a71f246504a46b6cbe7f",
-      "gate": [
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
-        "then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7"
-      ],
-      "origin": [
-        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
-      ],
-      "fingerprint": "c062d0956250ab8c906beb46993213bf3e3fbea526ff4b41c70b6987bdb0949d",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/merge/merged",
-      "rule": "helper-consumer",
-      "tokens": "320535e22dab92bd9b2ca195fa25a257baf7454ca01921944285f7ace102ae93",
-      "gate": [
-        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
-      ],
-      "fingerprint": "ada5aefb7dcd6224528b526455ff434d5ab98b85095d426e1d75811694a0ada7",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch",
-      "rule": "loop:for-of",
-      "tokens": "ff36351acd3fbfdec3cfc1c0fa56bd8f478b4cb35b84f3c6be035d855e4453a0",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "6ad2e3a257a0a877c1b9cc7f76317254a12a930f95c2872d52f8c7d1afe65984",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/added",
-      "rule": "consume:filter",
-      "tokens": "fddd3eaa4898b51a0711cd63fdae2b54677fb3b75189a8a48ebb1a2172381403",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "5fa0a0b03ee9b3eefe7a6b6596622f768a4ca4e38555cb5512b8451f812ab749",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "spread",
-      "tokens": "162ac2dc7255264c8674769460fcced3ca85c2a191ea8849facb4734dfca6e6e",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "b045c9171bba5dee5051175992a03c1f24d7587f76e6675bb082ac150b3c9d0f",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "materialize:Map",
-      "tokens": "6b47111b332c97732c1543a7fb49ac32ee968223be89f73d3e5ebafee5f3055e",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "d2574efd0bb8d818713332a4aacf2979924098b112c84e5b139d0a989effb658",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "enumerate:values",
-      "tokens": "62ee3c8c6b3c806e6b8204235dc2772d63ccd4e9a0c3adf199cfb47c67c0983a",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e"
-      ],
-      "fingerprint": "db7f76e3f10d36e3f5d68c557c693b0b3ffa5fab0fb50e714f3d568ec4fc1868",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "consume:map",
-      "tokens": "30ef85262f8855c5b03df0e6a4a16eae6c6a35536ee8a5ed7037a6ce29a7a766",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "fb5b589db91ea6fb8826dd08d6428d2c259b4a16fb4f06c05e98126b1793b04c",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
       "file": "packages/client-core/src/conversation/controller.ts",
       "holder": "ConversationController/catchUp/carried",
       "rule": "materialize:Set",
@@ -19753,6 +19401,358 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/catchUp/carried",
+      "rule": "materialize:Set",
+      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
+      "gate": [
+        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
+        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
+      ],
+      "origin": [
+        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
+      ],
+      "fingerprint": "3d6ddf27cb7bd47e42d6117662fba46d6d6022834bb8241c9709c4103dc6a10f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/catchUp/carried",
+      "rule": "consume:map",
+      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
+      "gate": [
+        "exit:then:ab5cac2e7e6c8c9ea00420f3b807fe4b951d25e8ac3f1d1a87ec910c904f0662",
+        "exit:then:dfa59976f77a853f4424b0b5faec7fc0bccc30ea74e54c45a3f0f59c565c35e3"
+      ],
+      "origin": [
+        "fba23e71877fd703a11508f40bf25850651819078bfd7b9e03ace181c78e583e"
+      ],
+      "fingerprint": "db5967eb2d26e787609acd48885289d926649a35941206ddb6e8c576341fdd1b",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/observeRecords",
+      "rule": "loop:for-of",
+      "tokens": "179c87b3174962c57ef6b9b56591ed5044cb258e5ba7bb7097f6fd5894c06dd6",
+      "gate": [],
+      "origin": [
+        "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
+      ],
+      "fingerprint": "fa84adfa99f68d3760b6d62439728b55c5e08c5085ae0756246016af717d0a78",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/patch",
+      "rule": "consume:map",
+      "tokens": "2fde65ab5c3ddae9deec7d84796e36e4fd5c7b19ecce9c62568fba27a10db4b3",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
+        "then:8735c0a54303e0a7d0051a3b8156d2a4566199aecbba597a4a75ccfb76bd88d0"
+      ],
+      "origin": [
+        "1508cccef48341c43530b3443bbc51b9f041fb561721430ef7040810a58d949d"
+      ],
+      "fingerprint": "0eab31048dd7e1dc93f8a5ffd52820344e45717e1a34848db125d82a8dd23f9d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5621",
+      "trigger": "A send outcome replaces this conversation's pending turns.",
+      "bound": "Only this conversation's held pending turns are mapped; work is independent of transcript length.",
+      "reason": "Pending values are frozen without reading or enumerating transcript history.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup",
+      "rule": "loop:for-of",
+      "tokens": "128dc58329b42987d686119410a9b87ea9b5d7e59f79be228bb2941289fcc0a0",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "3ea58f6dcea72fe63b90443e5869968520edab2150fa28c8ab2cc3beab718190"
+      ],
+      "fingerprint": "0ea0751270b198db981cb044a2ccd55a42944e1d763955b32a36b3e4acc586e9",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup/carried",
+      "rule": "materialize:Set",
+      "tokens": "32fbbcaeba421e7f9f0f1a9049286b394138591aadf9506605ae31b1cac124fa",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
+      ],
+      "fingerprint": "0a2ab122da6ac4ee6cdf403ac05a5893b9277af37bb8e97cc4c4ba9ecac976e7",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/settleFromLookup/carried",
+      "rule": "consume:map",
+      "tokens": "bf8c07a1117f02659dfe23a29e9f18a3a3700aab1072fab23e999b4cb1962050",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "1b76a612879592f10164f820dbb589ad7446f3c9332ad810090248133a7c29ec"
+      ],
+      "fingerprint": "f793c38ce1d435bf5cf7723ccea52e97f5c0ff3ef19e797de158f9028fcb61db",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "Sends starts, reconnects, receives its conversation record snapshot or settles requested delivery lookups.",
+      "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
+      "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
+      "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/boundFollowingWindow/tail",
+      "rule": "consume:slice",
+      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
+      "gate": [
+        "exit:then:d59720cbd2484aec41113428fb4d2bd12de587a465329f96676ab9784a148aaf"
+      ],
+      "origin": [
+        "5faf488eafb9a7d64cb052b86063c5ddc4aaf4e8ddb687600820b7dadd5b8c47"
+      ],
+      "fingerprint": "3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge",
+      "rule": "loop:for-of",
+      "tokens": "3429875fdb369d306b8b9b0a2237b9a7e99d21d60ed4d22fa2a679ad503d3e16",
+      "gate": [
+        "exit:then:c43e8c57ccec5b6cd84a76b71db82a2d02afd65be1a45156c24952b5d117e6a4",
+        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "6678e36d5749a674dc2d4d1bb8cc3c9666cdbe616288a5097ea6ebb24b42ecb8",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge/bounded",
+      "rule": "helper-consumer",
+      "tokens": "12862e0ac72c76c1fae271e057264c6f4de16cec95b0a71f246504a46b6cbe7f",
+      "gate": [
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
+        "then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "c062d0956250ab8c906beb46993213bf3e3fbea526ff4b41c70b6987bdb0949d",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/merge/merged",
+      "rule": "helper-consumer",
+      "tokens": "320535e22dab92bd9b2ca195fa25a257baf7454ca01921944285f7ace102ae93",
+      "gate": [
+        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
+        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
+      ],
+      "origin": [
+        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
+      ],
+      "fingerprint": "ada5aefb7dcd6224528b526455ff434d5ab98b85095d426e1d75811694a0ada7",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch",
+      "rule": "loop:for-of",
+      "tokens": "ff36351acd3fbfdec3cfc1c0fa56bd8f478b4cb35b84f3c6be035d855e4453a0",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "6ad2e3a257a0a877c1b9cc7f76317254a12a930f95c2872d52f8c7d1afe65984",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/added",
+      "rule": "consume:filter",
+      "tokens": "fddd3eaa4898b51a0711cd63fdae2b54677fb3b75189a8a48ebb1a2172381403",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "5fa0a0b03ee9b3eefe7a6b6596622f768a4ca4e38555cb5512b8451f812ab749",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "spread",
+      "tokens": "162ac2dc7255264c8674769460fcced3ca85c2a191ea8849facb4734dfca6e6e",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "b045c9171bba5dee5051175992a03c1f24d7587f76e6675bb082ac150b3c9d0f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "materialize:Map",
+      "tokens": "6b47111b332c97732c1543a7fb49ac32ee968223be89f73d3e5ebafee5f3055e",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "d2574efd0bb8d818713332a4aacf2979924098b112c84e5b139d0a989effb658",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "enumerate:values",
+      "tokens": "62ee3c8c6b3c806e6b8204235dc2772d63ccd4e9a0c3adf199cfb47c67c0983a",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e"
+      ],
+      "fingerprint": "db7f76e3f10d36e3f5d68c557c693b0b3ffa5fab0fb50e714f3d568ec4fc1868",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/patch/changed",
+      "rule": "consume:map",
+      "tokens": "30ef85262f8855c5b03df0e6a4a16eae6c6a35536ee8a5ed7037a6ce29a7a766",
+      "gate": [
+        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
+        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
+      ],
+      "origin": [
+        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
+      ],
+      "fingerprint": "fb5b589db91ea6fb8826dd08d6428d2c259b4a16fb4f06c05e98126b1793b04c",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5621",
+      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
+      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
     },
     {
       "file": "packages/client-core/src/engine/actions.ts",
@@ -22159,6 +22159,26 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/transcript/controller.ts",
+      "holder": "TranscriptController/boundFollowingWindow/tail",
+      "rule": "consume:slice",
+      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
+      "gate": [
+        "exit:then:b91dcfc0d7d6ee5eade2679b17ba1226c4a004a17b950d98cf65d45650949751"
+      ],
+      "origin": [
+        "a580061f1fcd0b5158f84d31bea3cf2c506f713cb64d446b0174e97d1c5f8cc1"
+      ],
+      "fingerprint": "f4d2372d1e569a43242acfb5f542cc03e6401f323e386a04bae53b81bc58a3f8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of TranscriptController/boundFollowingWindow/tail",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
       "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "dedupeTranscriptItems/unique",
       "rule": "consume:filter",
@@ -22995,26 +23015,6 @@
       "trigger": "Invocation of sameValue/rightKeys",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "enumerate:Object.keys carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/controller.ts",
-      "holder": "TranscriptController/boundFollowingWindow/tail",
-      "rule": "consume:slice",
-      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
-      "gate": [
-        "exit:then:b91dcfc0d7d6ee5eade2679b17ba1226c4a004a17b950d98cf65d45650949751"
-      ],
-      "origin": [
-        "a580061f1fcd0b5158f84d31bea3cf2c506f713cb64d446b0174e97d1c5f8cc1"
-      ],
-      "fingerprint": "f4d2372d1e569a43242acfb5f542cc03e6401f323e386a04bae53b81bc58a3f8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TranscriptController/boundFollowingWindow/tail",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -38499,9 +38499,9 @@
       "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
       "gate": [],
       "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
       ],
-      "fingerprint": "c8544efccb6482af18308e71d8c0be00abfb490b6b10e66e5d98c701fd3dbcdf",
+      "fingerprint": "703bfbed7a74b02922f7329cfa60af2bfd6e7f7ccee179fb43224732b96c0a4d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40843,17 +40843,17 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "collapsedCrew/cachedGroup:callback",
       "rule": "loop:for-of",
       "tokens": "85afb403c605e8021531ca302817d1c3e433590aea80314dec016aa8fd2b130f",
       "gate": [],
       "origin": [
-        "1230442dfd375629adaba088107273b56193de98f6ff22c253d309f39c04122d",
-        "64c5f650c1908a950ebb82d6f4443df112029b7b686d6f58935ce6dbad90a0e4",
-        "9083f24ebd0ae28739812de5dd27b81bdb332ede26a147d3b3399be8bbdfd286"
+        "082dae8e466672d4da184217a776622cabc3028c8d601427058b36952d6c210e",
+        "5616fb87c2efdf35a1a5fad39f7301dd5f9e86de59d3a56da6f2dd0423a74410",
+        "ebec25390e797abb94a720e7d819e1394a23eab170acd088a0a72079317b923d"
       ],
-      "fingerprint": "427ed9127856d43a5b38871e817bb2abe3bc558c86d9c7e84c3c5841bb0a7196",
+      "fingerprint": "2a956b47c02a1f82ef1b7afd3f53bce20cd57ce229012d911fd05b370880e928",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
@@ -40863,7 +40863,7 @@
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "collapsedCrew/cachedGroup:callback/groups",
       "rule": "spread",
       "tokens": "69493bdbf21030960da5c6361774137482197d8ca1e6e2bb410ef53f65185dc2",
@@ -40871,9 +40871,9 @@
         "then:64d98a64e7549bac24f354d27d411117178ab3d0719251d23a95bf5ea2675a2d"
       ],
       "origin": [
-        "1230442dfd375629adaba088107273b56193de98f6ff22c253d309f39c04122d"
+        "5616fb87c2efdf35a1a5fad39f7301dd5f9e86de59d3a56da6f2dd0423a74410"
       ],
-      "fingerprint": "0cb7a5c4801aef994df3fe9e19450255018630b6f69c25343baac2713e23adfc",
+      "fingerprint": "802724e0ada569662fe10a8c9a4aead2719556b58be01fdc19271ba7d5c686a5",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
@@ -40883,175 +40883,20 @@
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "kindCodes/cachedGroup:callback",
       "rule": "loop:for-of",
       "tokens": "fc7dd4f57e37c476ff8436bb524f54c708c64271223b0e6fab234678bb7d5dfa",
       "gate": [],
       "origin": [
-        "443e920c9cd1b4a9c4ce7e21ddc886d21b237d8faf7c9de7674ce3f76269dcec",
-        "da93bb020ac00a0104915eb2dcf6303f2fb3de38daa569dc38d8b3ef88d21613"
+        "0bd655f7d5e011e722b0e4ef40a6738ab63a944940c585727130cfc4ad6c7600",
+        "a358201b4e7d4c9e5d42739b62e86099a3d5af8a98dd7c1fb8fc107c7d5e38d2"
       ],
-      "fingerprint": "7a908665f908c8c44663422aebb44b803099e4c3a6c56895583fe1e567a2a8c3",
+      "fingerprint": "dee30faac1d997e0bc0f6fb0266c183bdc2b1fd922a71c090c02f5cfa2e42d77",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
       "trigger": "Observed kindCodes/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "matchedWorking/cachedGroup:callback",
-      "rule": "consume:some",
-      "tokens": "5a1e4d06bc0646b923517e04595375ff84dc46a56f801d2a8af0e0d7166cb8d0",
-      "gate": [],
-      "origin": [
-        "2d9266b01f6c21bad0fd85cb4f28224b3f0d923aefafa63c9ca91ff0ebe1253a"
-      ],
-      "fingerprint": "f1fdc7c2adc63ce025324d3a538d25e9c617d297951945c56108574dfe84eade",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed matchedWorking/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "MissionDeckIssueModel/presentation",
-      "rule": "reader-summary",
-      "tokens": "79188ba4807f1086dafacf8a8b6f20b2648ef9db494dfb722e7e2a3490cf9b3c",
-      "gate": [],
-      "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
-      ],
-      "fingerprint": "ba509ab06b8b9528b177db1fe0197a5b6f561bee6ebf4ab3b116f6315d05e62e",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed MissionDeckIssueModel/presentation",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "f6bde2d1b5c7c0af5ea1d379e247468dbe28b19a2f20a631669cd5700d4b359d",
-      "gate": [
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
-        "then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af"
-      ],
-      "origin": [
-        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
-      ],
-      "fingerprint": "236037b3b18a85e87cf321a464b24bd879fe2dd0dfce3f4884abf882b5a7879d",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "768f07cadf4908a3b9709090ab48c491bc35bc429156e01682ee173dc3d91242",
-      "gate": [
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
-        "then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4"
-      ],
-      "origin": [
-        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
-      ],
-      "fingerprint": "4fa1b3293aef94f6955694d7a005d08a55a2d9660ad130dc95f6e81edd190500",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "helper-consumer",
-      "tokens": "3b52b7d3ccbb26e81dff49989ef8f2381244d6463bd0dcd9a131c9ce54d81f1a",
-      "gate": [
-        "exit:then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22",
-        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508"
-      ],
-      "origin": [
-        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
-      ],
-      "fingerprint": "80a735dd4b07debe8c7143bce1b1d9ec7d929a72caaed448b9ea4f382903b71e",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "d387fdd111dee0cd87c14be420f28226d8d4e9fda82da48b53529671201793ca",
-      "gate": [
-        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
-        "then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22"
-      ],
-      "origin": [
-        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
-      ],
-      "fingerprint": "e785c2cf53c8347a31876306f18fc7412725b3ca0fb13f57a406a1457d0f5f02",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-deck-model.ts",
-      "holder": "presentation",
-      "rule": "reader-summary",
-      "tokens": "0fcd66bab40a3da54a63173d987341b6071254f73a8428159c5beef2fb45195b",
-      "gate": [],
-      "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
-      ],
-      "fingerprint": "9d96374798e24de4f2cc679a494f24e4834a86a9f9da6ec6652aa1e8bc8a69e9",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed presentation",
       "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
       "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
@@ -41094,6 +40939,24 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "matchedWorking/cachedGroup:callback",
+      "rule": "consume:some",
+      "tokens": "5a1e4d06bc0646b923517e04595375ff84dc46a56f801d2a8af0e0d7166cb8d0",
+      "gate": [],
+      "origin": [
+        "adcb258dbed377fe267519627a9dfb9e3e489005a480dbd35afa81e7e2817347"
+      ],
+      "fingerprint": "e89d2d52d0652c6694c97c20a18830e28a82c22d910cf9903c5bf96e75a754dc",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed matchedWorking/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "memberFacts",
       "rule": "loop:for-of",
       "tokens": "ed0b15325d2c144c9d14b5db570de624a39e32f3a1a04fd5d2659a391d832179",
@@ -41109,6 +40972,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "MissionDeckIssueModel/presentation",
+      "rule": "reader-summary",
+      "tokens": "79188ba4807f1086dafacf8a8b6f20b2648ef9db494dfb722e7e2a3490cf9b3c",
+      "gate": [],
+      "origin": [
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
+      ],
+      "fingerprint": "831740b6e93244e5ac3eb4ded7f4082e117745f037f3b1004e61e2a17c25c58d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed MissionDeckIssueModel/presentation",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -41261,6 +41142,107 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "768f07cadf4908a3b9709090ab48c491bc35bc429156e01682ee173dc3d91242",
+      "gate": [
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
+        "then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4"
+      ],
+      "origin": [
+        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
+      ],
+      "fingerprint": "0e64097f21acee8096f33af5a5e0c847f038093316d1c8ea318e1247b1600242",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "d387fdd111dee0cd87c14be420f28226d8d4e9fda82da48b53529671201793ca",
+      "gate": [
+        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
+        "then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22"
+      ],
+      "origin": [
+        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
+      ],
+      "fingerprint": "68c3f5b7cb374e7645a28bcc77b5fe5632d70e5d54acfa93541485535b9e1892",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "helper-consumer",
+      "tokens": "3b52b7d3ccbb26e81dff49989ef8f2381244d6463bd0dcd9a131c9ce54d81f1a",
+      "gate": [
+        "exit:then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22",
+        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89"
+      ],
+      "origin": [
+        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
+      ],
+      "fingerprint": "69733e6c6fe7c09f5dce3b5d97dc502c56422b0a8c81edf0f0627d941a703655",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "f6bde2d1b5c7c0af5ea1d379e247468dbe28b19a2f20a631669cd5700d4b359d",
+      "gate": [
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
+        "then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af"
+      ],
+      "origin": [
+        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
+      ],
+      "fingerprint": "c9f7d74aff20e7a1737cc02a74a881f66c03ab330828f6339cd4ca757c033b18",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "poolHandoffNext",
       "rule": "loop:for-of",
       "tokens": "88228a92b8246f99b742233ed61d9748e88c526f8ff6d378224f1768fce433b0",
@@ -41294,6 +41276,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "presentation",
+      "rule": "reader-summary",
+      "tokens": "0fcd66bab40a3da54a63173d987341b6071254f73a8428159c5beef2fb45195b",
+      "gate": [],
+      "origin": [
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
+      ],
+      "fingerprint": "d7d22b2a4d81edde067b180d79b5f6cdac76cb61c6f16cc36358c7b658594038",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed presentation",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -46250,6 +46250,27 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
+      ],
+      "fingerprint": "11392dab8e895c6b9469392fa3d53cdfbb587b4d3010ed36170113d3ab7a36c6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
         "d6d1e34820530425562afaaaddc07a110e914dc6e4ff7b7a21ed8d2ca41f94c4"
       ],
       "fingerprint": "151617b131f29a5708b923e5c7e2d111b723379d85c7c80cff97ee8449707177",
@@ -46296,27 +46317,6 @@
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
       "fingerprint": "480bc1efedf5932e8922716fb3baf8ab005773316041c41572fc70dbd2d02d81",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
-      ],
-      "fingerprint": "69e9597ffe5a337d523761c3a72f99d4a4d4c60c6e4191adf813cd9086503896",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46483,9 +46483,10 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
+        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
       ],
-      "fingerprint": "41ce3d3a7cb3d3eec54cf39c464d557dc9cc4c9f00f0a88353504d9df60dccfd",
+      "fingerprint": "4757e2cd9fc9757e89f067b2c2be7490922f2be83602c1d29872983974ee8afe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46503,10 +46504,9 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
       ],
-      "fingerprint": "4757e2cd9fc9757e89f067b2c2be7490922f2be83602c1d29872983974ee8afe",
+      "fingerprint": "4c488a5f5b48491ca58b9579278534378121e4f1b60e6f372ad217de4b762342",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46650,27 +46650,6 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
-      ],
-      "fingerprint": "2d2e64c68df5bf4ab5ab25b91e4e232e2a9fb526e15c87ab6ced2e226990f36c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
         "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
         "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
       ],
@@ -46740,6 +46719,27 @@
         "e48c4f3b8e7d8e5fea30edf28e044364648c35b9219776723857d24aa39e2503"
       ],
       "fingerprint": "8addb3a5fe04bac72ecfe9de15a1a158f7e554a7e526023525ae0c992ff818d6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
+      ],
+      "fingerprint": "d1d98a849f158f5fa8332b73ece896e535c2e4370c1165682eb98fd0d8a6eb86",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
