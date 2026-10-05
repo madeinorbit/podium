@@ -109,8 +109,8 @@ import type {
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
-import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import { ChangedKeyDraft } from '../changed-key-draft'
+import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   ALL_TABLES,
   applySchema,

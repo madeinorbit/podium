@@ -34,7 +34,8 @@ export class ChangedKeyDraft<T> {
     }
     for (const [key, value] of base) {
       if (this.removed.has(key)) continue
-      yield this.changes.get(key) ?? value
+      const changed = this.changes.get(key)
+      yield changed === undefined ? value : changed
     }
     for (const [key, value] of this.changes) {
       if (value !== undefined && (this.removed.has(key) || !base.has(key))) yield value

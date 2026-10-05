@@ -88,6 +88,7 @@ import type {
 import { ReplicaStoreCorruptError } from '../../replica/ports'
 import type { Cursor, EntityRecord } from '../../replica/types'
 import { SyncCommitConflict } from '../../span'
+import { ChangedKeyDraft } from '../changed-key-draft'
 import { mergeScrubReports, planSecretScrub, type SecretScrubReport } from '../secret-scrub'
 import {
   type IdbDatabaseLike,
@@ -97,7 +98,6 @@ import {
   requestAsPromise,
 } from './idb'
 import { enqueueWrites } from './write-batch'
-import { ChangedKeyDraft } from '../changed-key-draft'
 import {
   ALL_STORES,
   CURSOR_KEY,
