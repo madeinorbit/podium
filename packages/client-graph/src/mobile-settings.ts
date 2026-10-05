@@ -36,11 +36,11 @@ type DiagnosticsOwner = Pick<ClientRuntime, 'replica'>
 export async function createMobileSettingsSource(
   owner: DiagnosticsOwner,
 ): Promise<PoolSource<keyof MobileSettingsRows> & { counts: { batches: number } }> {
-  const [{ observable, runInAction, compareStructural }, rollup, { defineSource }] = await Promise.all([
+  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
     import('mobx'),
     import('./worklist/rollup'),
-    import('./source-registry'),
   ])
+  const { defineSource } = await import('./source-registry')
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const value = observable.box<MobileSettingsDiagnostics | undefined>(undefined, {
     deep: false,

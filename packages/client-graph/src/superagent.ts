@@ -45,9 +45,10 @@ type SuperagentOwner = Pick<ClientRuntime, 'replica' | 'readPosition' | 'readLoc
 export async function createSuperagentSource(owner: SuperagentOwner): Promise<PoolSource<keyof SuperagentRows> & {
   counts: { batches: number; threadLists: number; eventCollections: number; addressedEvents: number; questionCollections: number }
 }> {
-  const [{ observable, runInAction, compareStructural }, rollup, { defineSource }] = await Promise.all([
-    import('mobx'), import('./worklist/rollup'), import('./source-registry'),
+  const [{ observable, runInAction, compareStructural }, rollup] = await Promise.all([
+    import('mobx'), import('./worklist/rollup'),
   ])
+  const { defineSource } = await import('./source-registry')
   const LOADING: typeof import('./worklist/rollup').LOADING = rollup.LOADING
   const replica = owner.replica
   if (!replica.rowCount) throw new Error('Superagent requires keyed replica counts')
