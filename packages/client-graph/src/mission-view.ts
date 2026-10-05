@@ -480,12 +480,18 @@ const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => 
   for (const read of reads) if (settled(read) === LOADING) pending = true
   return pending ? LOADING : true
 }))
-const rootContinuation = cachedGroup('deck.continuation', (deck: MissionDeckModel) =>
-  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.continuation(root) : null })
-const rootNote = cachedGroup('deck.note', (deck: MissionDeckModel) =>
-  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.note(root) : null })
-const rootPresence = cachedGroup('deck.presence', (deck: MissionDeckModel) =>
-  { const root = deck.view.rulesIssue(deck.id); return root ? deck.view.presence(root, deck.model(deck.id).sessions) : null })
+const rootContinuation = cachedGroup('deck.continuation', (deck: MissionDeckModel) => {
+  const root = deck.view.rulesIssue(deck.id)
+  return root ? deck.view.continuation(root) : null
+})
+const rootNote = cachedGroup('deck.note', (deck: MissionDeckModel) => {
+  const root = deck.view.rulesIssue(deck.id)
+  return root ? deck.view.note(root) : null
+})
+const rootPresence = cachedGroup('deck.presence', (deck: MissionDeckModel) => {
+  const root = deck.view.rulesIssue(deck.id)
+  return root ? deck.view.presence(root, deck.model(deck.id).sessions) : null
+})
 const rootDepartures = cachedGroup('deck.departures', (deck: MissionDeckModel) => deck.view.departures(deck))
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
