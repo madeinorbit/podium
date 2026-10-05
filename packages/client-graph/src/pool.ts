@@ -1157,6 +1157,7 @@ export class MobxPool {
 
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
+    this.sidebar.dispose()
     this.queries.dispose()
     this.disposed = true
     this.preferenceSource?.dispose()

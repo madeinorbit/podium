@@ -3,7 +3,7 @@
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 
-import { compareStructural } from 'mobx'
+import { compareStructural, observable, reaction } from 'mobx'
 import { keyedViews } from '../cached'
 import type { ModelHost } from '../models'
 import type { MobxPool } from '../pool'
@@ -88,6 +88,8 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
 
 export class SidebarIndex {
   private seenSelected: string | null = null
+  private readonly evicted = observable.box(false)
+  private readonly stopSelection: () => void
   /** Views by layout value (`layoutKey`), each released when unobserved. */
   private readonly sectionViews = keyedViews<SidebarSections>(
     'pool.sidebar',
@@ -98,7 +100,25 @@ export class SidebarIndex {
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
   private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareStructural)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
-  constructor(private readonly pool: MobxPool) {}
+  constructor(private readonly pool: MobxPool) {
+    // Reaction effects run as actions. Selection history never changes during a render read.
+    this.stopSelection = reaction(
+      () => {
+        const id = pool.selection.keys().next().value ?? null
+        return { id, resident: id === null ? null : pool.resident('issue', id) }
+      },
+      ({ id, resident }) => {
+        if (id !== this.seenSelected) this.seenSelected = null
+        if (id !== null && resident !== 'absent') this.seenSelected = id
+        this.evicted.set(id !== null && resident === 'absent' && this.seenSelected === id)
+      },
+      { fireImmediately: true, equals: compareStructural },
+    )
+  }
+
+  dispose(): void {
+    this.stopSelection()
+  }
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
     const model = this.pool.issue(id)
@@ -109,15 +129,7 @@ export class SidebarIndex {
   /** Read never requests an evicted id. The caller clears selection through
    * its existing action when this answers true. A cold known row still counts. */
   selectionEvicted(): boolean {
-    const id = this.pool.selection.keys().next().value ?? null
-    if (id === null) return false
-    const resident = this.pool.resident('issue', id)
-    if (resident !== 'absent') {
-      this.seenSelected = id
-      return false
-    }
-    if (this.seenSelected !== id) return false
-    return true
+    return this.evicted.get()
   }
 
   active(id: string, state: SidebarState): boolean {
