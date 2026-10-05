@@ -94,7 +94,8 @@ const promote = args.includes('--promote')
 const structuralOnly = args.includes('--structural-only')
 const interleaveBuild = value('interleave-mission-build', '')
 const prepareBuild = value('prepare-mission-build', '')
-const missionClicksOnly = args.includes('--mission-clicks-only') || Boolean(interleaveBuild)
+const attributeMissions = args.includes('--attribute-mission-clicks')
+const missionClicksOnly = args.includes('--mission-clicks-only') || Boolean(interleaveBuild) || attributeMissions
 const missionBaselinePath = value('mission-click-baseline', '')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
@@ -122,7 +123,7 @@ async function buildProductionFixture(directory: string) {
     plugins: config.plugins?.filter(
       (plugin) => (plugin as { name?: string })?.name !== 'acceptance-state-boundaries',
     ),
-    build: { ...config.build, outDir: directory, sourcemap: false, minify: 'esbuild' },
+    build: { ...config.build, outDir: directory, sourcemap: attributeMissions, minify: 'esbuild' },
   })
 }
 
@@ -151,6 +152,7 @@ async function main() {
         '--mission-click-baseline=<json>: add those cold captures to the normal gate and compare with the saved pre-change capture.\n' +
         '--prepare-mission-build=<dir> --baseline-ref=<SHA>: prepare a clean pinned product fixture outside the benchmark lease.\n' +
         '--interleave-mission-build=<dir>: diagnostic before/after/before/after, both scales and uptime per sample, under one lease.\n' +
+        '--attribute-mission-clicks: diagnostic CPU profiles and source maps for cold mission clicks; no speed verdict or promotion.\n' +
         '--switch=<urlKey>=<0|1>: repeatable startup URL overrides; other settings stay fixed.\n' +
         '--external-lease: signal CAPTURE_READY after preparation, then await the caller lease.json; signal CAPTURE_FINISHED after cleanup.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
@@ -160,7 +162,7 @@ async function main() {
   for (const arg of args)
     if (
       ![
-        '--calibrate', '--promote', '--lease-confirmed', '--external-lease', '--structural-only', '--mission-clicks-only',
+        '--calibrate', '--promote', '--lease-confirmed', '--external-lease', '--structural-only', '--mission-clicks-only', '--attribute-mission-clicks',
       ].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--switch=') &&
@@ -183,6 +185,7 @@ async function main() {
   )
     throw new Error('Invalid planted delay/mode')
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
+  if (attributeMissions && interleaveBuild) throw new Error('Attribute one candidate separately from the speed comparison')
   if (prepareBuild) {
     if (calibrate || promote || structuralOnly || missionClicksOnly || missionBaselinePath ||
       delayMs || args.includes('--external-lease') || args.includes('--lease-confirmed'))
@@ -454,6 +457,7 @@ async function main() {
     trigger: string,
     expected: Expected,
     perform: () => Promise<unknown>,
+    profileName?: string,
   ) {
     const { page, cdp } = fixture
     await page.bringToFront()
@@ -473,6 +477,11 @@ async function main() {
       { expected, trigger, action },
     )
     const stop = await traceStart(cdp)
+    if (profileName) {
+      await cdp.send('Profiler.enable')
+      await cdp.send('Profiler.setSamplingInterval', { interval: 1000 })
+      await cdp.send('Profiler.start')
+    }
     let events: Awaited<ReturnType<typeof stop>>
     try {
       await perform()
@@ -490,7 +499,12 @@ async function main() {
       }))
       throw new Error(`${action} did not paint: ${JSON.stringify({ ...diagnostic, browserErrors: fixture.errors })}`, { cause: error })
     } finally {
+      if (profileName) {
+        const { profile } = await cdp.send('Profiler.stop')
+        await writeFile(resolve(root, `${profileName}.cpuprofile`), JSON.stringify(profile))
+      }
       events = await stop()
+      if (profileName) await writeFile(resolve(root, `${profileName}.trace.json`), JSON.stringify({ traceEvents: events }))
       await page.evaluate(() => {
         window.__speedCapture = null
       })
@@ -690,22 +704,23 @@ async function main() {
         const targets = prior?.targets ?? shapes.slice(0, 2).map((shape) => shape.id)
         if (targets.length !== 2 || targets.some((id) => !ids.includes(id)))
           throw new Error(`Missing cold mission targets at ${scale}×`)
-        const click = async (id: string) => {
+        const click = async (id: string, kind: 'first' | 'revisit') => {
           const ms = await capture(
             full, 'mission-switch', row(id),
             { selector: `[data-fixture-mission="${id}"] [data-testid="flight-deck-scroller"]` },
             () => full.page.locator(row(id)).first().click(),
+            attributeMissions ? `mission-${scale}x-${kind}` : undefined,
           )
           if ((await full.page.evaluate(() => window.__acceptance.state().selected)) !== id)
             throw new Error('Cold mission click routed to the wrong issue')
           return round(ms)
         }
         const firstUptime = execFileSync('uptime', { encoding: 'utf8' }).trim()
-        const firstClickMs = await click(targets[0]!)
+        const firstClickMs = await click(targets[0]!, 'first')
         await full.page.locator(row(targets[1]!)).first().click()
         await settle(full.page)
         const revisitUptime = execFileSync('uptime', { encoding: 'utf8' }).trim()
-        const revisitMs = await click(targets[0]!)
+        const revisitMs = await click(targets[0]!, 'revisit')
         results.push({ scale, targets, firstClickMs, revisitMs, uptime: { first: firstUptime, revisit: revisitUptime } })
         console.log(`${scale}× mission: first ${firstClickMs} ms; revisit ${revisitMs} ms (one capture each); uptime ${JSON.stringify({ first: firstUptime, revisit: revisitUptime })}`)
       } finally {
