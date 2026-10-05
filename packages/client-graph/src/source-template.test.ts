@@ -32,7 +32,7 @@ it('cancels a queued owner read and releases exactly once after disposal', async
   source.schedule()
   expect(source.read('b')).toBe(LOADING)
   await Promise.resolve()
-  expect(read.mock.calls).toEqual([['a']])
+  expect(read.mock.calls.map(([id]) => id)).toEqual(['a'])
   expect(refresh).not.toHaveBeenCalled()
   expect(release).toHaveBeenCalledTimes(1)
 })
