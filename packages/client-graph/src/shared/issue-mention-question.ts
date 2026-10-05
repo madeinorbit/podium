@@ -65,11 +65,13 @@ export function createIssueMentionIndex() {
     const max = facts.get(ids[0]!)!.seq
     const ranges: [number, number][] = []
     if (value === 0) ranges.push([0, 0])
-    else for (let factor = 1; value * factor <= max; factor *= 10)
-      ranges.push([value * factor, Math.min(max, (value + 1) * factor - 1)])
+    else
+      for (let factor = 1; value * factor <= max; factor *= 10)
+        ranges.push([value * factor, Math.min(max, (value + 1) * factor - 1)])
     const found: string[] = []
     for (const [lower, upper] of ranges.reverse()) {
-      let lo = 0, hi = ids.length
+      let lo = 0,
+        hi = ids.length
       while (lo < hi) {
         const at = (lo + hi) >>> 1
         if (facts.get(ids[at]!)!.seq > upper) lo = at + 1
