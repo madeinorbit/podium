@@ -8,6 +8,7 @@ import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 import { createColdIndex } from './shared/cold-index'
 import type { SettingsOwner } from './settings-source'
+import { SETUP_SESSION_SUMMARY_FIELDS } from './settings-schema'
 import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
@@ -17,7 +18,7 @@ const session = (id: string, patch: object = {}): RowRecord => ({ kind: 'session
   status: 'exited', stoppedAt: old, ...patch,
 } } as RowRecord)
 function fixture(rows: RowRecord[]) {
-  const source = createColdIndex(SCHEMA)
+  const source = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
     settings: true, cold: () => source, load: () => undefined, schedule: () => () => {},

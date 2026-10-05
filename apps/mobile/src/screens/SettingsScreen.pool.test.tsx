@@ -1,6 +1,6 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
@@ -198,9 +198,8 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
-  expect(readRuntimeStoreStats(enabled.runtime)).toBeDefined()
-  expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns).toBe(0)
-  expect(readRuntimeStoreStats(enabled.runtime)?.rowBuilds).toBe(0)
+  const pool = enabled.seen.findLast(pool => pool !== null)!
+  const roster = vi.spyOn(pool.settingsViews, 'sessions'), count = vi.spyOn(pool.settingsViews, 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)
     enabled.data.publishMachines()
@@ -213,9 +212,8 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
     )
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
-  expect(readRuntimeStoreStats(enabled.runtime)).toBeDefined()
-  expect(readRuntimeStoreStats(enabled.runtime)?.selectorRuns).toBe(0)
-  expect(readRuntimeStoreStats(enabled.runtime)?.rowBuilds).toBe(0)
+  expect(roster).not.toHaveBeenCalled()
+  expect(count).toHaveBeenCalled()
   expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
   expect(enabled.errors).toEqual([])
 })
