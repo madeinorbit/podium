@@ -267,8 +267,12 @@ it('keeps page reads bounded at 4x and releases the unrelated menu catalog', () 
       expect(current).toBe(first)
       expect(
         reads.mock.calls.filter(([, , mode]) => mode === undefined || mode === 'summary-fields'),
-      ).toEqual([['issue', 'outside-0', 'summary-fields']])
-      // The pool maintains the changed issue's scalar facts once; the closed
+      ).toEqual([
+        ['issue', 'outside-0', 'summary-fields'],
+        ['repo', 'repo'],
+        ['repo', 'repo'],
+      ])
+      // Scalar filing joins only the changed issue's named repo; the closed
       // catalog and the addressed page add no demands or rebuilds.
       expect(views.stats.pages).toBe(1)
       return calls

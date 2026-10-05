@@ -20,10 +20,11 @@ function fixture(scale: 1 | 4 = 1) {
   } } as RowRecord)
   const target = issue('target', { repoId: 'wanted', repoPath: '/wanted', worktreePath: '/wanted/wt', priority: 2 })
   const mine = session('mine', { issueId: 'target', cwd: '/wanted/wt', machineId: 'm0',
-    lastActiveAt: stamp, createdAt: stamp, displayRef: 'Q-1A', agentState: { phase: 'needs_user' } })
+    lastActiveAt: stamp, createdAt: stamp, refRepoId: 'wanted', refSeq: 1, refLetter: 'A', agentState: { phase: 'needs_user' } })
   const peer = session('peer', { machineId: 'm1', createdAt: '2025-01-01T00:00:00Z',
     agentState: { phase: 'idle', idle: { kind: 'done' } } })
-  const rows = [target, mine, peer, ...Array.from({ length: 128 * scale }, (_, n) =>
+  const repo = (id: string, path: string, prefix: string): RowRecord => ({ kind: 'worktree', id, value: { repoId: id, repoPath: path, prefix } }) as RowRecord
+  const rows = [repo('wanted', '/wanted', 'WANTED'), repo('other', '/other', 'OTHER'), repo('new', '/pending', 'NEW'), repo('else', '/else', 'ELSE'), target, mine, peer, ...Array.from({ length: 128 * scale }, (_, n) =>
     [issue(`issue-${n}`), session(`session-${n}`)]).flat()]
   const source = createColdIndex(SCHEMA)
   source.apply({ type: 'replace', rows })
@@ -44,7 +45,7 @@ it('keeps narrowed answers and scalar questions flat with fully resident history
         const queries = f.pool.queries
         expect(queries.ids({ kind: 'containingIssues', cwd: '/wanted/wt/file' })).toEqual(['target'])
         expect(queries.ids({ kind: 'commandIssueSessions', issueId: 'target' })).toEqual(['mine'])
-        expect(queries.ids({ kind: 'sessionReference', ref: 'Q-1A' })).toEqual(['mine'])
+        expect(queries.ids({ kind: 'sessionReference', ref: 'WANTED-1-A' })).toEqual(['mine'])
         expect(queries.ids({ kind: 'headerRecentSession' })).toEqual(['mine'])
         expect(queries.nextTriageSession('mine')).toBe('peer')
         expect(queries.latestMachineSession(['m0', 'm1'])).toEqual({ machineId: 'm0', createdAt: stamp })
@@ -91,7 +92,7 @@ it('maintains resident predicate moves, removals and per-path repo identities by
     f.pool.apply({ type: 'update', rows: [{ ...resident, value: { ...resident.value as object, title: 'New title' } } as RowRecord] })
     expect(answers).toHaveLength(before)
     expect(f.pool.queries.ids({ kind: 'containingIssues', cwd: '/pending/wt/file' })).toEqual(['pending'])
-    f.pool.apply({ type: 'update', rows: [f.issue('pending', { repoId: 'new', repoPath: '/else', worktreePath: '/else/wt' })] })
+    f.pool.apply({ type: 'update', rows: [f.issue('pending', { repoId: 'else', repoPath: '/else', worktreePath: '/else/wt' })] })
     expect(answers.at(-1)).toEqual([])
     expect(f.pool.queries.ids({ kind: 'containingIssues', cwd: '/pending/wt/file' })).toEqual([])
     f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'pending', value: undefined }] })

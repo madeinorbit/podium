@@ -10,6 +10,7 @@ import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const old = '2020-01-01T00:00:00Z'
+const repo: RowRecord = { kind: 'worktree', id: 'repo', value: { repoId: 'repo', repoPath: '/repo', prefix: 'REPO' } } as RowRecord
 const issue = (id: string, seq: number, path: string, patch: object = {}): RowRecord =>
   ({
     kind: 'issue',
@@ -47,7 +48,7 @@ it('bounds a file-tab page selection and updates with large histories sharing it
     )
     pool.apply({
       type: 'replace',
-      rows: [target, runner, issue('ancestor', 0, '/shared'), ...samePath, ...others],
+      rows: [repo, target, runner, issue('ancestor', 0, '/shared'), ...samePath, ...others],
     })
     const views = createIssuePageViews(pool),
       ids = vi.spyOn(pool.queries, 'ids')
@@ -283,6 +284,7 @@ it('keeps explicit issue and attached-session precedence over the file-tab path 
   pool.apply({
     type: 'replace',
     rows: [
+      repo,
       issue('path', 1, '/shared'),
       issue('explicit', 2, '/elsewhere'),
       {
