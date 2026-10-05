@@ -79,8 +79,12 @@ async function mountDemo() {
     await Promise.resolve()
     await Promise.resolve()
   })
-  await waitFor(() =>
-    expect(screen.getByTestId('sessions').textContent).toBe(String(DEMO_SESSIONS.length)),
+  await waitFor(
+    () => expect(screen.getByTestId('sessions').textContent).toBe(String(DEMO_SESSIONS.length)),
+    // Pool attach is async by design (the graph arrives through a dynamic
+    // import) and the demo slice publishes once it has attached, so first
+    // paint waits on both. A shared-host CI worker can take seconds.
+    { timeout: 15_000 },
   )
   return result
 }
