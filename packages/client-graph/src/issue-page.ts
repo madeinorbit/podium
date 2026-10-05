@@ -20,7 +20,6 @@ import {
   type IComputedValue,
   onBecomeUnobserved,
 } from 'mobx'
-import { residentWorktreeIds } from './enumerate'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
 import { missionView } from './mission-view'
@@ -40,7 +39,6 @@ export interface IssuePageData {
   relations: ReturnType<typeof groupRelations>
   title: string
   presence: ReturnType<typeof presenceNote>
-  worktreePaths: string[]
   exits: Readonly<Record<string, ReferentExit | undefined>>
 }
 
@@ -150,16 +148,6 @@ export function createIssuePageViews(pool: MobxPool) {
         return joinQueryResults(groups as SessionView[][])
       },
       Object.is,
-    )
-  }
-  function worktreePaths(): string[] {
-    return memo('worktree-paths', () =>
-      residentWorktreeIds(pool).flatMap((path) => {
-        const lane = pool.row('worktree', path) as
-          | { path?: string; projectRoot?: boolean }
-          | undefined
-        return lane?.path && !lane.projectRoot ? [lane.path] : []
-      }),
     )
   }
   function pagePresence(
@@ -453,7 +441,6 @@ export function createIssuePageViews(pool: MobxPool) {
             exits[neighbour] = exit?.kind
           }
         }
-        const paths = worktreePaths()
         const presence = pagePresence(id, neighbours)
         if (presence === LOADING) return LOADING
         return {
@@ -464,9 +451,10 @@ export function createIssuePageViews(pool: MobxPool) {
           memberSessions: members ?? [],
           sessions,
           relations: groupRelations(value),
-          title: issueDisplayTitle(value, sessions, paths),
+          // issue() declares memberSessionIds, including the empty answer.
+          // Draft naming therefore uses that relation, never cwd discovery.
+          title: issueDisplayTitle(value, sessions, []),
           presence,
-          worktreePaths: paths,
           exits,
         }
       },

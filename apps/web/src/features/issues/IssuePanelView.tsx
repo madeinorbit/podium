@@ -880,9 +880,6 @@ export function IssuePanelBody({
   // detail page reuse it against its own feed.
   const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  // The same derivation the Flight Deck makes from the same slice — every
-  // worktree root the shell knows, for `issueDisplayTitle` below.
-  const allWorktreePaths = pooled.worktreePaths
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the

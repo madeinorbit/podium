@@ -2,8 +2,10 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { presenceNote } from '@podium/client-core/values'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { createIssuePageViews, type IssuePageData } from './issue-page'
 import { MobxPool } from './pool'
+import { createPoolProjection } from './runtime-pool'
 import type { RowRecord } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -48,7 +50,7 @@ const seat = (id: string, patch: object = {}): RowRecord =>
     },
   }) as RowRecord
 
-it('preserves detail catalogs, continuations and roster lifecycle while read markers reuse worktree choices', () => {
+it('preserves detail catalogs, continuations and roster lifecycle without reading worktree choices', () => {
   const root = issue('root'),
     hop = issue('hop', { deps: [{ id: 'root', type: 'discovered-from' }] }),
     tip = issue('tip', { stage: 'planning', deps: [{ id: 'hop', type: 'discovered-from' }] })
@@ -134,7 +136,6 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
         pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)) || a.localeCompare(b),
     )
     expect(first.sessions.map((row) => row.sessionId)).toEqual(expectedSessions)
-    expect(first.worktreePaths).toEqual(worktrees.map((row) => row.id))
     const reads = vi.spyOn(pool, 'row')
     expect(views.data('root')).toBe(first)
     expect(reads.mock.calls).toEqual([])
@@ -142,7 +143,6 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     expect(page().issue.readAt).toBe('2026-10-04T12:00:00Z')
     expect(page().memberSessions).toBe(first.memberSessions)
     expect(page().sessions).toBe(first.sessions)
-    expect(page().worktreePaths).toBe(first.worktreePaths)
     expect(reads.mock.calls.filter(([kind]) => kind === 'worktree')).toEqual([])
     parity()
 
@@ -189,7 +189,6 @@ it('preserves detail catalogs, continuations and roster lifecycle while read mar
     pool.apply({ type: 'replace', rows: [root, history[0]!, worktrees[0]!] })
     expect(parity().memberSessions.map((row) => row.sessionId)).toEqual(['history-000'])
     expect(page().sessions.map((row) => row.sessionId)).toEqual(['history-000'])
-    expect(page().worktreePaths).toEqual(['/repo/w0'])
     reads.mockClear()
     stop()
     const pageBuilds = views.stats.pages
@@ -280,4 +279,67 @@ it('keeps page reads bounded at 4x and releases the unrelated menu catalog', () 
   const small = measure(128)
   expect(small).toBeGreaterThan(0)
   expect(measure(512)).toBe(small)
+})
+
+it('keeps named and draft detail independent of unrelated worktree choices at 1x/4x', async () => {
+  async function measured(scale: 1 | 4, draft: boolean) {
+    const lane = (path: string, patch: object = {}): RowRecord => ({
+      kind: 'worktree', id: path, value: { path, projectRoot: false, ...patch },
+    }) as RowRecord
+    const root = issue('root', {
+      stage: 'planning', title: draft ? 'Draft' : 'Named issue',
+      isDraftVessel: draft, worktreePath: '/repo/owned',
+    })
+    const shown = seat('shown', {
+      archived: false, status: 'running', name: ' Chosen agent ', cwd: '/repo/owned',
+    })
+    const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+    pool.apply({ type: 'replace', rows: [root, shown,
+      seat('0-shell', { archived: false, agentKind: 'shell', name: 'Wrong shell' }),
+      seat('0-archived', { name: 'Wrong history' }),
+      lane('/repo/owned'), lane('/repo/owned/nested'),
+      seat('0-nested', { issueId: undefined, archived: false, cwd: '/repo/owned/nested', name: 'Wrong checkout' }),
+      ...Array.from({ length: 128 * scale }, (_, n) => lane(`/elsewhere/${n}`)),
+      ...Array.from({ length: 128 * scale }, (_, n) => seat(`foreign-${n}`, { issueId: 'outside', cwd: `/elsewhere/${n}` })),
+    ] })
+    const views = createIssuePageViews(pool), reads = vi.spyOn(pool, 'row'),
+      keys = vi.spyOn(pool.tables.worktree, 'keys'), paint = vi.fn(),
+      view = createPoolProjection(pool, () => views.data('root'))
+    let stop = () => {}
+    const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool })
+    const page = () => {
+      const value = view.getSnapshot()
+      expect(value).not.toBe(LOADING)
+      expect(value).toBeDefined()
+      return value as IssuePageData
+    }
+    try {
+      const first = await measure('detail first demand', () => { view.getSnapshot(); stop = view.subscribe(paint) })
+      expect(page().title).toBe(draft ? 'Chosen agent' : 'Named issue')
+      expect(page().issue.memberSessionIds).not.toContain('0-nested')
+      expect(reads.mock.calls.filter(([kind]) => kind === 'worktree')).toEqual([])
+      expect(keys).not.toHaveBeenCalled()
+      const repeat = await measure('detail repeated demand', () => { view.getSnapshot() })
+      const before = page()
+      const unrelated = await measure('detail unrelated lane update', () => pool.apply({ type: 'update', rows: [lane('/elsewhere/0', { branch: 'changed' })] }))
+      expect(page()).toBe(before)
+      expect(paint).not.toHaveBeenCalled()
+      const changed = await measure('detail named seat changed', () => pool.apply({ type: 'update', rows: [seat('shown', { ...shown.value, name: 'New name' })] }))
+      expect(page().title).toBe(draft ? 'New name' : 'Named issue')
+      const builds = views.stats.pages
+      stop(); paint.mockClear(); reads.mockClear(); keys.mockClear()
+      const closed = await measure('detail closed lane update', () => pool.apply({ type: 'update', rows: [lane('/elsewhere/0', { branch: 'closed' })] }))
+      expect(views.stats.pages).toBe(builds)
+      expect(paint).not.toHaveBeenCalled()
+      expect(reads.mock.calls.filter(([kind, , mode]) => kind === 'worktree' && mode !== 'mark')).toEqual([])
+      expect(keys).not.toHaveBeenCalled()
+      return Object.fromEntries(Object.entries({ first, repeat, unrelated, changed, closed }).map(([name, value]) => [name, value.work]))
+    } finally { stop(); views.dispose(); pool.dispose(); vi.restoreAllMocks() }
+  }
+  for (const draft of [false, true]) {
+    const first = await measured(1, draft), second = await measured(4, draft)
+    console.info('issue detail worktree work1x4x', JSON.stringify({ draft, first, second }))
+    for (const action of Object.keys(first)) for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+      expect(second[action]?.[counter]).toBe(first[action]?.[counter])
+  }
 })
