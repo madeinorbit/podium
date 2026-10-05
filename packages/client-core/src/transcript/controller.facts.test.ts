@@ -6,6 +6,7 @@ import {
   createTranscriptController,
   type TranscriptPage,
   type TranscriptSource,
+  type TranscriptControllerOptions,
 } from './controller'
 
 const cursor = (offset: number) =>
@@ -24,7 +25,7 @@ const ask = (id: string, offset: number, answered = false) =>
     ...(answered ? { toolResult: 'Answered' } : {}),
   })
 
-async function fixture(items: TranscriptItem[], initialLimit = 1024, retainHistory = true) {
+async function fixture(items: TranscriptItem[], initialLimit = 1024, retainHistory = true, questions?: TranscriptControllerOptions['questions']) {
   let page: TranscriptPage = { items, head: 'head', tail: items.at(-1)?.cursor, hasMore: true }
   let listener: Parameters<TranscriptSource['subscribe']>[2] | undefined
   const source: TranscriptSource = {
@@ -42,6 +43,7 @@ async function fixture(items: TranscriptItem[], initialLimit = 1024, retainHisto
     initialLimit,
     retainHistory: () => retainHistory,
     visible: () => false,
+    questions,
   })
   await controller.start()
   return {
@@ -199,13 +201,13 @@ it('answers echo membership and latest raw time with no retained-row reads at 1x
       get role() { roleReads++; return item.role },
       get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
     }))
-    const f = await fixture(items)
+    const f = await fixture(items, 1024, true, ['userEcho', 'latestRecordedAt'])
     try {
       roleReads = 0; timeReads = 0
-      const answers: boolean[] = []
+      let answers: boolean[] = []
       let latest: number | null = null
       const result = await measureWork(async () => insideReader('raw transcript echo and time', () => {
-        answers.push(f.controller.hasUserEcho('Same prompt'), f.controller.hasUserEcho('other', ['/a', '/b']), f.controller.hasUserEcho('Same prompt', ['/b', '/a']), f.controller.hasUserEcho('absent'))
+        answers = [f.controller.hasUserEcho('Same prompt'), f.controller.hasUserEcho('other', ['/a', '/b']), f.controller.hasUserEcho('Same prompt', ['/b', '/a']), f.controller.hasUserEcho('absent')]
         latest = f.controller.getSnapshot().latestRecordedAt
       }))
       expect(answers).toEqual([true, true, false, false])
@@ -229,7 +231,7 @@ it('maintains duplicate echo counts, ordered path identity and raw timestamp edi
     row('u1', 'user', 1, { text: ' same ', toolPaths: ['a,b'], ts: '2026-09-29T01:35:00.000Z' }),
     row('u2', 'user', 2, { text: 'same', toolPaths: ['a', 'b'], ts: '2026-09-29T01:32:00.000Z' }),
     row('t', 'tool', 3, { ts: '2026-09-29T01:34:00.000Z' }),
-  ], 2, false)
+  ], 2, false, ['userEcho', 'latestRecordedAt'])
   try {
     expect(f.controller.hasUserEcho('same')).toBe(true)
     expect(f.controller.hasUserEcho('other', ['a,b'])).toBe(true)
@@ -255,5 +257,19 @@ it('maintains duplicate echo counts, ordered path identity and raw timestamp edi
     f.emit([], true)
     expect(f.controller.hasUserEcho('restored')).toBe(false)
     expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
+  } finally { f.controller.dispose() }
+})
+
+it('does not maintain undeclared echo or timestamp questions', async () => {
+  let timeReads = 0, pathReads = 0
+  const item: TranscriptItem = { id: 'u', role: 'user', text: 'prompt',
+    get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
+    get toolPaths() { pathReads++; return ['/a'] },
+  }
+  const f = await fixture([item])
+  try {
+    expect(timeReads).toBe(0); expect(pathReads).toBe(0)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
+    expect(() => f.controller.hasUserEcho('prompt')).toThrow('must declare')
   } finally { f.controller.dispose() }
 })

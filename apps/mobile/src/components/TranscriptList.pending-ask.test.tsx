@@ -170,6 +170,13 @@ const fromState = (): TranscriptItem => {
 }
 
 describe('TranscriptList pendingAsk', () => {
+  it('renders and answers the source-owned raw question', async () => {
+    const question = fromState()
+    const onAnswer = vi.fn(async () => {})
+    render(<TranscriptList items={[question]} transcriptQuestion={question} live onAnswer={onAnswer} />)
+    fireEvent.click(screen.getByLabelText('Postgres'))
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({ choices: [{ optionIndices: [1] }] }))
+  })
   it('reads the published assistant key without copying retained rows at 1x/4x', () => {
     const samples = []
     const onAnswer = async () => {}

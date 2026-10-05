@@ -150,6 +150,7 @@ export function SuperagentScreen() {
     sessionId: podiumSid,
     initialLimit: 80,
     pageLimit: 80,
+    questions: ['userEcho', 'latestRecordedAt'],
     retainHistory: () => !followingTranscript.current || searchingTranscript.current,
     source: {
       read: (request) => trpc.sessions.transcriptRead.query(request),

@@ -61,6 +61,8 @@ export interface TranscriptControllerOptions {
   /** Keep the loaded prefix during newest reads while a host is reading history.
    * An explicit source reset always replaces the transcript. */
   retainHistory?: () => boolean
+  /** Extra maintained facts declared by the host that consumes them. */
+  questions?: readonly ('userEcho' | 'latestRecordedAt')[]
 }
 
 /**
@@ -363,10 +365,14 @@ export class TranscriptController {
   private readonly userEchoes = new Map<string, { text: string; paths: string }>()
   private readonly userTexts = new Map<string, number>()
   private readonly userPaths = new Map<string, number>()
+  private readonly trackEchoes: boolean
+  private readonly trackRecordedTime: boolean
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
     this.pageLimit = options.pageLimit ?? 400
+    this.trackEchoes = options.questions?.includes('userEcho') ?? false
+    this.trackRecordedTime = options.questions?.includes('latestRecordedAt') ?? false
     this.state = {
       sessionId: options.sessionId,
       items: [],
@@ -404,6 +410,7 @@ export class TranscriptController {
 
   /** Match the existing optimistic-turn rule by text, or by ordered file paths. */
   hasUserEcho(text: string, paths: readonly string[] = []): boolean {
+    if (!this.trackEchoes) throw new Error('The host must declare the userEcho transcript question')
     return paths.length > 0
       ? this.userPaths.has(JSON.stringify(paths))
       : this.userTexts.has(text.trim())
@@ -422,18 +429,22 @@ export class TranscriptController {
   private fileFacts(item: TranscriptItem): void {
     this.userPrompts.set(item.id, item.role === 'user' && item.text.trim().length > 0)
     this.questions.set(item.id, isAskUserQuestion(item))
-    const at = item.ts === undefined ? NaN : Date.parse(item.ts)
-    if (Number.isFinite(at)) this.recordedAt.set(item.id, at)
-    else this.recordedAt.delete(item.id)
-    this.recordedItems.set(item.id, Number.isFinite(at))
-    const previous = this.userEchoes.get(item.id)
-    const next = item.role === 'user'
-      ? { text: item.text.trim(), paths: JSON.stringify(item.toolPaths ?? []) }
-      : undefined
-    this.moveEchoCount(this.userTexts, previous?.text, next?.text)
-    this.moveEchoCount(this.userPaths, previous?.paths, next?.paths)
-    if (next) this.userEchoes.set(item.id, next)
-    else this.userEchoes.delete(item.id)
+    if (this.trackRecordedTime) {
+      const at = item.ts === undefined ? NaN : Date.parse(item.ts)
+      if (Number.isFinite(at)) this.recordedAt.set(item.id, at)
+      else this.recordedAt.delete(item.id)
+      this.recordedItems.set(item.id, Number.isFinite(at))
+    }
+    if (this.trackEchoes) {
+      const previous = this.userEchoes.get(item.id)
+      const next = item.role === 'user'
+        ? { text: item.text.trim(), paths: JSON.stringify(item.toolPaths ?? []) }
+        : undefined
+      this.moveEchoCount(this.userTexts, previous?.text, next?.text)
+      this.moveEchoCount(this.userPaths, previous?.paths, next?.paths)
+      if (next) this.userEchoes.set(item.id, next)
+      else this.userEchoes.delete(item.id)
+    }
   }
 
   subscribe = (listener: Listener): (() => void) => {
