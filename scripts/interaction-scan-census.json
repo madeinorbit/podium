@@ -7385,12 +7385,12 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture",
       "rule": "helper-consumer",
-      "tokens": "6f21fafc9d907f6c3762fbcff66ec5cb2d3f0c46f4452b7813c94de4dc23dfa6",
+      "tokens": "6cd4ad19b90156809939bcf934884dbf13f8d52d9475fbb2740f7efbfa2c62a8",
       "gate": [],
       "origin": [
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "c7664261979b1217da802d6dba73ffd531b2850d085c6f9fd5412c06cdd41560",
+      "fingerprint": "76b05c1ee96ecb95d8640e671124c5e1d212e69548f481d62930fc7d2ff5a40c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7516,12 +7516,12 @@
       "file": "apps/web/src/features/chat/chat-context-test-fixture.ts",
       "holder": "createChatContextFixture/deleteIssue",
       "rule": "helper-consumer",
-      "tokens": "0721ee571956e63a7aa557df983be26c1c45f86a78ad112e1ace42c00e516288",
+      "tokens": "583bcf4a70aba86eb9f22baa042e887c4c4f696ae8c93d2619f1addf7e109ffa",
       "gate": [],
       "origin": [
         "d8aaa60f69e9bb87ae131aba3f877da9fffbea1914733735bc4d276cc5983870"
       ],
-      "fingerprint": "2793beca3e43837ac9f17e8232e8ea7b13ff5e4d6e21fd46f7b2f4f1eb24a9d5",
+      "fingerprint": "91064bd07410c71a73ef1c582f6f6b6a02631c1cf7b528a7b3f9073ceb87bd48",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -17081,14 +17081,14 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "080381a5786c8ae7f72cdc916d726bf77a237b60b58470a817653c97d0d35ad2",
+      "tokens": "45791190bf56af110d2e721be079d088426e609a37aa325e7ac03087c4c91307",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "42dbc794419e2ccaf997fd629a59c30f03082e36c9937bd583b99d919c1564f3",
+      "fingerprint": "424276866947e1da09904bb5630ac0662b9b061016e199d87f7387ac6aced141",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18181,7 +18181,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "2ac9f050ca40927416ef3e6e168cbcb161be9f4ae0546c3bbc4c4eda5f75ad21",
+      "tokens": "5a9e6adeda73521098516cea74e5e6ae52180b80d54e26248c8563c1bfcb9274",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -18189,7 +18189,7 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "7544dd95d8cabcaf3d229d8c187493b35b4b968c16f5b9d4b15aa8c8ac4853f6",
+      "fingerprint": "80f16176e9873c9ff1849b64c15045e889806370605cc69292490973f1ded22d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
