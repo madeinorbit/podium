@@ -249,7 +249,10 @@ export function createPoolWorkActions(
       // declared per-key relations; no other issue or session is a candidate.
       const memberSessionIds = [...pool.graph.many('issue', id, 'sessions')].flatMap((key) => {
         const session = pool.row('session', key) as SessionView | typeof LOADING | undefined
-        return session && session !== LOADING && session.issueId === id && session.agentKind !== 'shell'
+        // R2 already declares this retained member. Preserve a pending ID so
+        // the menu inputs wait for its addressed payload rather than omit it.
+        if (session === LOADING) return [asSessionId(key)]
+        return session && session.issueId === id && session.agentKind !== 'shell'
           ? [session.sessionId] : []
       })
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].map(asIssueId)
