@@ -40923,12 +40923,12 @@
       "file": "packages/client-graph/src/mission-deck-model.ts",
       "holder": "MissionDeckIssueModel/presentation",
       "rule": "reader-summary",
-      "tokens": "69e9a81d63599cc8871e0b53ff0ccda56352f635655dea60b14bbb8c1948b996",
+      "tokens": "79188ba4807f1086dafacf8a8b6f20b2648ef9db494dfb722e7e2a3490cf9b3c",
       "gate": [],
       "origin": [
         "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
       ],
-      "fingerprint": "2d1fc51856ade56af43967fe0a81fc42026fcb4c2280b0ca4e89d105011007de",
+      "fingerprint": "ba509ab06b8b9528b177db1fe0197a5b6f561bee6ebf4ab3b116f6315d05e62e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
