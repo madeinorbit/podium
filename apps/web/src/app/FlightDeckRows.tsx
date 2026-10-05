@@ -128,7 +128,6 @@ import {
   deckTaskKey,
   useFlightDeckWindow,
 } from './flight-deck-window'
-import { useRuntimeDraft } from './keyed-runtime'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
