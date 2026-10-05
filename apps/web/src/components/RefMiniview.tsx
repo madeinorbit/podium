@@ -120,7 +120,7 @@ function PoolRefMiniviewHost(): JSX.Element {
 function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | null {
   const parsed = parseAnyRef(token)
   if (!pool || parsed?.kind !== 'issue') return null
-  const id = pool.queries.linkedIssueId(token)
+  const id = pool.queries.issueReferenceId(token)
   if (!id || typeof id === 'symbol') return null
   const row = pool.row('issue', id)
   return row && typeof row !== 'symbol'
