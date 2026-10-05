@@ -481,7 +481,9 @@ describe('unpublished keyed answer construction', () => {
           builder.answer.set(id, String(rank), value)
           inserted.set(id, String(rank), value)
         }
-        ranks.forEach((rank, n) => { put(`s${n}`, rank) })
+        ranks.forEach((rank, n) => {
+          put(`s${n}`, rank)
+        })
         put('duplicate', 9)
         put('duplicate', 1)
         builder.answer.delete('s1')

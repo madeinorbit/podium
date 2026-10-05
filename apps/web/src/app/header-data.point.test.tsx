@@ -55,9 +55,7 @@ it('the actual offline indicator hook reads only displayed machines and releases
       act(() => pool.header.apply([{ kind: 'machine', id: 'target', value: target }]))
       expect(view.result.current).toEqual([target])
       const first = row.mock.calls.length
-      expect(row.mock.calls.every((call) => call[0] === 'machine' && call[1] === 'target')).toBe(
-        true,
-      )
+      expect(row.mock.calls).toEqual([['machine', 'target']])
       row.mockClear()
       act(() =>
         pool.header.apply([
@@ -81,9 +79,7 @@ it('the actual offline indicator hook reads only displayed machines and releases
       act(() => pool.clock.advance(now))
       expect(view.result.current.map((value) => value.name)).toEqual(['Expired target'])
       const restored = row.mock.calls.length
-      expect(row.mock.calls.every((call) => call[0] === 'machine' && call[1] === 'target')).toBe(
-        true,
-      )
+      expect(row.mock.calls).toEqual([['machine', 'target']])
       expect(all).not.toHaveBeenCalled()
       view.unmount()
       row.mockClear()
