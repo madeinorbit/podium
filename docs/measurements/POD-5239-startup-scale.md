@@ -108,9 +108,37 @@ distinction. Build and guard logs remain in the private remote checkout.
 
 The first fix landed at `51da487185` after rebasing onto the coordinator branch.
 Measurements name the pre-rebase candidates; later landings are not additional
-timed runs. The bulk-root fix will likewise preserve intervening pilot changes.
+timed runs. The bulk-root fix landed at `2a450299a5`, preserving POD-5240's web
+build inputs and lazy-loading changes; its additional build-key repair adds
+mobile inputs.
 
 The initial profile locates larger repeated tree construction in scalar session
 indexes. The coordinator cleared bulk seeding at bootstrap with the same trees,
 equivalence coverage and public question semantics. That is the next local fix.
 No server, sync, residency or operator runtime changes are included.
+
+## Scalar bootstrap candidate — not landed
+
+Candidate `46c559b032` accumulates unpublished session-index entries before
+constructing the ordinary immutable trees. Initial relations are already final,
+so seeding uses their collapse and ordering answers without replaying each row's
+visibility update. Published edits still use the original persistent paths;
+bootstrap maps and writer wrappers are released before publication.
+
+The wiring guard spies persistent entry writes through the session module's
+keyed-answer factory. It fails when the old cold-index seeding path is restored:
+453 writes at 128 sessions and 1,773 at 512. The candidate records zero at both
+sizes. These are the guard's counted writes, not a census of all allocations.
+All 41 tests in five focused files pass, covering ordered answers, scalar bounds,
+counts, witnesses, close facts, replacements, duplicate IDs, deletion, clock
+rewind, collapse and fork isolation. The [initial scalar proof ledger](POD-5239-startup-scale/proof-scalar-initial.json)
+names the candidate and the old file used to arm the guard.
+
+No scalar timing result or landing is claimed. The next baseline build, at
+`2a450299a5`, fails the new eager-pool bundle guard. Its fresh emitted entry
+`index-BbFqtKoj.js` statically imports `create-BkFPl1fP.js`, which contains
+`pool.ts`. The module graph includes the path from `main.tsx` through `AppShell`,
+`SidebarUnified`, `pool-sidebar` and the graph barrel. POD-5582 tracks the blocking
+boundary repair. The adjacent POD-5579 identity-query landing must also be rebased
+in, with reference-bucket equivalence checked, before the one matched scalar pair.
+The build was not bypassed and no benchmark lease is held.
