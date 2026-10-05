@@ -29,7 +29,7 @@ import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
-import { useChatReferenceMachines, useChatRepositoryKey } from '@/features/chat/use-chat-context'
+import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
 import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { PriorityGlyph } from '@/features/issues/issue-glyphs'
@@ -40,12 +40,10 @@ import {
   closeMiniview,
   getMiniviewState,
   openMiniview,
-  REF_PREFIXES_CHANGED_EVENT,
   setRefActivator,
   subscribeMiniview,
 } from '@/lib/ref-activation'
 import {
-  collectRefPrefixes,
   type IssueSessionTarget,
   type RefIssueLike,
   type RefSessionLike,
@@ -538,53 +536,24 @@ export function RefCard({
 
 /**
  * Keep the markdown + terminal ref linkifiers' known-prefix set in sync (#474,
- * task 1). The canonical source is `repos.listDetailed` — a registered repo with
- * zero issues must still linkify — unioned with the pool's maintained repository
- * prefix scalar, which covers the window before the fetch lands. Refetches
- * when the store's repo list changes and on REF_PREFIXES_CHANGED_EVENT (the
- * settings prefix editor). Mounted once at app root; renders nothing.
+ * task 1). The replicated repository feed includes registered repos with zero
+ * issues and applies prefix changes by address. Its maintained prefix scalar
+ * updates the linkifiers without fetching or walking a repository catalog.
+ * Mounted once at app root; renders nothing.
  * Linkification is inert until this runs (an empty prefix set disables it).
  */
 export function RefPrefixSync(): JSX.Element {
   return <PoolRefPrefixSync />
 }
 
-function PoolRefPrefixSync(): JSX.Element {
+function PoolRefPrefixSync(): null {
   const read = useCallback((pool: MobxPool) => {
     return pool.queries.repositoryPrefixKey()
   }, [])
-  const issuePrefixKey = useWorklistPoolProjection(read, '')
-  return <RefPrefixSyncContents issuePrefixKey={issuePrefixKey} />
-}
-
-function RefPrefixSyncContents({ issuePrefixKey }: { issuePrefixKey: string }): null {
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const repoKey = useChatRepositoryKey()
-  const [repoPrefixes, setRepoPrefixes] = useState<string[]>([])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: repoKey is a deliberate refetch trigger — repos changing means the prefix set may have too.
+  const prefixKey = useWorklistPoolProjection(read, '')
   useEffect(() => {
-    let cancelled = false
-    const fetchPrefixes = (): void => {
-      trpc.repos.listDetailed
-        .query()
-        .then((rows) => {
-          if (!cancelled) setRepoPrefixes([...collectRefPrefixes(rows)].sort())
-        })
-        .catch(() => {}) // best-effort; issue-derived prefixes still apply
-    }
-    fetchPrefixes()
-    window.addEventListener(REF_PREFIXES_CHANGED_EVENT, fetchPrefixes)
-    return () => {
-      cancelled = true
-      window.removeEventListener(REF_PREFIXES_CHANGED_EVENT, fetchPrefixes)
-    }
-  }, [trpc, repoKey])
-
-  useEffect(() => {
-    const issuePrefixes = issuePrefixKey ? issuePrefixKey.split(',') : []
-    setKnownRefPrefixes(new Set([...repoPrefixes, ...issuePrefixes]))
-  }, [issuePrefixKey, repoPrefixes])
+    setKnownRefPrefixes(new Set(prefixKey ? prefixKey.split(',') : []))
+  }, [prefixKey])
   return null
 }
 

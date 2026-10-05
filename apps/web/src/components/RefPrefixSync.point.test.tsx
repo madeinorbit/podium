@@ -7,6 +7,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { RefPrefixSync } from './RefMiniview'
 
 const state = vi.hoisted(() => ({
@@ -79,11 +80,12 @@ it('bounds the actual root-mounted prefix reader on mount, unrelated updates and
       const rename = await measure(() => pool.apply({ type: 'update', rows: [repo('r0', 'NEW')] }))
       expect(state.prefixes.mock.lastCall?.[0].has('NEW')).toBe(true)
       expect(state.prefixes.mock.lastCall?.[0].has('PREFIX0')).toBe(false)
-      expect(state.listDetailed).toHaveBeenCalledTimes(1)
+      const event = await measure(() => window.dispatchEvent(new Event(REF_PREFIXES_CHANGED_EVENT)))
+      expect(state.listDetailed).not.toHaveBeenCalled()
       expect(keys).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
       expect(first.work.rows).toBe(0)
-      samples.push({ first: first.work, metadata: metadata.work, rename: rename.work })
+      samples.push({ first: first.work, metadata: metadata.work, rename: rename.work, event: event.work })
     } finally {
       view?.unmount()
       keys.mockRestore()
@@ -93,7 +95,7 @@ it('bounds the actual root-mounted prefix reader on mount, unrelated updates and
       state.listDetailed.mockClear()
     }
   }
-  for (const action of ['first', 'metadata', 'rename'] as const)
+  for (const action of ['first', 'metadata', 'rename', 'event'] as const)
     for (const counter of ['rows', 'derivations'] as const)
       expect(samples[1]![action][counter]).toBe(samples[0]![action][counter])
   console.info('[actual root prefix sync work1x4x]', JSON.stringify(samples))
