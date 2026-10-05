@@ -1,15 +1,14 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { outboxChatSends } from '@podium/client-core/chat-values'
 import { asSessionId } from '@podium/model'
-import { compareStructural, computed, type IComputedValue, type IObservableValue, observable, runInAction } from 'mobx'
+import { compareStructural, computed, type IComputedValue, type ObservableSet, observable, runInAction } from 'mobx'
 import { CHAT_ORDER_KINDS, type ChatContextRows } from './chat-context-schema'
 import { createChatContextReader } from './chat-context'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 interface ChatOrder {
-  members: Set<string>
-  readonly version: IObservableValue<number>
+  readonly members: ObservableSet<string>
   readonly row: IComputedValue<{ ids: readonly string[] }>
 }
 
@@ -24,7 +23,7 @@ export class ChatContextSource {
   private scheduled = false
   private outboxDirty = true
   /** The order lists, kept by address (finding 13): membership in replica
-   *  insertion order, and a version a reader's `{ ids }` is derived from. A
+   *  insertion order, which a reader's `{ ids }` is derived from. A
    *  batch costs its addresses; the list is built only when it moved. */
   private readonly orders = new Map<string, ChatOrder>()
   private disposed = false
@@ -51,16 +50,13 @@ export class ChatContextSource {
         runInAction(() => {
           for (const [entity, order] of this.orders) {
             const kind = CHAT_ORDER_KINDS[entity as keyof typeof CHAT_ORDER_KINDS]
-            let moved = false
             for (const address of batch.rows) if (address.kind === kind) {
               this.counts.addressedOrders++
               const present = !!owner.replica.row!(kind, address.id)
               if (present === order.members.has(address.id)) continue
               if (present) order.members.add(address.id)
               else order.members.delete(address.id)
-              moved = true
             }
-            if (moved) order.version.set(order.version.get() + 1)
           }
         })
       })]
@@ -90,12 +86,10 @@ export class ChatContextSource {
     runInAction(() => {
       const order = this.orders.get(entity)
       if (order === undefined) {
-        const version = observable.box(0)
-        const created: ChatOrder = { members, version, row: computed(() => { version.get(); this.counts.orderIds += created.members.size; return { ids: [...created.members] } }, { equals: compareStructural, keepAlive: true }) }
+        const created: ChatOrder = { members: observable.set(members, { deep: false }), row: computed(() => { this.counts.orderIds += created.members.size; return { ids: [...created.members] } }, { equals: compareStructural }) }
         this.orders.set(entity, created)
       } else {
-        order.members = members
-        order.version.set(order.version.get() + 1)
+        order.members.replace(members)
       }
       this.loaded.add(`${entity}:order`)
     })

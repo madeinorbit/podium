@@ -8,8 +8,9 @@ import {
 import { parseAnyRef } from '@podium/protocol'
 import {
   compareStructural,
+  createAtom,
+  type IAtom,
   observable,
-  onBecomeUnobserved,
   runInAction,
 } from 'mobx'
 import type { RelationReader } from './shared/relation-reader'
@@ -39,7 +40,8 @@ export interface IssueReferenceReader {
  * resident table is enumerated or watched when this reader is constructed. */
 export class IssueReferences implements IssueReferenceReader {
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
-  private readonly requestStops = new Map<string, () => void>()
+  private readonly demand = new Map<string, { atom: IAtom; observed: boolean }>()
+  private disposed = false
   // Reference projections construct a new record when their row changes.
   private readonly values = keyedComputed(() => undefined, (id: string): Loaded<IssueReferenceModel | null> => {
     const row = this.source(id)
@@ -123,6 +125,29 @@ export class IssueReferences implements IssueReferenceReader {
     const key = issueRefKey(token)
     const known = this.host.queries.issueReferenceId(key)
     if (known !== undefined) return known
+    let demand = this.demand.get(key)
+    if (!demand) {
+      const created = {
+        observed: false,
+        atom: createAtom(`pool.reference.${key}`, () => {
+          created.observed = true
+          // Demand is established by observation, never by an untracked read.
+          // The microtask also lets a chip disappear before any load is queued.
+          queueMicrotask(() => {
+            if (!created.observed || this.disposed) return
+            runInAction(() => this.requests.set(key, LOADING))
+            this.queue(key)
+          })
+        }, () => {
+          created.observed = false
+          this.demand.delete(key)
+          runInAction(() => this.requests.delete(key))
+        }),
+      }
+      this.demand.set(key, created)
+      demand = created
+    }
+    if (!demand.atom.reportObserved()) this.demand.delete(key)
     const pending = this.requests.get(key)
     if (pending !== undefined) {
       if (typeof pending !== 'string') return pending
@@ -130,15 +155,7 @@ export class IssueReferences implements IssueReferenceReader {
       if (model === LOADING) return LOADING
       return model && issueRefKey(model.ref) === key ? pending : null
     }
-    runInAction(() => this.requests.set(key, LOADING))
-    this.requestStops.set(key, onBecomeUnobserved(this.requests, key, () => {
-      const stop = this.requestStops.get(key)
-      this.requestStops.delete(key)
-      stop?.()
-      runInAction(() => this.requests.delete(key))
-    }))
-    this.queue(key)
-    return this.requests.get(key)
+    return LOADING
   }
 
   read(token: string): Loaded<IssueReferenceModel | null> {
@@ -165,9 +182,10 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   dispose(): void {
+    this.disposed = true
     runInAction(() => {
-      for (const stop of this.requestStops.values()) stop()
-      this.requestStops.clear()
+      for (const demand of this.demand.values()) demand.observed = false
+      this.demand.clear()
       this.requests.clear()
       this.values.clear()
     })
