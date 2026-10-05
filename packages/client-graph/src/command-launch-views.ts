@@ -60,6 +60,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
   }, { equals: compareStructural })
   const session = keyedComputed('commands.session', (id: string): Loaded<SessionView> => {
     counts.addressedSessionReads++
+    // untracked-read: launch-session-seed
     if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
     const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     // Snapshot joined getter fields inside this addressed derivation.
@@ -308,6 +309,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
             .ids({ kind: 'commandIssueSessions', issueId: id })
             .filter((sid) => {
               if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
+              // untracked-read: launch-session-presence
               if (untracked(() => !pool.tables.session.has(sid))) return true
               const session = pool.row('session', sid, 'summary') as Loaded<SessionView>
               return (

@@ -527,6 +527,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   function start() {
     if (started) return
     started = true
+    // untracked-read: query-result-seed
     untracked(() => {
       seeding = true
       try {

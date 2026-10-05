@@ -414,6 +414,7 @@ export class MobxPool {
       let list = seats.get(id)
       if (list === undefined) {
         list = observable.array<string>(
+          // untracked-read: pool-seat-seed
           [...untracked(() => this.graph.members('issue', id, 'sessions'))],
           {
             deep: false,
@@ -486,8 +487,11 @@ export class MobxPool {
     this.sidebarRosters = new SidebarRosterIndex(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
     this.seatVerdicts = new SeatVerdicts({
+      // untracked-read: seat-membership-maintenance
       seats: (id) => untracked(() => this.graph.members('issue', id, 'sessions')),
+      // untracked-read: seat-session-maintenance
       session: (id) => untracked(() => this.row('session', id, 'peek')) as SliceSession | undefined,
+      // untracked-read: seat-issue-maintenance
       issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
       now: () => this.clock.current,
     })
@@ -530,7 +534,9 @@ export class MobxPool {
     this.visibleInputs = {
       links,
       // Hot or cold: a cold row is read by id through the feed, never loaded.
+      // untracked-read: visibility-issue-peek
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      // untracked-read: visibility-session-peek
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       issue: (id) => this.knownIssue(id),
       session: (id) => this.object('session', id) as SessionModel,
@@ -745,6 +751,7 @@ export class MobxPool {
       return row && row !== LOADING
         ? setupSessionSummary(
             row as Readonly<Record<string, unknown>>,
+            // untracked-read: pool-session-position
             untracked(() => this.coldIndex().position('session', id)),
           )
         : row
@@ -757,6 +764,7 @@ export class MobxPool {
       // The stable repo facade observes fields independently. Row presence
       // stays addressed; the map value atom belongs to the prefix field.
       const table = this.tables.repo
+      // untracked-read: pool-auxiliary-presence
       return table.has(id) ? untracked(() => table.get(id)) : undefined
     }
     const residency = this.residency
@@ -765,6 +773,7 @@ export class MobxPool {
     const coldSummary =
       (absent === 'summary' || absent === 'summary-fields') &&
       residency?.isCold(core, id) === true &&
+      // untracked-read: pool-cold-presence
       !untracked(() => this.tables[core].has(id))
     let server = coldSummary ? undefined : (this.tables[core].get(id) as object | undefined)
     if (server === undefined) {
@@ -942,6 +951,7 @@ export class MobxPool {
    * address already reports those writes, including removal and promotion. */
   formalParent(id: string): string | null {
     if (this.tables.issue.get(id) === undefined) this.residency?.known('issue', id)
+    // untracked-read: pool-formal-parent
     return untracked(() => this.graph.forwardTarget('issue', id, 'parent'))
   }
 
@@ -966,6 +976,7 @@ export class MobxPool {
     // A row in memory is never hidden, and its reader already tracks its
     // table slot (a `replace` that makes it cold rewrites that slot): asked
     // untracked, so no residency atom is made per issue in memory.
+    // untracked-read: pool-hidden-presence
     if (untracked(() => this.tables[entity].has(id))) return undefined
     if (!residency.hidden(entity, id)) return undefined
     return residency.summary(entity, id) ?? {}

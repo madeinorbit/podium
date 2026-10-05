@@ -942,6 +942,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   /** The raw parent the nesting walk follows; a hidden issue's from its summary (POD-4753). */
   get parentRef(): string | null {
+    // untracked-read: issue-parent-presence
     if (untracked(() => this.host.row('issue', this.id, 'mark')) !== LOADING) return this.standing?.parentId ?? null
     const summary = this.host.row('issue', this.id, 'summary') as HiddenIssue | typeof LOADING | undefined
     return summary === LOADING ? null : summary?.parentId || null
@@ -989,6 +990,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   get hidden(): HiddenIssue | undefined {
+    // untracked-read: issue-hidden-presence
     const resident = untracked(() => this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) {
       // Unknown ids must still follow a later cold publication through the reader.

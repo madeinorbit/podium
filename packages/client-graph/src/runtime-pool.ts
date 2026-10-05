@@ -256,6 +256,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
         const pool = spawnPools.get(runtime)
         if (!pool) throw new Error('Pool spawn placement is not attached')
         const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
+          // untracked-read: spawn-sort-peek
           .map(id => pool.row('issue', id, 'peek')).filter(row => row && typeof row !== 'symbol')
         return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
       }),

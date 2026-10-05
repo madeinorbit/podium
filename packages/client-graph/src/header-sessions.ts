@@ -130,10 +130,12 @@ export class HeaderSessions {
   }
 
   private seed(): void {
+    // untracked-read: header-attachment
     untracked(() => runInAction(() => seedHeaderSessions(this.pool, () => {}, (id) => this.cold(id))))
   }
 
   private cold(id: string): void {
+    // untracked-read: header-cold-seed
     const summary = untracked(() => {
       if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
       const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
