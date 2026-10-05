@@ -212,7 +212,6 @@ describe('SuperagentScreen chrome', () => {
     const samples = []
     for (const scale of [1, 4] as const) {
       console.log('[Superagent fact fixture scale]', scale)
-      let measuring = false
       let roleReads = 0,
         timeReads = 0
       const items: TranscriptItem[] = Array.from({ length: 128 * scale }, (_, index) => ({
@@ -220,7 +219,6 @@ describe('SuperagentScreen chrome', () => {
         text: 'Retained assistant history',
         get role() {
           roleReads++
-          if (measuring && roleReads === 1) console.log('[raw fact read stack]', new Error().stack)
           return 'assistant' as const
         },
         get ts() {
@@ -250,9 +248,7 @@ describe('SuperagentScreen chrome', () => {
       const measure = async (action: () => Promise<void>) => {
         roleReads = 0
         timeReads = 0
-        measuring = true
         const result = await measureWork(action)
-        measuring = false
         return { work: result.work, roleReads, timeReads }
       }
       const restore = await measure(async () => {

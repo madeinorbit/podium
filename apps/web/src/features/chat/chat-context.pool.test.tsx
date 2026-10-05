@@ -171,7 +171,6 @@ it('declares and batches demand, with zero synchronous replica reads for absent 
   expect(first.pending).toBeGreaterThan(0)
   expect(corpus.counts.collections).toBe(bootstrapCollections)
   const loaded = await corpus.load()
-  console.log('[chat context comparison]', JSON.stringify(loaded))
   expect(loaded).toMatchObject({ differences: 0, pending: 0 })
   expect(corpus.source.counts).toMatchObject({ outboxReads: 1, orderLists: 2 })
 })

@@ -248,6 +248,7 @@ describe('ChatView headless mode', () => {
           reset: false,
         })
     })
+    await flush()
     expect(overlayEl()).toBeNull()
     // A later status frame mid-turn shows in the permanent tail…
     await push({ kind: 'status', status: 'tool', label: 'Bash' })
@@ -493,13 +494,14 @@ describe('ChatView headless mode', () => {
           { reset: false },
         )
     })
+    await flush()
     expect(container.textContent).toContain('repo context')
     expect(container.textContent).not.toContain('lots of machine context')
   })
 
   it('does not subscribe to headlessActivity for a normal (non-headless) session', async () => {
     storeSessions = [meta({ headless: false })]
-    mount()
+    act(() => root.render(<ChatView sessionId={asSessionId('h1')} compact />))
     await flush()
     expect(fakeHub.headlessSubs).toHaveLength(0)
   })

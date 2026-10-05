@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { createRef, useMemo } from 'react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
 import { ChatComposer } from './ChatComposer'
 import { ConversationPresentation } from './conversation-presentation'
@@ -35,6 +35,8 @@ const items: TranscriptItem[] = Array.from({ length: 20 }, (_, index) => ({
   id: `m${index}`, role: 'assistant', answer: true, text: `reply ${index}`,
 }))
 const owners: { conversation: WebConversation; drafts: DraftStore }[] = []
+// Row-render counts use the synchronous fallback; worker publication has its own guard.
+beforeEach(() => vi.stubGlobal('Worker', undefined))
 afterEach(() => {
   cleanup()
   for (const owner of owners.splice(0)) { owner.conversation.dispose(); owner.drafts.dispose() }
