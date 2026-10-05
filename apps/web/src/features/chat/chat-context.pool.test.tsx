@@ -701,7 +701,7 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
 
 it('requests no thread for ordinary chat and only the selected backend row for a superthread', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined } })
+  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined as string | undefined } })
   expect(hook.result.current).toBeUndefined()
   expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog')).toBe(false)
   await act(async () => hook.rerender({ id: 'own-thread' }))
@@ -712,7 +712,7 @@ it('requests no thread for ordinary chat and only the selected backend row for a
 
 it('keeps mention catalog demand off until the picker is visible', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), { initialProps: { query: null } })
+  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), { initialProps: { query: null as string | null } })
   expect(hook.result.current).toEqual([])
   expect(rows).not.toHaveBeenCalled()
   await act(async () => hook.rerender({ query: 'task' }))
