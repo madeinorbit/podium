@@ -6,8 +6,8 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
+import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 import { RefPrefixSync } from './RefMiniview'
 
 const state = vi.hoisted(() => ({
@@ -88,7 +88,12 @@ it('bounds the actual root-mounted prefix reader on mount, unrelated updates and
       expect(keys).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
       expect(first.work.rows).toBe(0)
-      samples.push({ first: first.work, metadata: metadata.work, rename: rename.work, event: event.work })
+      samples.push({
+        first: first.work,
+        metadata: metadata.work,
+        rename: rename.work,
+        event: event.work,
+      })
     } finally {
       view?.unmount()
       keys.mockRestore()
