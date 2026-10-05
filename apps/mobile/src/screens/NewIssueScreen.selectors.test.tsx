@@ -8,8 +8,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { asUserId, type GitRepositoryWire } from '@podium/model'
-import { act, cleanup, render } from '@testing-library/react'
+import { asUserId, type GitRepositoryWire, type MachineWire } from '@podium/model'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -50,11 +50,12 @@ afterEach(() => {
   fixture.sessions = []
 })
 
-it('keeps new-task repository order literal and per-open row reads flat at 1x and 4x', async () => {
-  const cells: { scale: number; rowReads: number; derivations: number; neighbours: number }[] = []
+it('keeps new-task repository order and open, keystroke and machine-update work flat at 1x and 4x', async () => {
+  const cells: { scale: number; action: string; rowReads: number; derivations: number; neighbours: number }[] = []
   const now = Date.parse('2026-10-03T08:00:00Z')
   for (const scale of [1, 4]) {
     let rowReads = 0,
+      machineReads = 0,
       measuring = false
     const repositories = ['z', 'a', 'm'].map((name) => ({
       path: `/repo/${name}`,
@@ -86,6 +87,10 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
       'repository',
       repositories.map((value) => value.path),
     )
+    const machines = Array.from({ length: 128 * scale }, (_, index) => ({
+      id: `unrelated-machine-${index}`, name: `Unrelated ${index}`,
+    }) as MachineWire)
+    fixture.pool.header.apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
     fixture.sessions = sessions.map(
       (session) =>
         new Proxy(session, {
@@ -99,7 +104,10 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
     const spy = vi.spyOn(fixture.pool, 'row').mockImplementation(((
       ...args: Parameters<MobxPool['row']>
     ) => {
-      if (measuring) rowReads++
+      if (measuring) {
+        rowReads++
+        if (args[0] === 'machine') machineReads++
+      }
       return row(...args)
     }) as MobxPool['row'])
     const owner = { start() {}, dispose() {}, destroy() {} }
@@ -146,10 +154,31 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
       const phase = census.snapshot().phases['open new task']!
       cells.push({
         scale,
+        action: 'open',
         rowReads,
         derivations: phase.computedRuns + phase.reactionRuns,
         neighbours: choices.length,
       })
+      expect(machineReads, 'repository paths and count never demand machine rows').toBe(0)
+      for (const action of ['keystroke', 'machine update'] as const) {
+        rowReads = 0
+        census.enter(action)
+        act(() => {
+          if (action === 'keystroke') {
+            fireEvent.change(view.getByPlaceholderText('What needs doing?'), { target: { value: 'A task' } })
+          } else {
+            fixture.pool!.header.apply([{ kind: 'machine', id: machines[0]!.id,
+              value: { ...machines[0]!, name: 'Renamed while creating' } }])
+          }
+        })
+        await act(async () => {})
+        census.exit()
+        const work = census.snapshot().phases[action]!
+        expect(machineReads).toBe(0)
+        expect(rowReads).toBe(0)
+        cells.push({ scale, action, rowReads, derivations: work.computedRuns + work.reactionRuns,
+          neighbours: choices.length })
+      }
     } finally {
       measuring = false
       census.stop()
@@ -159,12 +188,11 @@ it('keeps new-task repository order literal and per-open row reads flat at 1x an
     }
   }
   console.info('[new task open work]', JSON.stringify(cells))
-  const [base, larger] = cells
-  for (const metric of ['rowReads', 'derivations'] as const) {
-    expect(
-      larger![metric],
-      `new task: 4x/1x ${metric} exceeds visible-neighbourhood ratio`,
-    ).toBeLessThanOrEqual((base![metric] * larger!.neighbours) / base!.neighbours)
+  for (const action of ['open', 'keystroke', 'machine update']) {
+    const base = cells.find(cell => cell.scale === 1 && cell.action === action)!
+    const larger = cells.find(cell => cell.scale === 4 && cell.action === action)!
+    for (const metric of ['rowReads', 'derivations'] as const)
+      expect(larger[metric], `new task ${action}: 4x/1x ${metric}`).toBe(base[metric])
   }
 })
 
