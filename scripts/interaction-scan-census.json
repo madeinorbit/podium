@@ -38904,12 +38904,12 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/launch/computed:callback",
       "rule": "reader-summary",
-      "tokens": "c0955b4892f8267d5212248f90df6187fbbd7d5d711c52107dbb8daaaedecddd",
+      "tokens": "2930dc6d3647a32adb61c86a9522a7f13cf9fd3cba62d106cb25470ca3f1bcdb",
       "gate": [],
       "origin": [
-        "7b51420afe8fa98731fae0f5abd69aa410e682328d1075d20436c349d8f1746f"
+        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
       ],
-      "fingerprint": "cc841d9963aba6bcca7107c8fe9726779daa742334f69f272267d8d92e9c7966",
+      "fingerprint": "77dfd1186904ade0fe501d2779cd74a2ced4011ad257004d4d1b93a89487faab",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38922,12 +38922,12 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/palette/computed:callback",
       "rule": "reader-summary",
-      "tokens": "ffacac073a9c29d55391fff03afda8ee6294d259feec898417cbab1939e40048",
+      "tokens": "0d3b3df27ff2e7989eaee73e5c6891b4a110ca5e1473d31868edf85d2a18a23f",
       "gate": [],
       "origin": [
-        "7b51420afe8fa98731fae0f5abd69aa410e682328d1075d20436c349d8f1746f"
+        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
       ],
-      "fingerprint": "48d3ce898b9601f9c56675186ba40b7d816ff122a2a3dbf59bfd2cfdcdb7a703",
+      "fingerprint": "2d82bdfaf64c635872ccaadaa1c07df9673131bd173169b1a5a11cdc85089d4a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39156,78 +39156,21 @@
       "rule": "consume:findIndex",
       "tokens": "25a879e7751f8b1851fc20038b7a5317b83b9a3a47f9ce6ae50512d8fec115b1",
       "gate": [
-        "exit:then:7271c0af9ea707d77f1d3bff447a4d28f8f90570f5e7671d4fdb1430cf480111",
-        "exit:then:b9adb576d2eb15784ef1fbad351c4353877485d12ed45c016aecf0a3f5e719fc",
+        "exit:then:3f64f996e34841ae319ffdde41e5a12a5253f289d8f0d5cd97297f3a866f5e67",
+        "exit:then:4b7ca142213b8e09a8e361bad273cbc6a5d4a6d4e5e1a184c3844686f4f62f45",
         "then:6cc7d6d7283fb81929ccce72f00803e934f2a80f2a2e37a88543a6771e60fb8c",
         "exit:then:55ddc42df8a26a5b3104c329b3ad44e839a55eeaa44bb670d7b882b255882889"
       ],
       "origin": [
-        "7b51420afe8fa98731fae0f5abd69aa410e682328d1075d20436c349d8f1746f"
+        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
       ],
-      "fingerprint": "a15004ba33a0b971acdbd7ef43729b5411b3d35ddf23b48f3bab2a42d05bbf96",
+      "fingerprint": "d9c0b365fe5b3078a0394882bff73012a603ce3d756288ed9a13dba232ea6f4e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createCommandLaunchViews/projection/position",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:findIndex carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/sessionRows/computed:callback/untracked:callback",
-      "rule": "consume:map",
-      "tokens": "1a6593bfa0d81f665cae8f2e66a6e2a772fd605eb46dc5bf884461e4b07eb84b",
-      "gate": [
-        "exit:then:c451c85a89ef1530b07bd6858c1926460d6d9fe711c088b052df5600a80f329a",
-        "then:b5293240324dae22135ea2284ec05df3cf236df52c58495c79e44b069358de5c"
-      ],
-      "origin": [
-        "7622e7dc395fcef05f3529e1959145fa61af2a1c24e0678fe02577822e575056"
-      ],
-      "fingerprint": "abfd91b0c48d5126b4b46b5cbefe646dfca184f50d8878e1eae874fe2d41d7d3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/sessionRows/computed:callback/untracked:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/sessionSnapshotFromSlots",
-      "rule": "loop:for-of",
-      "tokens": "9bdeddccb92ab346ef48774c412fb77828e90b69de1c805c5acb18b2c7819f9f",
-      "gate": [],
-      "origin": [
-        "7622e7dc395fcef05f3529e1959145fa61af2a1c24e0678fe02577822e575056"
-      ],
-      "fingerprint": "9a9614f1670a16dc493e08e757a6077987016d46b076f7301141f457fd99cdbb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/sessionSnapshotFromSlots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/sessionSnapshotFromSlots/pending",
-      "rule": "consume:filter",
-      "tokens": "e8476e9952c92e6cb7d7761b001b03a25bf89ba92fbd07be17a151e4cd9990c2",
-      "gate": [],
-      "origin": [
-        "7622e7dc395fcef05f3529e1959145fa61af2a1c24e0678fe02577822e575056"
-      ],
-      "fingerprint": "23129322fa65ac11e33e00e98d28a4070a7d3b41ad6b3b213310ae58429b3935",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/sessionSnapshotFromSlots/pending",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
