@@ -82,7 +82,6 @@ import {
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
   readFiles,
-  readGuardSessions,
   readLaunch,
   readOpen,
   readPalette,
@@ -408,9 +407,9 @@ async function measureScreenCells(
       readLaunch(pool),
     )
     add('launcher.palette', ['CommandPalette'], () => readPalette(pool))
-    add('launcher.guard', ['CommandPalette', 'NewPanelMenu', 'NewWorkButton'], () =>
-      readGuardSessions(pool),
-    )
+    // Close facts are asked for the action's issue at press time. Closed
+    // launch controls have no guard roster projection.
+    add('launcher.guard', ['CommandPalette', 'NewPanelMenu', 'NewWorkButton'], () => undefined)
     add('launcher.window', ['CommandPaletteBoundary', 'CommandPalette'], () => ({
       open: readOpen(pool),
       files: readFiles(pool),
