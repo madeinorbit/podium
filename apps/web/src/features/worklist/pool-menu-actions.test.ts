@@ -42,4 +42,5 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
     } finally { pool.dispose(); vi.restoreAllMocks() }
   }
   expect(work[2]).toBe(work[0]); expect(work[3]).toBe(work[1])
+  console.info('POD-5569 sidebar menu row reads [1x first,repeat;4x first,repeat]', work)
 })

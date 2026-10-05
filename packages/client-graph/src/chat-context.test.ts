@@ -112,4 +112,5 @@ it('reads at most five source-ranked mention summaries on first/repeated 1x/4x h
     }
   }
   expect(work).toEqual([5, 5, 5, 5])
+  console.info('POD-5569 mention summary reads [1x first,repeat;4x first,repeat]', work)
 })

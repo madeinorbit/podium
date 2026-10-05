@@ -37,4 +37,5 @@ it('bounds ranked IDs and source candidate visits for empty/rare/missing mention
     }
   }
   expect(work.slice(4)).toEqual(work.slice(0, 4))
+  console.info('POD-5569 mention source visits [empty,rare,missing,ref] at 1x/4x', work)
 })

@@ -46,4 +46,5 @@ it('addresses issue seats and nearest parent on first/repeated opens equally at 
     } finally { pool.dispose(); vi.restoreAllMocks() }
   }
   expect(work[2]).toBe(work[0]); expect(work[3]).toBe(work[1])
+  console.info('POD-5569 reference row reads [1x first,repeat;4x first,repeat]', work)
 })
