@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId } from '@podium/model'
+import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { openScreeningPool, readPoolScreening } from '../../test/pool-board-fixture'
 import { reconcileScreeningIds } from '../client/use-inbox-data'
@@ -106,16 +107,12 @@ describe('pool screening incrementality', () => {
     issue({ id: asIssueId(`scale-${at}`), priority: 2, seq: at + 1 })
 
   /** Issue summary reads through the pool while `run` executes. */
-  function countSummaryReads(pool: MobxPool, run: () => void): { reads: number; ids: string[] } {
+  function countSummaryReads(pool: MobxPool, run: () => void): { reads: number } {
     let reads = 0
-    const ids: string[] = []
     const raw = pool.row.bind(pool) as (...args: unknown[]) => unknown
     const spy = vi.spyOn(pool, 'row')
     spy.mockImplementation(((...args: unknown[]) => {
-      if (args[0] === 'issue' && args[2] === 'summary') {
-        reads++
-        ids.push(args[1] as string)
-      }
+      if (args[0] === 'issue' && args[2] === 'summary') reads++
       return raw(...args)
     }) as never)
     try {
@@ -123,7 +120,7 @@ describe('pool screening incrementality', () => {
     } finally {
       spy.mockRestore()
     }
-    return { reads, ids }
+    return { reads }
   }
 
   it('re-reads one summary on an unrelated proposal edit, flat at 1x/4x', () => {
@@ -134,12 +131,18 @@ describe('pool screening incrementality', () => {
     for (const scale of [1, 4]) {
       const count = 25 * scale
       const opened = openScreeningPool(Array.from({ length: count }, (_, at) => proposal(at)))
+      // The keeper maintains entries only while observed; the phone screen
+      // observes the queue through its projection, so the guard holds the
+      // same observation across the update.
+      const stop = autorun(() => {
+        opened.views.screening()
+      })
       try {
         const first = opened.views.screening()
         expect(first.booting).toBe(false)
         expect(first.queue).toHaveLength(count)
         const target = opened.issues[7]!
-        const update = () =>
+        const summaryReads = countSummaryReads(opened.pool, () => {
           opened.pool.apply({
             type: 'update',
             rows: [
@@ -150,24 +153,13 @@ describe('pool screening incrementality', () => {
               },
             ],
           })
-        const duringApply = countSummaryReads(opened.pool, update)
-        const duringRead = countSummaryReads(opened.pool, () => {
           const next = opened.views.screening()
           expect(next.booting).toBe(false)
           expect(next.queue).toEqual(first.queue)
         })
-        console.log(
-          'DEBUG scale',
-          scale,
-          'apply:',
-          duringApply.reads,
-          'reread:',
-          duringRead.reads,
-          'ids:',
-          [...new Set(duringApply.ids.concat(duringRead.ids))].slice(0, 8),
-        )
-        cells.push({ scale, proposals: count, summaryReads: duringApply.reads + duringRead.reads })
+        cells.push({ scale, proposals: count, summaryReads: summaryReads.reads })
       } finally {
+        stop()
         opened.dispose()
       }
     }
@@ -184,6 +176,9 @@ describe('pool screening incrementality', () => {
     for (const scale of [1, 4]) {
       const count = 25 * scale
       const opened = openScreeningPool(Array.from({ length: count }, (_, at) => proposal(at)))
+      const stop = autorun(() => {
+        opened.views.screening()
+      })
       try {
         const first = opened.views.screening()
         expect(first.booting).toBe(false)
@@ -207,12 +202,11 @@ describe('pool screening incrementality', () => {
           expect(head).toBe(target.id)
         })
         if (measured.reads > 3) {
-          const hist = new Map<string, number>()
-          for (const id of measured.ids) hist.set(id, (hist.get(id) ?? 0) + 1)
-          console.log('DEBUG reads:', measured.reads, [...hist.entries()])
+          console.log('DEBUG priority scale', scale, 'reads:', measured.reads)
         }
         cells.push({ scale, summaryReads: measured.reads, head })
       } finally {
+        stop()
         opened.dispose()
       }
     }
