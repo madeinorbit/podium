@@ -1,4 +1,8 @@
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import type { IssueViewModel } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import type { SliceSession } from '@podium/client-graph/shared/slice-types'
+import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { normalizedFixtureIssues } from './normalized-issues'
 import { isDeepStrictEqual } from 'node:util'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -6,7 +10,7 @@ import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { isMessageRecordAttention } from '@podium/model'
-import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
+import { createRepositoryUsageSelector, isSessionWorking, resolveDefaultAgent } from '@podium/client-core/values'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { useMemo, useRef, useSyncExternalStore } from 'react'
 import { vi } from 'vitest'
@@ -56,6 +60,130 @@ export function borrowPoolFixtureInputs(
   borrowed = { read, subscribe }
 }
 
+/**
+ * The sidebar the pool component reads, over the fixture's normalized issue
+ * view models (POD-5566). Open rows follow the pool's rank order (spec
+ * R-ORDER: manual key first, then newest-created first); pinned rows move out
+ * into the flat pinned section whatever their fold verdict. The fixture only
+ * carries open rows: nothing here is snoozed or closed.
+ */
+function fixtureSidebarRow(
+  model: IssueViewModel,
+  members: readonly SliceSession[],
+): SidebarRowValues {
+  const record = model as unknown as Record<string, unknown>
+  const sessions = [...members]
+  return {
+    idNumber: typeof record['seq'] === 'number' ? record['seq'] : 0,
+    color: typeof record['color'] === 'string' ? record['color'] : null,
+    title: typeof record['title'] === 'string' ? record['title'] : '',
+    timing: {
+      phase: 'queued',
+      sinceMs: Date.parse(
+        typeof record['updatedAt'] === 'string'
+          ? record['updatedAt']
+          : typeof record['createdAt'] === 'string'
+            ? record['createdAt']
+            : '',
+      ) || 0,
+    },
+    working: sessions.some((session) => {
+      try {
+        return isSessionWorking(session as never)
+      } catch {
+        return false
+      }
+    }),
+    asking: false,
+    originTick: null,
+    decision: null,
+    mergeCommits: 0,
+    progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
+    fromChildren: false,
+    statusFromChildren: false,
+    gitState: record['gitState'] as SidebarRowValues['gitState'],
+    unread: record['unread'] === true,
+    errorClass: null,
+    internal: record['audience'] === 'agent',
+    unsnoozed: false,
+    deferred: record['deferred'] === true,
+    awaitsTuck: false,
+    canBringBack: false,
+    draftAgentOnly: false,
+    firstSessionId: sessions[0]?.sessionId ?? null,
+    continuation: null,
+    fleet: { total: 0, parkedCount: 0, nativeCount: 0, tiles: [] },
+    issue: model as unknown as SidebarRowValues['issue'],
+    sessions,
+    aggregateSessionIds: [],
+    awaitingFirstPrompt: false,
+  }
+}
+
+function compareFixtureSidebarOrder(a: IssueViewModel, b: IssueViewModel): number {
+  const recordOf = (model: IssueViewModel) => model as unknown as Record<string, unknown>
+  const keyOf = (model: IssueViewModel) => {
+    const sortKey = recordOf(model)['sortKey']
+    return typeof sortKey === 'string' && sortKey ? sortKey : null
+  }
+  const aKey = keyOf(a)
+  const bKey = keyOf(b)
+  if (aKey !== null || bKey !== null) {
+    if (aKey === null) return 1
+    if (bKey === null) return -1
+    if (aKey !== bKey) return aKey < bKey ? -1 : 1
+  }
+  const createdOf = (model: IssueViewModel) => {
+    const createdAt = recordOf(model)['createdAt']
+    return typeof createdAt === 'string' ? Date.parse(createdAt) || 0 : 0
+  }
+  const created = createdOf(b) - createdOf(a)
+  if (created !== 0) return created
+  const seqOf = (model: IssueViewModel) => {
+    const seq = recordOf(model)['seq']
+    return typeof seq === 'number' ? seq : 0
+  }
+  const seq = seqOf(b) - seqOf(a)
+  if (seq !== 0) return seq
+  return a.id.localeCompare(b.id)
+}
+
+function fixtureSidebarSections(models: readonly IssueViewModel[]): SidebarSections {
+  const pinnedIds = models.filter((model) => model.pinned).map((model) => model.id)
+  const bands = new Map<string, { label: string; repoPath: string; rowIds: string[] }>()
+  for (const model of [...models].filter((model) => !model.pinned).sort(compareFixtureSidebarOrder)) {
+    const key = model.repoId ?? model.repoPath
+    let band = bands.get(key)
+    if (!band) {
+      band = { label: model.repoPath.split('/').pop() || model.repoPath, repoPath: model.repoPath, rowIds: [] }
+      bands.set(key, band)
+    }
+    band.rowIds.push(model.id)
+  }
+  return {
+    pinnedIds,
+    pinnedCollapsed: false,
+    pinnedFoldKey: 'podium:sidebar:pinned-fold',
+    bands: [...bands].map(([key, band]) => ({
+      key,
+      label: band.label,
+      aliases: [key],
+      repoPath: band.repoPath,
+      rowIds: band.rowIds,
+      worktreeIds: [],
+      snoozedIds: [],
+      closedIds: [],
+      collapsed: false,
+      snoozedCollapsed: true,
+      closedCollapsed: true,
+      foldKey: `podium:sidebar:project-fold:${key}`,
+      snoozedFoldKey: `podium:sidebar:snoozed-fold:${key}`,
+      closedFoldKey: `podium:sidebar:closed-fold:${key}`,
+      startFirstTask: false,
+    })),
+  }
+}
+
 function useFixturePool(): MobxPool {
   const state = selectFixture(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
@@ -90,6 +218,29 @@ function useFixturePool(): MobxPool {
     const repos = () => current().repos ?? []
     const pool = {
       notSaved: () => false,
+      selection: {
+        has: (_id: string) => false,
+        keys: (): IterableIterator<string> => [][Symbol.iterator](),
+        size: 0,
+      },
+      clock: {
+        current: Date.now(),
+        reached: (_at: number) => true,
+        passed: (_at: number) => true,
+      },
+      sidebar: {
+        sections: (): SidebarSections => fixtureSidebarSections(live.current.issues),
+        row: (id: string): SidebarRowValues | undefined => {
+          const model = live.current.issues.find((row) => row.id === id)
+          if (!model) return undefined
+          const members = (model.memberSessionIds ?? [])
+            .map((sessionId) => sessions().find((row) => row.sessionId === sessionId))
+            .filter((row) => row !== undefined) as unknown as SliceSession[]
+          return fixtureSidebarRow(model, members)
+        },
+        selectionEvicted: () => false,
+        worktree: (_path: string) => undefined,
+      },
       row(entity: string, id: string): unknown {
         switch (entity) {
           case 'session':
