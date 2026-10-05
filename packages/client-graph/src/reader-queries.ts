@@ -1142,6 +1142,16 @@ export class ReaderQueries {
       ...new Set([...index.issueRepoIds(repoPath), ...this.residents.repoIds(repoPath)]),
     ].sort()
   }
+  /** POD-5561 cheap local title/ref id set. One pass over feed short strings,
+   * no fact objects, no descriptions. Tracked by the shared text revision so
+   * board/explorer keystroke computeds re-run on title/seq edits only. */
+  localTextIds(needle: string): Set<string> {
+    const index = this.watch('localText', (value) => value.localTextRevision())
+    const ids = index.localTextIds(needle)
+    this.counts.questions++
+    this.counts.returnedIds += ids.size
+    return ids
+  }
   activity(question: SessionActivityQuestion): number {
     const key = JSON.stringify({
       ...question,

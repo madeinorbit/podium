@@ -113,6 +113,10 @@ export interface ColdQueries {
   /** Membership of one changed identity, without reconstructing the answer. */
   readerContains(question: ReaderQuestion, id: string): boolean
   issueRepoIds(repoPath?: string): string[]
+  /** POD-5561 cheap local title/ref scan over feed short strings. One pass,
+   * no fact objects, no descriptions. */
+  localTextIds(needle: string): Set<string>
+  localTextRevision(): number
   sessionCollapsed(id: string): boolean
   sessionOrderKey(id: string): string
   readerActivity(question: SessionActivityQuestion): number
@@ -630,6 +634,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     readerIds: (question) => readers.ids(question),
     readerContains: (question, id) => readers.contains(question, id),
     issueRepoIds: (path) => readers.repoIds(path),
+    localTextIds: (needle) => readers.localTextIds(needle),
+    localTextRevision: () => readers.localTextRevision(),
     sessionCollapsed: (id) => relations.collapsed('session', id),
     sessionOrderKey: (id) => relations.orderKey('session', id),
     relations,

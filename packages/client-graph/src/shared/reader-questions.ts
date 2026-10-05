@@ -76,7 +76,25 @@ export interface IssueScopeFacts {
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const commandIssueKey = (question: Extract<ReaderQuestion, { kind: 'commandIssueSessions' }>) =>
   `session:commandIssue${question.archived === false ? 'Live' : ''}${question.includeShells ? 'WithShells' : ''}:${question.issueId}`
-const referenceText = (text: string) => text.toLocaleLowerCase().replace(/[^a-z0-9]/g, '')
+/** Feed-maintained short strings are already lowercase; refs are alphanumerics
+ * only so POD-123, pod 123, #123 and 123 share one needle (POD-5561). */
+export const normalizeIssueRef = (text: string) =>
+  text.toLocaleLowerCase().replace(/[^a-z0-9]/g, '')
+const referenceText = normalizeIssueRef
+
+/** One shared title/ref predicate (POD-5561). Title is a case-insensitive
+ * substring; refs match only when the needle carries a digit, so "pod" alone
+ * never matches every issue in a POD repo. Descriptions are never read here. */
+export function matchIssueTitleRef(
+  titleLower: string,
+  fullRefLower: string,
+  needleLower: string,
+  refNeedle: string,
+): boolean {
+  if (!needleLower) return true
+  if (titleLower.includes(needleLower)) return true
+  return /\d/.test(refNeedle) && fullRefLower.includes(refNeedle)
+}
 
 /** Incremental source identity/facet indexes. No row or summary is retained.
  * The phone target question answers its declared order/text predicate here;
@@ -361,6 +379,42 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     repoPathRevision(path: string): number {
       return Math.max(replacement, revisions.get(`issueRepoPath:${path}`) ?? 0)
     },
+    /** Board/explorer per-keystroke revision: title/seq only, never facets.
+     * Derived from the existing per-path text publications, so no extra
+     * publication-clock bump beyond the picker's own. */
+    localTextRevision(): number {
+      let at = replacement
+      for (const [key, value] of revisions)
+        if (key.startsWith('mobileTargets:') && value > at) at = value
+      return at
+    },
+    /** One shared title/ref scan over the feed-maintained short lowercase
+     * strings (POD-5561). One pass, no fact objects, no descriptions. The
+     * caller supplies joined prefixes (picker) or the index uses its own
+     * maintained repo prefixes (board/explorer via `prefixes` omitted). */
+    localTextIds(
+      needle: string,
+      prefixes?: Readonly<Record<string, string | undefined>>,
+    ): Set<string> {
+      const needleLower = needle.trim().toLocaleLowerCase()
+      if (!needleLower) return new Set(targetDetails.keys())
+      const refNeedle = normalizeIssueRef(needleLower)
+      const maintained = prefixes === undefined
+      const normalizedPrefixes = maintained
+        ? undefined
+        : new Map<string, string>(
+            Object.entries(prefixes!).map(([id, prefix]) => [id, normalizeIssueRef(prefix ?? '')]),
+          )
+      const out = new Set<string>()
+      for (const [id, target] of targetDetails) {
+        targetCounts.visits++
+        const fullRef = maintained
+          ? `${normalizeIssueRef(repoPrefixes.get(target.repoId) ?? '')}${target.ref}`
+          : `${normalizedPrefixes!.get(target.repoId) ?? ''}${target.ref}`
+        if (matchIssueTitleRef(target.title, fullRef, needleLower, refNeedle)) out.add(id)
+      }
+      return out
+    },
     issueScope(id: string): IssueScopeFacts | undefined {
       const bits = issueScopes.get(id)
       return bits === undefined ? undefined : {
@@ -533,14 +587,11 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           const postings = keys.map(key => targetPostings.get(key) ?? []).filter(ids => ids.length)
           const ids = postings.length <= 1 ? postings[0] ?? [] : [...new Set(postings.flat())].sort(compareTargets)
           const needle = question.query.trim().toLocaleLowerCase()
-          const refNeedle = referenceText(needle)
-          // The old reference lanes were admitted only by a digit. Preserve
-          // that rule: "pod" alone must not match every issue in a POD repo.
-          const reference = /\d/.test(refNeedle)
+          const refNeedle = normalizeIssueRef(needle)
           const prefixes = new Map<string, string>()
-          if (reference)
+          if (/\d/.test(refNeedle))
             for (const [id, prefix] of Object.entries(question.prefixes))
-              prefixes.set(id, referenceText(prefix ?? ''))
+              prefixes.set(id, normalizeIssueRef(prefix ?? ''))
           const out: string[] = []
           const limit = Math.max(0, Math.trunc(question.limit))
           if (!(limit > 0)) return out
@@ -557,9 +608,14 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
             }
             const target = targetDetails.get(id)!
             if (
-              target.title.includes(needle) ||
-              (reference && `${prefixes.get(target.repoId) ?? ''}${target.ref}`.includes(refNeedle))
-            ) out.push(id)
+              matchIssueTitleRef(
+                target.title,
+                `${prefixes.get(target.repoId) ?? ''}${target.ref}`,
+                needle,
+                refNeedle,
+              )
+            )
+              out.push(id)
           }
           return out
         }

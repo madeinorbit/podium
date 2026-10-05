@@ -13,11 +13,12 @@ export interface BoardFilter {
   deleted?: boolean
 }
 
-/** The wire facts the shared filter reads. */
+/** The wire facts the shared filter reads. Descriptions are never read here:
+ * local search is title/ref only (POD-5561); description search is deferred
+ * to the server (POD-5617). */
 export type BoardFilterIssue = Pick<
   IssueViewModel,
   | 'title'
-  | 'description'
   | 'seq'
   | 'displayRef'
   | 'priority'
@@ -59,7 +60,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
     if (filter.status === 'deferred' && !issue.deferred) return false
     if (
       text &&
-      !`${issue.title} ${issue.description}`.toLowerCase().includes(text) &&
+      !issue.title.toLowerCase().includes(text) &&
       !matchesRef(issue, refNeedle)
     )
       return false

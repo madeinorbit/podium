@@ -46,19 +46,6 @@ import { LOADING, type Loaded } from './worklist/rollup'
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const text = (value: unknown): string =>
   typeof value === 'string' ? value : ((value as { value?: string } | undefined)?.value ?? '')
-const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
-function grams(value: string): string[] {
-  const n = Math.min(3, value.length)
-  return n
-    ? [...new Set(Array.from({ length: value.length - n + 1 }, (_, i) => value.slice(i, i + n)))]
-    : []
-}
-function indexedGrams(value: string): string[] {
-  const out = new Set<string>()
-  for (let n = 1; n <= 3; n++)
-    for (let i = 0; i <= value.length - n; i++) out.add(value.slice(i, i + n))
-  return [...out]
-}
 const tabOf = (row: IssueViewModel): BoardExplorerTab | null => {
   const status = issueStatusOf(row)
   return status === 'shipping'
@@ -258,12 +245,8 @@ export function createIssueBoardSource(
     const tab = tabOf(row)
     if (tab) keys.add(`tab:${tab}`)
     if (actionable(row)) keys.add('tab:needs')
-    const explorerText = `${row.displayRef} ${row.title}`.toLowerCase()
-    for (const gram of indexedGrams(explorerText)) keys.add(`explorer:${gram}`)
-    for (const gram of indexedGrams(`${row.title} ${row.description}`.toLowerCase()))
-      keys.add(`text:${gram}`)
-    for (const gram of indexedGrams(normalized(row.displayRef))) keys.add(`ref:${gram}`)
-    if (!row.deletedAt) keys.add(`exact:${row.displayRef.toLowerCase()}`)
+    // POD-5561: no per-issue letter pieces. Text runs over the feed's short
+    // lowercase strings (reader-questions targetDetails) as one pass.
     return keys
   }
   function track(id: string) {
@@ -347,7 +330,16 @@ export function createIssueBoardSource(
     for (const id of sorted[0] ?? []) if (sorted.every((set) => set.has(id))) result.add(id)
     return result
   }
-  function candidates(query: BoardQuery): ReadonlySet<string> {
+  function candidates(query: BoardQuery, textIds?: ReadonlySet<string>): ReadonlySet<string> {
+    // Explorer text overrides scope/tab: an exact ref jumps even out of
+    // scope (the shell's only ref-jump), while ordinary prose is narrowed by
+    // matches(). Intersect with resident `all` here; cold text joins through
+    // the shared id set in queryIds without building non-matching facts.
+    if (query.kind === 'explorer' && textIds) {
+      const result = intersection([bucket('all'), textIds])
+      countIssueBoard('residentCandidates', result.size)
+      return result
+    }
     const filters: ReadonlySet<string>[] = [bucket(query.showAgentTasks ? 'agents' : 'scope')]
     if (query.kind === 'board') {
       const f = query.filter ?? {}
@@ -356,28 +348,15 @@ export function createIssueBoardSource(
       if (f.status) filters.push(bucket(`status:${f.status}`))
       if (f.projectPaths?.length)
         filters.push(union(f.projectPaths.map((path) => bucket(`repo:${path}`))))
-      const needle = f.text?.trim().toLowerCase()
-      if (needle) {
-        const matching = [intersection(grams(needle).map((gram) => bucket(`text:${gram}`)))]
-        const ref = normalized(needle)
-        if (/\d/.test(ref))
-          matching.push(intersection(grams(ref).map((gram) => bucket(`ref:${gram}`))))
-        filters.push(union(matching))
-      }
+      // POD-5561: title/ref only, over the feed's short strings. No grams,
+      // no descriptions.
+      if (textIds) filters.push(textIds)
     } else {
-      filters.push(bucket('live'))
-      const needle = query.query?.trim().toLowerCase()
-      if (needle)
-        filters.push(intersection(grams(needle).map((gram) => bucket(`explorer:${gram}`))))
-      else filters.push(bucket(`tab:${query.tab}`))
+      filters.push(bucket('live'), bucket(`tab:${query.tab}`))
     }
     const smallest = [...filters].sort((a, b) => a.size - b.size)[0]
     countIssueBoard('residentCandidates', smallest?.size ?? 0)
-    const result = intersection(filters)
-    if (query.kind === 'explorer' && query.query?.trim()) {
-      for (const id of bucket(`exact:${query.query.trim().toLowerCase()}`)) result.add(id)
-    }
-    return result
+    return intersection(filters)
   }
   function matches(row: IssueViewModel, query: BoardQuery, id: string = row.id): boolean {
     if (query.kind === 'board')
@@ -395,14 +374,24 @@ export function createIssueBoardSource(
     return memo(`query:${JSON.stringify(query)}`, () =>
       indexed(() => {
         countIssueBoard('queries')
+        // POD-5561: one shared title/ref pass over feed short strings. No
+        // per-issue grams, no description scan, no fact objects for the pass
+        // itself. Cold rows join only through this id set.
+        const rawNeedle =
+          query.kind === 'board' ? (query.filter?.text?.trim() ?? '') : (query.query?.trim() ?? '')
+        const textIds = rawNeedle ? pool.queries.localTextIds(rawNeedle) : undefined
         const ids: string[] = []
         let pending = false
-        for (const id of candidates(query)) {
+        const resident = candidates(query, textIds)
+        for (const id of resident) {
           const row = facts(id)
           if (row === LOADING) pending = true
           else if (row && matches(row, query)) ids.push(id)
         }
         const start = performance.now()
+        // Text queries visit only text-matching cold rows. Re-adding a loop
+        // over every not-loaded facet id here (fresh facts + lowercase per
+        // keystroke) must fail the planted-red guard.
         const cold = pool.queries
           .ids({
             kind: 'boardIssues',
@@ -411,7 +400,7 @@ export function createIssueBoardSource(
               ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() }
               : {}),
           })
-          .filter((id) => !pool.tables.issue.has(id))
+          .filter((id) => !pool.tables.issue.has(id) && (!textIds || textIds.has(id)))
         for (const id of cold) {
           // Stage, priority, path and ordinary status filters read only their
           // declared scalar inputs. Build text/ready/deferred values on demand.
