@@ -13,6 +13,7 @@ import { RefPrefixSync } from './RefMiniview'
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   listDetailed: vi.fn(async () => []),
+  repositoryKey: vi.fn(() => ''),
   prefixes: vi.fn(),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
@@ -27,7 +28,7 @@ vi.mock('@/app/store', () => {
   return { useRuntimeSelector: (select: (value: typeof store) => unknown) => select(store) }
 })
 vi.mock('@/features/chat/use-chat-context', () => ({
-  useChatRepositoryKey: () => '',
+  useChatRepositoryKey: state.repositoryKey,
   useChatReferenceMachines: () => [],
 }))
 vi.mock('@/lib/markdown-references', () => ({ setKnownRefPrefixes: state.prefixes }))
@@ -36,6 +37,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   state.prefixes.mockClear()
   state.listDetailed.mockClear()
+  state.repositoryKey.mockClear()
 })
 
 const repo = (id: string, prefix: string, patch: object = {}): RowRecord =>
@@ -82,6 +84,7 @@ it('bounds the actual root-mounted prefix reader on mount, unrelated updates and
       expect(state.prefixes.mock.lastCall?.[0].has('PREFIX0')).toBe(false)
       const event = await measure(() => window.dispatchEvent(new Event(REF_PREFIXES_CHANGED_EVENT)))
       expect(state.listDetailed).not.toHaveBeenCalled()
+      expect(state.repositoryKey).not.toHaveBeenCalled()
       expect(keys).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled()
       expect(first.work.rows).toBe(0)
@@ -93,6 +96,7 @@ it('bounds the actual root-mounted prefix reader on mount, unrelated updates and
       pool.dispose()
       state.prefixes.mockClear()
       state.listDetailed.mockClear()
+      state.repositoryKey.mockClear()
     }
   }
   for (const action of ['first', 'metadata', 'rename', 'event'] as const)
