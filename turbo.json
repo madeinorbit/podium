@@ -156,6 +156,14 @@
       "inputs": ["$TURBO_DEFAULT$"],
       "outputs": ["*.tsbuildinfo"]
     },
+    "@podium/client-core#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/worklist-proto/harness/src/work-meter.ts"
+      ],
+      "outputs": ["*.tsbuildinfo"]
+    },
     "@podium/terminal-client#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
