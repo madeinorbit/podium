@@ -71,7 +71,7 @@ const session = {
   cwd: '/repo',
   status: 'live',
   title: 'Agent',
-  agentState: { phase: 'idle', since: '2026-09-23T12:00:00.000Z' },
+  agentState: { phase: 'working', since: '2026-09-23T12:00:00.000Z' },
 } as unknown as SessionView
 
 describe('phone composer draft isolation', () => {
@@ -84,6 +84,7 @@ describe('phone composer draft isolation', () => {
         sessions: {
           transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
           answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+          interrupt: { mutate: async () => ({ ok: true }) },
         },
       },
     })
