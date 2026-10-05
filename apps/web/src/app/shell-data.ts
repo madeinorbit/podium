@@ -49,10 +49,11 @@ const EMPTY_DOCK: ShellDockData = {
   coarseNow: 0,
   shipping: { unfinishedCount: 0, decisionCount: 0 },
 }
-export function useShellDock(includeIssues = false): ShellDockData {
+/** Queue/shipping panels opt into their catalogues; other panels read context only. */
+export function useShellDock(includeCatalog = false): ShellDockData {
   if (import.meta.env.DEV) assertReactiveRead('useShellDock')
   const pool = useWorklistPool(),
-    value = pool ? shellViews(pool).dock(includeIssues) : LOADING
+    value = pool ? shellViews(pool).dock(includeCatalog) : LOADING
   return value && value !== LOADING ? value : EMPTY_DOCK
 }
 export function useShellShipping() {

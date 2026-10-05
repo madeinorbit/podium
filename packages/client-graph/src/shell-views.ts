@@ -2,8 +2,8 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ActiveWorktree, WorktreeView } from '@podium/client-core/values'
-import { normalizeOriginUrl, type RepoId } from '@podium/model/browser'
+import type { ActiveWorktree } from '@podium/client-core/values'
+import type { RepoId } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
@@ -23,8 +23,6 @@ export interface ShellDockData {
   coarseNow: number
   shipping: { unfinishedCount: number; decisionCount: number }
 }
-const contains = (cwd: string, root: string) =>
-  cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
 
 /** Cached views over the pool's one reader. No replica, legacy array, peek or
  * cold-ID index lives here. A missing summary queues the existing batch. */
@@ -151,34 +149,13 @@ export function createShellViews(pool: MobxPool) {
       }),
     )
   }
-  function worktrees(): WorktreeView[][] {
-    return memo('worktrees', () => {
-      const scans = repositories(),
-        linked = new Set(scans.flatMap((scan) => scan.worktrees.map((tree) => tree.path)))
-      const groups = new Map<string, HeaderRows['repository'][]>()
-      for (const scan of scans) {
-        if (linked.has(scan.path)) continue
-        const key =
-          scan.repoId ??
-          (normalizeOriginUrl(scan.originUrl) ||
-            `__no_remote__:${scan.machineId ?? ''}:${scan.path}`)
-        groups.set(key, [...(groups.get(key) ?? []), scan])
-      }
-      return [...groups.values()].map((group) => {
-        const repoId = group.find((scan) => scan.repoId !== undefined)?.repoId
-        return group.flatMap((scan) =>
-          [
-            { path: scan.path, branch: scan.branch, isMain: true },
-            ...scan.worktrees.map((tree) => ({ ...tree, isMain: false })),
-          ].map((tree) => ({
-            ...tree,
-            repoPath: scan.path,
-            ...(scan.machineId ? { machineId: scan.machineId } : {}),
-            ...(repoId !== undefined ? { repoId } : {}),
-          })),
-        )
-      })
-    })
+  function orders(): HeaderRows['shipOrder'][] {
+    return memo('orders', () =>
+      headerIds(pool, 'shipOrder').flatMap((id) => {
+        const row = pool.row('shipOrder', id) as HeaderRows['shipOrder'] | undefined
+        return row ? [row] : []
+      }),
+    )
   }
   function approvals() {
     const keys = catalog()
@@ -260,20 +237,22 @@ export function createShellViews(pool: MobxPool) {
       }
     })
   }
-  function dock(includeIssues = false): Loaded<ShellDockData> {
-    return memo(includeIssues ? 'dockCatalog' : 'dock', () => {
-      if (includeIssues) {
+  function dock(includeCatalog = false): Loaded<ShellDockData> {
+    return memo(includeCatalog ? 'dockCatalog' : 'dock', () => {
+      // Only the queue/shipping panels display catalogues. Context and rail
+      // badges must never acquire them while resolving the active pane.
+      if (includeCatalog) {
         const context = dock(),
-          tasks = issues()
-        return !context || context === LOADING || tasks === LOADING
+          tasks = issues(),
+          shipOrders = orders(),
+          shipLanes = lanes()
+        return !context || context === LOADING || tasks === LOADING || shipLanes === LOADING
           ? LOADING
-          : { ...context, issues: tasks ?? [] }
+          : { ...context, issues: tasks ?? [], shipOrders, shipLanes: shipLanes ?? [] }
       }
       const state = window(),
-        fileTabs = files(),
-        shipLanes = lanes()
-      if (!state || state === LOADING || fileTabs === LOADING || shipLanes === LOADING)
-        return LOADING
+        fileTabs = files()
+      if (!state || state === LOADING || fileTabs === LOADING) return LOADING
       let active: ActiveWorktree | null = null
       const selectedFile = fileTabs?.find((file) => file.id === state.paneA)
       let activeSession = state.paneA && !selectedFile ? session(state.paneA) : undefined
@@ -308,54 +287,19 @@ export function createShellViews(pool: MobxPool) {
           active = { cwd: latest.cwd, machineId: latest.machineId, sessionId: latest.sessionId }
         activeSession = latest
       }
-      let containing: IssueViewModel | undefined
-      if (active)
-        for (const id of pool.queries.indexed({ kind: 'containingIssues', cwd: active.cwd })) {
-          const candidate = issue(id) as Loaded<IssueViewModel>
-          if (candidate === LOADING) return LOADING
-          if (
-            !candidate ||
-            candidate.archived ||
-            candidate.deletedAt ||
-            !candidate.worktreePath ||
-            !contains(active.cwd, candidate.worktreePath)
-          )
-            continue
-          if (
-            !containing ||
-            candidate.worktreePath.length > containing.worktreePath!.length ||
-            (candidate.worktreePath.length === containing.worktreePath!.length &&
-              candidate.seq < containing.seq)
-          )
-            containing = candidate
-        }
+      const containingId = active ? pool.queries.containingIssueId(active.cwd) : undefined
+      const containing = containingId
+        ? (issue(containingId) as Loaded<IssueViewModel>)
+        : undefined
+      if (containing === LOADING) return LOADING
       const attachedId = active?.issueId ?? activeSession?.issueId
       const attached = attachedId ? (issue(attachedId) as Loaded<IssueViewModel>) : containing
       if (attached === LOADING) return LOADING
-      let scope: ShellDockData['scope'] = null
-      if (active)
-        for (const group of worktrees()) {
-          const tree = group
-            .filter(
-              (tree) =>
-                (!active!.machineId || !tree.machineId || tree.machineId === active!.machineId) &&
-                contains(active!.cwd, tree.path),
-            )
-            .sort((a, b) => b.path.length - a.path.length)[0]
-          if (tree) {
-            scope = { repoId: tree.repoId ?? null, repoPath: tree.repoPath }
-            break
-          }
-        }
+      let scope: ShellDockData['scope'] = active
+        ? (pool.header.shippingScope(active.cwd, active.machineId) as ShellDockData['scope'])
+        : null
       if (active && !scope && attached)
         scope = { repoId: attached.repoId ?? null, repoPath: attached.repoPath }
-      const shipOrders = headerIds(pool, 'shipOrder').flatMap((id) => {
-        const row = pool.row('shipOrder', id) as HeaderRows['shipOrder'] | undefined
-        return row ? [row] : []
-      })
-      const scoped = scope?.repoId
-        ? shipOrders.filter((order) => order.repoId === scope!.repoId)
-        : []
       const explicitGitIssue = active?.issueId
         ? (issue(active.issueId) as Loaded<IssueViewModel>)
         : undefined
@@ -366,15 +310,10 @@ export function createShellViews(pool: MobxPool) {
         gitIssue: explicitGitIssue ?? containing,
         mailIssueId: activeSession?.issueId ?? containing?.id,
         issues: [],
-        shipOrders,
-        shipLanes: shipLanes ?? [],
+        shipOrders: [],
+        shipLanes: [],
         coarseNow: state.coarseNow,
-        shipping: {
-          unfinishedCount: scoped.filter((order) =>
-            ['needs_you', 'in_progress', 'waiting'].includes(order.humanState),
-          ).length,
-          decisionCount: scoped.filter((order) => order.humanState === 'needs_you').length,
-        },
+        shipping: pool.header.shippingCounts(scope?.repoId ?? null),
       }
     })
   }
