@@ -1,4 +1,6 @@
 import { observer } from '@podium/client-graph/react'
+import { settled } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { JSX, RefCallback, RefObject } from 'react'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -430,21 +432,23 @@ export const DeckRowPlaceholder = observer(function DeckRowPlaceholder({
       node?.removeEventListener('beforematch', found)
     }
   }, [deckWindow.beginFind, row.key])
+  const value = settled(() => row.text)
+  const text = value === LOADING ? undefined : value
   return (
     <div
       style={{ height: deckWindow.size(row.key), position: 'relative' }}
       data-deck-placeholder={row.key}
       onPointerDown={() => flushSync(() => deckWindow.reveal(row.key, true))}
     >
-      {row.text && (
+      {text && (
         <>
           <div ref={ref} hidden style={{ position: 'absolute', inset: 0 }} aria-hidden="true">
-            {row.text}
+            {text}
           </div>
           <button
             type="button"
             className="sr-only"
-            aria-label={row.text}
+            aria-label={text}
             onFocus={(event) => {
               const from = event.relatedTarget
               const reverse =
