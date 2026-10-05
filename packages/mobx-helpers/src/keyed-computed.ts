@@ -1,4 +1,4 @@
-import { _isComputingDerivation, comparer, computed, type IComputedValue, onBecomeUnobserved } from 'mobx'
+import { _isComputingDerivation, compareDefault, computed, type IComputedValue, onBecomeUnobserved } from 'mobx'
 
 export interface KeyedComputedOptions<K, V> {
   equals?: (previous: V, next: V) => boolean
@@ -12,7 +12,7 @@ export interface KeyedComputedOptions<K, V> {
 export function keyedComputed<K, V, A extends unknown[] = []>(
   name: string | ((key: K) => string | undefined),
   fn: (key: K, ...args: A) => V,
-  { equals = comparer.default, context, requiresReaction = false }: KeyedComputedOptions<K, V> = {},
+  { equals = compareDefault, context, requiresReaction = false }: KeyedComputedOptions<K, V> = {},
 ): ((key: K, ...args: A) => V) & { clear(): void } {
   const cache = new Map<K, IComputedValue<V>>()
   const read = (key: K, ...args: A): V => {

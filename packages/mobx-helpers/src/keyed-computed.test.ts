@@ -1,4 +1,4 @@
-import { autorun, comparer, observable, onBecomeObserved, onBecomeUnobserved, runInAction, untracked } from 'mobx'
+import { autorun, compareStructural, observable, onBecomeObserved, onBecomeUnobserved, runInAction, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { keyedComputed } from './keyed-computed'
 
@@ -37,7 +37,7 @@ describe('keyedComputed', () => {
     const input = observable.box(0)
     const fn = (_key: string) => { input.get(); return { same: true } }
     const identity = keyedComputed('identity', fn)
-    const structural = keyedComputed('structural', fn, { equals: comparer.structural })
+    const structural = keyedComputed('structural', fn, { equals: compareStructural })
     const identityReader = vi.fn(() => identity('a'))
     const structuralReader = vi.fn(() => structural('a'))
     const stopIdentity = autorun(identityReader), stopStructural = autorun(structuralReader)
