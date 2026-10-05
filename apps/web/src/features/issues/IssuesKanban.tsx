@@ -42,7 +42,7 @@ import type { IssueViewModel } from '@/app/store'
 import { useNow } from '@/lib/useNow'
 import { issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
-import { IssueCard } from './IssueCard'
+import { BoardIssueCard, IssueCard } from './IssueCard'
 import { useBoardColumn, useBoardDropIndex } from './board-pool-data'
 import type { BoardFilter } from './issue-board-filter'
 import { STAGE_LABELS } from './issue-card'
@@ -423,7 +423,6 @@ const IssueColumn = memo(function IssueColumn({
   ordering: IssuesOrdering
   badges: IssuesDisplay['badges']
   showAgentTasks: boolean
-  sessionsByIssueId: Map<IssueId, SessionView[]>
   now: number
   drop: DragState['over']
   draggedIssueId: IssueId | null
@@ -537,12 +536,12 @@ const IssueColumn = memo(function IssueColumn({
                   data-virtual-index={item.index}
                 >
                   <CardBoundary resetKey={id} label="issue card">
-                    <IssueCard
+                    <BoardIssueCard
                       id={id}
                       badges={badges}
                       showAgentTasks={showAgentTasks}
-                      focused={focusId === id}
-                      selected={selectedIds.has(id)}
+                      focusId={focusId}
+                      selectedIds={selectedIds}
                       dragging={draggedIssueId === id}
                       now={now}
                       onOpen={onOpen}

@@ -518,7 +518,7 @@ export function IssuesView(): JSX.Element {
       )}
       {propMenu &&
         (() => {
-          const target = view.active.find((issue) => issue.id === propMenu.id)
+          const target = issues.find((issue) => issue.id === propMenu.id)
           return target ? (
             <AnchoredIssueMenu
               issue={target}

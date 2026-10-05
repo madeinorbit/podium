@@ -1,17 +1,18 @@
 // @vitest-environment happy-dom
 
-import type { IssueStage } from '@podium/model'
+import { type IssueBoardStage, type IssueStage } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { act, type JSX, Profiler, StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuesKanban, type IssuesKanbanProps } from './IssuesKanban'
+import { plannedDropIndex } from './kanban-dnd'
 import { DEFAULT_DISPLAY } from './issues-display'
 import { ISSUE_VIRTUAL_MAX_ITEMS } from './use-bounded-virtual-list'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const STAGES: IssueStage[] = ['proposed', 'backlog', 'planning', 'in_progress', 'review', 'done']
+const STAGES: IssueBoardStage[] = ['proposed', 'backlog', 'planning', 'in_progress', 'review', 'done']
 
 const issue = (id: string, stage: IssueStage, seq = 1) =>
   makeIssue({
@@ -23,28 +24,33 @@ const issue = (id: string, stage: IssueStage, seq = 1) =>
     updatedAt: '2026-08-01T12:00:00.000Z',
   })
 
+const fixture = vi.hoisted(() => ({ issues: new Map<string, import('@/app/store').IssueViewModel>() }))
+vi.mock('@/app/store-worklist-pool', () => {
+  const row = (entity: string, key: string) => {
+    if (entity === 'issueBoardCard') return { issue: fixture.issues.get(JSON.parse(key).id), fleet: [] }
+    if (entity === 'issueBoardDropIndex') {
+      const options = JSON.parse(key)
+      return plannedDropIndex([...fixture.issues.values()].filter(issue => issue.stage === options.stage),
+        fixture.issues.get(options.id)!, options.stage, options.ordering)
+    }
+    return undefined
+  }
+  return {
+    useWorklistPool: () => ({ row }),
+    useWorklistPoolProjection: (read: (pool: object) => unknown) => read({ row }),
+  }
+})
 function boardProps(over: Partial<IssuesKanbanProps> = {}): IssuesKanbanProps {
   const allIssues = [issue('source', 'backlog'), issue('target', 'review')]
+  fixture.issues = new Map(allIssues.map(issue => [issue.id, issue]))
   return {
-    columns: STAGES.map((stage) => ({
-      stage,
-      issues: allIssues.filter((candidate) => candidate.stage === stage),
-    })),
-    allIssues,
-    sessions: [],
+    columns: STAGES.map(stage => ({ stage, ids: allIssues.filter(candidate => candidate.stage === stage).map(issue => issue.id) })),
+    filter: {},
     now: Date.parse('2026-08-01T12:00:00.000Z'),
     badges: DEFAULT_DISPLAY.badges,
     ordering: 'priority',
-    stageCounts: new Map(),
-    epicProgress: new Map(),
-    onOpen: vi.fn(),
-    onMoveIssue: vi.fn(),
-    onApprove: vi.fn(),
-    onCreateIn: vi.fn(),
-    focusId: null,
-    selected: [],
-    onToggleSelect: vi.fn(),
-    onContextMenu: vi.fn(),
+    onOpen: vi.fn(), onMoveIssue: vi.fn(), onApprove: vi.fn(), onCreateIn: vi.fn(),
+    focusId: null, selected: [], onToggleSelect: vi.fn(), onContextMenu: vi.fn(),
     ...over,
   }
 }
@@ -245,7 +251,8 @@ describe('IssuesKanban large-board render boundary', () => {
     }))
     const allIssues = columns.flatMap((column) => column.issues)
     expect(allIssues).toHaveLength(674)
-    const props = boardProps({ columns, allIssues })
+    const props = boardProps({ columns: columns.map(column => ({ stage: column.stage, ids: column.issues.map(issue => issue.id) })) })
+    fixture.issues = new Map(allIssues.map(issue => [issue.id, issue]))
     let commits = 0
     const tree = (): JSX.Element => (
       <Profiler

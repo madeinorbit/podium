@@ -36,6 +36,16 @@ import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo } from 'react'
 import { useBoardCard } from './board-pool-row'
+
+/** Selection belongs to the visible card. Passing the resulting booleans to
+ * the memoized leaf lets an unchanged card keep its own row subscription. */
+export function BoardIssueCard({ id, focusId, selectedIds, ...props }: Omit<Parameters<typeof IssueCard>[0], 'issue' | 'focused' | 'selected'> & {
+  id: string
+  focusId: string | null
+  selectedIds: ReadonlySet<string>
+}) {
+  return <IssueCard {...props} id={id} focused={focusId === id} selected={selectedIds.has(id)} />
+}
 import type { IssueViewModel } from '@/app/store'
 import { IssueFleetSummary } from '@/components/IssueFleetSummary'
 import { NotSavedMark } from '@/components/NotSavedMark'

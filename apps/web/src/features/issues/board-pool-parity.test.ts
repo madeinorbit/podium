@@ -7,7 +7,7 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { sessionViews } from '@podium/client-core/session-values'
 import { LOADING } from '@podium/client-graph'
 import {
-  boardSnapshot,
+  readBoardSnapshot,
   explorerSnapshot,
   inBoardCheck,
 } from '@podium/client-graph/diagnostics/issue-board-check'
@@ -28,9 +28,9 @@ function expectBoard(
   pool: import('@podium/client-graph').MobxPool,
   options: import('@podium/client-graph/issue-board-schema').BoardOptions,
 ) {
-  const value = pool.row('issueBoardModel', JSON.stringify(options))
+  const value = readBoardSnapshot(pool, options)
   if (!value || value === LOADING) throw new Error('Board fixture is loading')
-  expectPoolOutput(boardSnapshot(value), JSON.stringify(options))
+  expectPoolOutput(value, JSON.stringify(options))
 }
 function expectExplorer(
   pool: import('@podium/client-graph').MobxPool,

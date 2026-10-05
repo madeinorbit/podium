@@ -1,8 +1,11 @@
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { operationalState } from '@podium/client-core/values'
+import { operationalState, type TaskProgress } from '@podium/client-core/values'
+import { asIssueId } from '@podium/model/browser'
 import { runInAction } from 'mobx'
-import type { PoolBoardData, PoolExplorerData } from '../src/issue-board-schema'
+import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '../src/issue-board-schema'
+import type { MobxPool } from '../src/pool'
+import { LOADING } from '../src/worklist/rollup'
 import { issuePageFirstDifference } from './issue-page-check'
 export const inBoardCheck = <T>(read: () => T): T => runInAction(read)
 
@@ -51,7 +54,7 @@ export const BOARD_CHECK_FIELDS = [
 ] as const
 const fields = (row: IssueViewModel) =>
   Object.fromEntries(BOARD_CHECK_FIELDS.map((key) => [key, row[key]]))
-export function boardSnapshot(data: PoolBoardData) {
+export function boardSnapshot(data: BoardSnapshotData) {
   const view = data.view
   const shown = new Map(
     [
@@ -89,6 +92,55 @@ export function boardSnapshot(data: PoolBoardData) {
       progress: view.epicProgress.get(row.id) ?? null,
     })),
   }
+}
+/** The parity check explicitly asks for every drawn value. Production reads
+ * only ID lists and each virtual card; this diagnostic preserves the frozen
+ * rich-value oracle without putting it back on the interaction path. */
+export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
+  const layout = pool.row('issueBoardModel', JSON.stringify(options))
+  const catalog = pool.row('issueBoardCatalog', String(options.display.showAgentTasks))
+  if (!layout || layout === LOADING || !catalog || catalog === LOADING) return LOADING
+  const models = new Map<string, IssueViewModel>()
+  const stageCounts: BoardSnapshotData['view']['stageCounts'] = new Map()
+  const progress = new Map<string, TaskProgress | null>()
+  const shown = new Set([...layout.rootIds, ...layout.view.rowGroups.flatMap(group => group.rows.map(row => row.id))])
+  if (options.openIssueId) shown.add(options.openIssueId)
+  for (const id of shown) {
+    const card = pool.row('issueBoardCard', JSON.stringify({ id, agents: options.display.showAgentTasks }))
+    if (!card || card === LOADING) return LOADING
+    models.set(id, card.issue)
+    stageCounts.set(id, card.stageCounts)
+    if (layout.rootIds.includes(id)) progress.set(id, card.progress)
+  }
+  const rowGroups = layout.view.rowGroups.map(group => ({ stage: group.stage,
+    rows: group.rows.map(({ id, ...row }) => ({ ...row, issue: models.get(id)! })),
+  }))
+  const openIds = options.openIssueId
+    ? pool.row('issueBoardOpenIds', JSON.stringify({ ...options, id: options.openIssueId })) : []
+  if (openIds === LOADING) return LOADING
+  const data: BoardSnapshotData = {
+    issues: [...models.values()], sessions: [], projectPaths: catalog.projectPaths,
+    view: {
+      nonArchived: [], scope: [], active: layout.activeIds.map(id => ({ id } as IssueViewModel)),
+      assignees: catalog.assignees, labels: catalog.labels, chips: layout.view.chips, layout: layout.view.layout,
+      boardIssues: layout.rootIds.map(id => models.get(id)!), stageCounts, epicProgress: progress,
+      orderedByStage: layout.view.orderedByStage.map(column => ({ stage: column.stage, issues: column.ids.map(id => models.get(id)!) })),
+      rowGroups, listIds: layout.view.listIds, nav: layout.view.nav, presentIds: layout.view.presentIds,
+      ...(options.openIssueId ? { open: models.get(options.openIssueId) } : {}),
+      orderedIdsForOpen: openIds ?? [],
+    },
+  }
+  // The legacy board calculates nested navigation on an open even in board
+  // layout. Keep that explicit diagnostic request distinct from the layout.
+  if (options.openIssueId && data.view.layout === 'board') {
+    const nested = pool.row('issueBoardModel', JSON.stringify({ ...options, display: { ...options.display, layout: 'list' } }))
+    if (!nested || nested === LOADING) return LOADING
+    data.view.listIds = nested.view.listIds
+    data.view.rowGroups = nested.view.rowGroups.map(group => ({ stage: group.stage,
+      rows: group.rows.map(({ id, ...row }) => ({ ...row, issue: models.get(asIssueId(id))! })),
+    }))
+  }
+  return boardSnapshot(data)
 }
 export function explorerSnapshot(data: PoolExplorerData) {
   return {

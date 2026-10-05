@@ -796,8 +796,8 @@ export function createIssueBoardSource(
     catalog,
     stats: () => ({
       residentRows: stops.size,
-      demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length,
-      cached: cache.size + placements.size,
+      demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length + layout.stats().demandKeys,
+      cached: cache.size + placements.size + layout.stats().cached,
     }),
   }
 }

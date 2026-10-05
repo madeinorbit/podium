@@ -1,7 +1,8 @@
 import { countIssueBoard } from '@podium/client-core/perf'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
 import { filterChips, issueRowsByStage } from '@podium/client-core/values'
-import { asIssueId, ISSUE_BOARD_STAGES, isFinished, type IssueBoardStage, type IssueStage } from '@podium/model/browser'
+import { asIssueId, ISSUE_BOARD_STAGES, isFinished, type IssueStage } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
 import type { BoardColumnOptions, BoardOptions, BoardQuery, PoolBoardData } from './issue-board-schema'
@@ -22,6 +23,8 @@ const questionOf = (query: BoardQuery) => {
 /** Ordinary MobX derivations over the feed's existing facets. No board-owned
  * reverse index, reaction writes, rich issue facts, or session catalog. */
 export function createBoardLayout(pool: MobxPool) {
+  type Scalars = Pick<IssueViewModel, 'parentId' | 'stage' | 'priority' | 'seq' | 'createdAt' | 'updatedAt' | 'deferUntil' | 'blocked' | 'closedReason'>
+  const raw = (id: string) => pool.row('issue', id, 'summary-fields') as Loaded<Scalars>
   const scope = keyedComputed('IssueBoard.inScope', (key: string): boolean => {
     const [id, agents] = JSON.parse(key) as [string, boolean]
     const row = pool.queries.issueScope(id)
@@ -41,16 +44,16 @@ export function createBoardLayout(pool: MobxPool) {
   const parent = keyedComputed('IssueBoard.parent', (id: string): Loaded<string> => {
     const resolved = pool.graph.one('issue', id, 'treeParent')
     if (resolved) return resolved
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = raw(id)
     return row === LOADING ? LOADING : row?.parentId
   })
   const column = keyedComputed('IssueBoard.column', (id: string): Loaded<IssueStage> => {
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = raw(id)
     return row === LOADING ? LOADING : row?.stage as IssueStage | undefined
   })
   const status = keyedComputed('IssueBoard.status', (key: string): Loaded<boolean> => {
     const [id, flag] = JSON.parse(key) as [string, string]
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = raw(id)
     if (!row || row === LOADING) return row
     const deadline = Date.parse(row.deferUntil as string ?? '')
     const deferred = Number.isFinite(deadline) && !pool.clock.reached(deadline)
@@ -105,7 +108,7 @@ export function createBoardLayout(pool: MobxPool) {
   })
   const sortKey = keyedComputed('IssueBoard.sortKey', (key: string): Loaded<readonly [number, number, string]> => {
     const [id, ordering] = JSON.parse(key) as [string, IssuesOrdering]
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = raw(id)
     if (!row || row === LOADING) return row
     return ordering === 'priority'
       ? [row.priority as number, row.seq as number, '']
@@ -235,6 +238,9 @@ export function createBoardLayout(pool: MobxPool) {
       const flat = rows(JSON.stringify({ query, ordering: options.display.ordering, expanded: [], flatten: true }))
       return flat === LOADING ? LOADING : flat?.flatMap(group => group.rows.map(row => row.id)) ?? []
     },
+    stats: () => ({ demandKeys: matching.size,
+      cached: [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, position, rows, board]
+        .reduce((total, cache) => total + cache.size, 0) }),
     dispose() {
       for (const cache of [scope, parent, column, status, textIds, matching, members, root, sortKey, columnIds, roots, position, rows, board]) cache.clear()
     },

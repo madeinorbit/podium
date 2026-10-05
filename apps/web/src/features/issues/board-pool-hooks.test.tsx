@@ -4,8 +4,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { EMPTY_BOARD, useBoardBase, useBoardData } from './board-pool-data'
-import { useBoardCloseGuard } from './board-pool-row'
+import { EMPTY_BOARD, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
+import { useBoardCard, useBoardCloseGuard } from './board-pool-row'
 import { useExplorerData } from './explorer/explorer-pool-data'
 import { IssueBulkCloseDialog } from './issue-lifecycle'
 import { DEFAULT_DISPLAY } from './issues-display'
@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   attached: false,
   issueReads: vi.fn(),
   sessionReads: vi.fn(),
+  poolReads: vi.fn(),
   close: vi.fn(async () => {}),
   update: vi.fn(async () => {}),
 }))
@@ -42,8 +43,9 @@ vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: object) => unknown, empty: unknown) =>
     state.attached
       ? read({
-          row: (entity: string, key: string) =>
-            entity === 'issueBoardWindow'
+          row: (entity: string, key: string) => {
+            state.poolReads(entity, key)
+            return entity === 'issueBoardWindow'
               ? { openIssueId: null }
               : entity === 'issueBoardProjection'
                 ? {
@@ -51,7 +53,8 @@ vi.mock('@/app/store-worklist-pool', () => ({
                       JSON.parse(key)[0] === 'issueBoardModel' ? EMPTY_BOARD : undefined,
                     subscribe: () => () => {},
                   }
-                : undefined,
+                : undefined
+          },
         })
       : empty,
 }))
@@ -60,11 +63,33 @@ afterEach(() => {
   state.attached = false
   state.issueReads.mockClear()
   state.sessionReads.mockClear()
+  state.poolReads.mockClear()
   state.close.mockClear()
   state.update.mockClear()
   issueBoardStats.disable()
   storeStats.enable(false)
   storeStats.reset()
+})
+it('keeps card time and addressed interaction state out of layout keys and defers catalog demand', () => {
+  state.attached = true
+  const board = renderHook(({ now, id }) => useBoardData({
+    display: DEFAULT_DISPLAY, filter: {}, expanded: [], isMobile: false,
+    now, openIssueId: id, addressed: id ? [id] : [], menu: !!id,
+  }), { initialProps: { now: 0, id: null as import('@podium/model/browser').IssueId | null } })
+  const demand = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardProjection')?.[1]
+  expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
+  state.poolReads.mockClear()
+  board.rerender({ now: 60_000, id: 'one' as import('@podium/model/browser').IssueId })
+  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardProjection').every(([, key]) => key === demand)).toBe(true)
+  const card = renderHook(({ now }) => useBoardCard('one', now), { initialProps: { now: 0 } })
+  const first = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardCard')?.[1]
+  state.poolReads.mockClear()
+  card.rerender({ now: 60_000 })
+  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardCard').every(([, key]) => key === first)).toBe(true)
+  const catalog = renderHook(({ open }) => useBoardCatalog(open, false), { initialProps: { open: false } })
+  expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
+  catalog.rerender({ open: true })
+  expect(state.poolReads).toHaveBeenCalledWith('issueBoardCatalog', 'false')
 })
 function useBoundary() {
   const base = useBoardBase()
@@ -77,7 +102,7 @@ function useBoundary() {
     now: 0,
   })
   const explorer = useExplorerData(null, '')
-  useBoardCloseGuard(board.sessions)
+  useBoardCloseGuard([])
   return { base, board, explorer }
 }
 it('keeps board-only pool reads off both legacy collections before and after attachment', () => {
