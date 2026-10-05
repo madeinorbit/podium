@@ -62,7 +62,6 @@ function metered(rt: Runtime): { view: Runtime; meter: Meter } {
       rt.onLocals(keys, woken(listener)),
     onList: (name: Parameters<Runtime['onList']>[0], listener: Parameters<Runtime['onList']>[1]) =>
       rt.onList(name, woken(listener)),
-    onDraft: (listener: (id: string) => void) => rt.onDraft(woken(listener)),
   })
   return { view, meter }
 }

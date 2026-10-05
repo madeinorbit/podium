@@ -384,8 +384,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** > 0 while {@link batch} is coalescing local changes into one keyed publication. */
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
-  /** Sessions whose draft this batch painted, for {@link onDraft}. */
-  private pendingDrafts = new Set<string>()
   /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
   private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof EngineState>()
@@ -533,12 +531,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.drafts = new DraftStore({
       storage: this.ui,
       hub: this.hub,
-      onChange: (sessionId, text) => this.applyDraftToStore(sessionId, text),
       onStorageError: err => log.warn('could not cache this device drafts', { err }),
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.state.drafts = runInAction(() => Object.fromEntries(this.drafts.values))
     this.inputs = createKeyedInputs(() => this.state)
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
@@ -575,9 +571,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   readonly listIds = (name: KeyedListName): readonly string[] => this.inputs.listIds(name)
   readonly listRow = <N extends KeyedListName>(name: N, id: string): KeyedListRow<N> | undefined =>
     this.inputs.listRow(name, id)
-  /** The one session whose draft a batch painted. */
-  readonly onDraft = (listener: (sessionId: string) => void): (() => void) =>
-    this.inputs.onDraft(listener)
   /** Wake and diff counters of the keyed inputs (adapter meters). */
   get keyedInputStats(): KeyedInputStats {
     return this.inputs.stats
@@ -1111,11 +1104,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.batchDepth === 0) {
           const changed = this.pendingChanges
           this.pendingChanges = new Set()
-          const drafts = this.pendingDrafts
-          this.pendingDrafts = new Set()
           // Clear bookkeeping before notifying: listeners may write again.
           if (changed.size > 0 && !this.destroyed) {
-            this.inputs.emit(changed, drafts)
+            this.inputs.emit(changed)
           }
         }
       }
@@ -1520,15 +1511,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   // ------------------------------------------------------------------- actions
-
-  /** Paint a draft. The ONLY writer of `state.drafts`, and it decides nothing —
-   *  every caller has already asked the ledger who wins. */
-  private applyDraftToStore(sessionId: SessionId, text: string): void {
-    const d = this.state.drafts
-    if (d[sessionId] === text) return
-    this.pendingDrafts.add(sessionId)
-    this.apply({ drafts: { ...d, [sessionId]: text } })
-  }
 
   /** Preserve the last keystroke and wait only for local queue durability.
    * Delivery and awaiting-truth entries are already durable and resume after reload. */

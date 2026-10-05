@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { outboxChatSends } from '@podium/client-core/chat-values'
 import { asSessionId } from '@podium/model'
-import { compareStructural, computed, type IComputedValue, type ObservableSet, observable, runInAction } from 'mobx'
+import { compareStructural, computed, type IComputedValue, type ObservableSet, observable, observe, runInAction } from 'mobx'
 import { CHAT_ORDER_KINDS, type ChatContextRows } from './chat-context-schema'
 import { createChatContextReader } from './chat-context'
 import type { MobxPool } from './pool'
@@ -31,7 +31,7 @@ export class ChatContextSource {
   private readonly reader: ChatContextRows['chatContextReader']
   readonly counts = { batches: 0, outboxReads: 0, orderLists: 0, addressedOrders: 0, orderIds: 0 }
 
-  constructor(private readonly owner: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'onDraft' | 'drafts' | 'outbox' | 'replica'>, pool: MobxPool) {
+  constructor(private readonly owner: Pick<ClientRuntime, 'readLocal' | 'onLocals' | 'drafts' | 'outbox' | 'replica'>, pool: MobxPool) {
     if (!owner.replica.row || !owner.replica.subscribeAddressedBatch) throw new Error('Chat context requires the existing addressed replica')
     this.reader = createChatContextReader(pool)
     const wake = (key: string) => {
@@ -39,7 +39,7 @@ export class ChatContextSource {
       this.dirty.add(key)
       this.schedule()
     }
-    this.stops = [owner.onDraft(sessionId => wake(`chatDraft:${sessionId}`)),
+    this.stops = [observe(owner.drafts.values, change => wake(`chatDraft:${change.name}`)),
       owner.onLocals(['attachedSessionId', 'transcriptReveal'], () => wake('chatWindow:window')),
       owner.outbox.subscribe(() => { this.outboxDirty = true; if (this.demanded.size) this.schedule() }),
       owner.replica.subscribeAddressedBatch!(batch => {

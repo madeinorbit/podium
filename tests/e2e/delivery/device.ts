@@ -299,13 +299,6 @@ export class Device {
         records: this.records.forSession(sessionId),
         lookupRecords: (ids) =>
           this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
-        connection: {
-          connected: () => this.connected,
-          subscribe: (listener) => {
-            this.connectionListeners.add(listener)
-            return () => this.connectionListeners.delete(listener)
-          },
-        },
         retract: (id) =>
           this.api.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
         discard: (deliveryId) => discardChatThroughOutbox(outbox, asMutationId(deliveryId)),

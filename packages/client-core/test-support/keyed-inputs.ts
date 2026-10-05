@@ -24,20 +24,13 @@ export function keyedInputsOverStore(store: {
   const publication = () => {
     const next = state()
     const changed = new Set<LocalKey>()
-    const drafts = new Set<string>()
     for (const key of followed.keys()) {
       const value = next[key]
       if (previous.has(key) && Object.is(previous.get(key), value)) continue
-      if (key === 'drafts') {
-        const before = (previous.get(key) ?? {}) as Record<string, string>
-        const after = (value ?? {}) as Record<string, string>
-        for (const id of new Set([...Object.keys(before), ...Object.keys(after)]))
-          if (before[id] !== after[id]) drafts.add(id)
-      }
       previous.set(key, value)
       changed.add(key)
     }
-    if (changed.size > 0) channel.emit(changed, drafts)
+    if (changed.size > 0) channel.emit(changed)
   }
   const follow = (keys: readonly LocalKey[], stop: () => void): (() => void) => {
     for (const key of keys) {
@@ -76,7 +69,6 @@ export function keyedInputsOverStore(store: {
       if (!previous.has(name)) previous.set(name, state()[name])
       return channel.listRow(name, id)
     },
-    onDraft: (listener) => follow(['drafts'], channel.onDraft(listener)),
     dispose() {
       off?.()
       off = null

@@ -108,7 +108,6 @@ export interface EngineState {
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
   autoContinuePromptSessionId: SessionId | null
-  drafts: Record<string, string>
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
@@ -662,7 +661,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     dockShells: seed.persisted.dockShells,
     dockVisibleSession: null,
     autoContinuePromptSessionId: null,
-    drafts: {},
     sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
     // Restored with the layouts that name them (POD-1247). These two are one
     // fact in two keys: a layout tab id whose record did not come back renders

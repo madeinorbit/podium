@@ -428,6 +428,7 @@ function FeedRowFrame({
   row: Row
   transcript?: TranscriptLog
   collapseContext?: boolean
+  sourceIds?: readonly string[]
   arrived: boolean
   highlighted: boolean
   dimmed: boolean
@@ -510,6 +511,7 @@ interface TranscriptFeedRowProps {
   row: Row
   transcript?: TranscriptLog
   collapseContext?: boolean
+  sourceIds?: readonly string[]
   arrived: boolean
   highlighted: boolean
   dimmed: boolean
@@ -567,14 +569,14 @@ function sameRow(previous: Row, next: Row): boolean {
 const ObservedTranscriptRow = observer(function ObservedTranscriptRow({
   transcript,
   collapseContext,
+  sourceIds,
   row: seed,
   ...props
 }: TranscriptFeedRowProps) {
   if (!transcript || seed.kind === 'pending') return <TranscriptFeedRow row={seed} {...props} />
-  const ids = new Set([seed.item.id])
+  const ids = new Set(sourceIds ?? [seed.item.id])
   for (const block of seed.blocks ?? []) {
     ids.add(block.item.id)
-    if (block.result) ids.add(block.result.id)
   }
   const items = [...ids].map(id => transcript.byId.get(id)).filter((item): item is TranscriptItem => item !== undefined)
   const model = buildMobileTranscript(items, { collapseContext })
@@ -1086,6 +1088,26 @@ export const TranscriptList = observer(function TranscriptList({
       }),
     [collapseContext, hidePendingQuestion, items, pendingKey],
   )
+  const rowSources = useMemo(() => {
+    const sources = new Map<string, string[]>()
+    const calls = new Map<string, string[]>()
+    const users = new Map<string, string[]>()
+    for (const row of model.rows) {
+      const ids = [...new Set([row.item.id, ...(row.blocks ?? []).map(block => block.item.id)])]
+      sources.set(row.key, ids)
+      for (const block of row.blocks ?? []) if (block.item.toolUseId) calls.set(block.item.toolUseId, ids)
+      if (row.item.role === 'user') users.set(row.item.id, ids)
+    }
+    let previousUser: string | undefined
+    for (const item of items) {
+      if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) calls.get(item.toolUseId)?.push(item.id)
+      if (item.role === 'user') {
+        if (item.text === '' && item.toolPaths?.length && previousUser) users.get(previousUser)?.push(item.id)
+        else previousUser = item.id
+      } else previousUser = undefined
+    }
+    return sources
+  }, [items, model])
   const liveRow = useMemo(
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],
@@ -1316,6 +1338,7 @@ export const TranscriptList = observer(function TranscriptList({
           <ObservedTranscriptRow
             transcript={transcript}
             collapseContext={collapseContext}
+            sourceIds={rowSources.get(row.key)}
             row={row}
             arrived={arrivedKeys.has(row.key)}
             highlighted={search.activeRow === index}
