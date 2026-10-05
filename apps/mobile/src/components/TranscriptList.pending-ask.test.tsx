@@ -128,6 +128,7 @@ const fromState = (): TranscriptItem => {
 describe('TranscriptList pendingAsk', () => {
   it('does no closed Find work and moves between matches without rereading history at 1x/4x', () => {
     const samples = []
+    const onAnswer = async () => {}
     for (const scale of [1, 4] as const) {
       searchWork.enabled = true
       const items = Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({
@@ -142,14 +143,14 @@ describe('TranscriptList pendingAsk', () => {
         searchWork.positions.mockClear()
       }
       reset()
-      const { rerender, unmount } = render(<TranscriptList items={items} live={false} />)
+      const { rerender, unmount } = render(<TranscriptList items={items} live={false} onAnswer={onAnswer} />)
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
       reset()
-      rerender(<TranscriptList items={[...items]} live={false} />)
+      rerender(<TranscriptList items={[...items]} live={false} onAnswer={onAnswer} />)
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
-      rerender(<TranscriptList items={items} live={false} findRequest={1} />)
+      rerender(<TranscriptList items={items} live={false} findRequest={1} onAnswer={onAnswer} />)
       expect(searchWork.rowReads).toBe(0)
       fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
       expect(screen.getByText('1/3')).toBeTruthy()
@@ -166,10 +167,10 @@ describe('TranscriptList pendingAsk', () => {
       samples.push({ scale, rowReads: searchWork.rowReads, blockReads: searchWork.blockReads, matchQueries: searchWork.matches.mock.calls.length, cursorQueries: searchWork.positions.mock.calls.length })
       fireEvent.click(screen.getByLabelText('Close transcript search'))
       reset()
-      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={1} />)
+      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={1} onAnswer={onAnswer} />)
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
-      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={2} />)
+      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={2} onAnswer={onAnswer} />)
       fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
       expect(screen.getByText('1/4')).toBeTruthy()
       unmount()
