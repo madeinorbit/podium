@@ -83,14 +83,16 @@ describe('buildCorpus shape (1x)', () => {
   })
 
   it('covers both displayRef spellings (prefix-seq and #seq)', () => {
-    // `#seq` comes from issues whose repo id has no repo row (live: 4 such
-    // ids, 2 visible rows); every other row joins a prefix.
+    // `#seq` comes from issues whose repo companion has no prefix (live: 4
+    // such ids, 2 visible rows); companions carry paths for every known repo
+    // so joins resolve while the label falls back. Every other row joins a
+    // prefix.
     const snapshot = expectedSnapshot(corpus, { selectedIssueId: null, coarseNow: FIXED_NOW })
     const labels = Object.values(snapshot.rowsById).map((row) => row.displayRef)
     expect(labels.filter((ref) => ref.startsWith('#')).length).toBeGreaterThan(0)
     expect(labels.filter((ref) => /^[A-Z]{3}-\d+$/.test(ref)).length).toBeGreaterThan(0)
-    const known = new Set(corpus.repoProjections.map((r) => r.id as string))
-    expect(corpus.sliceIssues.some((i) => i.repoId != null && !known.has(i.repoId))).toBe(true)
+    const prefixed = new Set(corpus.repoProjections.filter((r) => (r as { prefix?: unknown }).prefix != null).map((r) => r.id as string))
+    expect(corpus.sliceIssues.some((i) => i.repoId != null && !prefixed.has(i.repoId))).toBe(true)
   })
 
   it('names one live issue worktree no scan reported, with an orphan under it (POD-4550)', () => {

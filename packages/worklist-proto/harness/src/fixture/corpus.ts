@@ -76,8 +76,11 @@ export const BASE_COUNTS = {
   /** Linked worktrees (the static `sliceWorktrees` lanes). */
   worktrees: 468,
   machines: 6,
-  /** Kernel `repo` entity rows (the prefix join), at every scale. Live: 9. */
-  repoRows: 9,
+  /** Kernel `repo` entity rows, at every scale: 9 prefix rows plus the 2
+   *  modelled prefix-less companions (`rxa`/`rxb`, path but no prefix, so
+   *  display falls back to `#seq` while joins resolve). Live: 9 prefix rows
+   *  and 4 prefix-less ids, 2 of which the corpus models. */
+  repoRows: 11,
   /** Repo roots in the scan (a lane each), at every scale. Live: 17. */
   rootLanes: 17,
 } as const
@@ -778,8 +781,8 @@ const axisOfRole = (role: Role): 'active' | 'history' =>
 // ---------------------------------------------------------------------------
 
 const PREFIXES = ['POD', 'WEB', 'OPS', 'DOC', 'LAB', 'CLI', 'SDK', 'INF', 'APP'] as const
-/** Kernel repo of each root lane: `a`/`b` are repo ids with no repo row (the
- *  `#seq` label, live has four). */
+/** Kernel repo of each root lane: `a`/`b` are repos with a companion row but
+ *  no prefix (the `#seq` label, live has four such ids). */
 const ROOT_REPO: Array<number | 'a' | 'b'> = [0, 1, 2, 0, 1, 0, 3, 4, 5, 6, 7, 8, 'a', 0, 1, 'b', 0]
 /** Linked worktrees per root, and how many of them sit inside the root
  *  (`<root>/.worktrees/x`, a nested lane) rather than elsewhere. */
@@ -969,8 +972,14 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
   // and groups do not multiply with the scale; worktrees, issues and
   // sessions do.
   const repoId = (j: number | 'a' | 'b'): string => (typeof j === 'number' ? `r${j}` : `rx${j}`)
-  for (let j = 0; j < BASE_COUNTS.repoRows; j++)
+  for (let j = 0; j < PREFIXES.length; j++)
     repoProjections.push({ id: repoId(j), prefix: PREFIXES[j] } as RepoProjection)
+  // `a`/`b` are known checkouts without a prefix (the `#seq` label): the
+  // companion carries the authoritative path so read-time joins resolve it,
+  // but no prefix, so display still falls back. Paths attach below with the
+  // prefixed rows (primaryRoot covers both).
+  for (const j of ['a', 'b'] as const)
+    repoProjections.push({ id: repoId(j) } as RepoProjection)
   const rootPaths: string[] = []
   const primaryRoot = new Map<string, string>()
   const rootsOf = new Map<string, string[]>()
@@ -1253,7 +1262,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
 
     // -- repos per issue ------------------------------------------------------------
     // Visible top rows form eight groups (live: 8): the main repo, five
-    // smaller ones, a repo with no repo row (`#seq`) and one that only holds
+    // smaller ones, a repo with no prefix (`#seq`) and one that only holds
     // closed rows.
     const visibleTop = [...TOP_ROLES, 'sbsNested' as Role].flatMap((role) => roleList(role))
     const topRepos: Array<number | 'a'> = []

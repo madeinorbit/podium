@@ -232,7 +232,7 @@ export function measureShape(
   return {
     issues: corpus.issues.length,
     sessions: corpus.sessions.length,
-    repoPrefixes: corpus.repoProjections.length,
+    repoPrefixes: corpus.repoProjections.filter((r) => (r as { prefix?: unknown }).prefix != null).length,
     scanRepos: corpus.repos.length,
     largestRepoIssues: Math.max(0, ...perRepo.values()),
     visibleRows: rows.length,
