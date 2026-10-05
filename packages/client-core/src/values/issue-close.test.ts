@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionView, SessionViewInput } from '../session-values'
-import { blockingCloseConcerns, type IssueCloseSubject, issueCloseConcerns } from './issue-close'
+import { blockingCloseConcerns, type IssueCloseSubject, issueCloseConcerns, issueCloseConcernsFromCounts } from './issue-close'
 
 const session = (over: Partial<SessionViewInput>): SessionView =>
   ({
@@ -35,6 +35,12 @@ const working = { phase: 'working', since: 'now', nativeSubagentCount: 0 } as co
 const offer = { message: 'Choose a direction', actions: [], createdAt: 'now' }
 
 describe('issue close concerns', () => {
+  it('formats maintained counts identically to the explicit member adapter', () => {
+    const subject = issue({ needsHuman: true, childCount: 2, childDoneCount: 1 })
+    const members = [session({ offer }), session({ agentState: working }),
+      session({ agentKind: 'shell', busy: true }), session({ archived: true, offer })]
+    expect(issueCloseConcernsFromCounts(subject, { offers: 1, working: 2 })).toEqual(issueCloseConcerns(subject, members))
+  })
   it('surfaces decisions, questions, working agents, children, and delivery work', () => {
     const members = [
       session({ sessionId: 'waiting', offer }),
