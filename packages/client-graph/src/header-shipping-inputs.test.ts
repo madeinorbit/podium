@@ -232,6 +232,8 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
     } as HeaderRows['shipOrder']))
     f.pool.header.apply(orders.map(value => ({ kind: 'shipOrder', id: value.id, value })))
     const rows = vi.spyOn(f.pool, 'row')
+    let otherCounts = { unfinishedCount: 0, decisionCount: 0 }
+    const stopOther = autorun(() => { otherCounts = f.pool.header.shippingCounts('other') })
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, action), { pool: f.pool })
     const update = (value: HeaderRows['shipOrder'] | undefined) =>
@@ -247,9 +249,9 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
       expect(f.painted()).toEqual({ unfinishedCount: 128 * scale + 1, decisionCount: 128 * scale })
       const moved = await measure('one shipping repository', () => update({ ...orders[0]!, repoId: 'other' }))
       expect(f.painted()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
-      expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 3, decisionCount: 2 })
+      expect(otherCounts).toEqual({ unfinishedCount: 3, decisionCount: 2 })
       const restored = await measure('restore shipping repository', () => update(orders[0]))
-      expect(f.pool.header.shippingCounts('other')).toEqual({ unfinishedCount: 2, decisionCount: 1 })
+      expect(otherCounts).toEqual({ unfinishedCount: 2, decisionCount: 1 })
       const shipped = await measure('finish shipping order', () => update({ ...orders[0]!, humanState: 'shipped' }))
       expect(f.painted()).toEqual({ unfinishedCount: 128 * scale, decisionCount: 128 * scale })
       const deleted = await measure('remove shipping order', () => update(undefined))
@@ -257,11 +259,14 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
       const repeated = await measure('repeat shipping removal', () => update(undefined))
       expect(rows.mock.calls.filter(([kind]) => kind === 'shipOrder')).toEqual([])
       const control = await measure('whole shipping count control', () => {
-        shippingPanelModel([...f.pool.header.tables.shipOrder.values()] as HeaderRows['shipOrder'][], [], 'first')
+        const stop = autorun(() => {
+          shippingPanelModel([...f.pool.header.tables.shipOrder.values()] as HeaderRows['shipOrder'][], [], 'first')
+        })
+        stop()
       })
       expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
       samples.push({ scale, first: first.work, edited: edited.work, moved: moved.work, restored: restored.work, shipped: shipped.work, deleted: deleted.work, repeated: repeated.work, control: control.work })
-    } finally { rows.mockRestore(); f.dispose() }
+    } finally { stopOther(); rows.mockRestore(); f.dispose() }
   }
   console.info('[shipping count work1x4x]', JSON.stringify(samples))
   for (const name of ['first', 'edited', 'moved', 'restored', 'shipped', 'deleted', 'repeated'] as const)
