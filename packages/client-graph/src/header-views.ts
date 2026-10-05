@@ -2,13 +2,13 @@ import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
-import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import {
   _isComputingDerivation,
   compareStructural,
   computed,
   type IComputedValue,
   onBecomeUnobserved,
+  reaction,
 } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
@@ -17,6 +17,7 @@ import { type HeaderAggregate, headerHostSession } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
 import { sessionSeats } from './session-seats'
 import { isFinished } from './shared/predicates'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
@@ -51,6 +52,32 @@ const contains = (cwd: string, root: string) =>
 export function createHeaderViews(pool: MobxPool) {
   const cache = new Map<string, IComputedValue<unknown>>()
   let sessions: HeaderSessions | undefined
+  let offline: ReturnType<typeof createQueryResult<HeaderRows['machine']>> | undefined
+  function offlineMachines(): HeaderRows['machine'][] {
+    offline ??= createQueryResult<HeaderRows['machine']>({
+      name: 'header.offlineMachines',
+      ids: () => pool.header.offlineMachineIds(pool.clock.current),
+      has: id => pool.header.hasOfflineMachine(id, pool.clock.current),
+      read: id => row('machine', id),
+      order: id => pool.header.offlineMachineOrder(id),
+      subscribe(changed) {
+        const stopSource = pool.header.subscribeOfflineMachines(changed)
+        const stopClock = reaction(() => {
+          const now = pool.clock.current
+          const { previous, next } = pool.header.offlineMachineBoundaries(now)
+          if (previous !== undefined) pool.clock.passed(previous)
+          if (next !== undefined) pool.clock.passed(next)
+          return now
+        }, (now, before) => {
+          for (const id of pool.header.crossedOfflineMachineIds(before, now)) changed(id)
+        })
+        return () => { stopSource(); stopClock() }
+      },
+      released: () => { offline = undefined },
+    })
+    const value = offline.get()
+    return value === LOADING ? [] : value ?? []
+  }
   function sessionIndex() {
     sessions ??= new HeaderSessions(pool)
     return sessions
@@ -415,26 +442,7 @@ export function createHeaderViews(pool: MobxPool) {
         const quota = row('quota', id)
         return quota ? [quota] : []
       }),
-    offlineMachines: () =>
-      memo('offlineMachines', () => {
-        const sampled = new Set(
-          headerIds(pool, 'hostMetric').map((id) => pool.header.one('hostMetric', id, 'machine')),
-        )
-        return headerIds(pool, 'machine').flatMap((id) => {
-          const machine = row('machine', id)
-          if (
-            !machine ||
-            !isMachineOfflineForLiveTerminal(machine) ||
-            sampled.has(id) ||
-            machine.serviceAssignment?.agentExecution === false ||
-            machine.revokedAt ||
-            machine.supersededBy
-          )
-            return []
-          const seen = Date.parse(machine.lastSeenAt)
-          return Number.isFinite(seen) && !pool.clock.passed(seen + 7 * 86_400_000) ? [machine] : []
-        })
-      }),
+    offlineMachines,
     history: () =>
       memo('history', () => {
         const reading = row('history', 'fleet')
@@ -454,6 +462,8 @@ export function createHeaderViews(pool: MobxPool) {
     clear: () => {
       sessions?.dispose()
       sessions = undefined
+      offline?.dispose()
+      offline = undefined
       cache.clear()
     },
   }

@@ -1,6 +1,8 @@
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
+import { createKeyedAnswer } from './query-result'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,
@@ -11,6 +13,11 @@ import {
 } from './header-schema'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
+interface OfflineMachine {
+  id: string
+  order: string
+  expires: number
+}
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
@@ -32,6 +39,48 @@ export function createHeaderEntities() {
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
   const idleCapUnmet = observable.box(0)
   const repositoryPathsRevision = observable.box(0)
+  // Scalar source membership, including expired candidates. Window reads skip
+  // history through subtree deadline bounds and never open historical rows.
+  const offline = observable.map<string, OfflineMachine>(undefined, { deep: false })
+  let offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, value => -value.expires)
+  let offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
+  const offlineRevision = observable.box(0)
+  const offlineListeners = new Set<(id: string | undefined) => void>()
+  const machineArrival = new Map<string, number>()
+  let machineSequence = 0
+  let machineOrder = new Map<string, number>()
+
+  function refreshOffline(id: string): boolean {
+    const machine = tables.machine.get(id) as HeaderRows['machine'] | undefined
+    const seen = machine && Date.parse(machine.lastSeenAt)
+    const eligible = machine && isMachineOfflineForLiveTerminal(machine) &&
+      !machine.revokedAt && !machine.supersededBy &&
+      machine.serviceAssignment?.agentExecution !== false &&
+      !members.get(`machine:${id}:metrics`)?.length && Number.isFinite(seen)
+    const explicit = machineOrder.get(id)
+    const order = explicit === undefined
+      ? `1:${String(machineArrival.get(id)).padStart(16, '0')}`
+      : `0:${String(explicit).padStart(16, '0')}`
+    const next = eligible ? { id, order, expires: seen! + 7 * 86_400_000 } : undefined
+    if (compareStructural(offline.get(id), next)) return false
+    if (next) {
+      offline.set(id, next)
+      offlineOrder.set(id, order, next)
+      offlineTime.set(id, '', next)
+    } else {
+      offline.delete(id)
+      offlineOrder.delete(id)
+      offlineTime.delete(id)
+    }
+    return true
+  }
+  function flushOffline(ids: Iterable<string>): void {
+    const changed: string[] = []
+    for (const id of ids) if (refreshOffline(id)) changed.push(id)
+    if (!changed.length) return
+    offlineRevision.set(offlineRevision.get() + 1)
+    for (const id of changed) for (const listener of offlineListeners) listener(id)
+  }
   // Kernel facade rows use ascending canonical IDs. Membership changes alone
   // invalidate this order; per-session activity never sorts the whole fleet.
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
@@ -97,6 +146,15 @@ export function createHeaderEntities() {
     order(entity: HeaderEntity, ids: readonly string[]): void {
       if (!compareStructural(orders.get(entity), ids)) {
         if (entity === 'repository') repositories.order(ids)
+        if (entity === 'machine') {
+          const changed = new Set(machineOrder.keys())
+          machineOrder = new Map()
+          for (const id of ids) {
+            if (!machineOrder.has(id)) machineOrder.set(id, machineOrder.size)
+            changed.add(id)
+          }
+          flushOffline(changed)
+        }
         orders.set(entity, ids)
       }
     },
@@ -114,12 +172,41 @@ export function createHeaderEntities() {
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
     repositoryGroup: (path: string) => repositories.group(path),
     shippingScope: (cwd: string, machineId?: string) => repositories.shippingScope(cwd, machineId),
+    offlineMachineIds: function* (now: number): Generator<string> {
+      let value = offlineOrder.firstBounded(-now, 'atMost')
+      while (value) {
+        yield value.id
+        value = offlineOrder.firstBounded(-now, 'atMost', value, value.id)
+      }
+    },
+    hasOfflineMachine: (id: string, now: number) => (offline.get(id)?.expires ?? -Infinity) >= now,
+    offlineMachineOrder: (id: string) => offline.get(id)?.order ?? id,
+    offlineMachineBoundaries(now: number) {
+      offlineRevision.get()
+      const pivot: OfflineMachine = { id: '', order: '', expires: now }
+      return { previous: offlineTime.before(pivot, '')?.expires,
+        next: offlineTime.after(pivot, '')?.expires }
+    },
+    crossedOfflineMachineIds: function* (from: number, to: number): Generator<string> {
+      const low = Math.min(from, to), high = Math.max(from, to)
+      const pivot: OfflineMachine = { id: '', order: '', expires: low }
+      let value = offlineTime.after(pivot, '')
+      while (value && value.expires < high) {
+        yield value.id
+        value = offlineTime.after(value, value.id)
+      }
+    },
+    subscribeOfflineMachines(listener: (id: string | undefined) => void): () => void {
+      offlineListeners.add(listener)
+      return () => { offlineListeners.delete(listener) }
+    },
     change,
     apply(records: readonly HeaderRecord[]): void {
       runInAction(() => {
         // Net contributions preserve the old sorted path multiset's equality
         // without materializing it. Only paths in changed rows enter this batch.
         const pathChanges = new Map<string, number>()
+        const offlineChanges = new Set<string>()
         const adjustPath = (path: string | undefined, delta: 1 | -1) => {
           if (path !== undefined) pathChanges.set(path, (pathChanges.get(path) ?? 0) + delta)
         }
@@ -127,6 +214,11 @@ export function createHeaderEntities() {
           const table = tables[record.kind]
           const previous = table.get(record.id)
           if (compareStructural(previous, record.value)) continue
+          if (record.kind === 'machine') {
+            if (record.value && !machineArrival.has(record.id)) machineArrival.set(record.id, machineSequence++)
+            else if (!record.value) machineArrival.delete(record.id)
+            offlineChanges.add(record.id)
+          }
           if (record.kind === 'shipOrder') {
             const before = shippingContribution(previous),
               after = shippingContribution(record.value)
@@ -136,6 +228,10 @@ export function createHeaderEntities() {
             }
           }
           if (record.kind === 'hostMetric') {
+            const beforeMachine = (previous as HeaderRows['hostMetric'] | undefined)?.machineId
+            const afterMachine = (record.value as HeaderRows['hostMetric'] | undefined)?.machineId
+            if (beforeMachine) offlineChanges.add(beforeMachine)
+            if (afterMachine) offlineChanges.add(afterMachine)
             const key = HEADER_SCHEMA.hostMetric.counts.idleCapUnmet
             const before = (previous as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
             const after = (record.value as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
@@ -156,6 +252,7 @@ export function createHeaderEntities() {
           change(record.kind, record.id, record.value)
         }
         repositories.flush()
+        flushOffline(offlineChanges)
         for (const delta of pathChanges.values()) {
           if (delta === 0) continue
           repositoryPathsRevision.set(repositoryPathsRevision.get() + 1)
@@ -173,6 +270,14 @@ export function createHeaderEntities() {
       shipping.clear()
       idleCapUnmet.set(0)
       repositories.clear()
+      offline.clear()
+      offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, value => -value.expires)
+      offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
+      machineArrival.clear()
+      machineOrder.clear()
+      machineSequence = 0
+      offlineRevision.set(offlineRevision.get() + 1)
+      for (const listener of offlineListeners) listener(undefined)
     },
   }
 }

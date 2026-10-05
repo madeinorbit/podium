@@ -231,6 +231,7 @@ export interface KeyedAnswer<T> {
   get(id: string): T | undefined
   first(): T | undefined
   after(value: T, id: string): T | undefined
+  before(value: T, id: string): T | undefined
   /** First ordered answer after a pivot with a one-sided scalar bound.
    * Subtree extrema skip nonmatching history without visiting its entries. */
   firstBounded(bound: number, side: 'atMost' | 'above', after?: T, id?: string): T | undefined
@@ -269,6 +270,17 @@ export function createKeyedAnswer<T>(
           candidate = cursor.item
           cursor = cursor.left
         } else cursor = cursor.right
+      }
+      return candidate?.value
+    },
+    before(value: T, id: string): T | undefined {
+      const wanted = { id, order: item(id)?.order ?? '', value }
+      let cursor = root, candidate: Item<T> | undefined
+      while (cursor) {
+        if (compareItems(wanted, cursor.item) > 0) {
+          candidate = cursor.item
+          cursor = cursor.right
+        } else cursor = cursor.left
       }
       return candidate?.value
     },
@@ -340,6 +352,7 @@ export function createKeyedAnswerBuilder<T>(
       delete(id) { if (pending) pending.delete(id); else finish().delete(id) },
       first: () => finish().first(),
       after: (value, id) => finish().after(value, id),
+      before: (value, id) => finish().before(value, id),
       firstBounded: (bound, side, after, id) => finish().firstBounded(bound, side, after, id),
       snapshot: () => finish().snapshot(),
       fork: () => finish().fork(),
