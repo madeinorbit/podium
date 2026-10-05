@@ -1,9 +1,11 @@
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
 import { AUTO } from '../lib/agent-models'
+import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 
@@ -21,11 +23,18 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
     state.machines = Array.from({ length: 128 * scale }, (_, n) => ({
       id: asMachineId(`machine-${n}`), name: `Machine ${n}`, online: true,
       serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true },
+      inventory: { agents: [{ kind: 'claude-code', installed: true }, { kind: 'codex', installed: true }] },
     } as MachineWire))
     const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => null)
     const onChange = vi.fn()
-    const value = { agentKind: 'claude-code' as const, modelPick: AUTO, effort: AUTO, machineId: '' }
-    const view = await renderWithMobileStore(<LaunchConfigurationFields repoPath="/synthetic" value={value} onChange={onChange} />)
+    const value: LaunchConfiguration = { agentKind: 'claude-code', modelPick: AUTO, effort: AUTO, machineId: '' }
+    let changeAgent = () => {}
+    function Harness() {
+      const [current, setCurrent] = useState(value)
+      changeAgent = () => setCurrent((previous) => ({ ...previous, agentKind: 'codex' }))
+      return <LaunchConfigurationFields repoPath="/synthetic" value={current} onChange={(next) => { onChange(next); setCurrent(next) }} />
+    }
+    const view = await renderWithMobileStore(<Harness />)
     try {
       expect(sheet).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Machine, Auto' }))
@@ -35,13 +44,14 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
       expect(opened?.visible).toBe(true)
       expect(opened?.actions).toHaveLength(128 * scale + 1)
       expect(opened?.actions[1]?.label).toBe('Machine 0')
+      expect(opened?.actions[1]?.disabled).toBe(false)
       act(() => opened?.actions[1]?.onPress())
       expect(onChange).toHaveBeenCalledWith({ ...value, machineId: 'machine-0' })
       // The sheet calls its host only after dismissal completes. Releasing
       // demand here preserves that existing deferred-action contract.
       act(() => opened?.onClose())
       sheet.mockClear()
-      view.rerender(<LaunchConfigurationFields repoPath="/synthetic" value={{ ...value, agentKind: 'codex' }} onChange={onChange} />)
+      act(changeAgent)
       expect(sheet).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
       expect(sheet.mock.calls.every(([props]) => props.title === 'Agent')).toBe(true)
