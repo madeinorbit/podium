@@ -1,8 +1,9 @@
 import '@/test-support/mock-core-store-handle'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { normalizeSettings } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 /**
@@ -32,11 +33,11 @@ vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
 }))
 vi.mock('@/app/header-data', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/app/header-data')>(),
+  ...(await importOriginal<typeof import('@/app/header-data')>()),
   usePoolIdleCapUnmetCount: demand.idleCap,
 }))
 vi.mock('./readers', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./readers')>(),
+  ...(await importOriginal<typeof import('./readers')>()),
   useSettingsTab: () => storeState.settingsTab,
 }))
 vi.mock('@/lib/use-feature', () => ({

@@ -1,11 +1,8 @@
-import { useSettingsTab } from './readers'
-import { useSettingsClient } from './stable-access'
-import { MembersSection } from './sections/members'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { usePoolIdleCapUnmetCount } from '@/app/header-data'
 import type { Trpc } from '@/app/trpc'
@@ -15,11 +12,13 @@ import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
+import { useSettingsTab } from './readers'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
 import { HibernationSection } from './sections/hibernation'
+import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
@@ -31,6 +30,7 @@ import type { AccountView } from './sections/shared'
 import { SuperagentSection } from './sections/superagent'
 import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
+import { useSettingsClient } from './stable-access'
 import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
 
 const MachinesPanel = lazy(() =>
@@ -249,7 +249,10 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
 
 /** This scalar demand belongs to the mounted tab, so other settings surfaces
  * never subscribe to fleet metric payloads or the hibernation aggregate. */
-function HibernationSettingsSection({ settings, patch }: Pick<SectionContext, 'settings' | 'patch'>) {
+function HibernationSettingsSection({
+  settings,
+  patch,
+}: Pick<SectionContext, 'settings' | 'patch'>) {
   const idleCapUnmet = usePoolIdleCapUnmetCount()
   return <HibernationSection settings={settings} patch={patch} idleCapUnmet={idleCapUnmet} />
 }
@@ -325,6 +328,15 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
       ? (settingsTab as SettingsTab)
       : 'sessions'
 
+  /** Load presence rows, collapsing every failure into one state. A refusal,
+   * missing surface and dropped connection keep the same visible answer. */
+  const loadSecretPresence = useCallback((): void => {
+    trpc.settings.secretPresence
+      .query({})
+      .then((rows) => setSecrets({ status: 'available', rows }))
+      .catch(() => setSecrets({ status: 'unavailable' }))
+  }, [trpc])
+
   useEffect(() => {
     let cancelled = false
     trpc.settings.get
@@ -356,10 +368,7 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
     return () => {
       cancelled = true
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `loadSecretPresence`
-    // is defined below and closes over `trpc` only; listing it would reorder the
-    // declaration without changing what the effect depends on.
-  }, [trpc])
+  }, [trpc, loadSecretPresence])
 
   useEffect(() => {
     if (telegramSetup.status !== 'polling') return
@@ -427,21 +436,6 @@ export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element 
       window.clearInterval(id)
     }
   }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
-
-  /**
-   * Load the presence rows, collapsing EVERY failure into one state.
-   *
-   * The `catch` is deliberately reason-blind. A refusal, an instance with no
-   * secret surface and a dropped connection are three different facts and the
-   * user is told the same thing about all three, because telling them apart is
-   * precisely the existence leak the admin floor exists to prevent.
-   */
-  const loadSecretPresence = (): void => {
-    trpc.settings.secretPresence
-      .query({})
-      .then((rows) => setSecrets({ status: 'available', rows }))
-      .catch(() => setSecrets({ status: 'unavailable' }))
-  }
 
   /**
    * A SECRET WRITE IS ITS OWN COMMAND, issued here and NOT through the save bar.

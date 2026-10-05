@@ -9,56 +9,89 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
   const samples = []
   for (const scale of [1, 4] as const) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const metrics = Array.from({ length: 128 * scale }, (_, index) => ({
-      machineId: `m${index}` as MachineId,
-      hostname: `Host ${index}`,
-      sampledAt: '2026-10-05T07:00:00Z',
-      idleCapUnmet: index === 0 ? 2 : 0,
-    }) as HeaderRows['hostMetric'])
-    pool.header.apply(metrics.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })))
-    const measure = (action: () => void) => measureWork(
-      async () => insideReader('hibernation cap scalar', () => runInAction(action)),
-      { pool },
+    const metrics = Array.from(
+      { length: 128 * scale },
+      (_, index) =>
+        ({
+          machineId: `m${index}` as MachineId,
+          hostname: `Host ${index}`,
+          sampledAt: '2026-10-05T07:00:00Z',
+          idleCapUnmet: index === 0 ? 2 : 0,
+        }) as HeaderRows['hostMetric'],
     )
-    let value = -1, paints = 0, stop = () => {}
+    pool.header.apply(
+      metrics.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })),
+    )
+    const measure = (action: () => void) =>
+      measureWork(async () => insideReader('hibernation cap scalar', () => runInAction(action)), {
+        pool,
+      })
+    let value = -1,
+      paints = 0,
+      stop = () => {}
     try {
       const first = await measure(() => {
-        stop = autorun(() => { value = pool.headerViews.idleCapUnmetCount(); paints++ })
+        stop = autorun(() => {
+          value = pool.headerViews.idleCapUnmetCount()
+          paints++
+        })
       })
       expect(value).toBe(2)
-      const repeat = await measure(() => { expect(pool.headerViews.idleCapUnmetCount()).toBe(2) })
+      const repeat = await measure(() => {
+        expect(pool.headerViews.idleCapUnmetCount()).toBe(2)
+      })
       const before = paints
-      const unchanged = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm2', value: { ...metrics[2]!, hostname: 'Unrelated sample' } },
-      ]))
+      const unchanged = await measure(() =>
+        pool.header.apply([
+          { kind: 'hostMetric', id: 'm2', value: { ...metrics[2]!, hostname: 'Unrelated sample' } },
+        ]),
+      )
       expect(paints).toBe(before)
-      const changed = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: 4 } },
-      ]))
+      const changed = await measure(() =>
+        pool.header.apply([
+          { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: 4 } },
+        ]),
+      )
       expect(value).toBe(4)
       expect(paints).toBe(before + 1)
-      const removed = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm0', value: undefined },
-      ]))
+      const removed = await measure(() =>
+        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: undefined }]),
+      )
       expect(value).toBe(0)
-      const returned = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm0', value: metrics[0] },
-      ]))
+      const returned = await measure(() =>
+        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
+      )
       expect(value).toBe(2)
-      const noCount = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: undefined } },
-      ]))
+      const noCount = await measure(() =>
+        pool.header.apply([
+          { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: undefined } },
+        ]),
+      )
       expect(value).toBe(0)
       stop()
-      const closed = await measure(() => pool.header.apply([
-        { kind: 'hostMetric', id: 'm0', value: metrics[0] },
-      ]))
-      const reopen = await measure(() => { expect(pool.headerViews.idleCapUnmetCount()).toBe(2) })
+      const closed = await measure(() =>
+        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
+      )
+      const reopen = await measure(() => {
+        expect(pool.headerViews.idleCapUnmetCount()).toBe(2)
+      })
       const control = await measure(() => {
-        expect(pool.headerViews.metrics().reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0)).toBe(2)
+        expect(
+          pool.headerViews.metrics().reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0),
+        ).toBe(2)
       })
       expect(control.work.rows).toBe(128 * scale)
-      const actions = { first, repeat, unchanged, changed, removed, returned, noCount, closed, reopen }
+      const actions = {
+        first,
+        repeat,
+        unchanged,
+        changed,
+        removed,
+        returned,
+        noCount,
+        closed,
+        reopen,
+      }
       for (const result of Object.values(actions)) expect(result.work.rows).toBe(0)
       samples.push({ scale, actions, control })
       runInAction(() => pool.header.clear())
@@ -75,7 +108,8 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
 
 it('keeps replacement, missing samples, repeated IDs and atomic contribution moves correct', () => {
   const pool = new MobxPool()
-  const metric = (count?: number) => ({ hostname: 'host', idleCapUnmet: count }) as HeaderRows['hostMetric']
+  const metric = (count?: number) =>
+    ({ hostname: 'host', idleCapUnmet: count }) as HeaderRows['hostMetric']
   try {
     pool.header.apply([
       { kind: 'hostMetric', id: 'a', value: metric(2) },
@@ -97,6 +131,10 @@ it('keeps replacement, missing samples, repeated IDs and atomic contribution mov
       expect(values).toEqual([5, 6])
       runInAction(() => pool.header.clear())
       expect(values).toEqual([5, 6, 0])
-    } finally { stop() }
-  } finally { pool.dispose() }
+    } finally {
+      stop()
+    }
+  } finally {
+    pool.dispose()
+  }
 })
