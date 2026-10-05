@@ -24,3 +24,9 @@ import { keyedComputed } from '@podium/mobx-helpers'
 
 const title = keyedComputed('issue.title', (id: string) => issues.get(id)?.title)
 ```
+
+`DeadlineClock` and `nextUp` are the existing deadline clock, moved unchanged
+from client-graph. Demand helpers and a tracked `now` will follow in POD-5424.
+Diagnostic `debugName`/`enableDebugNames` move with the clock and preserve its
+existing names and production switch. Run `bun run lint:mobx-private` to
+refuse private MobX imports, namespace calls and deep imports elsewhere.

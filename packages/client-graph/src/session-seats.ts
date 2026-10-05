@@ -1,3 +1,4 @@
+import { compareStructural } from 'mobx'
 import { cachedKey } from './cached'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -103,7 +104,7 @@ export function createSessionSeats(pool: MobxPool): SessionSeats {
       archived: true,
       roster: !row.headless && row.agentKind !== 'shell',
     }
-  })
+  }, compareStructural)
   const partitions = new Map<SeatRelation, (issueId: string) => SeatPartition | typeof LOADING>()
   function partitionOf(relation: SeatRelation) {
     let read = partitions.get(relation)
@@ -124,7 +125,7 @@ export function createSessionSeats(pool: MobxPool): SessionSeats {
             else if (value) history.push(sessionId)
           }
           return pending ? LOADING : { present, archived: history, unknown }
-        },
+        }, compareStructural,
       )
       partitions.set(relation, read)
     }

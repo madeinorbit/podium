@@ -1,3 +1,4 @@
+import { keyedComputed } from '@podium/mobx-helpers'
 /** Measurement prototype only. Coarse MobX invalidation over borrowed plain tables.
  * The hand arm's schema-driven ingest, summaries and plain rule functions are reused.
  * No computed, observable entry, or reaction is attached to an unmounted row. */
@@ -39,7 +40,10 @@ export class LeanPool {
   readonly residency: Residency
   readonly engine: PoolRelations
   readonly relations: ReturnType<ReadFence['wrapRelations']>
-  readonly mounted = new Map<string, IComputedValue<RowView | undefined>>()
+  // Explicit mount membership drives this prototype's filing, independently
+  // of the observed-only computed registry shared with the product pool.
+  readonly mounted = new Map<string, { get(): RowView | undefined }>()
+  private readonly rowView = keyedComputed('lean.row', (id: string) => this.filing.get().views.get(id), { equals: compareStructural })
   readonly filing: IComputedValue<ReturnType<typeof derive>>
   private readonly target: IngestTarget
   private readonly off: (() => void)[]
@@ -181,10 +185,10 @@ export class LeanPool {
   }
 
   /** Called by a mounted slot, and released when that slot leaves the window. */
-  mountRow(id: string): IComputedValue<RowView | undefined> {
+  mountRow(id: string): { get(): RowView | undefined } {
     let value = this.mounted.get(id)
     if (!value) {
-      value = computed(() => this.filing.get().views.get(id), { equals: compareStructural })
+      value = { get: () => this.rowView(id) }
       this.mounted.set(id, value)
       runInAction(() => this.windowSignal.reportChanged())
     }
@@ -204,5 +208,6 @@ export class LeanPool {
     for (const off of this.off) off()
     this.residency.clear()
     this.mounted.clear()
+    this.rowView.clear()
   }
 }

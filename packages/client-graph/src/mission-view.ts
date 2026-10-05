@@ -1,3 +1,4 @@
+import { compareStructural } from 'mobx'
 import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
 
@@ -134,19 +135,20 @@ function mergeMemberFacts(a: MemberFacts, b: MemberFacts): MemberFacts {
 class MissionNode {
   constructor(readonly id: string, readonly view: MissionViewReader) {}
 }
-const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
-const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
-const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
-const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
+const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id), compareStructural)
+const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id), compareStructural)
+const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id), compareStructural)
+const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id), compareStructural)
 const pageMemberIds = (pool: MobxPool, id: string) =>
   [...pool.graph.many('issue', id, 'pageSessions')].sort().map(asSessionId)
-const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id))
-const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id))
+const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id), compareStructural)
+const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id), compareStructural)
 const MODES = ['full', 'working', 'needs-you'] as const
 type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
+// TODO(POD-5575): pane helpers build fresh objects/arrays; retain explicit structural equality.
 const paneGroups = <V>(name: string, read: (node: MissionNode, mode: FlightDeckMode) => V): PaneGroups<V> =>
   Object.fromEntries(MODES.map(mode => [mode, cachedGroup(`${name}${mode === 'full' ? 'Full' : mode === 'working' ? 'Working' : 'NeedsYou'}`,
-    (node: MissionNode) => read(node, mode))])) as PaneGroups<V>
+    (node: MissionNode) => read(node, mode), compareStructural)])) as PaneGroups<V>
 /** The pane without its archived list: everything a seated heartbeat can change. */
 const paneCore = paneGroups('missionPaneCore', (node, mode) => deriveMissionView(node.view, node.id, mode))
 /** The drawn rows' ids only, so the archived list survives a re-derived pane. */
@@ -174,7 +176,7 @@ const paneValues = paneGroups('missionPane', (node, mode): MissionViewValues | t
   const archivedCount = paneArchiveCount[mode](node)
   return archivedCount === LOADING ? LOADING : { ...core, archivedCount }
 })
-const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
+const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id), compareStructural)
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
 const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
 const openSession = sessionPresentOnTask

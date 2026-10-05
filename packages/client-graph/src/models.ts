@@ -419,14 +419,16 @@ export interface Loaded {
 /**
  * One row field as a cached value of the issue: built when a drawn row (or
  * any reaction) first reads it, dropped when none does. Its value compares
- * structurally, so a field whose inputs moved but whose value did not
+ * by identity (the object-valued origin tick opts into structural equality),
+ * so a field whose inputs moved but whose value did not
  * notifies no row.
  */
 function rowField<V>(
   field: RowViewField,
   compute: (issue: IssueModel) => V,
+  equals?: (before: V, next: V) => boolean,
 ): (issue: IssueModel) => V {
-  return cachedGroup(field, (issue: IssueModel) => compute(issue))
+  return cachedGroup(field, (issue: IssueModel) => compute(issue), equals)
 }
 
 /**
@@ -467,6 +469,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
+  // These rule groups construct fresh records/arrays; compare values explicitly.
+  // TODO(POD-5575): move pane/phone consumers onto smaller model answers.
   private static readonly groups = {
     mobileWork: cachedGroup(
       'mobileWork',
@@ -490,19 +494,19 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     sidebar: cachedGroup('sidebar', (issue: IssueModel) => issue.sidebarValues(), sameSidebar),
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
     facts: cachedGroup('facts', (issue: IssueModel) =>
-      issueFactsPartOf(issue.host.visibleInputs, issue.id),
+      issueFactsPartOf(issue.host.visibleInputs, issue.id), compareStructural,
     ),
     rank: cachedGroup('rank', (issue: IssueModel) => {
       const part = issue.facts?.part
       return part === undefined ? undefined : rankOfPart(issue.id, part)
-    }),
+    }, compareStructural),
     /**
      * The members' verdicts at the clock. The explicit seats come judged per
      * seat change (`seat-verdicts.ts`, POD-5423), so a re-run (a heartbeat
      * moving the standing, one seat's mark-read) never walks the seat history.
      */
     members: cachedGroup('members', (issue: IssueModel) =>
-      memberVerdictsOf(issue.host.visibleInputs, issue.id, issue.standing, issue),
+      memberVerdictsOf(issue.host.visibleInputs, issue.id, issue.standing, issue), compareStructural,
     ),
     /** A hidden issue's from its summary (POD-4753): its row and its sessions are not read. */
     presence: cachedGroup('presence', (issue: IssueModel) => {
@@ -510,7 +514,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       return hidden === undefined
         ? presenceOf(issue.host.visibleInputs, issue.id, issue)
         : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden, issue)
-    }),
+    }, compareStructural),
     /** Independent of nesting: cycle rejection can follow candidates without recursion. */
     nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
       const present = issue.present
@@ -520,7 +524,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         present ? issue.standing : undefined,
         present,
       )
-    }),
+    }, compareStructural),
     /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
     nesting: cachedGroup('nesting', (issue: IssueModel) => {
       const present = issue.present
@@ -531,16 +535,16 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         present,
         issue.nestCandidate,
       )
-    }),
+    }, compareStructural),
     /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
     nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
-      nestBelowPartOf(issue.host.visibleInputs, issue.id),
+      nestBelowPartOf(issue.host.visibleInputs, issue.id), compareStructural,
     ),
     /** The present rows nested under this one: the attention roll-up composes over them. */
     nested: cachedGroup('nested', (issue: IssueModel) =>
-      nestedPartOf(issue.host.visibleInputs, issue.id, issue),
+      nestedPartOf(issue.host.visibleInputs, issue.id, issue), compareStructural,
     ),
-    tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id)),
+    tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id), compareStructural),
     attention: cachedGroup(
       'attention',
       (issue: IssueModel) => attentionOf(issue.host.rollupInputs, issue.id, issue),
@@ -556,7 +560,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     ),
     /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
     unitOwn: cachedGroup('unitOwn', (issue: IssueModel) =>
-      unitOwnPartOf(issue.host.rollupInputs, issue.id, issue),
+      unitOwnPartOf(issue.host.rollupInputs, issue.id, issue), compareStructural,
     ),
     /**
      * The formal closure's counts, composed over its formal children's cached
@@ -564,7 +568,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
      * no child.
      */
     unitsBelow: cachedGroup('unitsBelow', (issue: IssueModel) =>
-      unitsBelowPartOf(issue.host.rollupInputs, issue.id),
+      unitsBelowPartOf(issue.host.rollupInputs, issue.id), compareStructural,
     ),
     /**
      * What the IN-MEMORY row gives (one read of it, which queues a cold row's
@@ -580,13 +584,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         label: labelOfRow(issue.host.inputs, issue.id, row === LOADING ? undefined : row),
         originRef: originRefPartOf(issue.host.inputs, issue.id),
       }
-    }),
+    }, compareStructural),
     /** Whether the row is in memory: a row is drawn only then (else its load is queued, or it is gone). */
     inMemory: cachedGroup('inMemory', (issue: IssueModel) => issue.loaded.facts.state === 'ready'),
     /** The roll-up as the row reads it: the worklist's (`ViewInputs.rollup`), else none. */
     rowRollup: cachedGroup(
       'rowRollup',
-      (issue: IssueModel): Rollup => issue.host.inputs.rollup(issue.id) ?? NO_ROLLUP,
+      (issue: IssueModel): Rollup => issue.host.inputs.rollup(issue.id) ?? NO_ROLLUP, compareStructural,
     ),
   }
 
@@ -619,7 +623,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     seq: rowField('seq', (issue) => issue.own?.seq ?? 0),
     foldAt: rowField('foldAt', (issue) => issue.own?.foldAt ?? ''),
     originTick: rowField('originTick', (issue) =>
-      originTickPartOf(issue.host.inputs, issue.originId),
+      originTickPartOf(issue.host.inputs, issue.originId), compareStructural,
     ),
     activityAt: rowField('activityAt', (issue) =>
       rowActivityAtOf(issue.ownActivityAt, issue.rowRollup),
@@ -1147,10 +1151,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
   private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
-    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed),
+    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed), compareStructural,
   )
   private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
-    headerHostSession(session.row as SessionView | undefined),
+    headerHostSession(session.row as SessionView | undefined), compareStructural,
   )
   get headerWorking() {
     return SessionModel.headerWorking(this)
@@ -1159,20 +1163,20 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return SessionModel.headerHost(this)
   }
   private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
-    headerDockSession(session.row as SessionView | undefined),
+    headerDockSession(session.row as SessionView | undefined), compareStructural,
   )
   get headerDock() {
     return SessionModel.headerDock(this)
   }
   private static readonly groups = {
     retention: cachedGroup('retention', (session: SessionModel) =>
-      retentionOf(session.host.visibleInputs.sessionRow(session.id)),
+      retentionOf(session.host.visibleInputs.sessionRow(session.id)), compareStructural,
     ),
     activityMs: cachedGroup('activityMs', (session: SessionModel) =>
       activityMsOf(session.host.visibleInputs.sessionRow(session.id)),
     ),
     links: cachedGroup('links', (session: SessionModel) =>
-      sessionLinksOf(session.host.visibleInputs, session.id),
+      sessionLinksOf(session.host.visibleInputs, session.id), compareStructural,
     ),
     verdict: cachedGroup(
       'verdict',
@@ -1215,7 +1219,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
 export class WorktreeModel extends EntityModel {
   private static readonly roster = cachedGroup('roster', (worktree: WorktreeModel) =>
-    sidebarRosterOf(worktree.host, worktree.id),
+    sidebarRosterOf(worktree.host, worktree.id), compareStructural,
   )
 
   constructor(id: string, host: ModelHost) {
