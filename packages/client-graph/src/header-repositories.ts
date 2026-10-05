@@ -176,14 +176,24 @@ export function createHeaderRepositoryRelations() {
     shippingScope(
       cwd: string,
       machineId?: string,
-    ): { order: number; repoId: string | null; repoPath: string } | undefined {
+    ): { order: number; repoId: string | null; repoPath: string; handoff: { repoPath: string; worktreePath: string } } | undefined {
       let first: Scope | undefined,
-        matchedLength = -1
+        matchedLength = -1,
+        handoff: Scope | undefined,
+        handoffPath = ''
       const take = (path: string) => {
         const exact = firstScopes.get(machineId ? scopeKey(path, machineId) : anyScopeKey(path))
         const wildcard = machineId ? firstScopes.get(scopeKey(path)) : undefined
         for (const candidate of [exact, wildcard]) {
           if (!candidate) continue
+          // Handoff uses the longest containing worktree across repositories;
+          // shipping retains its existing first-group precedence. Both read
+          // the same maintained machine/path slots, including headless senders.
+          if (!handoff || path.length > handoffPath.length ||
+            (path.length === handoffPath.length && scopeOrder(candidate, handoff) < 0)) {
+            handoff = candidate
+            handoffPath = path
+          }
           // First repository group wins; within it the longest containing
           // worktree wins, with stable source order breaking path ties.
           if (
@@ -203,7 +213,8 @@ export function createHeaderRepositoryRelations() {
         take(cwd.slice(0, at))
         take(cwd.slice(0, at + 1))
       }
-      return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath }
+      return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath,
+        handoff: { repoPath: handoff!.repoPath, worktreePath: handoffPath } }
     },
     clear() {
       facts.clear()

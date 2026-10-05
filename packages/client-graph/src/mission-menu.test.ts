@@ -171,3 +171,44 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
   expect(work[1]).toEqual(work[0])
   expect(work[3]).toEqual(work[2])
 })
+
+it('distinguishes same-path peers and picks the longest containing source while shipping keeps its first-group rule', () => {
+  const { pool, view, input } = fixture(1)
+  const sourceId = asMachineId('source'), peerId = asMachineId('peer'), repoId = asRepoId('shared')
+  const path = '/repo/.worktrees/task'
+  const picked = { ...input.get('session:picked'), cwd: `${path}/src`, machineId: sourceId, headless: true } as SessionView
+  input.set('session:picked', picked)
+  pool.apply({ type: 'update', rows: [
+    { kind: 'session', id: 'picked', value: picked },
+    { kind: 'worktree', id: path, value: { path, repoId, repoPath: '/repo', repoName: 'Shared' } },
+  ] })
+  const source: HeaderRows['repository'] = { kind: 'repository', path: '/repo', repoId, machineId: sourceId, worktrees: [] }
+  const peer: HeaderRows['repository'] = { ...source, machineId: peerId, worktrees: [{ path }] }
+  pool.header.apply([{ kind: 'repository', id: 'source', value: source }, { kind: 'repository', id: 'peer', value: peer }])
+  const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
+  const availability = (all: HeaderRows['repository'][]) => {
+    const value = menu.value
+    if (value === LOADING || !value.session) throw new Error('Menu did not load')
+    const bounded = handoffAvailability(value.session, reposToViews(value.repos), value.machines, value.issue)
+    expect(bounded).toEqual(handoffAvailability(value.session, reposToViews(all), value.machines, value.issue))
+    return bounded
+  }
+  try {
+    pool.hydrate()
+    expect(availability([source, peer]).blocker).toBe('no-worktree')
+    const owned = { ...source, worktrees: [{ path }] }
+    pool.header.apply([{ kind: 'repository', id: 'source', value: owned }])
+    expect(availability([owned, peer]).blocker).toBeUndefined()
+    const nestedPath = `${path}/nested`
+    const nested: HeaderRows['repository'] = { kind: 'repository', path: nestedPath, repoId: asRepoId('nested'),
+      machineId: sourceId, worktrees: [{ path: `${nestedPath}/feature` }] }
+    pool.header.apply([{ kind: 'repository', id: 'nested', value: nested }])
+    const deeper = { ...picked, cwd: `${nestedPath}/feature/src` }
+    input.set('session:picked', deeper)
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: deeper }] })
+    expect(pool.header.shippingScope(deeper.cwd, sourceId)?.repoPath).toBe('/repo')
+    expect(pool.header.shippingScope(deeper.cwd, sourceId)?.handoff)
+      .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
+    expect(availability([owned, peer, nested]).blocker).toBeUndefined()
+  } finally { menu.stop() }
+})

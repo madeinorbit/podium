@@ -8,16 +8,15 @@ import {
   motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
   sessionSettled, sessionNeedsHuman, type FlightDeckFoldMap, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
   type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
-  type PresenceNote, type HandoffNowEntry, type HandoffNextEntry, reposToViews,
+  type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, handoffAvailability } from '@podium/model/browser'
+import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
-import type { SliceWorktree } from './shared/slice-types'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -1582,19 +1581,21 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const subject = handoffEnabled ? session ?? (handoff && 'session' in handoff ? handoff.session : undefined) : undefined
   // Handoff needs its containing lane and the issue's drift fallback. Other
   // worktrees in the same repository are hidden and remain unread.
-  const laneId = subject ? view.pool.graph.one('session', subject.sessionId, 'handoffWorktree') : null
-  const lane = laneId ? view.pool.row('worktree', laneId) as SliceWorktree | undefined : undefined
-  const anchorId = subject && selected[0]?.worktreePath
-  const anchor = anchorId && anchorId !== laneId ? view.pool.row('worktree', anchorId) as SliceWorktree | undefined : undefined
-  const repoPath = subject ? lane?.repoPath ?? view.pool.header.shippingScope(subject.cwd, subject.machineId)?.repoPath : undefined
-  const repos = repoPath ? view.pool.header.repositoryGroup(repoPath).flatMap(id => {
+  const source = subject ? view.pool.header.shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
+  const anchorPath = source && source.worktreePath === source.repoPath && selected[0]?.worktreePath
+  const anchorScope = anchorPath ? view.pool.header.shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
+  const anchor = anchorScope?.worktreePath === anchorPath && anchorScope?.worktreePath !== source?.worktreePath ? anchorScope : undefined
+  const repos = source ? view.pool.header.repositoryGroup(source.repoPath).flatMap(id => {
     const repo = view.pool.headerViews.row('repository', id)
     if (!repo) return []
-    const worktrees = [lane, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.path !== repo.path &&
-      (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.path }] : [])
+    const worktrees = [source, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.worktreePath !== repo.path &&
+      (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
     return [{ ...repo, worktrees }]
   }) : []
-  const needsTargets = subject && !handoffAvailability(subject, reposToViews(repos), [], selected[0]).blocker
+  // The full target picker stays inside the deferred menu component. Here
+  // only source eligibility decides whether any machine choices are shown.
+  const needsTargets = subject && (HANDOFF_HARNESS_KINDS as readonly string[]).includes(subject.agentKind) &&
+    repos.some(repo => repo.repoId) && repos.some(repo => repo.worktrees.length > 0)
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
     machines: needsTargets ? view.pool.headerViews.machines() : [], session, issue: selected[0], handoff }
 }

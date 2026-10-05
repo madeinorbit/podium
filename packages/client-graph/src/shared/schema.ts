@@ -1113,11 +1113,6 @@ const DECLARED = defineSchema({
           why: 'A headless session is never a member (slice §2 R3).',
         },
       }),
-      handoffWorktree: prefix({
-        to: 'worktree', sourceField: 'cwd', targetKey: 'path', resolver: 'longestPrefixPath',
-        inverse: 'handoffSessions', lazy: true,
-        why: 'Handoff addresses its scanned source lane, including headless senders, without enumerating repository worktrees.',
-      }),
     },
     collapse: {
       fields: ['resume', 'headless', 'status', 'lastActiveAt'],
@@ -1191,10 +1186,6 @@ const DECLARED = defineSchema({
             why: "The lane's sessions no explicit owner claims (`indexSessionOwnership`, session-ownership.ts:152-158: the legacy tests `issueId !== undefined`, so an explicit null still claims). They seat by containment under the issues checked out here (R3), and keep a closed one of them shown (`issue.cold.keptBy`, POD-4745).",
           },
         },
-      }),
-      handoffSessions: hasMany({
-        to: 'session', inverse: 'handoffWorktree', lazy: true,
-        why: 'Inverse of the menu-only scanned source-lane question, independent of displayed seat eligibility.',
       }),
       issues: hasMany({
         to: 'issue',
