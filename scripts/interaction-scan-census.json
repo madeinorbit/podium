@@ -8082,7 +8082,7 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/chat",
       "rule": "reader-summary",
-      "tokens": "2b406d2b25b930b25a147fc865944f18df8f51d925732dd30bee135df4214267",
+      "tokens": "b89a7cc72f4347deed5f9eab29409f114922c2275b5448dd0ec52d1a613f946c",
       "gate": [],
       "origin": [
         "25611251a56f050459adaeaff003b24c5ba0a187f7b51d9168a87ac05fee5bb8",
@@ -8095,7 +8095,7 @@
         "aa0445dd461168de2253b1031e02428de7f9bf692f3985b9e14d26951b7e2a2f",
         "bc2f21134beb75ef9f747076e0fbf24b03ea37ae11a0522ab5440bb2c84f6cc9"
       ],
-      "fingerprint": "967691026f3c89e9a033a16bbcda607dddc41a56312dd5e7627b49f13a1efd38",
+      "fingerprint": "dce91a9ad614fadbfea5697f0234ccd860a8479c365fcce5309d3a05579a9b07",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
