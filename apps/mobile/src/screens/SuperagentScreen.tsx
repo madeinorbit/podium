@@ -5,7 +5,7 @@ import type { SuperagentSliceValue } from '@podium/client-core/values'
 import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
-import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
+import { asThreadId, type SessionId } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -61,8 +61,8 @@ import { color, font, sans, space } from '../theme/theme'
  *    sit under the well, same contract as the desktop prompt-box rail.
  */
 const THREAD_ID = asThreadId('global')
-const EMPTY_TRANSCRIPT: Pick<TranscriptState, 'items' | 'initialLoaded' | 'pendingQuestion' | 'latestRecordedAt'> = {
-  items: [], initialLoaded: false, pendingQuestion: null, latestRecordedAt: null,
+const EMPTY_TRANSCRIPT: Pick<TranscriptState, 'items' | 'initialLoaded' | 'pendingQuestion' | 'latestRecordedAt' | 'hasMoreOlder' | 'loadingOlder'> = {
+  items: [], initialLoaded: false, pendingQuestion: null, latestRecordedAt: null, hasMoreOlder: false, loadingOlder: false,
 }
 const emptyTranscript = () => EMPTY_TRANSCRIPT
 const subscribeEmptyTranscript = () => () => {}
@@ -343,7 +343,7 @@ export function SuperagentScreen() {
           // when the mutation is rejected — but a turn that is ACCEPTED and then
           // dies (harness crash, spawn failure) resolves that mutation, so its
           // catch never runs, and a dead turn writes no transcript for
-          // dropEchoedTurns to match. Without this the row says "sending…" for
+          // the transcript's echo relation to match. Without this the row says "sending…" for
           // ever. The writer lock is released at turn-end and the server refuses
           // a second concurrent turn, so anything still pending is this turn's.
           setPendingTurns((prev) => [...markTurnsFailed(prev, reason)])
@@ -626,6 +626,8 @@ export function SuperagentScreen() {
                   tone: working ? 'working' : 'idle',
                 }}
                 onLoadOlder={loadOlder}
+                moreAbove={transcript.hasMoreOlder}
+                loadingOlder={transcript.loadingOlder}
                 onFollowChange={followTranscript}
                 onSearchChange={searchTranscript}
                 refreshControl={refreshControl}

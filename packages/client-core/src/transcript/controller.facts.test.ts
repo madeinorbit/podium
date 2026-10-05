@@ -187,3 +187,73 @@ it('drops trimmed facts and restores them only when their raw history returns', 
     f.controller.dispose()
   }
 })
+
+it('answers echo membership and latest raw time with no retained-row reads at 1x/4x', async () => {
+  const samples = []
+  for (const scale of [1, 4] as const) {
+    let roleReads = 0, timeReads = 0
+    const items = [
+      row('echo', 'user', 1, { text: '  Same prompt  ', toolPaths: ['/a', '/b'] }),
+      ...Array.from({ length: 128 * scale }, (_, index) => row(`a${index}`, 'assistant', index + 2)),
+    ].map((item) => ({ ...item,
+      get role() { roleReads++; return item.role },
+      get ts() { timeReads++; return '2026-09-29T01:30:00.000Z' },
+    }))
+    const f = await fixture(items)
+    try {
+      roleReads = 0; timeReads = 0
+      const answers: boolean[] = []
+      let latest: number | null = null
+      const result = await measureWork(async () => insideReader('raw transcript echo and time', () => {
+        answers.push(f.controller.hasUserEcho('Same prompt'), f.controller.hasUserEcho('other', ['/a', '/b']), f.controller.hasUserEcho('Same prompt', ['/b', '/a']), f.controller.hasUserEcho('absent'))
+        latest = f.controller.getSnapshot().latestRecordedAt
+      }))
+      expect(answers).toEqual([true, true, false, false])
+      expect(latest).toBe(Date.parse('2026-09-29T01:30:00.000Z'))
+      expect(roleReads).toBe(0); expect(timeReads).toBe(0)
+      const action = { roleReads, timeReads, work: result.work }
+      const control = await measureWork(async () => insideReader('former raw failure check', () => {
+        items.some(item => item.ts !== undefined && Date.parse(item.ts) > Date.parse('2026-09-29T01:31:00.000Z'))
+      }))
+      expect(timeReads).toBe(items.length * 2)
+      samples.push({ scale, action, control: { timeReads, work: control.work } })
+    } finally { f.controller.dispose() }
+  }
+  expect(samples[1]!.action).toEqual(samples[0]!.action)
+  expect(samples[1]!.control.timeReads).toBeGreaterThan(samples[0]!.control.timeReads * 3)
+  console.log('[raw transcript echo and time work1x4x]', JSON.stringify(samples))
+})
+
+it('maintains duplicate echo counts, ordered path identity and raw timestamp edits through reset and trim', async () => {
+  const f = await fixture([
+    row('u1', 'user', 1, { text: ' same ', toolPaths: ['a,b'], ts: '2026-09-29T01:35:00.000Z' }),
+    row('u2', 'user', 2, { text: 'same', toolPaths: ['a', 'b'], ts: '2026-09-29T01:32:00.000Z' }),
+    row('t', 'tool', 3, { ts: '2026-09-29T01:34:00.000Z' }),
+  ], 2, false)
+  try {
+    expect(f.controller.hasUserEcho('same')).toBe(true)
+    expect(f.controller.hasUserEcho('other', ['a,b'])).toBe(true)
+    expect(f.controller.hasUserEcho('other', ['a', 'b'])).toBe(true)
+    f.emit([row('u1', 'assistant', 1, { ts: '2026-09-29T01:31:00.000Z' })])
+    expect(f.controller.hasUserEcho('same')).toBe(true)
+    expect(f.controller.hasUserEcho('other', ['a,b'])).toBe(false)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBe(Date.parse('2026-09-29T01:34:00.000Z'))
+    f.emit([row('t', 'tool', 3, { ts: 'invalid' }), row('u2', 'user', 2, { text: 'new', toolPaths: ['b', 'a'] })])
+    expect(f.controller.hasUserEcho('same')).toBe(false)
+    expect(f.controller.hasUserEcho('new')).toBe(true)
+    expect(f.controller.hasUserEcho('other', ['a', 'b'])).toBe(false)
+    expect(f.controller.hasUserEcho('other', ['b', 'a'])).toBe(true)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBe(Date.parse('2026-09-29T01:31:00.000Z'))
+    f.emit(Array.from({ length: 5 }, (_, index) => row(`tail${index}`, 'assistant', index + 4)))
+    expect(f.controller.hasUserEcho('new')).toBe(false)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
+    f.page({ items: [row('old', 'user', 0, { text: 'restored', ts: '2026-09-29T01:36:00.000Z' })], hasMore: false })
+    await f.controller.loadOlder()
+    expect(f.controller.hasUserEcho('restored')).toBe(true)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBe(Date.parse('2026-09-29T01:36:00.000Z'))
+    f.page({ items: [], hasMore: false })
+    f.emit([], true)
+    expect(f.controller.hasUserEcho('restored')).toBe(false)
+    expect(f.controller.getSnapshot().latestRecordedAt).toBeNull()
+  } finally { f.controller.dispose() }
+})
