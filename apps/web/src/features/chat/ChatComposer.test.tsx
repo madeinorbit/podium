@@ -138,6 +138,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount())
+  draftFixture.inputs = undefined
   container.remove()
   sizingStyles.remove()
   vi.restoreAllMocks()
@@ -704,6 +705,67 @@ describe('ChatComposer height across warm-panel visibility', () => {
 })
 
 describe('native composer sizing', () => {
+  it('retains the compact pane-relative cap and one-line floor', async () => {
+    vi.stubGlobal('CSS', Object.create(CSS, { supports: { value: () => true } }))
+    container.setAttribute('data-prompt-bounds', '')
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 200 })
+    const { ta } = await mount({ compact: true, draft: 'x' })
+    expect(ta.style.getPropertyValue('--prompt-max-height')).toBe('84px')
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 10 })
+    await mount({ compact: true, draft: 'x' })
+    expect(ta.style.getPropertyValue('--prompt-max-height')).toBe('24px')
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 900 })
+    await mount({ compact: true, draft: 'x' })
+    expect(ta.style.getPropertyValue('--prompt-max-height')).toBe('192px')
+  })
+
+  it('skips the compact fallback transition reflow when the height is unchanged', async () => {
+    vi.stubGlobal('CSS', Object.create(CSS, { supports: { value: () => false } }))
+    vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(24)
+    const { ta } = await mount({ compact: true, draft: 'x' })
+    const pin = vi.spyOn(ta, 'offsetHeight', 'get')
+    await mount({ compact: true, draft: 'xx' })
+    expect(pin).not.toHaveBeenCalled()
+    expect(ta.style.height).toBe('24px')
+    vi.spyOn(ta, 'scrollHeight', 'get').mockReturnValue(48)
+    await mount({ compact: true, draft: 'xx\nxx' })
+    expect(pin).toHaveBeenCalledOnce()
+    expect(ta.style.height).toBe('48px')
+  })
+
+  it('keeps compact sizing reads and height writes off all 60 keystrokes', async () => {
+    vi.stubGlobal('CSS', Object.create(CSS, { supports: { value: () => true } }))
+    const measure = vi.spyOn(Element.prototype, 'scrollHeight', 'get')
+    const pin = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+    const styles = vi.spyOn(globalThis, 'getComputedStyle')
+    const id = asSessionId('s1')
+    let state = { drafts: { [id]: '' } } as EngineState
+    const inputs = createKeyedInputs(() => state)
+    const onDraftChange = vi.fn((text: string) => {
+      state = { ...state, drafts: { [id]: text } }
+      inputs.emit(new Set(['drafts']), new Set([id]))
+    })
+    draftFixture.inputs = inputs
+    const { ta } = await mount({ compact: true, fromRuntime: true, onDraftChange })
+    measure.mockClear()
+    pin.mockClear()
+    styles.mockClear()
+    const setProperty = vi.spyOn(ta.style, 'setProperty')
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    for (let i = 1; i <= 60; i++) {
+      await act(async () => {
+        nativeSet.call(ta, 'x'.repeat(i))
+        ta.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      expect(ta.value).toBe('x'.repeat(i))
+      expect(measure).not.toHaveBeenCalled()
+      expect(pin).not.toHaveBeenCalled()
+      expect(styles).not.toHaveBeenCalled()
+      expect(setProperty).not.toHaveBeenCalled()
+    }
+    expect(onDraftChange).toHaveBeenCalledTimes(60)
+  })
+
   it('keeps height measurement off the keystroke path when field-sizing is supported', async () => {
     vi.stubGlobal(
       'CSS',

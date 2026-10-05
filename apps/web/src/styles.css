@@ -5935,11 +5935,7 @@ html[data-density="compact"] .brief-shelf {
   content: "";
 }
 .handoff-section--future .handoff-events::before {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--border) 0 3px,
-    transparent 3px 7px
-  );
+  background: repeating-linear-gradient(to bottom, var(--border) 0 3px, transparent 3px 7px);
 }
 .handoff-entry {
   position: relative;
@@ -9884,6 +9880,23 @@ a.ref-link--session::before {
 }
 .prompt-input[data-grow="down"] {
   transition-duration: 240ms;
+}
+/* Content sizing avoids the height:auto / scrollHeight / offsetHeight cycle
+   on every compact-composer key. The hook updates the pane cap only on resize;
+   an empty placeholder still occupies exactly one line. */
+@supports (field-sizing: content) {
+  .prompt-input {
+    field-sizing: content;
+    height: auto;
+    min-height: calc(1lh + 6px);
+    max-height: var(--prompt-max-height, calc(8lh + 6px));
+    overflow-y: auto;
+  }
+  .prompt-input:placeholder-shown {
+    field-sizing: fixed;
+    height: calc(1lh + 6px);
+    overflow-y: hidden;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .prompt-input[data-grow] {

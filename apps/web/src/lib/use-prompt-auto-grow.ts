@@ -1,5 +1,5 @@
 import type { RefObject } from 'react'
-import { useCallback, useEffect, useLayoutEffect } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 /**
  * THE PROMPT BOX'S HEIGHT (POD-516).
@@ -14,13 +14,13 @@ import { useCallback, useEffect, useLayoutEffect } from 'react'
  *     is now `maxLines` of the element's OWN line-height, and separately capped
  *     at a fraction of the surface it sits in, so a short dock never ends up
  *     mostly composer.
- *  2. BELOW THE CAP THE BOX GROWS INSTEAD OF SCROLLING. The height transition
+ *  2. BELOW THE CAP THE BOX GROWS INSTEAD OF SCROLLING. In the fallback, the height transition
  *     takes ~150ms to catch up with a newly wrapped line; if the textarea could
  *     scroll during that window the browser would chase the caret and shove the
  *     line above it out of view and back. `capped` drives `overflow` so the new
  *     line is briefly clipped by a box that is opening, which reads as motion,
  *     not as a jump.
- *  3. THE TRANSITION NEEDS A PIXEL START VALUE. Measuring at `height:auto` and
+ *  3. THE FALLBACK TRANSITION NEEDS A PIXEL START VALUE. Measuring at `height:auto` and
  *     assigning the target in one pass leaves the start value as `auto`, which
  *     cannot interpolate — the height snaps. So: measure at auto, restore the
  *     previous pixel height, force a reflow, then assign.
@@ -81,9 +81,9 @@ export function fitPromptHeight({
 }
 
 /**
- * Sizes `taRef` to its content on every `value` change, and re-fits it when the
- * surface it sits in is resized (dragging the dock narrower rewraps the draft,
- * and a box left at its old height would clip it).
+ * Native field sizing owns content changes. JavaScript publishes only the
+ * pane-relative cap on mount/resize. Older webviews retain animated pixel
+ * sizing, without pinning a second layout when the target has not changed.
  *
  * The surface is the nearest `[data-prompt-bounds]` ancestor.
  */
@@ -96,6 +96,27 @@ export function usePromptAutoGrow({
   value: string
   maxLines?: number
 }): void {
+  const nativeSizing = globalThis.CSS?.supports?.('field-sizing', 'content') ?? false
+  const lastFit = useRef<(PromptFit & { field: HTMLTextAreaElement }) | null>(null)
+  const fitNativeBounds = useCallback(() => {
+    const ta = taRef.current
+    if (!ta) return
+    const cs = getComputedStyle(ta)
+    const lineHeight = Number.parseFloat(cs.lineHeight) || 18
+    const padding =
+      (Number.parseFloat(cs.paddingTop) || 0) + (Number.parseFloat(cs.paddingBottom) || 0)
+    const bounds = ta.closest<HTMLElement>('[data-prompt-bounds]')
+    const { height } = fitPromptHeight({
+      content: Number.POSITIVE_INFINITY,
+      empty: false,
+      lineHeight,
+      padding,
+      maxLines,
+      paneHeight: bounds?.clientHeight ?? 0,
+    })
+    ta.style.setProperty('--prompt-max-height', `${height}px`)
+  }, [taRef, maxLines])
+
   const apply = useCallback(
     (mode: 'animate' | 'instant') => {
       const ta = taRef.current
@@ -115,6 +136,15 @@ export function usePromptAutoGrow({
         maxLines,
         paneHeight: bounds?.clientHeight ?? 0,
       })
+      if (
+        lastFit.current?.field === ta &&
+        lastFit.current.height === fit.height &&
+        lastFit.current.capped === fit.capped
+      ) {
+        ta.style.height = previous
+        return
+      }
+      lastFit.current = { ...fit, field: ta }
       const from = Number.parseFloat(previous)
       // No previous pixel height means first paint: land on the target without
       // animating, or the composer would unfurl every time the pane mounts.
@@ -130,13 +160,16 @@ export function usePromptAutoGrow({
     [taRef, maxLines],
   )
 
-  // Layout effect, not effect: an @-mention insertion or a voice transcript can
-  // add several lines at once, and re-sizing after paint shows one frame of the
-  // old box with the new text clipped inside it.
+  useLayoutEffect(() => {
+    if (nativeSizing) fitNativeBounds()
+  }, [nativeSizing, fitNativeBounds])
+
+  // External drafts are adopted by SyncComposerDraft before this effect. The
+  // native field sizes that value itself; only the fallback needs a DOM read.
   // biome-ignore lint/correctness/useExhaustiveDependencies: value is the re-measure trigger
   useLayoutEffect(() => {
-    apply('animate')
-  }, [value, apply])
+    if (!nativeSizing) apply('animate')
+  }, [value, apply, nativeSizing])
 
   useEffect(() => {
     const ta = taRef.current
@@ -150,9 +183,10 @@ export function usePromptAutoGrow({
       if (now === seen) return
       seen = now
       // A drag is continuous; animating each frame of it would lag the pointer.
-      apply('instant')
+      if (nativeSizing) fitNativeBounds()
+      else apply('instant')
     })
     ro.observe(bounds)
     return () => ro.disconnect()
-  }, [taRef, apply])
+  }, [taRef, apply, nativeSizing, fitNativeBounds])
 }
