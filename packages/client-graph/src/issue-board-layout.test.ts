@@ -50,13 +50,13 @@ it('keeps opening rich facts proportional to visible cards at 1x and 4x', () => 
       for (const stage of ISSUE_BOARD_STAGES)
         for (let n = 0; n < 8; n++) stops.push(autorun(() => f.source.card({ id: `${stage}-${n}`, now })))
       const counts = issueBoardStats.read(), descriptions = f.descriptions()
+      console.info('board opening work', JSON.stringify({ scale, counts, descriptions }))
       // This counter is on the actual declared summary's document access.
       // Today's board() builds facts for the corpus and fails this bound.
       expect(descriptions).toBeLessThanOrEqual(48 * 3)
       expect(counts.rowModels).toBe(48)
       expect(counts.factReads).toBe(48)
       expect(f.source.stats().residentRows).toBe(0)
-      console.info('board opening work', JSON.stringify({ scale, counts, descriptions }))
       return { descriptions, facts: counts.factReads, cards: counts.cards }
     } finally {
       for (const stop of stops.reverse()) stop()

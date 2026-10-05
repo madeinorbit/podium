@@ -71,13 +71,15 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
     sidebarSettings: { repoOrder: [] },
   } as unknown as Store
   const runtime = withKeyedInputs({
+    principal: { userId: 'board-check' },
     replica,
     getSnapshot: () => state,
     subscribe: () => () => {},
     pendingOverlaysByRow: () => new Map(),
     ui: { get: () => null, subscribe: () => () => {} },
   })
-  const handle = createRuntimeWorklistPool(runtime as never, { summaries: ISSUE_BOARD_SUMMARIES })
+  // This frozen-value fixture only reads server truth; it owns no mutations.
+  const handle = createRuntimeWorklistPool(runtime as never, { summaries: ISSUE_BOARD_SUMMARIES, owns: [] })
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )
