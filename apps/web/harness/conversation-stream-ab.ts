@@ -26,6 +26,7 @@ const fixtures = [
   'apps/mobile/vite.conversation-stream.config.ts', 'apps/mobile/vite.inbox.config.ts',
   'apps/mobile/test/conversation-stream.browser.tsx', 'apps/mobile/test/conversation-stream.browser.html',
   'apps/mobile/test/inbox-platform.tsx',
+  'apps/mobile/test/conversation-stream-platform.tsx',
 ]
 const percentile = (values: number[], q: number) => {
   const ordered = [...values].sort((a, b) => a - b)
