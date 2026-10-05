@@ -1,7 +1,8 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { readPoolScreening } from '../../test/pool-board-fixture'
+import { openScreeningPool, readPoolScreening } from '../../test/pool-board-fixture'
 import { reconcileScreeningIds } from '../client/use-inbox-data'
 import { applyScreeningDecision, screeningTally } from './screening'
 
@@ -97,6 +98,112 @@ describe('pool screening reconciliation', () => {
     )
 
     expect(next).toEqual({ order: ['a', 'b', 'c', 'z'], index: 0 })
+  })
+})
+
+describe('pool screening incrementality', () => {
+  const proposal = (at: number) =>
+    issue({ id: asIssueId(`scale-${at}`), priority: 2, seq: at + 1 })
+
+  /** Issue summary reads through the pool while `run` executes. */
+  function countSummaryReads(pool: MobxPool, run: () => void): number {
+    let reads = 0
+    const raw = pool.row.bind(pool) as (...args: unknown[]) => unknown
+    const spy = vi.spyOn(pool, 'row')
+    spy.mockImplementation(((...args: unknown[]) => {
+      if (args[0] === 'issue' && args[2] === 'summary') reads++
+      return raw(...args)
+    }) as never)
+    try {
+      run()
+    } finally {
+      spy.mockRestore()
+    }
+    return reads
+  }
+    return reads
+  }
+
+  it('re-reads one summary on an unrelated proposal edit, flat at 1x/4x', () => {
+    // The legacy arm reprojected every proposal on any summary touch: P
+    // summary reads plus ancestor walks per single-row update (P/4P). It
+    // reads ~25/100 summaries here and fails the flat bound below.
+    const cells: { scale: number; proposals: number; summaryReads: number }[] = []
+    for (const scale of [1, 4]) {
+      const count = 25 * scale
+      const opened = openScreeningPool(Array.from({ length: count }, (_, at) => proposal(at)))
+      try {
+        const first = opened.views.screening()
+        expect(first.booting).toBe(false)
+        expect(first.queue).toHaveLength(count)
+        const target = opened.issues[7]!
+        const summaryReads = countSummaryReads(opened.pool, () => {
+          opened.pool.apply({
+            type: 'update',
+            rows: [
+              {
+                kind: 'issue',
+                id: target.id,
+                value: { ...target, title: 'retitled proposal' } as never,
+              },
+            ],
+          })
+          const next = opened.views.screening()
+          expect(next.booting).toBe(false)
+          expect(next.queue).toEqual(first.queue)
+        })
+        cells.push({ scale, proposals: count, summaryReads })
+      } finally {
+        opened.dispose()
+      }
+    }
+    const [oneX, fourX] = cells
+    expect(fourX?.proposals).toBe((oneX?.proposals ?? 0) * 4)
+    // One touched summary re-reads its own entry; the other P-1 share the
+    // maintained branches. No ancestor walk: the touched root has no parent.
+    expect(oneX?.summaryReads).toBeLessThanOrEqual(3)
+    expect(fourX?.summaryReads).toBe(oneX?.summaryReads)
+  })
+
+  it('re-reads the touched entry when its queue position changes, flat at 1x/4x', () => {
+    const cells: { scale: number; summaryReads: number; head: string }[] = []
+    for (const scale of [1, 4]) {
+      const count = 25 * scale
+      const opened = openScreeningPool(Array.from({ length: count }, (_, at) => proposal(at)))
+      try {
+        const first = opened.views.screening()
+        expect(first.booting).toBe(false)
+        expect(first.queue[first.queue.length - 1]).toBe(opened.issues[0]!.id)
+        const target = opened.issues[0]!
+        let head = ''
+        const summaryReads = countSummaryReads(opened.pool, () => {
+          opened.pool.apply({
+            type: 'update',
+            rows: [
+              {
+                kind: 'issue',
+                id: target.id,
+                value: { ...target, priority: 0 } as never,
+              },
+            ],
+          })
+          const next = opened.views.screening()
+          expect(next.booting).toBe(false)
+          head = next.queue[0]!
+          expect(head).toBe(target.id)
+        })
+        cells.push({ scale, summaryReads, head })
+      } finally {
+        opened.dispose()
+      }
+    }
+    const [oneX, fourX] = cells
+    expect(oneX?.head).toBe('scale-0')
+    expect(fourX?.head).toBe('scale-0')
+    // The promoted entry re-reads once and takes one tree path; ordering
+    // re-derives from the maintained answer with no further row reads.
+    expect(oneX?.summaryReads).toBeLessThanOrEqual(3)
+    expect(fourX?.summaryReads).toBe(oneX?.summaryReads)
   })
 })
 

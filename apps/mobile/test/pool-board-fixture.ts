@@ -84,18 +84,33 @@ export async function readPoolTasks(
 }
 
 export function readPoolScreening(issues: readonly IssueViewModel[]) {
+  const opened = openScreeningPool(issues)
+  try {
+    const data = opened.views.screening()
+    if (data.booting) throw new Error('Resident screening fixture unexpectedly cold')
+    return data.queue
+  } finally {
+    opened.dispose()
+  }
+}
+
+/** A screening pool held open across publications, for incrementality guards:
+ * one baseline read warms the keeper, then each update re-reads only the
+ * changed keys instead of every proposal's summary. */
+export function openScreeningPool(issues: readonly IssueViewModel[]) {
   const pool = fixture(issues, new Map())
   pool.sources.register(['mobileInboxState'], {
     read: () => ({ hasCursor: true }),
     dispose() {},
   })
   const views = createMobileInboxViews(pool)
-  try {
-    const data = views.screening()
-    if (data.booting) throw new Error('Resident screening fixture unexpectedly cold')
-    return data.queue
-  } finally {
-    views.dispose()
-    pool.dispose()
+  return {
+    pool,
+    views,
+    issues,
+    dispose() {
+      views.dispose()
+      pool.dispose()
+    },
   }
 }
