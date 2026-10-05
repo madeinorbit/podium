@@ -35,7 +35,7 @@ import { useHub } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextIssues as useIssues,
-  useSessionContextMachines as useMachines,
+  useSessionContextMachine,
   useSessionContextIssue,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
@@ -185,20 +185,17 @@ export function SessionConversation({
     if (onOpenTerminalRef) onOpenTerminalRef(referencedIssue)
     else setPeekIssue(referencedIssue)
   }, [requestedRef, referencedIssue, onOpenTerminalRef])
-  const machines = useMachines()
+  const machine = useSessionContextMachine(session.machineId)
   const sessionId = session.sessionId
   const machineName = session.machineName
   // LIVE machine presence (this issue, POD-4830's desktop banner):
-  // session.machineId -> the store's live machines list, via the same
+  // session.machineId -> its named live machine row, via the same
   // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
   // banner — never a fabricated offline.
   const offlineMachineName = useMemo(() => {
-    const id = session.machineId
-    if (!id) return null
-    const machine = machines.find((m) => m.id === id)
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
     return machineName || 'This machine'
-  }, [machines, session.machineId, machineName])
+  }, [machine, machineName])
   const currentQuestion = useSessionContextQuestion(sessionId)
   const storedDraft = useSessionDraft(sessionId)
   const ports = useSessionConversationPorts(sessionId)

@@ -1,6 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asIssueId } from '@podium/model/browser'
+import { asIssueId, type MachineWire } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import {
   chatInteractions,
@@ -59,6 +59,8 @@ export function createMobileSessionReader(pool: MobxPool) {
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     sessions: () => chatReferenceSessions(pool),
     issues: () => chatMentionIssues(pool),
+    machine: (id: string | undefined): MachineWire | undefined =>
+      id === undefined ? undefined : pool.row('machine', id) as MachineWire | undefined,
     machines: () => pool.sessionPanes.machines(),
     spawnPending(id: string | undefined): Loaded<boolean> {
       if (id === undefined) return false

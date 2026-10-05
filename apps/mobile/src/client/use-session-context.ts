@@ -14,7 +14,6 @@ type Reader = MobileSessionRows['mobileSessionReader']
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_ISSUES: IssueViewModel[] = []
-const EMPTY_MACHINES: MachineWire[] = []
 
 /** Each pool projection owns one memoized reader, including while attaching. */
 function useRead<T>(read: (reader: Reader) => T, empty: T): T {
@@ -115,9 +114,9 @@ export function useSessionContextIssues(active = true) {
   )
   return useRead(read, EMPTY_ISSUES)
 }
-const machinesRead = (reader: Reader) => reader.machines()
-export function useSessionContextMachines() {
-  return useRead(machinesRead, EMPTY_MACHINES)
+export function useSessionContextMachine(id: string | undefined): MachineWire | undefined {
+  const read = useCallback((reader: Reader) => reader.machine(id), [id])
+  return useRead(read, undefined)
 }
 export function useSessionContextSpawnPending(id: SessionId | undefined) {
   const read = useCallback(
