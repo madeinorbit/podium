@@ -15,7 +15,7 @@ import { isMessageRecordAttention } from '@podium/model'
 import { createRepositoryUsageSelector, isSessionWorking, resolveDefaultAgent } from '@podium/client-core/values'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
-import { observable, runInAction } from 'mobx'
+import { computed, observable, reaction, runInAction } from 'mobx'
 import { vi } from 'vitest'
 import * as storeInputs from '@/app/store'
 
@@ -395,10 +395,12 @@ function useFixturePool(): MobxPool {
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: useFixturePool,
   useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
-    const next = read(useFixturePool())
-    const previous = useRef<{ value: T } | null>(null)
-    if (!previous.current || !isDeepStrictEqual(previous.current.value, next))
-      previous.current = { value: next }
-    return previous.current.value
+    const pool = useFixturePool()
+    const selected = useMemo(() => computed(() => read(pool), { equals: isDeepStrictEqual }), [pool, read])
+    const source = useMemo(() => ({
+      subscribe: (wake: () => void) => reaction(() => selected.get(), wake),
+      getSnapshot: () => selected.get(),
+    }), [selected])
+    return useSyncExternalStore(source.subscribe, source.getSnapshot)
   },
 }))

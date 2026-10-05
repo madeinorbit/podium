@@ -185,16 +185,23 @@ describe('keyed adapter inputs (POD-5433)', () => {
       }
     })
 
-    it(`a draft wakes only the chat context, once (${scale}x)`, async () => {
+    it(`a draft updates its addressed chat row without keyed adapter wakes (${scale}x)`, async () => {
       const f = await fixture(scale)
       try {
-        const cost = await costOf(f, () =>
-          referenceState(f.rt).setSessionDraft(asSessionId(f.session), 'hello'),
-        )
-        expect(cost).toEqual({ ...zero(cost), chatContext: cost.chatContext })
-        expect(cost.chatContext).toBeGreaterThan(0)
-        expect(cost.chatContext).toBeLessThanOrEqual(2)
-        expect(f.chat.read('chatDraft', f.session)).toEqual({ text: 'hello' })
+        const seen: unknown[] = []
+        const stop = autorun(() => { seen.push(f.chat.read('chatDraft', f.session)) })
+        const batches = f.chat.counts.batches
+        try {
+          const cost = await costOf(f, () =>
+            referenceState(f.rt).setSessionDraft(asSessionId(f.session), 'hello'),
+          )
+          expect(cost).toEqual(zero(cost))
+          expect(f.chat.counts.batches - batches).toBe(1)
+          expect(seen).toHaveLength(2)
+          expect(seen[1]).toEqual({ text: 'hello' })
+        } finally {
+          stop()
+        }
       } finally {
         f.dispose()
       }

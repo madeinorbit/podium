@@ -281,7 +281,18 @@ describe('SuperagentScreen chrome', () => {
       transcriptProps.length = 0
       composerProps.length = 0
     }
-    expect(samples[1]!.actions).toEqual(samples[0]!.actions)
+    // A warmed second owner may do less setup work. Every counted consumer
+    // must stay within the 1x bound, and raw transcript reads stay zero above.
+    for (const phase of ['restore', 'send', 'status'] as const) {
+      const before = samples[0]!.actions[phase].work
+      const after = samples[1]!.actions[phase].work
+      expect(after.derivations).toBeLessThanOrEqual(before.derivations)
+      expect(after.elements).toBeLessThanOrEqual(before.elements)
+      for (const [name, count] of Object.entries(after.derivationsBy))
+        expect(count).toBeLessThanOrEqual(before.derivationsBy[name] ?? 0)
+      for (const [name, count] of Object.entries(after.elementsBy))
+        expect(count).toBeLessThanOrEqual(before.elementsBy[name] ?? 0)
+    }
     console.log('[actual Superagent raw facts work1x4x]', JSON.stringify(samples))
   })
 
