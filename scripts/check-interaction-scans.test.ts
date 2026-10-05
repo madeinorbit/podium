@@ -314,3 +314,19 @@ describe('interaction scan census', () => {
     expect(pkg.scripts['lint:interaction-scans']).toBe('bun scripts/check-interaction-scans.ts')
   })
 })
+
+
+it('traces collection callbacks through the shared MobX helper barrel', () => {
+  const scans = scanSources({
+    'packages/client-graph/src/example.ts': `
+      import { keyedComputed } from '@podium/mobx-helpers'
+      const read = keyedComputed('rows', (key) => pool.queries.ids({ kind: 'boardIssues' }))
+      export function question() { return read('one').filter(id => id !== '') }
+    `,
+    'packages/mobx-helpers/src/index.ts': "export { keyedComputed } from './keyed-computed'",
+    'packages/mobx-helpers/src/keyed-computed.ts': `
+      export function keyedComputed(name, fn) { return key => fn(key) }
+    `,
+  })
+  expect(scans.some(scan => scan.file === 'packages/client-graph/src/example.ts' && scan.rule === 'consume:filter')).toBe(true)
+})
