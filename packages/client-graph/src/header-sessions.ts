@@ -80,14 +80,25 @@ export class HeaderSessions {
     }
     return aggregate
   }, compareStructural)
+  private readonly coldValue = cachedKey('pool.header', 'coldWorking', (id) => {
+    const evidence = this.coldWorking.get(id)
+    if (!evidence || this.pool.clock.passed(evidence.deadline)) return null
+    // Companion labels have tracked getters (POD-5485), and can change
+    // without publishing the session. Read them in the displayed derivation.
+    const row = this.pool.row('session', id, 'summary-fields') as SessionView | typeof LOADING | undefined
+    return row && row !== LOADING
+      ? headerWorkingSession(row, (deadline) => this.pool.clock.passed(deadline))
+      : evidence.working
+  }, compareStructural)
   private readonly roster = computed(() => {
     const values: WorkingSession[] = []
     for (const id of this.pool.header.sessionOrder.get()) {
       const value = this.resident(id).working
       if (value) values.push(value)
     }
-    for (const value of this.coldWorking.values()) {
-      if (!this.pool.clock.passed(value.deadline)) values.push(value.working)
+    for (const id of this.coldWorking.keys()) {
+      const value = this.coldValue(id)
+      if (value) values.push(value)
     }
     return values.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
   }, { equals: compareStructural })

@@ -5,7 +5,7 @@ import {
   isAgentConfirmedComputing,
   type MachineId,
 } from '@podium/model/browser'
-import { autorun, observe, runInAction } from 'mobx'
+import { autorun, observable, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { EMPTY_HOST_AGGREGATE } from './header-session'
@@ -131,6 +131,24 @@ function visits(pool: MobxPool) {
 }
 
 describe('incremental header sessions', () => {
+  it('tracks cold working labels without a session publication', () => {
+    const f = fixture(1), prefix = observable.box('FIRST'), read = f.pool.row.bind(f.pool)
+    const summary = session('cold-0', { agentState: state('working') })
+    Object.defineProperty(summary, 'displayRef', { enumerable: true, get: () => `${prefix.get()}-1-A` })
+    const row = vi.spyOn(f.pool, 'row').mockImplementation(((kind: string, id: string, mode?: string) =>
+      kind === 'session' && id === 'cold-0' && (mode === 'summary' || mode === 'summary-fields')
+        ? summary : (read as Function)(kind, id, mode)) as typeof f.pool.row)
+    let references: (string | undefined)[] = []
+    const stop = autorun(() => { references = f.pool.headerViews.working().map(value => value.displayRef) })
+    try {
+      expect(references).toEqual(['FIRST-1-A'])
+      runInAction(() => prefix.set('NEXT'))
+      expect(references).toEqual(['NEXT-1-A'])
+      expect(f.pool.tables.session.has('cold-0')).toBe(false)
+      expect(f.load).not.toHaveBeenCalled()
+    } finally { stop(); row.mockRestore(); f.dispose() }
+  })
+
   it('counts working sessions and adjusts history without visiting the roster at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {

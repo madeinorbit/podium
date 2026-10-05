@@ -256,7 +256,8 @@ it('releases header sessions with the attached history source when the last head
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: {
       ...row, agentState: { phase: 'working', since: stamp },
     } as never }] })
-    expect(f.history).toHaveBeenCalledTimes(initialHistory + 1)
+    expect(f.pool.headerViews.workingCount()).toBe(1)
+    expect(f.history).toHaveBeenCalledTimes(initialHistory)
     await Promise.resolve()
     stop()
     expect(dispose).toHaveBeenCalledTimes(1)
