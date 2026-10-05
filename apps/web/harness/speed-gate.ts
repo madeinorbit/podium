@@ -39,6 +39,18 @@ type Machine = {
   platform: string
   browser: string
 }
+type MissionClicks = {
+  scale: 1 | 4
+  targets: string[]
+  firstClickMs: number
+  revisitMs: number
+}
+type MissionClickBaseline = {
+  sourceSha: string
+  machine: Machine
+  seed: 4443
+  missionClicks: MissionClicks[]
+}
 type Baseline = {
   version: 1
   sourceSha: string
@@ -72,6 +84,8 @@ const value = (name: string, fallback: string) =>
 const calibrate = args.includes('--calibrate')
 const promote = args.includes('--promote')
 const structuralOnly = args.includes('--structural-only')
+const missionClicksOnly = args.includes('--mission-clicks-only')
+const missionBaselinePath = value('mission-click-baseline', '')
 const delayMs = Number(value('plant-delay-ms', '0'))
 const root = resolve('.artifacts/speed-gate')
 const buildDir = resolve(root, 'build')
@@ -97,6 +111,8 @@ async function main() {
         '--calibrate --baseline-ref=<landed SHA/ref>: initial baseline only, two runs to measure noise.\n' +
         '--plant-delay-ms=50: plant a synchronous delay in the sidebar click path (expected red).\n' +
         '--promote: commit-ready baseline from the saved green run after its source lands; no rerun.\n' +
+        '--mission-clicks-only: diagnostic first click and revisit once at 1×/4×; no structural or five-action gate and no promotion.\n' +
+        '--mission-click-baseline=<json>: add those cold captures to the normal gate and compare with the saved pre-change capture.\n' +
         '--switch=<urlKey>=<0|1>: repeatable startup URL overrides; other settings stay fixed.\n' +
         '--lease-confirmed: caller already holds bench:flatblock (remote capture).',
     )
@@ -104,10 +120,13 @@ async function main() {
   }
   for (const arg of args)
     if (
-      !['--calibrate', '--promote', '--lease-confirmed', '--structural-only'].includes(arg) &&
+      ![
+        '--calibrate', '--promote', '--lease-confirmed', '--structural-only', '--mission-clicks-only',
+      ].includes(arg) &&
       !arg.startsWith('--plant-delay-ms=') &&
       !arg.startsWith('--switch=') &&
-      !arg.startsWith('--baseline-ref=')
+      !arg.startsWith('--baseline-ref=') &&
+      !arg.startsWith('--mission-click-baseline=')
     )
       throw new Error(`Unknown argument ${arg}`)
   const switches = parseSpeedSwitches(args)
@@ -123,10 +142,15 @@ async function main() {
   if (calibrate && promote) throw new Error('Choose calibration or promotion')
   if (structuralOnly && (calibrate || promote || delayMs))
     throw new Error('Structural-only cannot measure or promote timing')
+  if (
+    (missionClicksOnly || missionBaselinePath) &&
+    (calibrate || promote || structuralOnly || delayMs)
+  )
+    throw new Error('Mission click capture cannot calibrate, promote, plant delays or run structural-only')
 
   // Structural work is a separate, untimed process: no instrumentation in the
   // production browser and no benchmark lease held across a focused test lane.
-  if (!promote) {
+  if (!promote && !missionClicksOnly) {
     const status = await new Promise<number | null>((done, reject) => {
       const child = spawn(process.execPath, ['run', 'speed:structural'], { stdio: 'inherit' })
       child.once('error', reject)
@@ -250,7 +274,12 @@ async function main() {
       void cleanup().finally(() => process.exit(130))
     })
 
-  async function openPage(surface: 'sidebar' | 'full' | 'page', origin: string, measured = false) {
+  async function openPage(
+    surface: 'sidebar' | 'full' | 'page',
+    origin: string,
+    measured = false,
+    scale: 1 | 4 = 4,
+  ) {
     const context = await browser!.newContext({
       viewport: { width: 1800, height: 1000 },
       reducedMotion: 'reduce',
@@ -315,7 +344,7 @@ async function main() {
     )
     await page.goto(
       speedSwitchUrl(
-        `${origin}/test/sidebar-acceptance.browser.html?scale=4&surface=${surface}&panelMode=chat${measured ? '&measure=1' : ''}`,
+        `${origin}/test/sidebar-acceptance.browser.html?scale=${scale}&surface=${surface}&panelMode=chat${measured ? '&measure=1' : ''}`,
         switches,
       ),
     )
@@ -333,10 +362,10 @@ async function main() {
     if (
       state.mode !== 'pool' ||
       !state.pool ||
-      (state.issues ?? 0) < 19_000 ||
-      (state.sessions ?? 0) < 17_000
+      (state.issues ?? 0) < 4_750 * scale ||
+      (state.sessions ?? 0) < 4_250 * scale
     )
-      throw new Error(`Wrong 4× pool fixture: ${JSON.stringify(state)}`)
+      throw new Error(`Wrong ${scale}× pool fixture: ${JSON.stringify(state)}`)
     return { page, cdp: await context.newCDPSession(page), context, errors }
   }
   async function settle(page: Page) {
@@ -571,6 +600,51 @@ async function main() {
     }
   }
 
+  async function coldMissions(origin: string, before?: MissionClickBaseline) {
+    const results: MissionClicks[] = []
+    for (const scale of [1, 4] as const) {
+      // A fresh context starts with no selected mission, so the first click has
+      // no observed pane/model. Switching away unmounts it before the revisit.
+      const full = await openPage('full', origin, false, scale)
+      try {
+        if (await full.page.evaluate(() => window.__acceptance.state().selected))
+          throw new Error('Cold mission capture needs an unselected fixture')
+        const ids = await full.page.locator('[data-issue-row]').evaluateAll((nodes) => [
+          ...new Set(nodes.filter((node) => node.getClientRects().length)
+            .map((node) => node.getAttribute('data-issue-row')!)),
+        ])
+        const prior = before?.missionClicks.find((clicks) => clicks.scale === scale)
+        // Run the same legacy shape preflight in both arms; it must not warm
+        // only the old product while the new product starts with cold rows.
+        const shapes = (await full.page.evaluate((ids) => window.__acceptance.shape(ids), ids))
+          .filter((shape) => shape.root && shape.rows > 0)
+          .sort((a, b) => b.rows - a.rows || a.id.localeCompare(b.id))
+        const targets = prior?.targets ?? shapes.slice(0, 2).map((shape) => shape.id)
+        if (targets.length !== 2 || targets.some((id) => !ids.includes(id)))
+          throw new Error(`Missing cold mission targets at ${scale}×`)
+        const click = async (id: string) => {
+          const ms = await capture(
+            full, 'mission-switch', row(id),
+            { selector: `[data-fixture-mission="${id}"] [data-testid="flight-deck-scroller"]` },
+            () => full.page.locator(row(id)).first().click(),
+          )
+          if ((await full.page.evaluate(() => window.__acceptance.state().selected)) !== id)
+            throw new Error('Cold mission click routed to the wrong issue')
+          return round(ms)
+        }
+        const firstClickMs = await click(targets[0]!)
+        await full.page.locator(row(targets[1]!)).first().click()
+        await settle(full.page)
+        const revisitMs = await click(targets[0]!)
+        results.push({ scale, targets, firstClickMs, revisitMs })
+        console.log(`${scale}× mission: first ${firstClickMs} ms; revisit ${revisitMs} ms (one capture each)`)
+      } finally {
+        await full.context.close()
+      }
+    }
+    return results
+  }
+
   let exitCode = 2
   try {
     console.log(
@@ -638,6 +712,17 @@ async function main() {
     }
     if (baseline && !same(machine, baseline.machine))
       throw new Error('Machine/browser differs from the landed baseline; no timing comparison made')
+    const missionBefore: MissionClickBaseline | undefined = missionBaselinePath
+      ? JSON.parse(await readFile(resolve(missionBaselinePath), 'utf8'))
+      : undefined
+    if (
+      missionBefore &&
+      (!same(machine, missionBefore.machine) || missionBefore.seed !== 4443 ||
+        [1, 4].some((scale) => !missionBefore.missionClicks.some((clicks) =>
+          clicks.scale === scale && clicks.targets.length === 2 &&
+          clicks.firstClickMs > 0 && clicks.revisitMs > 0)))
+    )
+      throw new Error('Mission comparison needs both scales on the same machine/browser and seed')
     if (!args.includes('--lease-confirmed')) {
       const grant = await podium([
         'lock',
@@ -655,6 +740,20 @@ async function main() {
     }
     const runs: Awaited<ReturnType<typeof suite>>[] = []
     console.log(`Production build and browser ready: ${round((performance.now() - began) / 1000)}s`)
+    const missionClicks = missionClicksOnly || missionBefore
+      ? await coldMissions(origin, missionBefore)
+      : undefined
+    if (missionClicksOnly) {
+      await writeFile(resolve(root, 'mission-clicks.json'), JSON.stringify({
+        sourceSha, captureSha, dirtyProduct, machine, seed: 4443, missionClicks,
+        metric: 'trusted pointerdown to first Chromium Paint after expected mission DOM change',
+        diagnosticOnly: true,
+        runtimeSeconds: round((performance.now() - began) / 1000),
+      }, null, 2) + '\n')
+      console.log('MISSION CLICK CAPTURE ONLY — structural and five-action gates were not run; no baseline promoted.')
+      exitCode = 0
+      return
+    }
     for (let i = 0; i < (calibrate ? NOISE_RUNS : 1); i++) {
       if (i) {
         await browser.close()
@@ -688,6 +787,12 @@ async function main() {
       : ACTIONS.filter(
           (action) => latest.actions[action].medianMs > baseline!.actions[action].medianMs * 1.1,
         )
+    const missionRegressions = missionClicks?.flatMap((clicks) => {
+      const prior = missionBefore!.missionClicks.find((before) => before.scale === clicks.scale)!
+      return (['firstClickMs', 'revisitMs'] as const)
+        .filter((kind) => clicks[kind] > prior[kind])
+        .map((kind) => ({ scale: clicks.scale, kind, beforeMs: prior[kind], afterMs: clicks[kind] }))
+    }) ?? []
     const report = {
       version: 1,
       sourceSha,
@@ -707,7 +812,10 @@ async function main() {
       baselineSha: baseline?.sourceSha,
       baselineActions: baseline?.actions,
       regressions,
-      passed: !regressions.length,
+      missionClicks,
+      missionBaselineSha: missionBefore?.sourceSha,
+      missionRegressions,
+      passed: !regressions.length && !missionRegressions.length,
       runtimeSeconds: round((performance.now() - began) / 1000),
       ...speedSwitchReport(switches),
     }
@@ -742,6 +850,8 @@ async function main() {
         console.log(
           `${regressions.includes(action) ? 'RED' : 'green'} ${action}: ${latest.actions[action].medianMs} ms / landed ${baseline.actions[action].medianMs} ms (${round((latest.actions[action].medianMs / baseline.actions[action].medianMs - 1) * 100)}%)`,
         )
+    for (const regression of missionRegressions)
+      console.log(`RED ${regression.scale}× mission ${regression.kind}: ${regression.afterMs} ms / before ${regression.beforeMs} ms`)
     console.log(
       `${report.passed ? 'SPEED GATE GREEN' : 'SPEED GATE RED'} — ${report.runtimeSeconds}s including production build; ${resolve(root, 'last-run.json')}`,
     )
