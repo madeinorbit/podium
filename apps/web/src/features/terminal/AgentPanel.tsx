@@ -1,3 +1,7 @@
+import type { Trpc } from '@/app/trpc'
+import { useStoreHandle } from '@podium/client-core/react'
+import { observe, reaction } from 'mobx'
+import { useConversation } from '@/features/chat/use-conversation'
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 
@@ -31,7 +35,7 @@ import {
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { usePendingSpawnPrompt, useRuntimeActions, useRuntimeDraftRef } from '@/app/keyed-runtime'
+import { usePendingSpawnPrompt, useRuntimeActions } from '@/app/keyed-runtime'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
@@ -527,7 +531,9 @@ export function AgentPanel({
   // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
-  useRuntimeDraftRef(sessionId, draftRef)
+  const conversation = useConversation(sessionId, { deferInitialTranscript: !spawnConfirmed, initialPendingText: optimisticFirstPrompt })
+  const runtime = useStoreHandle<Trpc>()
+  useEffect(() => reaction(() => runtime.drafts.get(sessionId), text => { draftRef.current = text }, { fireImmediately: true }), [runtime, sessionId])
   // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
   // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
   // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
@@ -780,25 +786,32 @@ export function AgentPanel({
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
 
-  // Subscribe to the transcript to build the bounded, incrementally-maintained
-  // path index for the file-link provider. The hub forwards per-frame DELTAS;
-  // reset/re-attach starts the index over, while ordinary frames mutate one
-  // owned Set instead of cloning the entire transcript history.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mountedRef is a stable ref from useTerminalSession, not app state
+  // File links share the conversation's stream and frozen items with chat.
   useEffect(() => {
-    fileLinkPathsRef.current.reset()
-    return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
-      if (meta.reset) fileLinkPathsRef.current.reset()
-      fileLinkPathsRef.current.add(delta)
-      mountedRef.current?.view.setFileLinks({
-        cwd: session?.cwd ?? '/',
-        // TerminalView/file-link-provider only reads this set. Its stable
-        // identity lets each delta update membership without another full copy.
-        knownPaths: fileLinkPathsRef.current.knownPaths,
-        onOpen: (abs) => openFile(sessionId, abs),
-      })
+    if (!conversation) return
+    const paths = fileLinkPathsRef.current
+    const log = conversation.transcript
+    const publish = () => mountedRef.current?.view.setFileLinks({
+      cwd: session?.cwd ?? '/', knownPaths: paths.knownPaths,
+      onOpen: abs => openFile(sessionId, abs),
     })
-  }, [hub, sessionId, session?.cwd, openFile])
+    paths.reset()
+    paths.add(log.items)
+    publish()
+    const stopItems = observe(log.byId, change => {
+      if (change.type === 'delete') return
+      paths.add([change.newValue])
+      publish()
+    })
+    const stopOrder = reaction(() => log.ids.slice(), (ids, before) => {
+      if (before.some(id => !log.byId.has(id))) {
+        paths.reset()
+        paths.add(log.items)
+        publish()
+      }
+    })
+    return () => { stopItems(); stopOrder() }
+  }, [conversation, mountedRef, sessionId, session?.cwd, openFile])
 
   // Keep the provider's cwd and open callback current even when the session's
   // transcript has not emitted a new delta yet (for example after a reconnect

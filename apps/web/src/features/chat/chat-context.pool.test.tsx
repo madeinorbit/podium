@@ -65,7 +65,7 @@ const handle = {
   subscribe: (_listener: () => void) => () => {},
   readLocal: (key: import('@podium/client-core/engine').LocalKey) =>
     f.fixture!.owner.readLocal(key),
-  onDraft: (listener: (id: string) => void) => f.fixture!.owner.onDraft(listener),
+  get drafts() { return f.fixture!.owner.drafts },
 }
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
@@ -114,13 +114,12 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
   EffortPicker: () => null,
 }))
 
-import { useRuntimeDraft } from '@/app/keyed-runtime'
+import { observer } from 'mobx-react-lite'
 import { ChatComposer } from './ChatComposer'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import {
   useChatArtifactIssue,
   useChatContextWindow,
-  useChatConversationPorts,
   useChatDraft,
   useChatInteractions,
   useChatIssueSeq,
@@ -134,7 +133,8 @@ import {
   useChatThreads,
   useChatThread,
 } from './use-chat-context'
-import { useChatSend } from './use-chat-send'
+import { useChatConversationPorts } from './test-support/conversation-ports'
+import { useModelSend } from './test-support/model-send'
 
 beforeEach(async () => {
   f.guard = true
@@ -153,6 +153,7 @@ beforeEach(async () => {
 afterEach(() => {
   cleanup()
   f.fixture?.pool.dispose()
+  f.fixture?.owner.drafts.dispose()
   f.pool = null
   f.fixture = undefined
   f.listeners.clear()
@@ -410,11 +411,11 @@ it('keeps hooks stable through null-pool attachment and restores saved controlle
   f.guard = true
   const graph = f.pool
   f.pool = null
-  const restored: ReturnType<typeof useChatSend>[] = []
+  const restored: ReturnType<typeof useModelSend>[] = []
   const blocks: [] = []
   function Send() {
     const id = f.fixture!.sessions[0]!.sessionId
-    const value = useChatSend({
+    const value = useModelSend({
       sessionId: id,
       trpc: { messages: { records: { query: async () => ({ records: [] }) } } } as never,
       sendChat: vi.fn(async () => ({ state: 'sent' as const })),
@@ -583,7 +584,7 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   corpus.discardHeld()
   const id = corpus.sessions[0]!.sessionId
   const outside = { shell: 0, transcript: 0 }
-  let send!: ReturnType<typeof useChatSend>
+  let send!: ReturnType<typeof useModelSend>
   const blocks: [] = []
   const options = {
     sessionId: id,
@@ -617,8 +618,8 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
     return <div>Transcript</div>
   }
   const composerRef = createRef<HTMLTextAreaElement>()
-  function Composer() {
-    const draft = useRuntimeDraft(id)
+  const Composer = observer(function Composer() {
+    const draft = send.conversation.draft
     return (
       <ChatComposer
         taRef={composerRef}
@@ -645,10 +646,11 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
         transcriptSettled
       />
     )
-  }
+  })
+
   function Shell() {
     outside.shell++
-    send = useChatSend(options)
+    send = useModelSend(options)
     return (
       <>
         <Transcript />

@@ -1,21 +1,12 @@
-import {
-  headlessConversationCanInterrupt,
-  nativeSessionCanInterrupt,
-} from '@podium/client-core/conversation'
-import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
 import {
-  type AskAnswerChoice,
   type ChatActivity,
   type ChatRow,
   type ChatSessionReference,
-  type ChatVerbosity,
   type ComposerState,
   chatActivityState,
   chatSessionReference,
   composerState,
-  isOperatorPrompt as isOperatorPromptOf,
   isOperatorPromptRow as isOperatorPromptRowOf,
   lastAnswer as lastAnswerOf,
   livePendingAskIndex as livePendingAskIndexOf,
@@ -40,7 +31,7 @@ import {
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
-import { useRuntimeSelector } from '@/app/store'
+import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import type { ChatBlock, PendingItem } from './chat'
@@ -48,41 +39,22 @@ import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import {
   useChatContextWindow,
   useChatInteractions,
-  useChatIssueSeq,
   useChatSession,
   useChatSessionExitKind,
-  useChatThread,
 } from './use-chat-context'
-import { useChatSend } from './use-chat-send'
-import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
+import type { WebConversation } from './use-conversation'
+import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 import { useTranscriptReveal } from './use-transcript-reveal'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
-import { type TurnPreview, useTurnPreview } from './use-turn-preview'
-import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
 
-/**
- * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
- * assembled, so `ChatView` can be a shell.
- *
- * Three inputs meet here and nowhere else:
- *
- *  - the STORE (the addressed session, actions seam, and the principal's
- *    superagent threads), read through keyed/scalar selectors;
- *  - the TRANSCRIPT WINDOW (`useTranscriptWindow`: the disk read, the live tail,
- *    back-paging and the bounded render window);
- *  - the CHAT SLICE (`@podium/client-core/values`), which answers every
- *    view-model question over those two as pure functions.
- *
- * Nothing here derives. Every `useMemo` below is a call INTO the slice, kept
- * memoized only so React can skip work — delete the memo and the answers are
- * identical, which is the property that makes the slice the single definition.
- *
- * The parts with their own lifecycles (headless turn routing, sending and
- * pending reconciliation, attachments, scroll anchoring) are their own hooks;
- * this composes them and hands the shell one object.
- */
+import { RENDER_WINDOW } from './conversation-presentation'
+import type { TranscriptFreshness } from '@podium/client-core/transcript'
 
-export interface UseChatSurfaceOptions {
+/** DOM-only layout: attachments, scroll anchoring, search navigation and reveal.
+ * Live transcript, drafts, sends and overlays belong to the warm conversation. */
+
+export interface UseChatLayoutOptions {
+  conversation: WebConversation
   sessionId: SessionId
   active: boolean
   superThread: SuperThreadRef | undefined
@@ -94,6 +66,7 @@ export interface UseChatSurfaceOptions {
 }
 
 export interface ChatSurface {
+  conversation: WebConversation
   // -- identity and the partial world ----------------------------------------
   session: SessionView | undefined
   /** The chat's own referent. `not-visible` is an eviction, not a deletion. */
@@ -112,7 +85,7 @@ export interface ChatSurface {
   attached: { sessionId: SessionId; label: string; clear: () => void } | null
 
   // -- the transcript --------------------------------------------------------
-  blocks: ReturnType<typeof useTranscriptWindow>['blocks']
+  blocks: ChatBlock[]
   rows: ChatRow[]
   rowsToRender: readonly RenderableRow[]
   /** First windowed-in row: the base every rendered `[data-block]` index is
@@ -171,7 +144,7 @@ export interface ChatSurface {
   ctxSeq: number | null
   offer: SessionView['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
-  /** Decline the offer without answering it — see `useChatSend`. */
+  /** Decline the offer without answering it — the conversation model. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
   /** "not sent — retry" on a bubble the outbox gave up on: the same message,
@@ -187,7 +160,7 @@ export interface ChatSurface {
   activity: ChatActivity | null
 
   // -- headless superagent routing -------------------------------------------
-  headlessTurn: UseHeadlessTurnResult
+  headlessTurn: { turnRunning: boolean; overlay: HeadlessOverlay | null; turnError: string | null; restoredFailure: import('@podium/client-core/api').SuperagentTurnFailure | null }
   /** The in-progress half of the open turn (POD-2293): text still being written
    *  and tools still running, for sessions whose driver publishes fragments.
    *  Null for everyone else — a PTY chat is untouched. */
@@ -220,59 +193,23 @@ export interface ChatSurface {
   tldr: () => void
 }
 
-export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
+const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'tldrSession', 'clearAttachedSession', 'clearTranscriptReveal'] as const
+
+export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
+  const { conversation } = opts
+  const view = conversation.presentation
   const {
     sessionId,
     active,
     superThread,
     compact,
-    initialTurnRunning,
-    initialPendingText,
-    onInitialPendingSettled,
-    deferInitialTranscript,
   } = opts
 
-  const {
-    hub,
-    trpc,
-    replica,
-    setSessionDraft,
-    sendChat,
-    discardChat,
-    dismissOffer,
-    setPanelMode,
-    openFile,
-    httpOrigin,
-    tldrSession,
-    getUserFocus,
-    clearAttachedSession,
-    clearTranscriptReveal,
-  } = useRuntimeSelector(
-    (s) => ({
-      hub: s.hub,
-      trpc: s.trpc,
-      replica: s.replica,
-      setSessionDraft: s.setSessionDraft,
-      sendChat: s.sendChat,
-      discardChat: s.discardChat,
-      dismissOffer: s.dismissOffer,
-      setPanelMode: s.setPanelMode,
-      openFile: s.openFile,
-      httpOrigin: s.httpOrigin,
-      tldrSession: s.tldrSession,
-      getUserFocus: s.getUserFocus,
-      clearAttachedSession: s.clearAttachedSession,
-      clearTranscriptReveal: s.clearTranscriptReveal,
-    }),
-    shallowEqual,
-  )
+  const { trpc, openFile, httpOrigin, tldrSession, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
   const session = useChatSession(sessionId)
-  const machineWire = usePoolMachine(active ? session?.machineId : undefined)
+  const presenceOfflineMachineName = useChatMachinePresence(session, active)
   const sessionExitKind = useChatSessionExitKind(sessionId)
-  const storeHandle = useStoreHandle()
-  const getIssueSeq = useChatIssueSeq()
   const { attachedSessionId, transcriptReveal } = useChatContextWindow()
-  const superThreadRow = useChatThread(superThread?.threadId)
 
   // The chat's referent, resolved over a PARTIAL world. `exitKind` is optional
   // on the replica CONTRACT (POD-1510) — test fakes and the legacy TanStack
@@ -285,84 +222,26 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [sessionId, session, sessionExitKind],
   )
   const cwd = session?.cwd ?? '/'
-  const headless = session?.headless === true
-
-  // LIVE machine presence (POD-4808 review, POD-4830): session.machineId ->
-  // the pool's named machine row. Unknown (no row) reads as no banner — never a
-  // fabricated offline. Defensive against partial test stores. Reads the
-  // live-terminal predicate (online OR daemon), not just `online`: a supervised
-  // daemon loss keeps `online` true while the execution plane is gone, and the
-  // transcript offline flag + `requireOnlineSession` already read the daemon.
-  const presenceOfflineMachineName =
-    machineWire && isMachineOfflineForLiveTerminal(machineWire)
-      ? (session?.machineName ?? machineWire.name ?? session?.machineId ?? null)
-      : null
-  const machineOnline = machineWire ? !isMachineOfflineForLiveTerminal(machineWire) : undefined
+  const headless = superThread !== undefined || session?.headless === true
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const [followTail, setFollowTail] = useState(true)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [lightbox, setLightbox] = useState<string | null>(null)
-  const [query, setQueryState] = useState('')
-  const [matchCursor, setMatchCursor] = useState(0)
-  const lastSubmittedPromptRef = useRef<string | null>(initialPendingText ?? null)
-
-  // A mobile AgentPanel reuses one ChatView while switching sessions.
-  // Recollection is per-session; a stopped turn must never pull another
-  // session's prompt into this composer.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on session switch
-  useEffect(() => {
-    lastSubmittedPromptRef.current = initialPendingText ?? null
-  }, [sessionId, initialPendingText])
-
+  const query = view.query
   const stickyPrompts = useStickyPromptsPreference()
   // The superagent side panel is too short to give a pinned prompt anywhere to
   // go, so sticky questions are suppressed there regardless of the preference.
   const stickyEnabled = stickyPrompts.enabled && !compact
 
-  // TRANSCRIPT DETAIL IS NOT A SETTING ANY MORE (POD-993). It was three levels
-  // behind a rail popover — summary / normal / verbose — and normal was both the
-  // default and the one anybody used; the other two were a control the reader
-  // met once and then carried forever, with a search-override rule attached to
-  // keep `summary` from hiding its own hits. The feed renders `normal`, always,
-  // and a run that a reader wants opened is opened by clicking it. The plumbing
-  // below still takes the value because the compute worker is written in terms
-  // of it — one constant, one place.
-  const verbosity: ChatVerbosity = 'normal'
-
-  const {
-    items: transcriptItems,
-    blocks,
-    rows,
-    visibleRows,
-    renderStart,
-    moreAbove,
-    loadingOlder,
-    deepeningSearch,
-    initialLoaded,
-    transcriptFreshness,
-    offlineAsOf,
-    offlineMachineName,
-    loadOlder,
-    ensureSearchDepth,
-    setRenderCount,
-    search,
-    markdownHtml,
-    computeReady,
-  } = useTranscriptWindow({
-    sessionId,
-    hub,
-    trpc,
-    replica,
-    active,
-    session,
-    deferInitialRead: deferInitialTranscript,
-    verbosity,
-    query,
-    cursor: matchCursor,
-    machineOnline,
-    followTail,
-  })
+  const { blocks, rows, visibleRows, renderStart, deepeningSearch, computeReady, markdownHtml } = view
+  const log = conversation.transcript
+  const { loadingOlder, initialLoaded } = log
+  const moreAbove = renderStart > 0 || (log.hasMoreOlder && log.head !== undefined)
+  const loadOlder = useCallback(() => { void view.loadOlder().catch(() => {}) }, [view])
+  const setRenderCount = view.setRenderCount
+  const search = view.search
+  useEffect(() => view.setFollowTail(followTail), [view, followTail])
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
   // web module; the slice takes it as an injected resolver so the predicate has
@@ -402,14 +281,6 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [need, session?.status, session?.agentState?.phase, livePendingAskIndex],
   )
   const answer = useMemo(() => lastAnswerOf(blocks), [blocks])
-  const latestOperatorPrompt = useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const item = blocks[i]?.item
-      if (!item || !isOperatorPromptOf(item, promptOptions)) continue
-      return parseEnvelopeBatch(item.text)?.operatorText ?? item.text
-    }
-    return null
-  }, [blocks, promptOptions])
   // Derived once per session, not once per row: the pair depends on the row's
   // ROLE and the session and on nothing else, so three stable objects serve the
   // whole transcript and the memoized block views keep skipping renders.
@@ -451,146 +322,41 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     clear: clearTranscriptReveal,
   })
 
-  // THE THREAD'S BACKEND (POD-782) — what the prompt box's two pills read and
-  // write. The stored value lives on the thread (so it survives a reload and is
-  // the same on every client), and a fresh pick is held locally until the send
-  // that carries it lands, which is what lets picking and sending be one act
-  // rather than a settings detour.
-  const [backendPick, setBackendPick] = useState<{
-    agentKind?: string | null
-    model?: string
-    effort?: string
-  }>({})
-  const backend = useMemo(() => {
-    const model = backendPick.model ?? superThreadRow?.model ?? 'auto'
-    // A model override pins the connector it was picked from. Auto (no model)
-    // follows Settings, so the rail does not pretend a frozen harness is a
-    // choice — the menu still lists every connector.
-    const agentKind =
-      backendPick.agentKind !== undefined
-        ? (backendPick.agentKind ?? undefined)
-        : model !== 'auto'
-          ? superThreadRow?.agentKind
-          : undefined
-    return {
-      agentKind,
-      model,
-      effort: backendPick.effort ?? superThreadRow?.effort ?? 'auto',
-    }
-  }, [superThreadRow, backendPick])
-  const setBackendModel = useCallback((model: string, agentKind?: string) => {
-    // Effort is scoped to the model (a model can narrow the ladder or support
-    // none), so changing the model resets it — as every other picker pair does.
-    setBackendPick((p) => ({
-      ...p,
-      model,
-      agentKind: model === 'auto' ? null : (agentKind ?? p.agentKind),
-      effort: 'auto',
-    }))
-  }, [])
-  const setBackendEffort = useCallback((effort: string) => {
-    setBackendPick((p) => ({ ...p, effort }))
-  }, [])
-
-  /**
-   * THE STREAMED TURN (POD-2293), for every session — not only headless ones.
-   *
-   * `useHeadlessTurn` above is the SUPERAGENT thread's overlay and is inert
-   * without one. This is a different plane with a different producer: any
-   * session whose driver publishes fragments, which is every headless RUNTIME
-   * family. A session that publishes none simply never gets a frame, so the
-   * hook costs one idle subscription and renders nothing.
-   */
-  const turnPreview = useTurnPreview(sessionId, hub)
-
-  const headlessTurn = useHeadlessTurn({
-    sessionId,
-    hub,
-    trpc,
-    headless,
-    superThread,
-    backend: { model: backend.model, effort: backend.effort, agentKind: backend.agentKind },
-    initialTurnRunning,
-    blockCount: blocks.length,
-    transcriptItems,
-  })
-
-  const composer = useMemo(
-    () =>
-      composerState({
-        session,
-        headless,
-        turnRunning: headlessTurn.turnRunning,
-        compact,
-      }),
-    [session, headless, headlessTurn.turnRunning, compact],
-  )
-
-  // Per doc §3.1.6 S2 the authority scopes `listThreads` to the caller, so the
-  // addressed source row proves membership for the selected thread. The
-  // route needs only this membership, so a foreign or pending ID is refused.
-  const ownThreadIds = useMemo(
-    () => (superThread ? new Set(superThreadRow ? [superThreadRow.id] : []) : undefined),
-    [superThread, superThreadRow],
-  )
+  const setBackendModel = conversation.setBackendModel
+  const setBackendEffort = conversation.setBackendEffort
+  const headlessTurn = {
+    get turnRunning() { return conversation.turnRunning },
+    get overlay() { return conversation.headless },
+    get turnError() { return conversation.turnError ?? conversation.visibleFailure?.error ?? null },
+    get restoredFailure() { return conversation.visibleFailure },
+  }
 
   const attachments = useAttachments({ sessionId, trpc })
-  const canInterrupt = headless
-    ? headlessConversationCanInterrupt(superThread !== undefined, headlessTurn.turnRunning)
-    : nativeSessionCanInterrupt(session?.status)
 
-  const send = useChatSend({
-    sessionId,
-    observeDraft: false,
-    trpc,
-    hub,
-    sendChat,
-    discardChat,
-    dismissOffer,
-    setPanelMode,
-    setSessionDraft,
-    getUserFocus,
-    attachedSessionId,
-    clearAttachedSession,
-    getIssueSeq,
-    headless,
-    superThread,
-    compact,
-    composer,
-    ownThreadIds,
-    blocks,
-    session,
-    headlessTurn,
-    canInterrupt,
-    latestOperatorPrompt: lastSubmittedPromptRef.current ?? latestOperatorPrompt,
-    pinToBottom: scroll.pinToBottom,
-    initialPendingText,
-    onInitialPendingSettled,
-  })
+  const sends = conversation.sends
+  const send = useMemo(() => ({
+    get ready() { return conversation.ready },
+    get pending(): PendingItem[] { return sends.bubbles.map(bubble => bubble.error === undefined ? bubble : { ...bubble, failure: bubble.notice !== undefined || bubble.error.startsWith('not sent') ? bubble.error : `not delivered — ${bubble.error}` }) },
+    get justSent() { return sends.justSent },
+    get ctxSeq() { return conversation.ctxSeq },
+    get offer() { return sends.offer },
+    get canInterrupt() { return sends.canInterrupt },
+    get interruptError() { return sends.interruptError },
+    setDraft: (text: string) => { conversation.draft = text },
+    send: async (text: string, tags?: PendingItem['tags'], toolPaths?: string[], attachments?: readonly import('@podium/protocol/daemon').RuntimeAttachmentRef[]) => {
+      scroll.pinToBottom()
+      await sends.submit({ text, wire: text, tags, toolPaths, attachments })
+    },
+    sendOfferPrompt: async (prompt: string, at: string) => { scroll.pinToBottom(); await sends.sendOffer(prompt, at) },
+    dismissOffer: sends.dismissOffer.bind(sends),
+    retractQueuedMessage: sends.retract.bind(sends),
+    retryPending: sends.retry.bind(sends),
+    discardPending: sends.discard.bind(sends),
+    sendAgain: sends.sendAgain.bind(sends),
+    interrupt: sends.interrupt.bind(sends),
+  }), [conversation, sends, scroll.pinToBottom])
 
-  const phase = useMemo(
-    () =>
-      transcriptPhase({
-        reference,
-        blockCount: blocks.length,
-        pendingCount: send.pending.length,
-        initialLoaded: initialLoaded && computeReady,
-      }),
-    [reference, blocks.length, send.pending.length, initialLoaded, computeReady],
-  )
-
-  const activity = useMemo(
-    () =>
-      chatActivityState({
-        session,
-        headless,
-        turnRunning: headlessTurn.turnRunning,
-        justSent: send.justSent,
-      }),
-    [session, headless, headlessTurn.turnRunning, send.justSent],
-  )
-
-  const offer = headless ? null : send.offer
+  const phase = transcriptPhase({ reference, blockCount: blocks.length, pendingCount: conversation.hasPending ? 1 : 0, initialLoaded: initialLoaded && computeReady })
 
   // Draft: read from the store, written through the actions seam (POD-402) —
   // one call, no merge. See ChatComposer's header for the classification and why
@@ -603,7 +369,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       const { paths, legacyPaths, refs, tags } = attachments.ready()
       if (!text && paths.length === 0) return
       if (attachments.uploading) return
-      lastSubmittedPromptRef.current = text || null
+      conversation.rememberPrompt(text)
       attachments.clearReady()
       void send.send(
         legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
@@ -612,28 +378,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
         refs.length > 0 ? refs : undefined,
       )
     },
-    [attachments, send],
+    [attachments, send, conversation],
   )
 
   /**
    * Is a turn running, as far as this client can tell? Drives the VISIBLE stop
    * control, which should not sit on the floor of an idle composer.
-   */
-  const turnActive = headless
-    ? headlessTurn.turnRunning
-    : (session !== undefined && isAgentComputing(session)) || send.justSent
-  /**
-   * May a stop be ATTEMPTED? For a native session this is LIVENESS, not the
-   * observed phase (POD-1214).
-   *
-   * `agentState.phase` is the last thing the harness was seen doing, and the
-   * observation lags the agent. Gating the chord on it meant the exact moment
-   * you want out — the agent has gone quiet-but-busy, or the observer is a beat
-   * behind — was the moment two Escapes did nothing at all, silently, because
-   * the handler did not even take the keypress. Liveness is the honest gate:
-   * whether the key can safely be delivered is the SERVER's call (it holds the
-   * authoritative phase and the harness manifest), and its refusal now arrives
-   * here as {@link interruptError} instead of being swallowed.
    */
   const interrupt = useCallback(
     (draft: string) => {
@@ -678,19 +428,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // fast first paint rather than for recall [POD-1631] — so the first keystroke of
   // a query deepens the loaded window back to search depth. Off the paint path and
   // idempotent per session: a non-searching open never pays for it.
-  const setQuery = useCallback(
-    (q: string) => {
-      if (q.trim() !== '') ensureSearchDepth()
-      setQueryState(q)
-      setMatchCursor(0)
-    },
-    [ensureSearchDepth],
-  )
-  const moveMatchCursor = useCallback(
-    (delta: number) =>
-      setMatchCursor((c) => (c + delta + Math.max(1, search.total)) % Math.max(1, search.total)),
-    [search.total],
-  )
+  const setQuery = view.setQuery
+  const moveMatchCursor = view.moveCursor
 
   // Jump to the active search match. A match can sit ABOVE the rendered window
   // (search runs over all loaded blocks, the DOM holds only the trailing window),
@@ -714,8 +453,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
 
   const isMobile = useIsMobile()
   const tldr = useCallback(
-    () => void tldrSession(sessionId, answer.text),
-    [tldrSession, sessionId, answer.text],
+    () => void tldrSession(sessionId, lastAnswerOf(view.result?.blocks ?? []).text),
+    [tldrSession, sessionId, view],
   )
 
   // "ASK SUPERAGENT (BTW)", MADE VISIBLE (POD-1069). The attachment is a
@@ -743,8 +482,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
 
   return {
+    conversation,
     attached,
-    session,
+    get session() { return conversation.session },
     reference,
     gone: phase === 'gone',
     cwd,
@@ -758,12 +498,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     markdownHtml,
     phase,
-    transcriptFreshness,
+    get transcriptFreshness() { return log.freshness },
     moreAbove,
     loadingOlder,
     loadOlder: scroll.loadOlder,
-    offlineAsOf,
-    offlineMachineName,
+    get offlineAsOf() { return log.offlineAsOf },
+    get offlineMachineName() { return log.offlineMachineName },
     presenceOfflineMachineName,
     livePendingAskIndex,
     pendingAskBlock,
@@ -783,14 +523,17 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     deepeningSearch,
 
     setDraft,
-    composer: send.ready ? composer : { ...composer, deliverable: false, sendable: false },
+    get composer() {
+      const composer = composerState({ session: conversation.session, headless, turnRunning: conversation.turnRunning, compact })
+      return conversation.ready ? composer : { ...composer, deliverable: false, sendable: false }
+    },
     attachments,
     isMobile,
     taRef,
     submitDraft,
-    pending: send.pending,
-    ctxSeq: send.ctxSeq,
-    offer,
+    get pending() { return send.pending },
+    get ctxSeq() { return send.ctxSeq },
+    get offer() { return headless ? null : send.offer },
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
@@ -799,15 +542,15 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     sendAgain: send.sendAgain,
     answerAsk,
     answerInteractionId: currentQuestion?.id,
-    activity,
+    get activity() { return chatActivityState({ session, headless, turnRunning: conversation.turnRunning, justSent: sends.justSent }) },
 
     headlessTurn,
-    turnPreview,
-    turnActive,
-    canInterrupt: send.canInterrupt,
+    get turnPreview() { return conversation.preview },
+    get turnActive() { return headless ? conversation.turnRunning : (session !== undefined && isAgentComputing(session)) || send.justSent },
+    get canInterrupt() { return send.canInterrupt },
     interrupt,
-    interruptError: send.interruptError,
-    backend,
+    get interruptError() { return send.interruptError },
+    get backend() { return conversation.backend },
     setBackendModel,
     setBackendEffort,
 
@@ -821,4 +564,11 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     openFile,
     tldr,
   }
+}
+
+/** Presence follows only the addressed machine while the panel is visible. */
+export function useChatMachinePresence(session: SessionView | undefined, active: boolean): string | null {
+  const machine = usePoolMachine(active ? session?.machineId : undefined)
+  return machine && isMachineOfflineForLiveTerminal(machine)
+    ? session?.machineName ?? machine.name ?? session?.machineId ?? null : null
 }

@@ -1,3 +1,5 @@
+import { vi } from 'vitest'
+import { useConversation } from '../../../../../../packages/client-core/src/react/use-conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /**
  * The presence seam, stubbed for suites that render `AgentPanel` for reasons
@@ -29,8 +31,15 @@ const paneOwner = withKeyedInputs({
   subscribe: fakeStoreHandle.subscribe,
 })
 
+Object.defineProperties(paneOwner, { drafts: { get: () => fakeStoreHandle.drafts }, ownConversations: { value: fakeStoreHandle.ownConversations } })
+vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../../../packages/client-core/src/react/provider')>()),
+  useStoreHandle: () => paneOwner,
+}))
+
 export function presenceSeamStub(): Record<string, unknown> {
   return {
+    useConversation,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
     useStoreHandle: () => paneOwner,

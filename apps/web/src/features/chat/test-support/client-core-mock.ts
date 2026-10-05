@@ -14,3 +14,9 @@ vi.mock('@podium/client-core/react', async (importOriginal) => ({
   // against the bundled copy.
   useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
 }))
+
+// The shared lifecycle hook reads the provider module directly.
+vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../../../../packages/client-core/src/react/provider')>()),
+  ...(await import('./fake-store-handle').then(({ fakeStoreHandle }) => ({ useStoreHandle: () => fakeStoreHandle }))),
+}))

@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import type { ChatBlock } from './chat'
-import { RENDER_WINDOW } from './useTranscriptWindow'
+import { RENDER_WINDOW } from './conversation-presentation'
 
 export interface TranscriptReveal {
   nonce: number

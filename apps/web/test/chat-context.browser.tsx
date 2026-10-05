@@ -19,7 +19,6 @@ import { OfferArtifactStrip } from '../src/features/chat/OfferArtifactStrip'
 import {
   useChatArtifactIssue,
   useChatContextWindow,
-  useChatConversationPorts,
   useChatDraft,
   useChatInteractions,
   useChatIssueSeq,
@@ -32,7 +31,8 @@ import {
   useChatSessionExitKind,
   useChatThreads,
 } from '../src/features/chat/use-chat-context'
-import { useChatSend } from '../src/features/chat/use-chat-send'
+import { useConversation } from '../src/features/chat/use-conversation'
+import { observer } from 'mobx-react-lite'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
@@ -108,12 +108,12 @@ const attachments = {
   onPaste() {},
   onFileInputChange() {},
 }
-const noop = () => {},
-  emptyBlocks: [] = []
+const noop = () => {}
+
 storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
-function Surface() {
+const Surface = observer(function Surface() {
   const runtime = useStoreHandle() as ClientRuntime,
     pool = useWorklistPool()
   const session = useChatSession(id),
@@ -128,44 +128,19 @@ function Surface() {
     sessions = useChatReferenceSessions(),
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
-  const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never }),
-    ports = useChatConversationPorts(id)
-  // Keep the controller implementation and all mutations on the real owner.
-  const actions = referenceState(runtime)
-  const send = useChatSend({
-    sessionId: id,
-    trpc: actions.trpc as never,
-    hub: actions.hub,
-    sendChat: actions.sendChat,
-    discardChat: actions.discardChat,
-    dismissOffer: actions.dismissOffer,
-    setPanelMode: actions.setPanelMode,
-    setSessionDraft: actions.setSessionDraft,
-    getUserFocus: actions.getUserFocus,
-    attachedSessionId: window.attachedSessionId,
-    clearAttachedSession: actions.clearAttachedSession,
-    getIssueSeq: seq,
-    headless: false,
-    superThread: undefined,
-    compact: false,
-    composer: { sendable: true, canResume: false },
-    ownThreadIds: undefined,
-    blocks: emptyBlocks,
-    session,
-    headlessTurn: { sendTurn: noop, interrupt: noop } as never,
-    canInterrupt: false,
-    latestOperatorPrompt: null,
-    pinToBottom: noop,
-    initialPendingText: undefined,
-  })
+  const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never })
+  const actions = runtime.access
+  const conversation = useConversation(id)
+  const held = pool?.row('chatHeld', id)
+  const reader = pool?.row('chatContextReader', 'reader')
   const taRef = useRef<HTMLTextAreaElement>(null),
     fileInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     owner = runtime
     graph = pool
     if (!pool) sawUnattached = true
-    ready = !!session && send.ready && draft !== '' && !!pool
-  }, [runtime, pool, session, send.ready, draft])
+    ready = !!session && conversation?.ready && draft !== '' && !!pool
+  }, [runtime, pool, session, conversation?.ready, draft])
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-5 p-8">
       <h1 className="text-xl">Conversation context</h1>
@@ -185,18 +160,18 @@ function Surface() {
           refs: refs.length,
           repos,
           artifact: artifact?.id,
-          ready: ports.ready,
-          controllerReady: send.ready,
-          controllerDraft: send.draft,
-          held: ports.outbox.held().map((row) => row.mutationId),
-          records: ports.records.getSnapshot().map((row) => row.id),
+          ready: conversation?.ready,
+          conversationReady: conversation?.ready,
+          conversationDraft: conversation?.draft ?? '',
+          held: held && typeof held !== 'symbol' ? held.sends.map(row => row.mutationId) : [],
+          records: reader && typeof reader !== 'symbol' ? reader.records(id).records.map(row => row.id) : [],
         })}
       </output>
       <ChatComposer
         taRef={taRef}
         draft={draft}
-        onDraftChange={(text) => actions.setSessionDraft(id, text)}
-        deliverable={send.ready}
+        onDraftChange={(text) => runtime.drafts.set(id, text)}
+        deliverable={conversation?.ready}
         placeholder="Synthetic prompt"
         compact={false}
         isMobile={false}
@@ -232,7 +207,7 @@ function Surface() {
       )}
     </main>
   )
-}
+})
 const root = createRoot(document.getElementById('root')!)
 root.render(
   <StrictMode>

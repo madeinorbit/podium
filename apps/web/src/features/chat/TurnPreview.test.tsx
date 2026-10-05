@@ -14,7 +14,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
-import { type TurnPreview, useTurnPreview } from './use-turn-preview'
+import { Conversation, DraftStore, type TurnPreview } from '@podium/client-core/conversation'
+import { useEffect } from 'react'
 
 const SESSION = asSessionId('s1')
 
@@ -70,18 +71,25 @@ const frame = (over: Partial<TurnPreviewMessage> = {}): TurnPreviewMessage => ({
 
 /** Mount the hook alone and expose what it currently holds. */
 function mountHook(hub: unknown, sessionId = SESSION): { current: () => TurnPreview | null } {
-  let latest: TurnPreview | null = null
+  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  const source = hub as { on(kind: string, listener: (...args: never[]) => void): () => void }
+  const conversation = new Conversation({
+    sessionId, drafts, hub: hub as never,
+    scheduler: { visible: () => false, tasks: { schedule: callback => { callback() }, dispose: () => {} } },
+    connection: { connected: () => true, subscribe: listener => source.on('connectionHealth', ((health: { status: string }) => listener(health.status !== 'down')) as never) },
+    transcript: { source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} } },
+    sends: { createDeliveryId: () => 'test', deliver: async () => ({ state: 'sent' }) },
+  })
   function Probe(): null {
-    latest = useTurnPreview(sessionId, hub as never)
+    useEffect(() => { void conversation.start(); return () => { conversation.dispose(); drafts.dispose() } }, [])
     return null
   }
-  act(() => {
-    root.render(<Probe />)
-  })
-  return { current: () => latest }
+  act(() => root.render(<Probe />))
+  return { current: () => conversation.preview }
+
 }
 
-describe('useTurnPreview', () => {
+describe('Conversation preview', () => {
   it('holds the newest frame and ignores one that lost a race', () => {
     const { hub, emit } = fakeHub()
     const preview = mountHook(hub)

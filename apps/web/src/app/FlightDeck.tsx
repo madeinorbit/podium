@@ -127,7 +127,7 @@ import {
   deckTaskKey,
   useFlightDeckWindow,
 } from './flight-deck-window'
-import { useRuntimeDraft } from './keyed-runtime'
+import { useDraftValue } from './keyed-runtime'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { resolveFocus, useOperatorFocus } from './operator-focus'
@@ -3459,7 +3459,7 @@ export function FlightDeckContent({
   // the temporary mission brief; the title switches as soon as the optimistic
   // rename carries a non-placeholder value, before the server clears `draft`.
   const rootDisplayTitle = root ? (poolValues.titles.get(root.id) ?? root.title) : ''
-  const rootDraft = useRuntimeDraft(draftFilling ? rootSession?.sessionId : undefined)
+  const rootDraft = useDraftValue(draftFilling ? rootSession?.sessionId : undefined)
   /**
    * The header's one paragraph, resolved and rendered in one place (POD-1455).
    *

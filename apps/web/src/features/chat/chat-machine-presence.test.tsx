@@ -8,7 +8,7 @@ import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
-import { useChatSurface } from './use-chat-surface'
+import { useChatMachinePresence } from './use-chat-layout'
 
 const f = vi.hoisted(() => ({
   pool: null as MobxPool | null,
@@ -43,36 +43,6 @@ vi.mock('./use-chat-context', () => ({
 }))
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/lib/sticky-prompts', () => ({ useStickyPromptsPreference: () => ({ enabled: false }) }))
-vi.mock('./useTranscriptWindow', () => {
-  const items: never[] = []
-  const snapshot = {
-    items,
-    blocks: items,
-    rows: items,
-    visibleRows: items,
-    renderStart: 0,
-    moreAbove: false,
-    loadingOlder: false,
-    initialLoaded: true,
-    computeReady: true,
-    search: { total: 0 },
-    markdownHtml: new Map(),
-    loadOlder() {},
-    ensureSearchDepth() {},
-    setRenderCount() {},
-  }
-  return { RENDER_WINDOW: 120, useTranscriptWindow: () => snapshot }
-})
-vi.mock('./use-transcript-scroll', () => ({
-  useTranscriptScroll: () => ({ loadOlder() {}, scrollToBlock() {}, pinToBottom() {} }),
-}))
-vi.mock('./use-transcript-reveal', () => ({ useTranscriptReveal: () => undefined }))
-vi.mock('./use-turn-preview', () => ({ useTurnPreview: () => null }))
-vi.mock('./use-headless-turn', () => ({ useHeadlessTurn: () => ({ turnRunning: false }) }))
-vi.mock('./use-attachments', () => ({ useAttachments: () => ({}) }))
-vi.mock('./use-chat-send', () => ({
-  useChatSend: () => ({ pending: [], justSent: false, ready: true, offer: null }),
-}))
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -111,21 +81,13 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         { pool },
       )
     let view:
-      | ReturnType<typeof renderHook<ReturnType<typeof useChatSurface>, { active: boolean }>>
+      | ReturnType<typeof renderHook<{ presenceOfflineMachineName: string | null; setBackendEffort: (value: string) => void }, { active: boolean }>>
       | undefined
     try {
       const closedBefore = await measure(() => {
-        view = renderHook<ReturnType<typeof useChatSurface>, { active: boolean }>(
+        view = renderHook<{ presenceOfflineMachineName: string | null; setBackendEffort: (value: string) => void }, { active: boolean }>(
           ({ active }: { active: boolean }) =>
-            useChatSurface({
-              sessionId: asSessionId('chat'),
-              active,
-              superThread: undefined,
-              compact: false,
-              initialTurnRunning: false,
-              initialPendingText: undefined,
-              deferInitialTranscript: true,
-            }),
+            ({ presenceOfflineMachineName: useChatMachinePresence(f.session, active), setBackendEffort: () => {} }),
           { initialProps: { active: false } },
         )
       })

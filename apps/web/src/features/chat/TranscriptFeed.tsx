@@ -19,6 +19,9 @@ import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { observer, Observer } from 'mobx-react-lite'
+import type { ChatSurface } from './use-chat-layout'
+import { toolBatchTitle } from '@podium/client-core/values'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
@@ -32,8 +35,7 @@ import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
-import type { HeadlessOverlay } from './use-headless-turn'
-import type { TurnPreview } from './use-turn-preview'
+import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 
 /** Render a live partial through the same worker boundary as settled messages. */
 function StreamingMarkdown({ text }: { text: string }): JSX.Element {
@@ -241,51 +243,9 @@ export function processPosition(
  * and not a deletion. Rendering "this was deleted" for it is the exact defect
  * doc §3.1 names; rendering a spinner forever is the other one.
  */
-export function TranscriptFeed({
-  setScrollerRef,
-  setContentRef,
-  onScroll,
-  onPointerUp,
-  compact,
-  superagent,
-  phase,
-  rows,
-  blocks,
-  markdownHtml,
-  search,
-  revealedRow,
-  moreAbove,
-  loadingOlder,
-  loadOlder,
-  sessionId,
-  cwd,
-  session,
-  httpOrigin,
-  openFile,
-  onOpenImage,
-  onAnswerAsk,
-  answerInteractionId,
-  livePendingAskIndex,
-  pendingAskBlock,
-  lastAnswerBlockIndex,
-  ctxSeq,
-  collapseContext,
-  stickyEnabled,
-  isOperatorPromptRow,
-  pending,
-  onRetractQueued,
-  onRetryPending,
-  onDiscardPending,
-  onSendAgain,
-  overlay,
-  turnPreview,
-  activity,
-  offlineMachineName,
-  presenceOfflineMachineName,
-  attribution,
-  expandRuns = false,
-  onQuote,
-}: {
+export interface TranscriptFeedProps {
+  chat?: ChatSurface
+
   setScrollerRef: RefCallback<HTMLDivElement>
   setContentRef: RefCallback<HTMLDivElement>
   onScroll: UIEventHandler<HTMLDivElement>
@@ -318,11 +278,11 @@ export function TranscriptFeed({
    *  Rendered at the end of the feed, where the transcript item will appear. */
   pendingAskBlock: ChatBlock | null
   lastAnswerBlockIndex: number
-  ctxSeq: number | null
+  ctxSeq?: number | null
   collapseContext: boolean
   stickyEnabled: boolean
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
-  pending: readonly PendingItem[]
+  pending?: readonly PendingItem[]
   onRetractQueued: (id: string) => Promise<void>
   /** "not sent — retry": the same message, under its own id (POD-4762). */
   onRetryPending?: (id: string) => Promise<void>
@@ -331,13 +291,13 @@ export function TranscriptFeed({
   onDiscardPending?: (id: string) => Promise<void>
   /** "Send again": the text back in the composer, as a NEW message. */
   onSendAgain?: (id: string) => Promise<void>
-  overlay: HeadlessOverlay | null
+  overlay?: HeadlessOverlay | null
   /** The in-progress half of the open turn (POD-2293) — assistant text still
    *  being written and tool calls still running, for driver-backed sessions.
    *  Null for every session that produces no fragments, which is what keeps a
    *  PTY chat byte-identical to what it renders today. */
-  turnPreview: TurnPreview | null
-  activity: ChatActivity | null
+  turnPreview?: TurnPreview | null
+  activity?: ChatActivity | null
   /** The session's machine is offline as of the last transcript read (POD-4808
    *  half 1) — the server's daemon-presence signal, naming the machine.
    *  Renders the WHY instead of an empty pane. Null when the last read was
@@ -360,7 +320,55 @@ export function TranscriptFeed({
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
   onQuote?: (markdown: string) => void
-}): JSX.Element {
+}
+
+export const TranscriptFeed = observer(function TranscriptFeed(props: TranscriptFeedProps): JSX.Element {
+  const {
+  setScrollerRef,
+  setContentRef,
+  onScroll,
+  onPointerUp,
+  compact,
+  superagent,
+  phase,
+  rows,
+  blocks,
+  markdownHtml,
+  search,
+  revealedRow,
+  moreAbove,
+  loadingOlder,
+  loadOlder,
+  sessionId,
+  cwd,
+  session,
+  httpOrigin,
+  openFile,
+  onOpenImage,
+  onAnswerAsk,
+  answerInteractionId,
+  livePendingAskIndex,
+  pendingAskBlock,
+  lastAnswerBlockIndex,
+  ctxSeq = null,
+  collapseContext,
+  stickyEnabled,
+  isOperatorPromptRow,
+  pending = [],
+  onRetractQueued,
+  onRetryPending,
+  onDiscardPending,
+  onSendAgain,
+  overlay = null,
+  turnPreview = null,
+  activity = null,
+  offlineMachineName,
+  presenceOfflineMachineName,
+  attribution,
+  expandRuns = false,
+  onQuote,
+  } = props
+
   // Which rows LANDED, as opposed to which rows merely rendered — see
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
@@ -368,21 +376,7 @@ export function TranscriptFeed({
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
-  const previewHasText =
-    turnPreview?.items.some((item) => item.kind === 'text') === true
-
   const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
-  const lastRow = rows[rows.length - 1]?.row
-  const tailActivity: ChatActivity | null = overlay?.status
-    ? { tone: 'working', label: overlay.status }
-    : activity
-  const trailingRunLive = trailingRunIsLive(tailActivity, lastRow)
-  // A live question is already the attention surface. Repeating the same
-  // yellow signal in the tail weakens both objects, so the card owns it alone.
-  // A state-drawn card is the same object and stands down the tail the same way
-  // — the reader cannot tell (and must not need to tell) which source drew it.
-  const questionOwnsAttention =
-    (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
   return (
     <div
       // Named so a portalled overlay hanging off a row can find the box it must
@@ -496,90 +490,15 @@ export function TranscriptFeed({
             )}
           </button>
         )}
-        {rows.map(({ row, index: idx }, pos) => {
-          // An operator prompt opens an exchange — except at the very top of the
-          // mounted window, where the air would only pad the scrollport (and
-          // where the row is often the sticky continuation of an exchange whose
-          // opening is scrolled away above).
-          const turn: TurnPosition | undefined =
-            pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
-          const process = processPosition(row, rows[pos - 1]?.row)
-          const arrived = arriving.has(rowIdentity(row))
-          const identity = rowIdentity(row)
-          // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
-          // session outlives a day, so each date boundary states itself once and
-          // resolves every clock beneath it. The leading mark is emitted only when
-          // the window does NOT open on today: "Today" over a transcript that is
-          // entirely from today is a line that tells the reader nothing.
-          const dayMark = dayMarks.get(pos)
-          // Absolute row index into `rows` keeps minimap/search and
-          // [data-block] aligned even for the one-row sticky continuation.
-          const rowNode =
-            row.kind === 'tools' ? (
-              <ToolBatchView
-                // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
-                key={identity}
-                row={row}
-                index={idx}
-                highlighted={idx === search.activeRow || idx === revealedRow}
-                forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
-                dimmed={search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))}
-                // The work line names an in-flight call only when it is the
-                // trailing row. The permanent tail below remains the one owner of
-                // live motion, so a tool-result commit cannot remove the working
-                // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
-                // trailing window while `idx` is the absolute index.
-                live={trailingRunLive && pos === rows.length - 1}
-                ownsTail={false}
-                arrived={arrived}
-                turn={turn}
-                process={process}
-                sessionId={sessionId}
-                cwd={cwd}
-                openFile={openFile}
-              />
-            ) : (
-              <ChatBlockView
-                key={identity}
-                block={row.block}
-                index={idx}
-                markdownHtml={markdownHtml}
-                highlighted={idx === search.activeRow || idx === revealedRow}
-                dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
-                sessionId={sessionId}
-                cwd={cwd}
-                openFile={openFile}
-                httpOrigin={httpOrigin}
-                onOpenImage={onOpenImage}
-                // AskUserQuestion is its own block-row; light up the one that is the
-                // latest unanswered question on a live session (livePendingAskIndex
-                // indexes into `blocks`, matched here against the row's blockIndex).
-                askLivePending={row.blockIndex === livePendingAskIndex}
-                onAnswerAsk={onAnswerAsk}
-                answerInteractionId={answerInteractionId}
-                collapseContext={collapseContext}
-                compact={compact}
-                ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
-                stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
-                attribution={attributionForRole(attribution, row.block.item.role)}
-                turn={turn}
-                process={process}
-                arrived={arrived}
-                onQuote={onQuote}
-              />
-            )
-          return (
-            <Fragment key={identity}>
-              {dayMark && (
-                <div className="transcript-daymark" data-testid="transcript-daymark">
-                  <span className="transcript-daymark-label">{dayMark}</span>
-                </div>
-              )}
-              {rowNode}
-            </Fragment>
-          )
-        })}
-        {pending.map((p) => {
+        {rows.map(({ row, index }, pos) => (
+          <TranscriptRow key={rowIdentity(row)} props={props} template={row} index={index} pos={pos}
+            previous={rows[pos - 1]?.row} arrived={arriving.has(rowIdentity(row))}
+            dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />
+        ))}
+        <Observer>{() => {
+          const pending = props.chat?.pending ?? props.pending ?? []
+          const session = props.chat?.session ?? props.session
+          return <>{pending.map((p) => {
           // Waiting on the server: behind the turn in flight, or for the
           // session to wake. Once handed on toward the agent the bubble keeps
           // the same silence a message in flight keeps everywhere else in this
@@ -754,7 +673,14 @@ export function TranscriptFeed({
               </div>
             </div>
           )
-        })}
+        })}</>
+        }}</Observer>
+        <Observer>{() => {
+          const turnPreview = props.chat?.conversation.preview ?? props.turnPreview
+          const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
+          const previewHasText = turnPreview?.items.some(item => item.kind === 'text') === true
+          const lastRow = rows[rows.length - 1]?.row
+          return <>
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
@@ -814,6 +740,8 @@ export function TranscriptFeed({
           </div>
         </div>
       )}
+          </>
+        }}</Observer>
       {/* The question Claude Code has not written down yet (POD-1273). A
           pending AskUserQuestion reaches the hook channel immediately but the
           transcript only once it RESOLVES, so for the whole time the agent is
@@ -855,6 +783,14 @@ export function TranscriptFeed({
           changes size (min-height covers the tallest variant, styles.css), so
           phase changes and idle transitions move NO geometry — and as the
           feed's permanent last child it avoids bottom-geometry churn. */}
+        <Observer>{() => {
+          const activity = props.chat?.activity ?? props.activity
+          const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
+          const tailActivity = overlay?.status ? { tone: 'working' as const, label: overlay.status } : activity ?? null
+          const session = props.chat?.session ?? props.session
+          const lastRow = rows[rows.length - 1]?.row
+          const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
+          return (
         <div className="feed-tail-slot" data-testid="feed-tail-slot">
           {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && (
             <TranscriptTail
@@ -864,8 +800,106 @@ export function TranscriptFeed({
               lastRow={lastRow}
             />
           )}
-        </div>
+        </div>          )
+        }}</Observer>
       </div>
     </div>
   )
-}
+})
+
+const TranscriptRow = observer(function TranscriptRow({ props, template, index: idx, pos, previous, arrived, dayMark, searchMatches }: {
+  props: TranscriptFeedProps; template: ChatRow; index: number; pos: number; previous?: ChatRow;
+  arrived: boolean; dayMark?: string; searchMatches: ReadonlySet<number>;
+}) {
+  const { search, revealedRow, expandRuns, sessionId, cwd, openFile, httpOrigin, onOpenImage,
+    livePendingAskIndex, onAnswerAsk, answerInteractionId, collapseContext, compact,
+    lastAnswerBlockIndex, stickyEnabled, isOperatorPromptRow, attribution, onQuote } = props
+  const ctxSeq = props.chat?.ctxSeq ?? props.ctxSeq ?? null
+  const markdownHtml = props.chat?.conversation.presentation.markdownHtml ?? props.markdownHtml
+  const presentation = props.chat?.conversation.presentation
+  const row: ChatRow = !presentation ? template : template.kind === 'block'
+    ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
+    : { ...template, blocks: template.blocks.map(block => presentation.block(block.item.id) ?? block) }
+  if (row.kind === 'tools' && presentation) row.title = toolBatchTitle(row.blocks)
+
+          // An operator prompt opens an exchange — except at the very top of the
+          // mounted window, where the air would only pad the scrollport (and
+          // where the row is often the sticky continuation of an exchange whose
+          // opening is scrolled away above).
+          const turn: TurnPosition | undefined =
+            pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
+          const process = processPosition(row, previous)
+          const identity = rowIdentity(row)
+          // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
+          // session outlives a day, so each date boundary states itself once and
+          // resolves every clock beneath it. The leading mark is emitted only when
+          // the window does NOT open on today: "Today" over a transcript that is
+          // entirely from today is a line that tells the reader nothing.
+          // Absolute row index into `rows` keeps minimap/search and
+          // [data-block] aligned even for the one-row sticky continuation.
+          const rowNode =
+            row.kind === 'tools' ? (
+              <ToolBatchView
+                // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
+                key={identity}
+                row={row}
+                index={idx}
+                highlighted={idx === search.activeRow || idx === revealedRow}
+                forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
+                dimmed={search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))}
+                // The work line names an in-flight call only when it is the
+                // trailing row. The permanent tail below remains the one owner of
+                // live motion, so a tool-result commit cannot remove the working
+                // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
+                // trailing window while `idx` is the absolute index.
+                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.activity ?? props.activity ?? null, row)}
+                ownsTail={false}
+                arrived={arrived}
+                turn={turn}
+                process={process}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+              />
+            ) : (
+              <ChatBlockView
+                key={identity}
+                block={row.block}
+                index={idx}
+                markdownHtml={markdownHtml}
+                highlighted={idx === search.activeRow || idx === revealedRow}
+                dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
+                sessionId={sessionId}
+                cwd={cwd}
+                openFile={openFile}
+                httpOrigin={httpOrigin}
+                onOpenImage={onOpenImage}
+                // AskUserQuestion is its own block-row; light up the one that is the
+                // latest unanswered question on a live session (livePendingAskIndex
+                // indexes into `blocks`, matched here against the row's blockIndex).
+                askLivePending={row.blockIndex === livePendingAskIndex}
+                onAnswerAsk={onAnswerAsk}
+                answerInteractionId={answerInteractionId}
+                collapseContext={collapseContext}
+                compact={compact}
+                ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
+                stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
+                attribution={attributionForRole(attribution, row.block.item.role)}
+                turn={turn}
+                process={process}
+                arrived={arrived}
+                onQuote={onQuote}
+              />
+            )
+          return (
+            <Fragment key={identity}>
+              {dayMark && (
+                <div className="transcript-daymark" data-testid="transcript-daymark">
+                  <span className="transcript-daymark-label">{dayMark}</span>
+                </div>
+              )}
+              {rowNode}
+            </Fragment>
+          )
+
+})

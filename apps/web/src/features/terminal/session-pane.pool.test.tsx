@@ -1,3 +1,4 @@
+import { DraftStore } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -48,7 +49,9 @@ const f = vi.hoisted(() => ({
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}),
   confirm: vi.fn(async () => true),
 }))
+const paneDrafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
 const paneStoreHandle = withKeyedInputs({
+  drafts: paneDrafts,
   getSnapshot: () => f.state,
   subscribe: (_listener: () => void) => () => {},
 })
@@ -103,6 +106,7 @@ vi.mock('@podium/terminal-client-react', () => ({
 }))
 // Conversation rendering and transcript transport stay on their original path.
 // This proof measures chrome/recovery independently from those unchanged rows.
+vi.mock('@/features/chat/use-conversation', () => ({ useConversation: () => null }))
 vi.mock('@/features/chat/ChatView', () => ({
   ChatView: ({
     initialPendingText,
@@ -144,7 +148,9 @@ vi.mock('./use-terminal-appearance', () => ({
 vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
 
 const useFixtureIssues = () => f.issues
-import { useChatSurface } from '../chat/use-chat-surface'
+import { useChatSession } from '../chat/use-chat-context'
+import { usePoolMachine } from '@/app/header-data'
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
 import {
@@ -458,15 +464,10 @@ it('never accesses legacy session, machine or window collections on the pool inp
 it('uses pool facts in the real chat header while leaving transcript reads on the original transport', async () => {
   const row = sessions.find((row) => row.machineId === 'machine-b' && row.condition === undefined)!
   function Header() {
-    const chat = useChatSurface({
-      sessionId: row.sessionId,
-      active: true,
-      superThread: undefined,
-      compact: false,
-      initialTurnRunning: false,
-      initialPendingText: undefined,
-      deferInitialTranscript: false,
-    })
+  const chatSession = useChatSession(row.sessionId)
+  const chatMachine = usePoolMachine(chatSession?.machineId)
+  const chat = { session: chatSession, presenceOfflineMachineName: chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null }
+
     return (
       <div>
         {chat.session?.title} {chat.presenceOfflineMachineName}

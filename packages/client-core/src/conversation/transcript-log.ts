@@ -530,6 +530,7 @@ export class TranscriptLog {
 
   private patch(patch: Partial<TranscriptState>, frame?: readonly TranscriptItem[]): void {
     const next = patch.items
+    let change: TranscriptChange | undefined
     if (next && next !== this.orderedItems) {
       const rebuild = next !== this.indexedItems
       const changed = rebuild
@@ -573,9 +574,10 @@ export class TranscriptLog {
         recorded === undefined ? null : (this.recordedAt.get(recorded) ?? null)
       this.latestUserId = this.userItems.latest() ?? null
       // The owning conversation retires sends inside this same action.
-      this.options.onChange?.({ changed, added, rebuild })
+      change = { changed, added, rebuild }
     }
     const { items: _items, sessionId: _sessionId, ...status } = patch
     Object.assign(this, status)
+    if (change) this.options.onChange?.(change)
   }
 }

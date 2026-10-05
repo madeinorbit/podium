@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
-import type { HeadlessOverlay } from './use-headless-turn'
+import type { HeadlessOverlay } from '@podium/client-core/conversation'
 
 // FEED MOTION (POD-423), end to end through the feed: which rows carry
 // `.transcript-arrive` when, and whether in-progress text carries its caret.

@@ -8,7 +8,8 @@ import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
 import { isMessageRecordAttention } from '@podium/model'
 import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
-import { useMemo, useRef, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
+import { observable, runInAction } from 'mobx'
 import { vi } from 'vitest'
 import * as storeInputs from '@/app/store'
 
@@ -60,7 +61,10 @@ function useFixturePool(): MobxPool {
   const state = selectFixture(selectInputs, isDeepStrictEqual)
   const issues = useFixtureIssues()
   const live = useRef({ state, issues })
-  live.current = { state: { ...state, ...borrowed.read() }, issues }
+  const input = { state: { ...state, ...borrowed.read() }, issues }
+  const signal = useMemo(() => observable.box(input, { deep: false }), [])
+  live.current = input
+  useLayoutEffect(() => { runInAction(() => signal.set(input)) })
   const notifications = useMemo(() => {
     let version = 0
     return {
@@ -81,7 +85,7 @@ function useFixturePool(): MobxPool {
   }, [state.uiState])
   useSyncExternalStore(notifications.subscribe, notifications.getSnapshot)
   return useMemo(() => {
-    const current = () => live.current.state
+    const current = () => signal.get().state
     const sessions = () => current().sessions ?? []
     const machines = () => current().machines ?? []
     const messages = () => current().messageRecords ?? []
@@ -99,7 +103,7 @@ function useFixturePool(): MobxPool {
             return setupOrder < 0 ? undefined : { ...sessions()[setupOrder], setupOrder }
           }
           case 'issue':
-            return live.current.issues.find((row) => row.id === id)
+            return signal.get().issues.find((row) => row.id === id)
           case 'repo':
             return repos().find((row) => row.repoId === id)
           case 'machine':
@@ -134,7 +138,7 @@ function useFixturePool(): MobxPool {
           case 'chatRecordOrder':
             return { ids: messages().map((row) => row.id) }
           case 'chatIssueOrder':
-            return { ids: live.current.issues.map((row) => row.id) }
+            return { ids: signal.get().issues.map((row) => row.id) }
           case 'chatSessionOrder':
             return { ids: sessions().map((row) => row.sessionId) }
           case 'messageRecord':
@@ -203,15 +207,15 @@ function useFixturePool(): MobxPool {
         },
         ids: ({ kind }: { kind: string }) =>
           kind === 'mentionIssues'
-            ? live.current.issues.map((row) => row.id)
+            ? signal.get().issues.map((row) => row.id)
             : sessions().map((row) => row.sessionId),
       },
       relations: {
         one(entity: string, id: string, name: string) {
           if (entity === 'issue' && name === 'repo')
-            return live.current.issues.find((row) => row.id === id)?.repoId
+            return signal.get().issues.find((row) => row.id === id)?.repoId
           if (entity === 'session' && name === 'pageIssue')
-            return live.current.issues.find((row) => row.memberSessionIds?.includes(id as never))
+            return signal.get().issues.find((row) => row.memberSessionIds?.includes(id as never))
               ?.id
           return undefined
         },

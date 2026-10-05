@@ -16,7 +16,9 @@ import { StrictMode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ScenarioCache } from '../../../../../packages/worklist-proto/shared/src/scenarios'
-import { useChatSurface } from '../chat/use-chat-surface'
+import { useChatSession } from '../chat/use-chat-context'
+import { usePoolMachine } from '@/app/header-data'
+import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { AgentPanel } from './AgentPanel'
 import { DockShellPanel } from './DockShellPanel'
 import {
@@ -122,15 +124,10 @@ function Inputs() {
   const confirmed = usePaneSpawnConfirmed(live.sessionId)
   const dock = useDockPaneInputs(shell.cwd, null)
   const ownership = usePaneOwnership(row)
-  const chat = useChatSurface({
-    sessionId: offline.sessionId,
-    active: true,
-    superThread: undefined,
-    compact: false,
-    initialTurnRunning: false,
-    initialPendingText: undefined,
-    deferInitialTranscript: false,
-  })
+  const chatSession = useChatSession(offline.sessionId)
+  const chatMachine = usePoolMachine(chatSession?.machineId)
+  const chat = { session: chatSession, presenceOfflineMachineName: chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null }
+
   return (
     <>
       <output data-testid="attach-inputs">

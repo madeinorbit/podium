@@ -1,12 +1,12 @@
 import { createDraftLedger } from '@podium/client-core'
-import { createKeyedInputs, type EngineState, type KeyedInputs } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { act, type ComponentProps, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
-import { useRuntimeDraft } from '@/app/keyed-runtime'
+import { DraftStore } from '@podium/client-core/conversation'
+import { observer } from 'mobx-react-lite'
 import { PanelVisible } from '@/app/panel-visible'
 import { ChatComposer } from './ChatComposer'
 import type { UseAttachmentsResult } from './use-attachments'
@@ -26,8 +26,7 @@ import type { UseAttachmentsResult } from './use-attachments'
 // ---------------------------------------------------------------------------
 
 vi.mock('./use-chat-context', () => ({ useChatMentions: () => [] }))
-const draftFixture = vi.hoisted(() => ({ inputs: undefined as KeyedInputs | undefined }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => draftFixture.inputs }))
+const draftFixture = vi.hoisted(() => ({ drafts: undefined as DraftStore | undefined }))
 
 vi.mock('@/app/store', () => ({
   useReplicaIssues: () => [],
@@ -38,9 +37,15 @@ let container: HTMLDivElement
 let root: Root
 let sizingStyles: HTMLStyleElement
 
-function RuntimeDraftComposer(props: ComponentProps<typeof ChatComposer>) {
-  const draft = useRuntimeDraft(asSessionId(props.autoFocusKey))
+const RuntimeDraftComposer = observer(function RuntimeDraftComposer(props: ComponentProps<typeof ChatComposer>) {
+  const draft = draftFixture.drafts!.get(asSessionId(props.autoFocusKey))
   return <ChatComposer {...props} draft={draft} />
+})
+
+function makeDraftStore(values: Record<string, string>) {
+  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  for (const [id, text] of Object.entries(values)) drafts.values.set(asSessionId(id), text)
+  return drafts
 }
 
 const noopAttachments: UseAttachmentsResult = {
@@ -138,7 +143,8 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount())
-  draftFixture.inputs = undefined
+  draftFixture.drafts?.dispose()
+  draftFixture.drafts = undefined
   container.remove()
   sizingStyles.remove()
   vi.restoreAllMocks()
@@ -149,14 +155,13 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
   it('keeps deletion through sync, older echoes, focus and session adoption without stale writes', async () => {
     const id = asSessionId('s1'),
       other = asSessionId('s2')
-    let state = { drafts: { [id]: 'old message', [other]: 'other current draft' } } as EngineState
-    const inputs = createKeyedInputs(() => state)
-    draftFixture.inputs = inputs
+    let state = { drafts: { [id]: 'old message', [other]: 'other current draft' } }
+    draftFixture.drafts = makeDraftStore(state.drafts)
     const ledger = createDraftLedger()
     ledger.adoptRemote(id, { text: 'old message', rev: 10 })
     const publish = (text: string) => {
       state = { ...state, drafts: { ...state.drafts, [id]: text } }
-      inputs.emit(new Set(['drafts']), new Set([id]))
+      draftFixture.drafts!.set(id, text)
     }
     const onDraftChange = (text: string) => {
       ledger.localEdit(id, text, 1)
@@ -202,8 +207,8 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
       expect(ta.value).toBe('')
       expect(state.drafts[id]).toBe('')
     } finally {
-      inputs.dispose()
-      draftFixture.inputs = undefined
+      draftFixture.drafts?.dispose()
+  draftFixture.drafts = undefined
     }
   })
 
@@ -740,13 +745,12 @@ describe('native composer sizing', () => {
     const pin = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
     const styles = vi.spyOn(globalThis, 'getComputedStyle')
     const id = asSessionId('s1')
-    let state = { drafts: { [id]: '' } } as EngineState
-    const inputs = createKeyedInputs(() => state)
+    let state = { drafts: { [id]: '' } }
     const onDraftChange = vi.fn((text: string) => {
       state = { ...state, drafts: { [id]: text } }
-      inputs.emit(new Set(['drafts']), new Set([id]))
+      draftFixture.drafts!.set(id, text)
     })
-    draftFixture.inputs = inputs
+    draftFixture.drafts = makeDraftStore(state.drafts)
     const { ta } = await mount({ compact: true, fromRuntime: true, onDraftChange })
     measure.mockClear()
     pin.mockClear()

@@ -1,3 +1,5 @@
+import { useStoreHandle } from '@podium/client-core/react'
+import { observer } from 'mobx-react-lite'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { asSessionId } from '@podium/model'
@@ -53,11 +55,12 @@ function ViewProbe(): null {
   useRuntimeSelector((s) => s.view)
   return null
 }
-function DraftsProbe(): null {
+let selectedDraft = ''
+const DraftsProbe = observer(function DraftsProbe(): null {
   renders.drafts = (renders.drafts ?? 0) + 1
-  useRuntimeSelector((s) => s.drafts)
+  selectedDraft = useStoreHandle().drafts.get(asSessionId('s1'))
   return null
-}
+})
 function CompatProbe(): null {
   renders.compat = (renders.compat ?? 0) + 1
   latestStore = useRuntimeSelector(s => s)
@@ -144,7 +147,7 @@ describe('selector-scoped store', () => {
     expect(renders.view).toBe(viewBefore) // untouched slice → zero re-renders
 
     // Sanity: the drafts subscriber got the new value.
-    expect(latestStore?.drafts).toEqual({ s1: 'hello' })
+    expect(selectedDraft).toBe('hello')
   })
 
   it('the selected slice still re-renders its subscriber on change', async () => {

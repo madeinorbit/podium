@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
-import { type UseChatSendOptions, type UseChatSendResult, useChatSend } from './use-chat-send'
+import { type ModelSendOptions, type ModelSendResult, useModelSend } from './test-support/model-send'
 
 const sendText = vi.fn(async () => ({ ok: true, disposition: 'queued' }) as never)
 /** A DEFINITIVE refusal — the outbox parks it at once instead of retrying it
@@ -39,7 +39,7 @@ const subscribeRecords = (listener: () => void) => {
   storeListeners.add(listener)
   return () => { storeListeners.delete(listener) }
 }
-vi.mock('./use-chat-context', () => ({
+vi.mock('./test-support/conversation-ports', () => ({
   useChatConversationPorts: () => ({
     records: { getSnapshot: () => messageRecords, subscribe: subscribeRecords },
     outbox: { held: chatSend.chatSendsFor, subscribe: subscribeRecords },
@@ -57,10 +57,10 @@ const queuedRecord = (id: string, body: string): MessageRecordWire => ({
   status: 'stored',
 })
 
-let strictModeResult: UseChatSendResult | null = null
+let strictModeResult: ModelSendResult | null = null
 
-function StrictModeProbe({ options }: { options: UseChatSendOptions }) {
-  strictModeResult = useChatSend(options)
+function StrictModeProbe({ options }: { options: ModelSendOptions }) {
+  strictModeResult = useModelSend(options)
   return null
 }
 
@@ -69,7 +69,7 @@ function opts(
   since: string | undefined,
   offer?: { createdAt: string },
   phase = 'idle',
-): UseChatSendOptions {
+): ModelSendOptions {
   return {
     sessionId: asSessionId('s-1'),
     trpc: {
@@ -118,7 +118,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('useChatSend optimistic window', () => {
+describe('useModelSend optimistic window', () => {
   it('keeps the conversation live after root StrictMode rehearses its effect', async () => {
     messageRecords = [queuedRecord('msg_strict', 'still live')]
     const container = document.createElement('div')
@@ -151,12 +151,12 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('seeds a fresh task with its first prompt and the moving send marker', () => {
-    const seeded: UseChatSendOptions = {
+    const seeded: ModelSendOptions = {
       ...opts(undefined),
       session: {},
       initialPendingText: 'Plan the release',
     }
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: seeded,
     })
 
@@ -174,13 +174,13 @@ describe('useChatSend optimistic window', () => {
 
   it('releases a host-held first prompt only after its transcript echo arrives', async () => {
     const onInitialPendingSettled = vi.fn()
-    const seeded: UseChatSendOptions = {
+    const seeded: ModelSendOptions = {
       ...opts(undefined),
       session: {},
       initialPendingText: 'Plan the release',
       onInitialPendingSettled,
     }
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: seeded,
     })
 
@@ -208,7 +208,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('opens on send', async () => {
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     expect(result.current.justSent).toBe(false)
@@ -220,7 +220,7 @@ describe('useChatSend optimistic window', () => {
 
   it('marks only the stopped outgoing bubble when RPC and transcript both report it', async () => {
     const initial = opts(IDLE_SINCE)
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: initial,
     })
     await act(async () => {
@@ -272,7 +272,7 @@ describe('useChatSend optimistic window', () => {
           rejectSend = reject
         }) as never,
     )
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     let request: Promise<void> | undefined
@@ -292,7 +292,7 @@ describe('useChatSend optimistic window', () => {
 
   it('keeps a restored durable message visible when it is interrupted', async () => {
     messageRecords = [queuedRecord('msg_restored', 'cancel after refresh')]
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -313,7 +313,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('outlives the old 8s ceiling while the daemon stays silent', async () => {
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -328,7 +328,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('closes the moment the daemon reports on the new turn', async () => {
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -342,7 +342,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('closes on ANY new phase, not only working — an ask three seconds in still lands', async () => {
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -361,7 +361,7 @@ describe('useChatSend optimistic window', () => {
   /** POD-1595 review. Each of these was a real defect in the first cut. */
   it('closes when the send is REFUSED — a red bubble must not sit under "Sending"', async () => {
     sendText.mockRejectedValueOnce(REFUSED)
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -374,7 +374,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('re-arms the ceiling on a SECOND send instead of inheriting the first timer', async () => {
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {
@@ -396,7 +396,7 @@ describe('useChatSend optimistic window', () => {
 
   it('leaves an offer answered by its own button hidden when a LATER send fails', async () => {
     const OFFER = '2026-08-24T09:59:00.000Z'
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE, { createdAt: OFFER }),
     })
     await act(async () => {
@@ -415,7 +415,7 @@ describe('useChatSend optimistic window', () => {
 
   it('restores an offer that THIS send hid when the send is refused', async () => {
     const OFFER = '2026-08-24T09:59:00.000Z'
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE, { createdAt: OFFER }),
     })
     sendText.mockRejectedValueOnce(REFUSED)
@@ -430,7 +430,7 @@ describe('useChatSend optimistic window', () => {
 
   it('holds through the turn boundary when the send was QUEUED behind a running turn', async () => {
     const WORKING = '2026-08-24T10:00:00.000Z'
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(WORKING, undefined, 'working'),
     })
     await act(async () => {
@@ -454,7 +454,7 @@ describe('useChatSend optimistic window', () => {
   /** POD-1595 review round two — all three were real, all three in the queued
    *  path added by round one. */
   it('a slow rejection does not close a LATER send’s window', async () => {
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     // A hangs, then is refused. B is written while A is still in the air; the
@@ -489,7 +489,7 @@ describe('useChatSend optimistic window', () => {
 
   it('does not run the ceiling down against a turn it is queued behind', async () => {
     const WORKING = '2026-08-24T10:00:00.000Z'
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(WORKING, undefined, 'working'),
     })
     await act(async () => {
@@ -506,7 +506,7 @@ describe('useChatSend optimistic window', () => {
 
   it('yields to a permission ask raised by the turn it is queued behind', async () => {
     const WORKING = '2026-08-24T10:00:00.000Z'
-    const { result, rerender } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result, rerender } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(WORKING, undefined, 'working'),
     })
     await act(async () => {
@@ -521,7 +521,7 @@ describe('useChatSend optimistic window', () => {
   })
 
   it('gives up eventually on a session that never reports at all', async () => {
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(undefined),
     })
     await act(async () => {
@@ -542,7 +542,7 @@ describe('useChatSend optimistic window', () => {
       reason: 'machine unreachable',
       disposition: 'dead_letter',
     } as never)
-    const { result } = renderHook((p: UseChatSendOptions) => useChatSend(p), {
+    const { result } = renderHook((p: ModelSendOptions) => useModelSend(p), {
       initialProps: opts(IDLE_SINCE),
     })
     await act(async () => {

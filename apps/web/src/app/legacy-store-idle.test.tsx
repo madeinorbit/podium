@@ -9,7 +9,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { AgentPanel } from '../features/terminal/AgentPanel'
 import { DockShellLifecycle } from '../features/terminal/dock-shell-lifecycle'
-import { usePendingSpawnPrompt, useRuntimeDraft } from './keyed-runtime'
+import { usePendingSpawnPrompt, useDraftValue } from './keyed-runtime'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import { Workspace } from './Workspace'
 
@@ -70,7 +70,7 @@ it.each([
     pool = useWorklistPool()
     return (
       <output data-testid="locals">
-        {useRuntimeDraft(sid)}|{usePendingSpawnPrompt(sid) ?? ''}
+        {useDraftValue(sid)}|{usePendingSpawnPrompt(sid) ?? ''}
       </output>
     )
   }
