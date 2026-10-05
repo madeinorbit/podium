@@ -31,14 +31,17 @@ function source<T>(initial: T) {
 it('keeps context, offer and retract work independent of transcript size and suspends it while stopped', async () => {
   async function measured(scale: 1 | 4) {
     let idReads = 0
-    const items = Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({
-      get id() {
-        idReads += 1
-        return `history-${index}`
-      },
-      role: 'assistant',
-      text: 'retained history',
-    }))
+    const items = Array.from(
+      { length: 128 * scale },
+      (_, index): TranscriptItem => ({
+        get id() {
+          idReads += 1
+          return `history-${index}`
+        },
+        role: 'assistant',
+        text: 'retained history',
+      }),
+    )
     const feed = source({ items })
     const record: MessageRecordWire = {
       id: 'held',
@@ -46,7 +49,7 @@ it('keeps context, offer and retract work independent of transcript size and sus
       senderUserId: 'operator',
       body: 'current prompt',
       createdAt: '2026-09-29T10:00:00.000Z',
-      status: 'typed',
+      status: 'stored',
     }
     const records = source<readonly MessageRecordWire[]>([record])
     const controller = createConversationController({
@@ -84,7 +87,12 @@ it('keeps context, offer and retract work independent of transcript size and sus
     }
     try {
       const beforeStart = await measure(() => controller.updateContext(context))
-      expect(beforeStart).toMatchObject({ idReads: 0, transcriptReads: 0, recordReads: 0, projections: 0 })
+      expect(beforeStart).toMatchObject({
+        idReads: 0,
+        transcriptReads: 0,
+        recordReads: 0,
+        projections: 0,
+      })
       controller.start()
       expect(controller.getSnapshot().bubbles).toHaveLength(1)
 
@@ -100,33 +108,60 @@ it('keeps context, offer and retract work independent of transcript size and sus
         expect(action.transcriptReads).toBe(0)
         expect(action.projections).toBe(1)
       }
-      expect(draft).toMatchObject({ idReads: 0, transcriptReads: 0, recordReads: 0, projections: 0 })
+      expect(draft).toMatchObject({
+        idReads: 0,
+        transcriptReads: 0,
+        recordReads: 0,
+        projections: 0,
+      })
 
       // The actual former projection enumerated every retained item on each
       // patch. This control proves that both counters would detect its return.
-      const control = await measure(() => projectConversation({
-        turns: [],
-        records: [record],
-        transcriptIds: new Set(items.map((item) => item.id)),
-        seenOpen: new Set(['held']),
-        hidden: new Set(),
-      }))
+      const control = await measure(() =>
+        projectConversation({
+          turns: [],
+          records: [record],
+          transcriptIds: new Set(items.map((item) => item.id)),
+          seenOpen: new Set(['held']),
+          hidden: new Set(),
+        }),
+      )
       expect(control.idReads).toBe(128 * scale)
 
       controller.stop()
       const stopped = await measure(() => {
         feed.set({ items: [{ id: 'native', role: 'user', text: 'confirmed prompt' }] })
-        records.set([{ ...record, status: 'confirmed', transcriptItem: { id: 'native', cursor: 'c1' } }])
+        records.set([
+          { ...record, status: 'confirmed', transcriptItem: { id: 'native', cursor: 'c1' } },
+        ])
         controller.updateContext({ canInterrupt: false })
       })
-      expect(stopped).toMatchObject({ idReads: 0, transcriptReads: 0, recordReads: 0, projections: 0 })
+      expect(stopped).toMatchObject({
+        idReads: 0,
+        transcriptReads: 0,
+        recordReads: 0,
+        projections: 0,
+      })
       controller.start()
       expect(controller.getSnapshot().bubbles).toEqual([])
       expect(controller.getSnapshot().offer).toBeNull()
       expect(controller.getSnapshot().canInterrupt).toBe(false)
       const reopened = await measure(() => controller.updateContext({ canInterrupt: true }))
       expect(reopened).toMatchObject({ idReads: 0, transcriptReads: 0, projections: 1 })
-      return { scale, actions: { beforeStart, updateContext, offer, retract, recordUpdate, draft, stopped, reopened }, control }
+      return {
+        scale,
+        actions: {
+          beforeStart,
+          updateContext,
+          offer,
+          retract,
+          recordUpdate,
+          draft,
+          stopped,
+          reopened,
+        },
+        control,
+      }
     } finally {
       controller.dispose()
     }
