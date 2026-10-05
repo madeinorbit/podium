@@ -443,6 +443,7 @@ describe('loadHarnessLiterals', () => {
       'grok',
       'opencode',
       'cursor',
+      'pi',
     ])
   })
 

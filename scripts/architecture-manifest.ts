@@ -411,6 +411,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['command-contracts'],
     deps: ['packages/protocol', 'packages/model'],
   },
+  // The shared tRPC router TYPE surface (POD-5615): the AppRouter the server
+  // serves and both clients plus the daemon call, as types only. L1 wire
+  // beside protocol/commands — it names frames and entities, never behaviour.
+  // browser-safe: the barrel is types-only (erased at build, so it drags no
+  // Node anywhere); the node-only `build.ts` beside it is build tooling that
+  // nothing imports.
+  'packages/api-types': {
+    layer: 1,
+    platform: 'browser-safe',
+    features: ['api-router-types'],
+    deps: ['packages/protocol', 'packages/model'],
+  },
 
   // L2 — kernels / ports.
   'packages/runtime': {
@@ -596,7 +608,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     layer: 3,
     platform: 'browser-safe',
     features: ['client-graph'],
-    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/mobx-helpers', 'packages/protocol'],
+    deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/mobx-helpers', 'packages/protocol',
+      // POD-5615: the feeds' own tests and diagnostics replays read the
+      // prototype's corpus/oracle/meter readers. Product pool code below the
+      // tests does not reach back up.
+      'packages/worklist-proto'],
   },
   // Maintenance/steward jobs (change-log + event prune, auto-archive, message
   // expiry, connect scan) and the worker client that hosts them. node-only:
@@ -631,6 +647,19 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // L5 — build / compose tier.
   scripts: { layer: 5, platform: 'node-only', features: ['build', 'lint', 'compose'] },
+
+  // Worklist prototype screens, harnesses and experiments (POD-5615): the
+  // pool-migration proving ground. L3 beside the feeds it proves — the L3/L4
+  // tests and diagnostics that consume its corpus/oracle/meter readers import
+  // down or sideways (tests are exempt from the same-layer arm), and its own
+  // upward reads of app readers are fixed where they occur. browser-safe: the
+  // proofs and pool tests that import it run in browsers; its node bench tools
+  // are entry points nothing bundles.
+  'packages/worklist-proto': {
+    layer: 3,
+    platform: 'browser-safe',
+    features: ['worklist-prototype'],
+  },
 }
 
 /**
@@ -663,8 +692,15 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   'packages/terminal-client-react -> packages/client-core',
   // Worklist feeds adapt the caller-owned client runtime and its existing outbox.
   'packages/client-graph -> packages/client-core',
-  // Reference identity uses the shared wire-format parser (POD-5078).
-  'packages/client-graph -> packages/protocol',
+  // The pool-migration proving ground (POD-5615): the prototype's arms read
+  // the feeds they prove, and the feeds' own tests and diagnostics replays read
+  // the prototype's corpus/oracle/meter readers back. Deliberate in both
+  // directions — the pilot's parity tests are written against the corpus.
+  'packages/worklist-proto -> packages/client-graph',
+  'packages/worklist-proto -> packages/client-core',
+  'packages/client-graph -> packages/worklist-proto',
+  // The shared router types name the frames they type (POD-5615).
+  'packages/api-types -> packages/protocol',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
   // rather than declaring its own command-name universe. Previously invisible to
   // this set because the import is type-only and type-only used to skip the
