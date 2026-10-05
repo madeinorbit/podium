@@ -49,7 +49,7 @@ try {
     env: { ...process.env, LD_LIBRARY_PATH: [resolve('.toolchain/lib'), process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') },
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   })
-  for (const scale of [1, 4]) {
+  for (const scale of [1, 4]) for (const mode of ['quiet', 'heartbeat']) {
     const context = await browser.newContext({ viewport: { width: 1800, height: 1000 }, reducedMotion: 'reduce', serviceWorkers: 'block' })
     try {
       const page = await context.newPage(), errors: string[] = []
@@ -71,9 +71,13 @@ try {
       await cdp.send('Profiler.enable'); await cdp.send('Profiler.start')
       await page.evaluate(() => window.__acceptance.begin())
       const began = performance.now()
+      let feedUpdates = 0
       for (let second = 0; second < 61; second++) {
         await page.waitForTimeout(1000)
-        if ((second + 1) % 20 === 0) console.info(`Idle capture ${scale}x: ${second + 1}s, no input`)
+        if (mode === 'heartbeat' && (second + 1) % 6 === 0) {
+          await page.evaluate(iteration => window.__acceptance.event('unrelated', iteration), ++feedUpdates)
+        }
+        if ((second + 1) % 20 === 0) console.info(`Idle capture ${scale}x ${mode}: ${second + 1}s, no input`)
       }
       const elapsedMs = performance.now() - began
       const captured = await page.evaluate(() => window.__acceptance.stop())
@@ -87,11 +91,11 @@ try {
       for (const id of profile.profile.samples ?? []) samples.set(id, (samples.get(id) ?? 0) + 1)
       const cpu = profile.profile.nodes.map(node => ({ function: node.callFrame.functionName || '(anonymous)', samples: samples.get(node.id) ?? 0 }))
         .filter(node => node.samples > 0).sort((a, b) => b.samples - a.samples).slice(0, 30)
-      await writeFile(resolve(out, `cpu-${scale}x.json`), JSON.stringify(profile.profile))
-      const record = { scale, elapsedMs, before, panel: captured.panel, stats: captured.stats, cpu, intervalCount: captured.intervals.length }
+      await writeFile(resolve(out, `cpu-${scale}x-${mode}.json`), JSON.stringify(profile.profile))
+      const record = { scale, mode, feedUpdates, elapsedMs, before, panel: captured.panel, stats: captured.stats, cpu, intervalCount: captured.intervals.length }
       captures.push(record)
-      await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, synthetic: true, status: captures.length === 2 ? 'complete' : 'partial', limitation: 'Canonical full UI fixture; not an operator instance timing claim', captures }, null, 2) + '\n')
-      console.info('IDLE_PANEL_COUNTERS', JSON.stringify({ scale, elapsedMs, idle: captured.panel.idle, input: captured.panel.input, pool: captured.panel.pool }))
+      await writeFile(resolve(out, 'report.json'), JSON.stringify({ sourceSha, synthetic: true, status: captures.length === 4 ? 'complete' : 'partial', limitation: 'Canonical full UI fixture; not an operator instance timing claim. Heartbeat mode delivers ten controlled named-session updates; quiet mode delivers none.', captures }, null, 2) + '\n')
+      console.info('IDLE_PANEL_COUNTERS', JSON.stringify({ scale, mode, feedUpdates, elapsedMs, idle: captured.panel.idle, input: captured.panel.input, pool: captured.panel.pool }))
     } finally { await context.close() }
   }
 } finally {
