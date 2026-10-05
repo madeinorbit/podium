@@ -1640,7 +1640,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     const leaves: DeckWindowRow[] = [{ key: 'spine:pad', size: 6 }]
     const blocks = new Map<string, DeckWindowRow[]>()
     const sessionLeaf = (row: MissionDeckIssueModel, id: string): DeckWindowRow => ({
-      key: deckSessionKey(row.id, id), get size() { return sessionHeight(id) },
+      key: deckSessionKey(row.key, id), get size() { return sessionHeight(id) },
       get text() {
         const session = requireLoaded(row.view.rawSession(id))
         if (!session) return ''
@@ -1653,7 +1653,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     if (rootRow) for (const id of rootSessions) leaves.push(sessionLeaf(rootRow, id))
     if (rootSessions.length && visibleRows.length) leaves.push({ key: 'spine:gap', size: 8 })
     for (const row of visibleRows) {
-      const block: DeckWindowRow[] = [{ key: deckTaskKey(row.id), size: row.stage === 'proposed' ? PROPOSED_BAND : BAND_HEIGHT,
+      const block: DeckWindowRow[] = [{ key: deckTaskKey(row.key), size: row.stage === 'proposed' ? PROPOSED_BAND : BAND_HEIGHT,
         get text() {
           const issue = row.view.rulesIssue(row.id)!, presentation = row.view.presentation(issue, row.sessions)
           const seat = issue.stage === 'proposed' ? null : seatFor(presentation.presence)
@@ -1666,8 +1666,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         },
       }]
       if (!row.folded(folds)) for (const id of row.sessionIds(mode)) block.push(sessionLeaf(row, id))
-      block.push({ key: `padding:${row.id}`, size: 6 })
-      blocks.set(row.id, block); leaves.push(...block)
+      block.push({ key: `padding:${row.key}`, size: 6 })
+      blocks.set(row.key, block); leaves.push(...block)
     }
     return { leaves, blocks }
   }, [root?.id, rootRow, rootSessions, visibleRows, folds, mode, missionSessionIds, nameOf, sessionHeight])
@@ -2394,7 +2394,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                       <div className="flex flex-col gap-1">
                         {proposedRows.map((row) => (
                           <ProposalRow
-                            key={row.id}
+                            key={row.key}
                             row={row}
                             selected={focused === row.id}
                             onSelect={(permanent) => selectIssue(row, permanent)}
@@ -2445,13 +2445,13 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   </>
                 )}
                 {visibleRows.map((row, index) => {
-                  const block = spineGeometry.blocks.get(row.id)!
+                  const block = spineGeometry.blocks.get(row.key)!
                   if (
                     spineWindow.enabled &&
                     !block.some((leaf) => spineWindow.contains(leaf.key))
                   ) {
                     return (
-                      <div key={row.id}>
+                      <div key={row.key}>
                         {block.map((leaf) => (
                           <DeckRowPlaceholder key={leaf.key} row={leaf} window={spineWindow} />
                         ))}
@@ -2460,7 +2460,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                   }
                   return (
                     <TaskRow
-                      key={row.id}
+                      key={row.key}
                       row={row}
                       renameSeed={renameTarget?.id === row.id ? renameTarget.seed : null}
                       carries={guides[index] ?? []}
@@ -2561,7 +2561,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                     scrollRef={deckScrollerRef}
                     scope={`${root.id}:proposed:${scrollKey}`}
                     rows={proposedRows.map((row) => ({
-                      key: `proposal:${row.id}`,
+                      key: `proposal:${row.key}`,
                       size: 30,
                       get text() { return `${issueDisplayRef(requireLoaded(row.view.catalogIssue(row.id))!)} ${row.title}` },
                     }))}
@@ -2570,7 +2570,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
                       const row = proposedRows[index]!
                       return (
                         <ProposalRow
-                          key={row.id}
+                          key={row.key}
                           row={row}
                           selected={focused === row.id}
                           onSelect={(permanent) => selectIssue(row, permanent)}

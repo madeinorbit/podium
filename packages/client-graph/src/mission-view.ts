@@ -355,6 +355,8 @@ const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => s
  * The handle holds no row, geometry, retained computed or presentation map. */
 export class MissionDeckIssueModel implements FlightDeckRow {
   constructor(readonly id: string, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
+  /** A graft can draw the same issue under two mission paths. */
+  get key() { return this.path ? JSON.stringify(this.path) : this.id }
   private get canonical(): MissionDeckIssueModel { return this.path ? this.deck.model(this.id) : this }
   get view() { return this.deck.view }
   get facts() { return this.view.facts(this.id) }

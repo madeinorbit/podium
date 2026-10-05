@@ -1326,7 +1326,7 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
       {ids.map((sessionId, index) => {
-        const key = deckSessionKey(ctx.issue.id, sessionId)
+        const key = deckSessionKey(ctx.model?.key ?? ctx.issue.id, sessionId)
         if (ctx.window?.enabled && !ctx.window.contains(key)) {
           return (
             <DeckRowPlaceholder
@@ -1519,11 +1519,11 @@ export const TaskRow = observer(
     const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
     // A visible session can belong to a task whose band is offscreen. That
     // session needs its own owner fields, but never the hidden band's payload.
-    if (deckWindow?.enabled && !deckWindow.contains(deckTaskKey(row.id))) {
+    if (deckWindow?.enabled && !deckWindow.contains(deckTaskKey(row.key))) {
       const issue = requireLoaded(row.view.catalogIssue(row.id))!
       return <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={row.stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
-        <DeckRowPlaceholder row={{ key: deckTaskKey(row.id), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.id)) } }} window={deckWindow} />
+        <DeckRowPlaceholder row={{ key: deckTaskKey(row.key), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.key)) } }} window={deckWindow} />
         {!collapsed && <HungRows issue={issue} sessions={[]} model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
           activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={bandLeft} rail={agentRail} tail={childFollows}
           onSelectSession={onSelectSession} onSelectNative={onSelectNative} window={deckWindow} />}
