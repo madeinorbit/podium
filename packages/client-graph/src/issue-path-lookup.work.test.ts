@@ -10,7 +10,11 @@ import type { RowRecord, RowSourceEvent } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const old = '2020-01-01T00:00:00Z'
-const repo: RowRecord = { kind: 'worktree', id: 'repo', value: { repoId: 'repo', repoPath: '/repo', prefix: 'REPO' } } as RowRecord
+const repo: RowRecord = {
+  kind: 'worktree',
+  id: 'repo',
+  value: { repoId: 'repo', repoPath: '/repo', prefix: 'REPO' },
+} as RowRecord
 const issue = (id: string, seq: number, path: string, patch: object = {}): RowRecord =>
   ({
     kind: 'issue',
