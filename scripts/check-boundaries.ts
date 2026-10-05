@@ -3957,6 +3957,7 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // and replay verdicts ARE the product — evidence a human reads, same category
   // as the perf harnesses above.
   'apps/web/harness/account-switch-proof.ts',
+  'apps/web/harness/conversation-stream-ab.ts',
   'apps/web/harness/full-screen-click-profile.ts',
   'apps/web/harness/full-screen-profile-analyze.ts',
   'apps/web/harness/heap-owners-selftest.ts',

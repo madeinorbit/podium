@@ -64,6 +64,11 @@ describe('MANIFEST coverage', () => {
   it('classifies workspace Vite and Vitest configs as build-tier tooling', () => {
     expect(workspaceOf('apps/web/vite.config.ts')).toBe('scripts')
     expect(workspaceOf('packages/model/vitest.config.ts')).toBe('scripts')
+    // Dotted Vite variants are the same kind of file (POD-5674 phone stream).
+    expect(workspaceOf('apps/mobile/vite.conversation-stream.config.ts')).toBe('scripts')
+    // ...and nothing near the shape is swept along with them.
+    expect(workspaceOf('apps/mobile/vite.config.ts.bak')).toBe('apps/mobile')
+    expect(workspaceOf('apps/mobile/src/vite.config.ts')).toBe('apps/mobile')
   })
 
   // POD-2820. Both edges of the class, because the narrowness IS the property:

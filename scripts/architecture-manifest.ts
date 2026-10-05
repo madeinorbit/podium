@@ -205,8 +205,10 @@ export function isTestFile(file: string): boolean {
 const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
 /** Workspace-local Vite/Vitest configs are build-tier composition, not shipped
  * application or package source. They may consume shared repository tooling
- * without creating a runtime dependency from the workspace back into scripts. */
-const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite|vitest)\.config\.ts$/
+ * without creating a runtime dependency from the workspace back into scripts.
+ * Dotted Vite variants (`vite.<purpose>.config.ts`, POD-5674's phone-stream
+ * build) are the same kind of file under a more specific name. */
+const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite(?:\.[a-z0-9-]+)?|vitest)\.config\.ts$/
 
 /**
  * ARCHITECTURE GUARDS FILED UNDER A WORKSPACE ARE BUILD TIER (POD-2820).

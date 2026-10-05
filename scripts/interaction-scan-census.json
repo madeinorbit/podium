@@ -37256,43 +37256,6 @@
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
-      "file": "packages/client-graph/src/cached.ts",
-      "holder": "cachedGroup",
-      "rule": "reader-summary",
-      "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
-      "gate": [],
-      "origin": [
-        "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
-        "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
-      ],
-      "fingerprint": "5e5df4d446609c5b017768ac2d5794a7ae39984488c4afd169cf7d5b8eeafc51",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of cachedGroup",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/cached.ts",
-      "holder": "cachedGroup",
-      "rule": "reader-summary",
-      "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
-      "gate": [],
-      "origin": [
-        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
-      ],
-      "fingerprint": "703bfbed7a74b02922f7329cfa60af2bfd6e7f7ccee179fb43224732b96c0a4d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of cachedGroup",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "spread",
@@ -42950,24 +42913,6 @@
     },
     {
       "file": "packages/client-graph/src/worklist/mobile.ts",
-      "holder": "MobileSectionsView",
-      "rule": "reader-summary",
-      "tokens": "a1b01ff3bbf97bd3be601163cdcb54b29e2f8cadedf4ab074b7323f1dc5095bd",
-      "gate": [],
-      "origin": [
-        "d6d1e34820530425562afaaaddc07a110e914dc6e4ff7b7a21ed8d2ca41f94c4"
-      ],
-      "fingerprint": "462595fd9454a3dc2477c130e6b365e71ef7bfa8d627118197b47f5ec19cec97",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "MobileSectionsView/keyedComputed:callback",
       "rule": "enumerator:allRows",
       "tokens": "c05287aa8c6539e91dfc155f743d4379d07a3f34d7757131fc7c713e61d30fd3",
@@ -45577,24 +45522,6 @@
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
-      "file": "packages/client-graph/src/cached.ts",
-      "holder": "cachedGroup",
-      "rule": "reader-summary",
-      "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
-      "gate": [],
-      "origin": [
-        "bd13e7a87f9152d400825e6157dcca37bd6dfd3ca33a899ea3598952e38b2c00"
-      ],
-      "fingerprint": "0e3731d11347a8b26bb6af21259680362fbab7c86c53ddae6e6d2561694a0298",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed mission root presence",
-      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
-      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
-    },
-    {
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "MissionDeckModel/presence",
       "rule": "reader-summary",
@@ -45691,6 +45618,79 @@
       "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
       "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/client-graph/src/cached.ts",
+      "holder": "cachedGroup",
+      "rule": "reader-summary",
+      "tokens": "903f6447d7e2ccfc4078034c3efbe95c2a1b2851c4755e42de082dc539745215",
+      "gate": [],
+      "origin": [
+        "bd13e7a87f9152d400825e6157dcca37bd6dfd3ca33a899ea3598952e38b2c00"
+      ],
+      "fingerprint": "1d7a113bf3ff64f91e5a25253cc95bf88991d3c36f59faa7ba1c6f1f528f9b97",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of cachedGroup",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/cached.ts",
+      "holder": "cachedGroup",
+      "rule": "reader-summary",
+      "tokens": "903f6447d7e2ccfc4078034c3efbe95c2a1b2851c4755e42de082dc539745215",
+      "gate": [],
+      "origin": [
+        "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
+      ],
+      "fingerprint": "ccb6356294f4e30dbe6c86417bc2e3abdf9204ab61299d72a4dc595838ba0754",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of cachedGroup",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/cached.ts",
+      "holder": "cachedGroup",
+      "rule": "reader-summary",
+      "tokens": "903f6447d7e2ccfc4078034c3efbe95c2a1b2851c4755e42de082dc539745215",
+      "gate": [],
+      "origin": [
+        "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
+        "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
+      ],
+      "fingerprint": "dc81e7d3d6d1460d6f9cb7814e57cce1680ac6410008f61687dc71bd8c3816b7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of cachedGroup",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/mobile.ts",
+      "holder": "MobileSectionsView",
+      "rule": "reader-summary",
+      "tokens": "8c47918f62aed71a0a1ace4bbfa8e72a45f309906fbfe0d5e3a2f13c1a18ee65",
+      "gate": [],
+      "origin": [
+        "d6d1e34820530425562afaaaddc07a110e914dc6e4ff7b7a21ed8d2ca41f94c4"
+      ],
+      "fingerprint": "e2843333bd9956b8f0e08d070d766a9df551b306f82f839c42acafef8f36ca90",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of MobileSectionsView",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }
