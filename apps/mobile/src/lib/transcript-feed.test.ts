@@ -66,8 +66,13 @@ describe('mobile transcript feed', () => {
       item('system', 'system', 'Quiet'),
     ]
     expect(buildMobileTranscript(items).latestAssistantKey).toBe('a2')
-    expect(buildMobileTranscript(items.filter(row => row.id !== 'a2')).latestAssistantKey).toBe('a1')
-    expect(buildMobileTranscript(items.filter(row => row.id !== 'a1' && row.id !== 'a2')).latestAssistantKey).toBeUndefined()
+    expect(buildMobileTranscript(items.filter((row) => row.id !== 'a2')).latestAssistantKey).toBe(
+      'a1',
+    )
+    expect(
+      buildMobileTranscript(items.filter((row) => row.id !== 'a1' && row.id !== 'a2'))
+        .latestAssistantKey,
+    ).toBeUndefined()
     expect(buildMobileTranscript([]).latestAssistantKey).toBeUndefined()
   })
 

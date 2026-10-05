@@ -73,20 +73,23 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
     buildMobileTranscript: (...args: Parameters<typeof actual.buildMobileTranscript>) => {
       transcriptBuilds(args[0])
       const built = actual.buildMobileTranscript(...args)
-      const model = tailWork.enabled ? {
-        ...built,
-        rows: new Proxy(built.rows, {
-          get(target, key, receiver) {
-            if (key === Symbol.iterator) return function* () {
-              for (let index = 0; index < target.length; index++) {
-                tailWork.rowIterations++
-                yield target[index]!
-              }
-            }
-            return Reflect.get(target, key, receiver)
-          },
-        }),
-      } : built
+      const model = tailWork.enabled
+        ? {
+            ...built,
+            rows: new Proxy(built.rows, {
+              get(target, key, receiver) {
+                if (key === Symbol.iterator)
+                  return function* () {
+                    for (let index = 0; index < target.length; index++) {
+                      tailWork.rowIterations++
+                      yield target[index]!
+                    }
+                  }
+                return Reflect.get(target, key, receiver)
+              },
+            }),
+          }
+        : built
       if (!searchWork.enabled) return model
       return {
         ...model,
@@ -175,14 +178,30 @@ describe('TranscriptList pendingAsk', () => {
       tailWork.rowIterations = 0
       const items: TranscriptItem[] = [
         { id: 'old', role: 'assistant', text: 'Earlier prose' },
-        ...Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({ id: `user:${index}`, role: 'user', text: `Operator ${index}` })),
+        ...Array.from(
+          { length: 128 * scale },
+          (_, index): TranscriptItem => ({
+            id: `user:${index}`,
+            role: 'user',
+            text: `Operator ${index}`,
+          }),
+        ),
         { id: 'latest', role: 'assistant', text: 'Latest answer', answer: true },
         { id: 'tail', role: 'user', text: 'After the answer' },
       ]
-      const { rerender, unmount } = render(<TranscriptList items={items} live streaming onAnswer={onAnswer} />)
+      const { rerender, unmount } = render(
+        <TranscriptList items={items} live streaming onAnswer={onAnswer} />,
+      )
       expect(screen.getByText('▋').parentElement?.textContent).toContain('Latest answer')
       expect(tailWork.rowIterations).toBe(0)
-      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'Newest prose' }]} live streaming onAnswer={onAnswer} />)
+      rerender(
+        <TranscriptList
+          items={[...items, { id: 'new', role: 'assistant', text: 'Newest prose' }]}
+          live
+          streaming
+          onAnswer={onAnswer}
+        />,
+      )
       expect(screen.getAllByText('▋')).toHaveLength(1)
       expect(tailWork.rowIterations).toBe(0)
       samples.push({ scale, retainedRowIterations: tailWork.rowIterations })
