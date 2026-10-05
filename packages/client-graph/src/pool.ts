@@ -246,7 +246,6 @@ export class MobxPool {
   get sessionPanes() { return sessionPaneView(this) }
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
-  private readonly settingsEnabled: boolean
   private readonly sourcePositionVersion: IObservableValue<number> | undefined
   get settingsViews() { return settingsView(this) }
   /** The source index's undeleted issue count, published with each batch. */
@@ -327,8 +326,7 @@ export class MobxPool {
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
     this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
     this.issueIdByRef = lazy?.issueIdByRef
-    this.settingsEnabled = lazy?.settings === true
-    this.sourcePositionVersion = this.settingsEnabled
+    this.sourcePositionVersion = lazy?.settings === true
       ? observable.box(0, {
           name: debugName(() => 'pool.sourcePositionVersion'),
         })

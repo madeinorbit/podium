@@ -121,6 +121,6 @@ export function createSessionPaneReader(pool: MobxPool) {
 }
 
 /** Shared service view, owned by the screen rather than the core pool. */
-export function sessionPaneView(pool: MobxPool) {
+export function sessionPaneView(pool: MobxPool): ReturnType<typeof createSessionPaneReader> {
   return pool.sources.view('sessionPanes', () => createSessionPaneReader(pool))
 }

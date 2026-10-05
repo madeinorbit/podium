@@ -284,7 +284,7 @@ export function createHeaderEntities() {
 }
 
 /** The screen registry owns creation and teardown of this view. */
-export function headerEntities(pool: MobxPool) {
+export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
   return pool.sources.view('header.entities', () => {
     const view = createHeaderEntities()
     return Object.assign(view, { dispose: () => view.clear() })

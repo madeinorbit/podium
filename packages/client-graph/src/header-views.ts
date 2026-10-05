@@ -454,7 +454,7 @@ export function createHeaderViews(pool: MobxPool) {
 }
 
 /** The screen registry owns creation and teardown of this view. */
-export function headerView(pool: MobxPool) {
+export function headerView(pool: MobxPool): ReturnType<typeof createHeaderViews> & { dispose(): void } {
   return pool.sources.view('header.views', () => {
     const view = createHeaderViews(pool)
     return Object.assign(view, { dispose: () => view.clear() })

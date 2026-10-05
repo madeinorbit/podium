@@ -49,7 +49,7 @@ export function createSettingsViews(pool: MobxPool) {
 }
 
 /** The screen registry owns creation and teardown of this view. */
-export function settingsView(pool: MobxPool) {
+export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsViews> & { dispose(): void } {
   return pool.sources.view('settings.views', () => {
     const view = createSettingsViews(pool)
     return Object.assign(view, { dispose: () => view.clear() })

@@ -46,7 +46,7 @@ import type { MobxPool } from '../pool'
  * latch is one computed, so a click on any other row re-runs nothing here.
  */
 
-import { compareShallow, compareStructural, computed, makeObservable } from 'mobx'
+import { compareShallow, compareStructural, computed, makeObservable, observable, type IObservableValue } from 'mobx'
 import { compareRank, type RowRank } from '../shared/row-view'
 import type { SliceGroup, SliceOrder } from '../shared/slice-types'
 import type { OwnPart } from '../views'
@@ -513,8 +513,13 @@ export class WorklistGroups {
   }
 }
 
+export type WorklistGroupView = WorklistGroups & {
+  readonly foldLatch: IObservableValue<boolean>
+  dispose(): void
+}
+
 /** Screen-local fold state and grouping share the existing view lifetime. */
-export function worklistGroups(pool: MobxPool, initiallyFolded = false) {
+export function worklistGroups(pool: MobxPool, initiallyFolded = false): WorklistGroupView {
   return pool.sources.view('worklist.groups', () => {
     const foldLatch = observable.box(initiallyFolded, { name: debugName(() => 'pool.foldLatch') })
     const groups = new WorklistGroups({
