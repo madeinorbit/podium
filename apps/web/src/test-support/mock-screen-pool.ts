@@ -197,7 +197,9 @@ function useFixturePool(): MobxPool {
   const input = { state: { ...state, ...borrowed.read() }, issues }
   const signal = fixtureSignal
   live.current = input
-  useLayoutEffect(() => { runInAction(() => signal.set(input)) })
+  useLayoutEffect(() => {
+    if (!isDeepStrictEqual(signal.get(), input)) runInAction(() => signal.set(input))
+  })
   const notifications = useMemo(() => {
     let version = 0
     return {
