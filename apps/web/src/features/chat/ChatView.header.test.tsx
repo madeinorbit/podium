@@ -177,6 +177,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 

@@ -256,6 +256,7 @@ async function flush(): Promise<void> {
     // an earlier case having warmed that module before this helper settles.
     await vi.dynamicImportSettled()
     await Promise.resolve()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 

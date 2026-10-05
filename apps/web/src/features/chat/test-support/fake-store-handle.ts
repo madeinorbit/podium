@@ -1,3 +1,4 @@
+import { afterEach } from 'vitest'
 import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
 import type { SessionId } from '@podium/model'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -82,3 +83,5 @@ export const fakeStoreHandle = Object.defineProperties(keyedHandle, {
   } },
   ownConversations: { value: (options: ConversationCacheOptions) => conversations ??= new ConversationCache(options) },
 }) as typeof keyedHandle & { drafts: DraftStore; ownConversations(options: ConversationCacheOptions): ConversationCache }
+
+afterEach(resetFakeStore)

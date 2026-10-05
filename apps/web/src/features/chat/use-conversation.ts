@@ -7,7 +7,7 @@ import { useStoreHandle, useConversation as useOwnedConversation } from '@podium
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { asMutationId, HarnessAgent, type SessionId } from '@podium/model/browser'
+import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { action, actionBound, compareShallow, computed, makeObservable, observable, observableRef, reaction, runInAction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -195,7 +195,8 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   const gate = useRef({ runtime, sessionId, ready: false })
   if (gate.current.runtime !== runtime || gate.current.sessionId !== sessionId) gate.current = { runtime, sessionId, ready: false }
   if (ready) gate.current.ready = true
-  const conversation = useOwnedConversation<WebConversation>(sessionId,
+  const cacheId = options.superThread ? asSessionId(`${sessionId}:thread:${options.superThread.threadId}`) : sessionId
+  const conversation = useOwnedConversation<WebConversation>(cacheId,
     () => createWebConversation(runtime, pool!, sessionId, options),
     { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript }) ?? null
   const onInitialPendingSettled = options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled

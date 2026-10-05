@@ -5,7 +5,7 @@ import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-
 type Store = ReferenceState & { drafts: Record<string, string> }
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asIssueId, asMachineId, asMutationId, asSessionId, type SessionId } from '@podium/model/browser'
+import { asIssueId, asMachineId, asRepoId, asMutationId, asSessionId, type SessionId } from '@podium/model/browser'
 import { dedupeSessionsByResume } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
 import { CHAT_CONTEXT_ENTITIES, CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
@@ -24,15 +24,15 @@ import { checkChatContext } from './chat-context-check'
 export async function createChatContextFixture(resumeTwins = false) {
   const data = noticeFixture()
   const rawSessions = data.sessions.map((row, index) => ({ ...row, privateBody: 'Undeclared cold payload', issueId: asIssueId(index ? 'cold-issue' : 'chat-issue'),
-    displayRef: index ? 'SYN-2-A' : 'SYN-1-A', machineId: asMachineId('chat-machine'), status: index ? 'exited' as const : 'live' as const,
+    displayRef: index ? 'SYN-2-A' : 'SYN-1-A', refRepoId: asRepoId('chat-repo'), refSeq: index ? 2 : 1, refLetter: 'A', machineId: asMachineId('chat-machine'), status: index ? 'exited' as const : 'live' as const,
     archived: index > 0, lastActiveAt: index ? '2020-01-01T00:00:00Z' : '2026-10-01T12:00:00Z' })) as Store['sessions']
   if (resumeTwins) {
     const cold = rawSessions[1]!
     cold.resume = { kind: 'codex', value: 'synthetic-native-id' }
-    rawSessions.push({ ...cold, sessionId: asSessionId('parked-twin'), displayRef: 'SYN-2-B', lastActiveAt: '2021-01-01T00:00:00Z' })
-    rawSessions.push({ ...rawSessions[0]!, sessionId: asSessionId('active-twin'), displayRef: 'SYN-1-B', resume: { kind: 'codex', value: 'synthetic-active-id' } })
+    rawSessions.push({ ...cold, sessionId: asSessionId('parked-twin'), displayRef: 'SYN-2-B', refLetter: 'B', lastActiveAt: '2021-01-01T00:00:00Z' })
+    rawSessions.push({ ...rawSessions[0]!, sessionId: asSessionId('active-twin'), displayRef: 'SYN-1-B', refLetter: 'B', resume: { kind: 'codex', value: 'synthetic-active-id' } })
     rawSessions[0]!.resume = { kind: 'codex', value: 'synthetic-active-id' }
-    rawSessions.push({ ...cold, sessionId: asSessionId('headless-twin'), displayRef: 'SYN-2-C', headless: true })
+    rawSessions.push({ ...cold, sessionId: asSessionId('headless-twin'), displayRef: 'SYN-2-C', refLetter: 'C', headless: true })
   }
   const sessions = dedupeSessionsByResume(rawSessions)
   const issues = Array.from({ length: 9 }, (_, index) => ({ id: asIssueId(index === 0 ? 'chat-issue' : index === 1 ? 'cold-issue' : `chat-issue-${index}`),

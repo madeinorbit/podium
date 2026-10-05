@@ -38,6 +38,11 @@ const fakeHub = {
     return () => {}
   },
   on(event: string, cb: PreviewCb): () => void {
+    if (event === 'headlessActivity') {
+      const sub = { sessionId: asSessionId('h1'), cb: (frame: HeadlessActivityEvent) => (cb as unknown as (id: SessionId, event: HeadlessActivityEvent) => void)(asSessionId('h1'), frame) }
+      this.headlessSubs.push(sub)
+      return () => { const index = this.headlessSubs.indexOf(sub); if (index >= 0) this.headlessSubs.splice(index, 1) }
+    }
     if (event !== 'turnPreview') return () => {}
     this.previewSubs.push(cb)
     return () => {
@@ -186,17 +191,19 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 
-function push(event: HeadlessActivityEvent): void {
-  act(() => {
+async function push(event: HeadlessActivityEvent): Promise<void> {
+  await act(async () => {
     for (const s of fakeHub.headlessSubs) s.cb(event)
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 
-function pushPreview(text: string): void {
-  act(() => {
+async function pushPreview(text: string): Promise<void> {
+  await act(async () => {
     for (const cb of fakeHub.previewSubs) {
       cb(asSessionId('h1'), {
         type: 'turnPreview',
@@ -206,6 +213,7 @@ function pushPreview(text: string): void {
         items: [{ kind: 'text', itemId: 'grok-assistant-1', text }],
       })
     }
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -229,8 +237,8 @@ describe('ChatView headless mode', () => {
     mount()
     await flush()
     expect(overlayEl()).toBeNull()
-    push({ kind: 'turn-start' })
-    push({ kind: 'partial-text', text: 'streaming hello' })
+    await push({ kind: 'turn-start' })
+    await push({ kind: 'partial-text', text: 'streaming hello' })
     expect(overlayEl()?.textContent).toContain('streaming hello')
     // The real assistant item lands via the transcript tail → accumulated
     // partial text clears (the item now renders as a normal row).
@@ -242,22 +250,22 @@ describe('ChatView headless mode', () => {
     })
     expect(overlayEl()).toBeNull()
     // A later status frame mid-turn shows in the permanent tail…
-    push({ kind: 'status', status: 'tool', label: 'Bash' })
+    await push({ kind: 'status', status: 'tool', label: 'Bash' })
     expect(container.querySelector('[data-testid="feed-tail"]')?.textContent).toContain(
       'running Bash',
     )
     // …and turn-end clears everything.
-    push({ kind: 'turn-end' })
+    await push({ kind: 'turn-end' })
     expect(overlayEl()).toBeNull()
   })
 
   it('renders one streaming copy when legacy activity and turn preview carry the same text', async () => {
     mount()
     await flush()
-    push({ kind: 'turn-start' })
-    push({ kind: 'partial-text', text: 'one Grok answer' })
+    await push({ kind: 'turn-start' })
+    await push({ kind: 'partial-text', text: 'one Grok answer' })
     expect(overlayEl()?.textContent).toContain('one Grok answer')
-    pushPreview('one Grok answer')
+    await pushPreview('one Grok answer')
     expect(overlayEl()).toBeNull()
     expect(container.textContent?.split('one Grok answer')).toHaveLength(2)
   })
@@ -270,10 +278,10 @@ describe('ChatView headless mode', () => {
     await flush()
     expect(textarea().disabled).toBe(false)
     expect(textarea().placeholder).not.toContain('Working')
-    push({ kind: 'turn-start' })
+    await push({ kind: 'turn-start' })
     expect(textarea().disabled).toBe(false)
     expect(textarea().placeholder).toContain('Working')
-    push({ kind: 'turn-end' })
+    await push({ kind: 'turn-end' })
     expect(textarea().placeholder).not.toContain('Working')
   })
 
@@ -317,7 +325,7 @@ describe('ChatView headless mode', () => {
     mount()
     await flush()
     expect(container.querySelector('[title="Stop this turn"]')).toBeNull()
-    push({ kind: 'turn-start' })
+    await push({ kind: 'turn-start' })
     const stop = container.querySelector('[title="Stop this turn"]') as HTMLButtonElement
     expect(stop).not.toBeNull()
     act(() => stop.click())
@@ -628,7 +636,7 @@ describe('ChatView headless mode', () => {
       'Not sent',
     )
     // Equal words do not make this current failure the restored one.
-    push({ kind: 'turn-end', error: offlineFailure.error })
+    await push({ kind: 'turn-end', error: offlineFailure.error })
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
     expect(container.textContent).toContain(offlineFailure.error)
   })
@@ -653,8 +661,8 @@ describe('ChatView headless mode', () => {
       })
       expect(sendTurn).toHaveBeenCalled()
     } else {
-      push({ kind: 'turn-start' })
-      push({ kind: 'turn-end' })
+      await push({ kind: 'turn-start' })
+      await push({ kind: 'turn-end' })
     }
     await act(async () => resolveFailure(offlineFailure))
     await flush()

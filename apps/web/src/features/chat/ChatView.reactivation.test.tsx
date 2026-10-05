@@ -190,6 +190,7 @@ async function flush(): Promise<void> {
     await Promise.resolve()
     await vi.dynamicImportSettled()
     await Promise.resolve()
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
   })
 }
 
