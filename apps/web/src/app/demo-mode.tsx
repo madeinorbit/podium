@@ -140,11 +140,9 @@ export function WebDemoApp(): JSX.Element {
       <ErrorBoundary resetKey="demo" onRetry={() => {}}>
         <WebDemoProvider>
           <DemoDensityProvider>
-            <ConfirmProvider>
-              <ToolbarSlotProvider>
-                <DemoBody />
-              </ToolbarSlotProvider>
-            </ConfirmProvider>
+            <ToolbarSlotProvider>
+              <DemoBody />
+            </ToolbarSlotProvider>
           </DemoDensityProvider>
         </WebDemoProvider>
       </ErrorBoundary>
@@ -190,7 +188,9 @@ function DemoSlicePublisher({
 /**
  * Focused-test/demo harness provider: the demo store with the web pool
  * attached, without the shell chrome. Tests render the sidebar or an issue
- * page inside this and read demo rows through the real pool.
+ * page inside this and read demo rows through the real pool. The confirm
+ * dialog lives here (as in the product shell) because work-list rows reach
+ * for it on render.
  */
 export function WebDemoProvider({ children }: { children: ReactNode }): JSX.Element {
   const [api] = useState(demoTrpc)
@@ -214,7 +214,7 @@ export function WebDemoProvider({ children }: { children: ReactNode }): JSX.Elem
       }}
     >
       <DemoSlicePublisher replica={demoReplica} />
-      {children}
+      <ConfirmProvider>{children}</ConfirmProvider>
     </StoreProvider>
   )
 }
