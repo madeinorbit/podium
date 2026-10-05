@@ -1,5 +1,10 @@
 import type { SessionView } from '../session-values'
-import { loadingNavigationProvider, NAVIGATION_LOADING, type NavigationIssue, type NavigationProvider } from './navigation-provider'
+import {
+  loadingNavigationProvider,
+  NAVIGATION_LOADING,
+  type NavigationIssue,
+  type NavigationProvider,
+} from './navigation-provider'
 export * from './navigation-provider'
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
@@ -28,9 +33,7 @@ import type {
   ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
-import type {
-  ApprovalWire,
-} from '@podium/protocol'
+import type { ApprovalWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -108,7 +111,6 @@ export interface EngineState {
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
   autoContinuePromptSessionId: SessionId | null
-  drafts: Record<string, string>
   sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
@@ -234,19 +236,26 @@ export function workspaceKeyForState(st: WorkspaceSelection): WorkspaceKey {
   return key === NAVIGATION_LOADING ? 'none' : key
 }
 
-export function resolvedWorkspaceKey(st: WorkspaceSelection): WorkspaceKey | typeof NAVIGATION_LOADING {
+export function resolvedWorkspaceKey(
+  st: WorkspaceSelection,
+): WorkspaceKey | typeof NAVIGATION_LOADING {
   if (st.navigation) {
     const selected = st.selectedIssueId ? st.navigation.issue(st.selectedIssueId) : undefined
     if (selected === NAVIGATION_LOADING) return NAVIGATION_LOADING
-    const root = selected && !selected.archived && !selected.deletedAt
-      ? st.navigation.missionRoot(selected.id) : undefined
+    const root =
+      selected && !selected.archived && !selected.deletedAt
+        ? st.navigation.missionRoot(selected.id)
+        : undefined
     if (root === NAVIGATION_LOADING) return NAVIGATION_LOADING
     // The provider owns invalidation. Never cache this answer against the
     // legacy issue array, which need not move when a cold pool row arrives.
-    return workspaceKeyFor({ missionRootId: root ?? null, issueId: st.selectedIssueId, worktreePath: st.selectedWorktree })
+    return workspaceKeyFor({
+      missionRootId: root ?? null,
+      issueId: st.selectedIssueId,
+      worktreePath: st.selectedWorktree,
+    })
   }
   return 'none'
-
 }
 
 /** The layout for a key — always a layout, never undefined, so no caller has to
@@ -405,10 +414,7 @@ function resolvableFileTabIds(st: Pick<PruningState, 'sessions' | 'fileTabs'>): 
  * it is foreign, and the origin strip must drop it immediately.
  */
 export function knownTabIdsForWorkspace(
-  st: Pick<
-    PruningState,
-    'navigation' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'
-  >,
+  st: Pick<PruningState, 'navigation' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>,
   key: WorkspaceKey,
 ): Set<string> {
   const ids = new Set<string>()
@@ -478,7 +484,9 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
+        return (
+          loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
+        )
       }
     }
   }
@@ -520,7 +528,10 @@ export function foregroundIssue(st: EngineState): NavigationIssue | undefined {
 }
 
 /** Session reactions use the same addressed provider as a selection gesture. */
-export function navigationSession(st: Pick<EngineState, 'navigation'>, id: string): SessionView | undefined {
+export function navigationSession(
+  st: Pick<EngineState, 'navigation'>,
+  id: string,
+): SessionView | undefined {
   if (st.navigation) {
     const session = st.navigation.session(id)
     return session === NAVIGATION_LOADING ? undefined : session
@@ -662,7 +673,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     dockShells: seed.persisted.dockShells,
     dockVisibleSession: null,
     autoContinuePromptSessionId: null,
-    drafts: {},
     sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
     // Restored with the layouts that name them (POD-1247). These two are one
     // fact in two keys: a layout tab id whose record did not come back renders

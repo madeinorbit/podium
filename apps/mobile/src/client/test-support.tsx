@@ -183,6 +183,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
   let pool: MobxPool | null = null
   let ready = false
+  let runtimeHandle: ClientRuntime<MobileTrpc> | undefined
   function PoolReady() {
     pool = useMobilePool()
     // The host publishes the pool before its lazy screen sources finish attaching.
@@ -195,6 +196,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
     const store = useStoreHandle<MobileTrpc>()
+    runtimeHandle = store
     hub = store.access.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
     return (
       <>
@@ -280,9 +282,12 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     })
   }
   if (!fixture.attachRuntime) {
-    await waitFor(() => {
-      if (!ready) throw new Error('Mobile pool is attaching')
-    })
+    await waitFor(
+      () => {
+        if (!ready) throw new Error('Mobile pool is attaching')
+      },
+      { timeout: 5000 },
+    )
     // Paint may ask for cold inputs after source attachment. Settle the production
     // batched loader; custom counter fixtures retain control of their own windows.
     for (let turn = 0; turn < 100; turn++) {
@@ -298,6 +303,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     ...result,
     replica,
     api,
+    runtime: runtimeHandle!,
     emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
   }
 }

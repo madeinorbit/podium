@@ -6,9 +6,10 @@ import type { MobxPool } from '@podium/client-graph'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
 import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
+import { reaction } from 'mobx'
+import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { demoEnabled } from './demoData'
-import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
+import { useMobilePoolProjection } from './mobile-pool'
 
 type Reader = MobileSessionRows['mobileSessionReader']
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
@@ -153,16 +154,6 @@ const bootingRead = (reader: Reader) => (demoEnabled() ? false : reader.booting(
 export function useSessionContextBooting() {
   return useRead(bootingRead, !demoEnabled())
 }
-export function useSessionContextDraft(id: SessionId) {
-  const read = useCallback(
-    (reader: Reader) => {
-      const row = reader.draft(id)
-      return pending(row) ? '' : row
-    },
-    [id],
-  )
-  return useRead(read, '')
-}
 export function useSessionContextQuestion(id: SessionId) {
   const read = useCallback((reader: Reader) => reader.question(id).question, [id])
   return useRead(read, undefined)
@@ -172,7 +163,6 @@ type Ports = {
   records: ConversationRecords
   outbox: ConversationOutbox
   ready: boolean
-  draft: string
 }
 const EMPTY_PORTS_INPUT = {
   records: [] as readonly MessageRecordWire[],
@@ -180,24 +170,10 @@ const EMPTY_PORTS_INPUT = {
   ready: false,
 }
 export function useSessionConversationPorts(id: SessionId): Ports {
-  // Draft-text-insensitive (this issue): conversation() reads draft.text, so
-  // every keystroke re-rendered the screen via this hook even after the screen
-  // moved to the controller surface. conversationPorts() tracks only
-  // records/held/ready-existence; the draft seed is read once imperatively
-  // (no subscription) and later copies arrive via the composer's stored-draft
-  // hook.
   const read = useCallback((reader: Reader) => reader.conversationPorts(id), [id])
   const data = useRead(read, EMPTY_PORTS_INPUT)
-  const pool = useMobilePool()
-  const initial = useRef<{ id: string; draft: string } | undefined>(undefined)
-  useLayoutEffect(() => {
-    if (!data.ready || initial.current?.id === id || !pool) return
-    const row = pool.row('chatDraft', id) as { text?: string } | symbol | undefined
-    if (!row || typeof row === 'symbol') return
-    initial.current = { id, draft: row.text ?? '' }
-  }, [data.ready, id, pool])
   // One bridge per conversation. Late attachment restores the seed once;
-  // subsequent records/outbox demand never replaces the live controller.
+  // subsequent records/outbox demand never replaces the live Conversation.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the bridge owns its listeners per addressed conversation
   const bridge = useMemo(() => {
     let records = data.records,
@@ -239,7 +215,27 @@ export function useSessionConversationPorts(id: SessionId): Ports {
   return {
     records: bridge.records,
     outbox: bridge.outbox,
-    ready: initial.current?.id === id,
-    draft: initial.current?.id === id ? initial.current.draft : '',
+    ready: data.ready,
+  }
+}
+
+/** These subscriptions outlive a screen while its Conversation is warm. */
+export function mobileConversationPorts(
+  pool: MobxPool,
+  id: SessionId,
+): Pick<Ports, 'records' | 'outbox'> {
+  const read = () => {
+    const reader = pool.row('mobileSessionReader', 'reader')
+    return reader && !pending(reader) ? reader.conversationPorts(id) : EMPTY_PORTS_INPUT
+  }
+  return {
+    records: {
+      getSnapshot: () => read().records,
+      subscribe: (listener) => reaction(() => read().records, listener),
+    },
+    outbox: {
+      held: () => read().sends,
+      subscribe: (listener) => reaction(() => read().sends, listener),
+    },
   }
 }

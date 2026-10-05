@@ -7,7 +7,7 @@ import {
   prependTranscriptItems,
   reconcileTranscriptSnapshot,
   sameTranscriptItems,
-} from '../transcript/controller'
+} from '../transcript/contracts'
 import { transcriptDisplayText } from './transcript'
 
 function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptItem {

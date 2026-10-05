@@ -11,8 +11,8 @@ import {
 } from 'mobx'
 import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
-import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/controller'
-import { nativeSessionCanInterrupt, type ConversationContext } from './controller'
+import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/contracts'
+import { nativeSessionCanInterrupt, type ConversationContext } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
   ConversationFrameScheduler,
@@ -32,6 +32,7 @@ export interface TurnPreview {
 export interface HeadlessOverlay {
   readonly text?: string
   readonly status?: string
+  readonly label?: string
 }
 
 /** The addressed pool row. Reading this function in a reaction tracks its fields. */
@@ -49,6 +50,8 @@ export interface ConversationOptions {
   transcript: Omit<TranscriptLogOptions, 'sessionId' | 'enqueueFrame' | 'onChange' | 'connection'>
   sends: Omit<SendsOptions, 'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext'>
   readSession?: () => ConversationSession | undefined
+  streamSessionId?: () => SessionId | undefined
+  readTurnRunning?: () => boolean | undefined
   /** Hosts can supply headless/thread context while native context comes from the row. */
   readContext?: () => ConversationContext
   connection?: TranscriptConnection
@@ -80,6 +83,8 @@ export class Conversation {
   private previewDoneEpoch = -Infinity
   private previewTimer: ReturnType<typeof setTimeout> | undefined
   private activityVersion = 0
+  private restoringFailure = false
+  private failureRestored = false
 
   constructor(private readonly options: ConversationOptions) {
     this.sessionId = options.sessionId
@@ -102,6 +107,8 @@ export class Conversation {
         clearPreview: action,
         transcriptChanged: action,
         setTurnError: action,
+        finishTurn: action,
+        clear: action,
         clearTurnFailure: action,
       },
     )
@@ -167,13 +174,21 @@ export class Conversation {
     if (hub) {
       this.stops.push(
         hub.on('turnPreview', (sessionId, frame) => {
-          if (sessionId === this.sessionId) this.frames.enqueue(() => this.applyPreview(frame))
+          if (
+            sessionId ===
+            (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)
+          )
+            this.frames.enqueue(() => this.applyPreview(frame))
         }),
       )
       if (this.options.headless)
         this.stops.push(
           hub.on('headlessActivity', (sessionId, event) => {
-            if (sessionId === this.sessionId) this.frames.enqueue(() => this.applyHeadless(event))
+            if (
+              sessionId ===
+              (this.options.streamSessionId ? this.options.streamSessionId() : this.sessionId)
+            )
+              this.frames.enqueue(() => this.applyHeadless(event))
           }),
         )
     }
@@ -205,20 +220,73 @@ export class Conversation {
       ),
     )
     this.sends.start()
-    if (this.options.headless && this.options.latestTurnFailure) {
-      const version = this.activityVersion
-      void this.options
-        .latestTurnFailure()
-        .then((failure) => {
-          if (!this.disposed && version === this.activityVersion)
-            runInAction(() => {
-              this.restoredFailure = failure ? freezePlain(failure) : null
-            })
-        })
-        .catch(() => {})
+    if (this.options.readTurnRunning) {
+      let sawRunning = false
+      this.stops.push(
+        reaction(
+          this.options.readTurnRunning,
+          (running) => {
+            if (running) {
+              sawRunning = true
+              runInAction(() => {
+                this.turnRunning = true
+                this.clearTurnFailure()
+                this.sends.finishTurn(null)
+              })
+            } else if (running === false && sawRunning) {
+              sawRunning = false
+              this.finishTurn()
+            }
+          },
+          { fireImmediately: true },
+        ),
+      )
     }
     this.startPromise = this.transcript.start()
+    void this.restoreFailure()
     return this.startPromise
+  }
+
+  async restoreFailure(): Promise<void> {
+    if (
+      !this.options.headless ||
+      !this.options.latestTurnFailure ||
+      this.activityVersion > 0 ||
+      this.restoringFailure ||
+      this.failureRestored
+    )
+      return
+    this.restoringFailure = true
+    const version = this.activityVersion
+    try {
+      await this.startPromise
+      if (this.disposed || version !== this.activityVersion || this.turnRunning) return
+      const failure = await this.options.latestTurnFailure()
+      this.failureRestored = true
+      if (!this.disposed && version === this.activityVersion)
+        runInAction(() => {
+          this.restoredFailure = failure ? freezePlain(failure) : null
+        })
+    } catch {
+      /* A failed read leaves the live conversation usable. */
+    } finally {
+      this.restoringFailure = false
+    }
+  }
+
+  clear(): void {
+    this.clearTurnFailure()
+    this.finishTurn()
+    this.transcript.merge([], { reset: true })
+    this.sends.clear()
+  }
+
+  finishTurn(error: string | null = null): void {
+    if (this.disposed) return
+    this.turnRunning = false
+    this.headless = null
+    this.turnError = error
+    this.sends.finishTurn(error)
   }
 
   setTurnError(message: string | null): void {
@@ -245,7 +313,9 @@ export class Conversation {
     this.sends?.reconcile(change)
     this.options.onTranscriptChange?.(change)
     if (change.added.length > 0 && this.headless?.text !== undefined) {
-      this.headless = this.headless.status ? freezePlain({ status: this.headless.status }) : null
+      this.headless = this.headless.status
+        ? freezePlain({ status: this.headless.status, label: this.headless.label })
+        : null
     }
   }
 
@@ -279,12 +349,10 @@ export class Conversation {
     switch (event.kind) {
       case 'turn-start':
         this.turnRunning = true
-        this.headless = null
+        this.headless = freezePlain({ status: 'starting…', label: 'starting' })
         break
       case 'turn-end':
-        this.turnRunning = false
-        this.headless = null
-        this.turnError = event.error ?? null
+        this.finishTurn(event.error ?? null)
         break
       case 'partial-text':
         this.turnRunning = true
@@ -294,6 +362,7 @@ export class Conversation {
         this.turnRunning = true
         this.headless = freezePlain({
           ...(this.headless?.text !== undefined ? { text: this.headless.text } : {}),
+          label: event.label ?? event.status,
           status:
             event.status === 'tool'
               ? `running ${event.label ?? 'a tool'}…`

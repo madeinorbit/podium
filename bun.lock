@@ -115,6 +115,8 @@
         "expo-symbols": "~57.0.0",
         "expo-video": "~57.0.3",
         "marked": "^18.0.5",
+        "mobx": "7.0.3",
+        "mobx-react-lite": "5.0.3",
         "react": "19.2.3",
         "react-dom": "19.2.3",
         "react-native": "0.86.0",

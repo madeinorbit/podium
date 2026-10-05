@@ -4,15 +4,12 @@ import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, asUserId } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import { attachMobilePool, useMobilePool } from './mobile-pool'
-import {
-  useSessionContextDraft,
-  useSessionContextSession,
-  useSessionContextSessions,
-} from './use-session-context'
+import { useSessionContextSession, useSessionContextSessions } from './use-session-context'
 
 beforeEach(() => localStorage.clear())
 afterEach(() => {
@@ -28,18 +25,18 @@ it.each([
   let runtime: ClientRuntime | undefined,
     pool: MobxPool | null = null
   const failures: (Error | string)[] = []
-  function Surface() {
+  const Surface = observer(function Surface() {
     runtime = useStoreHandle() as ClientRuntime
     pool = useMobilePool()
     const row = useSessionContextSession(sid),
-      draft = useSessionContextDraft(sid)
+      draft = runtime.drafts.get(sid)
     const sessions = useSessionContextSessions()
     return (
       <output data-testid="phone">
         {row?.name || row?.title}|{draft}|{sessions.length}
       </output>
     )
-  }
+  })
   const view = render(
     <StoreProvider
       principal={asClientPrincipal(asUserId('operator'))}
@@ -102,13 +99,9 @@ it.each([
     runtime!.access.setSelectedWorktree('/synthetic/project/guests'),
   )
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project/guests')
-  await check('worktree fallback', () =>
-    runtime!.access.setSelectedWorktree('/synthetic/missing'),
-  )
+  await check('worktree fallback', () => runtime!.access.setSelectedWorktree('/synthetic/missing'))
   expect(runtime!.readLocal('selectedWorktree')).toBe('/synthetic/project')
-  await check('session switch', () =>
-    runtime!.access.navigateToSession('synthetic-session-2'),
-  )
+  await check('session switch', () => runtime!.access.navigateToSession('synthetic-session-2'))
   await check('session cwd move', () =>
     data.patch('session', 'synthetic-session-2', { cwd: '/synthetic/project/guests' }),
   )
@@ -139,5 +132,4 @@ it.each([
     `Phone pool name|Phone draft|${12 * scale + 2}`,
   )
   expect(failures).toEqual([])
-
 })

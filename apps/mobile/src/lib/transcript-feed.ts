@@ -81,6 +81,8 @@ export function buildMobileTranscript(
   options: {
     collapseContext?: boolean
     hiddenQuestionId?: string | null
+    /** Keep a structural slot whose observer can reveal the first streamed text. */
+    includeEmpty?: boolean
   } = {},
 ): MobileTranscriptModel {
   const rows: MobileTranscriptRow[] = []
@@ -191,7 +193,7 @@ export function buildMobileTranscript(
       })
       continue
     }
-    if (!item.text.trim()) continue
+    if (!item.text.trim() && !options.includeEmpty) continue
     if (options.collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text)) {
       append({
         key: transcriptItemKey(item),

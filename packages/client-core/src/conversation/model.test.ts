@@ -334,11 +334,15 @@ describe('Conversation real-time intake and ownership', () => {
     f.emit('headlessActivity', sid, { kind: 'partial-text', text: 'streamed' })
     f.emit('headlessActivity', sid, { kind: 'status', status: 'tool', label: 'Bash' })
     f.paint()
-    expect(f.conversation.headless).toEqual({ text: 'streamed', status: 'running Bash…' })
+    expect(f.conversation.headless).toEqual({
+      text: 'streamed',
+      status: 'running Bash…',
+      label: 'Bash',
+    })
     expect(f.conversation.sends.canInterrupt).toBe(true)
     f.delta([row('b')])
     f.paint()
-    expect(f.conversation.headless).toEqual({ status: 'running Bash…' })
+    expect(f.conversation.headless).toEqual({ status: 'running Bash…', label: 'Bash' })
     f.emit('headlessActivity', sid, { kind: 'turn-end', error: 'refused' })
     f.paint()
     expect(f.conversation.headless).toBeNull()

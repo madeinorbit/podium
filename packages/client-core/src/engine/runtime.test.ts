@@ -1,3 +1,4 @@
+import { observe } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView, SessionViewInput } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -62,7 +63,11 @@ import {
 } from '../ui-state'
 import { allTabIds, leafPaneIds, shippingPanelModel } from '../values'
 import { Reactions } from './reactions'
-import { NAVIGATION_LOADING, type NavigationProvider, type NavigationTopologyDelta } from './navigation-provider'
+import {
+  NAVIGATION_LOADING,
+  type NavigationProvider,
+  type NavigationTopologyDelta,
+} from './navigation-provider'
 import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 import type { EngineState } from './state'
 
@@ -332,62 +337,119 @@ describe('addressed topology navigation', () => {
     let changed: ((delta?: NavigationTopologyDelta) => void) | undefined
     let watched: (() => void) | undefined
     let labelLoading = false
-    const summaries = vi.fn((id: string) => labelLoading ? NAVIGATION_LOADING : rows.get(id))
+    const summaries = vi.fn((id: string) => (labelLoading ? NAVIGATION_LOADING : rows.get(id)))
     const provider: NavigationProvider = {
-      issue: () => undefined, missionRoot: () => undefined, missionMembers: () => new Set(),
-      issueReadAt: () => undefined, activityAt: () => undefined,
-      session: id => rows.get(id), sessionMembership: id => rows.get(id),
-      registeredWorktree: path => path === '/old' || path === '/dest',
-      firstWorktree: () => '/old', hasWorktreeSession: () => false,
-      worktreeForCwd: cwd => cwd === '/old' || cwd === '/dest' ? cwd : null,
+      issue: () => undefined,
+      missionRoot: () => undefined,
+      missionMembers: () => new Set(),
+      issueReadAt: () => undefined,
+      activityAt: () => undefined,
+      session: (id) => rows.get(id),
+      sessionMembership: (id) => rows.get(id),
+      registeredWorktree: (path) => path === '/old' || path === '/dest',
+      firstWorktree: () => '/old',
+      hasWorktreeSession: () => false,
+      worktreeForCwd: (cwd) => (cwd === '/old' || cwd === '/dest' ? cwd : null),
       worktreeSession: summaries,
-      topologySession: id => { const row = rows.get(id); return row ? { cwd: row.cwd, order: id } : undefined },
-      onTopology: fn => { changed = fn; return () => { changed = undefined } },
-      watch: (read, wake) => { read(); watched = wake; return () => { if (watched === wake) watched = undefined } },
+      topologySession: (id) => {
+        const row = rows.get(id)
+        return row ? { cwd: row.cwd, order: id } : undefined
+      },
+      onTopology: (fn) => {
+        changed = fn
+        return () => {
+          changed = undefined
+        }
+      },
+      watch: (read, wake) => {
+        read()
+        watched = wake
+        return () => {
+          if (watched === wake) watched = undefined
+        }
+      },
     }
     engine.setNavigationProvider(provider)
-    return { rows, summaries, publish: (delta: NavigationTopologyDelta) => changed?.(delta),
-      loading: (value: boolean) => { labelLoading = value }, wake: () => watched?.() }
+    return {
+      rows,
+      summaries,
+      publish: (delta: NavigationTopologyDelta) => changed?.(delta),
+      loading: (value: boolean) => {
+        labelLoading = value
+      },
+      wake: () => watched?.(),
+    }
   }
 
   it('retains a visible move through a reset before the queued wake', async () => {
-    const info = vi.fn(), { engine } = makeEngine({ info })
+    const info = vi.fn(),
+      { engine } = makeEngine({ info })
     const f = addressed(engine)
     try {
       f.rows.set('pane', session('pane', '/old'))
-      engine.access.navigateWorkspace({ selectedWorktree: '/old', tabId: asSessionId('pane'), firstPane: true })
+      engine.access.navigateWorkspace({
+        selectedWorktree: '/old',
+        tabId: asSessionId('pane'),
+        firstPane: true,
+      })
       await settle()
       f.rows.set('pane', session('pane', '/dest'))
-      f.publish({ reset: false, sessions: [{ id: 'pane', before: { cwd: '/old', order: 'pane' }, after: { cwd: '/dest', order: 'pane' } }] })
+      f.publish({
+        reset: false,
+        sessions: [
+          {
+            id: 'pane',
+            before: { cwd: '/old', order: 'pane' },
+            after: { cwd: '/dest', order: 'pane' },
+          },
+        ],
+      })
       f.publish({ reset: true, sessions: [] })
       await settle()
       expect(engine.access.selectedWorktree).toBe('/dest')
       expect(info).not.toHaveBeenCalled()
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
 
   it('retries one background label without demanding first-sight or evicted summaries', async () => {
-    const info = vi.fn(), { engine } = makeEngine({ info })
+    const info = vi.fn(),
+      { engine } = makeEngine({ info })
     const f = addressed(engine)
     try {
       await settle()
       f.rows.set('background', session('background', '/dest'))
       f.loading(true)
-      f.publish({ reset: false, sessions: [
-        { id: 'background', before: { cwd: '/old', order: 'background' }, after: { cwd: '/dest', order: 'background' } },
-        ...Array.from({ length: 512 }, (_, i) => ({ id: `new-${i}`, after: { cwd: '/dest', order: `new-${i}` } })),
-        { id: 'evicted', before: { cwd: '/old', order: 'evicted' } },
-      ] })
+      f.publish({
+        reset: false,
+        sessions: [
+          {
+            id: 'background',
+            before: { cwd: '/old', order: 'background' },
+            after: { cwd: '/dest', order: 'background' },
+          },
+          ...Array.from({ length: 512 }, (_, i) => ({
+            id: `new-${i}`,
+            after: { cwd: '/dest', order: `new-${i}` },
+          })),
+          { id: 'evicted', before: { cwd: '/old', order: 'evicted' } },
+        ],
+      })
       await settle()
       expect(info).not.toHaveBeenCalled()
       expect(f.summaries.mock.calls.length).toBeGreaterThan(0)
       expect(f.summaries.mock.calls.every(([id]) => id === 'background')).toBe(true)
-      f.loading(false); f.wake()
+      f.loading(false)
+      f.wake()
       await settle()
       expect(info).toHaveBeenCalledExactlyOnceWith('background moved worktree', '/dest')
-      f.wake(); await settle()
+      f.wake()
+      await settle()
       expect(info).toHaveBeenCalledTimes(1)
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
 })
 
@@ -475,7 +537,7 @@ describe('engine lifecycle', () => {
     const publish = vi.fn()
     const machinePublish = vi.fn()
     let previousMachines = engine.access.machines
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], () => {
+    engine.onLocals(['machines', 'repos', 'superThreads'], () => {
       publish()
       const machines = engine.access.machines
       if (machines !== previousMachines) machinePublish()
@@ -536,7 +598,7 @@ describe('engine lifecycle', () => {
     const machine = { id: 'machine-a', online: true }
     hub.emit('machines', [machine])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], publish)
+    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
     hub.emit('machines', [{ ...machine, ...patch }])
     expect(publish).toHaveBeenCalledTimes(1)
     engine.dispose()
@@ -550,7 +612,7 @@ describe('engine lifecycle', () => {
     const b = { id: 'b', online: true }
     hub.emit('machines', [a, b])
     const publish = vi.fn()
-    engine.onLocals(['machines', 'repos', 'superThreads', 'drafts'], publish)
+    engine.onLocals(['machines', 'repos', 'superThreads'], publish)
     hub.emit('machines', [b, a])
     expect(publish).not.toHaveBeenCalled()
     hub.emit('machines', [a])
@@ -1030,7 +1092,7 @@ describe('file-tab issue ownership + recent files (POD-149)', () => {
 describe('offline-first composer drafts (POD-2045)', () => {
   const SID = asSessionId('s-draft')
   const draftOf = (e: ReturnType<typeof makeEngine>['engine']): string | undefined =>
-    e.access.drafts[SID]
+    e.drafts.get(SID)
 
   it('paints a keystroke locally before anything reaches the server', async () => {
     const { engine, hub } = makeEngine({ draftSendDebounceMs: 5 })
@@ -1192,8 +1254,8 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.access.setSessionDraft(SID, 'the last unsent keystroke')
     await first.engine.prepareReload()
     const restored = makeEngine({ storage })
-    expect(restored.engine.access.drafts[SID]).toBe('the last unsent keystroke')
-    expect(first.engine.access.drafts[SID]).toBe('the last unsent keystroke')
+    expect(restored.engine.drafts.get(SID)).toBe('the last unsent keystroke')
+    expect(first.engine.drafts.get(SID)).toBe('the last unsent keystroke')
     expect(first.hub.draftEdits).toEqual([])
     first.engine.dispose()
     restored.engine.dispose()
@@ -1213,7 +1275,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     release()
     await prepared
     const restored = makeEngine({ storage })
-    expect(restored.engine.access.drafts[SID]).toBe('typed during commit')
+    expect(restored.engine.drafts.get(SID)).toBe('typed during commit')
     first.engine.dispose()
     restored.engine.dispose()
   })
@@ -1232,7 +1294,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     // A NEW runtime over the same device storage — the reload. No hub traffic
     // and no start() before the read: the draft is on screen from frame one.
     const second = makeEngine({ storage })
-    expect(second.engine.access.drafts[SID]).toBe('survives the reload')
+    expect(second.engine.drafts.get(SID)).toBe('survives the reload')
     second.engine.dispose()
     await settle()
   })
@@ -1280,16 +1342,16 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.start()
     await settle()
     second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     await settle()
     expect(second.hub.draftEdits.at(-1)).toEqual({ sessionId: SID, baseRev: 7, text: '' })
     second.hub.emit('sessionDraft', SID, '', { rev: 8 })
     second.hub.emit('sessionDraft', SID, 'temporary', { rev: 7 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.dispose()
     await settle()
   })
@@ -1310,7 +1372,7 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.dispose()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.start()
     await settle()
     second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
@@ -1330,12 +1392,12 @@ describe('offline-first composer drafts (POD-2045)', () => {
     await settle()
     hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
     const published: string[] = []
-    const off = engine.onDraft((id) => {
-      if (id === SID) published.push(engine.readLocal('drafts')[SID]!)
+    const off = observe(engine.drafts.values, (change) => {
+      if (change.name === SID) published.push(engine.drafts.get(SID))
     })
     engine.access.setSessionDraft(SID, '')
     expect(published).toEqual([''])
-    expect(engine.readLocal('drafts')[SID]).toBe('')
+    expect(engine.drafts.get(SID)).toBe('')
     hub.emit('sessionDraft', SID, '', { rev: 6 })
     hub.emit('sessionDraft', SID, 'old text', { rev: 5 })
     hub.emit('sessionDraft', SID, 'other old text', { rev: 4 })
@@ -1357,17 +1419,17 @@ describe('offline-first composer drafts (POD-2045)', () => {
     first.engine.dispose()
 
     const second = makeEngine({ storage, draftSendDebounceMs: 5 })
-    expect(second.engine.access.drafts[SID]).toBe('previous message')
+    expect(second.engine.drafts.get(SID)).toBe('previous message')
     second.engine.start()
     await settle()
     second.hub.emit('sessionDraft', SID, 'current draft', { rev: 9 })
-    expect(second.engine.access.drafts[SID]).toBe('current draft')
+    expect(second.engine.drafts.get(SID)).toBe('current draft')
     second.hub.health = { status: 'ok', rttMs: 1, since: 0 }
     second.hub.emit('connectionHealth', second.hub.health)
     await settle()
     expect(second.hub.draftEdits).toEqual([])
     second.hub.emit('sessionDraft', SID, '', { rev: 10 })
-    expect(second.engine.access.drafts[SID]).toBe('')
+    expect(second.engine.drafts.get(SID)).toBe('')
     second.engine.dispose()
     await settle()
   })
@@ -1417,7 +1479,6 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
   })
 })
 
-
 describe('runtime-owned header inputs', () => {
   it('polls without a pool, restarts once, and stops permanently at principal destruction', async () => {
     const api = makeApi()
@@ -1440,7 +1501,9 @@ describe('runtime-owned header inputs', () => {
       engine.start()
       await settle()
       expect(api.quota.summary.query).toHaveBeenCalledTimes(2)
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
 
   it('does not poll an offline runtime even while its inputs are observed', async () => {
@@ -1451,23 +1514,40 @@ describe('runtime-owned header inputs', () => {
       engine.start()
       await settle()
       expect(api.quota.summary.query).not.toHaveBeenCalled()
-    } finally { engine.destroy() }
+    } finally {
+      engine.destroy()
+    }
   })
 })
 
 describe('principal-owned conversations', () => {
   it('keeps the shared cache across restartable cleanup and destroys it on sign-out', () => {
     const { engine } = makeEngine()
-    const start = vi.fn(async () => {}), dispose = vi.fn()
-    const cache = engine.ownConversations({ create: () => ({ start, dispose }) as unknown as import('../conversation/model').Conversation })
+    const start = vi.fn(async () => {}),
+      dispose = vi.fn()
+    const cache = engine.ownConversations({
+      create: () => ({ start, dispose }) as unknown as import('../conversation/model').Conversation,
+    })
     const panel = cache.acquire(asSessionId('cached'))
     engine.dispose()
     expect(dispose).not.toHaveBeenCalled()
-    expect(engine.ownConversations({ create: () => { throw new Error('second factory must not run') } })).toBe(cache)
+    expect(
+      engine.ownConversations({
+        create: () => {
+          throw new Error('second factory must not run')
+        },
+      }),
+    ).toBe(cache)
     engine.destroy()
     expect(dispose).toHaveBeenCalledTimes(1)
     panel.release()
     expect(() => cache.acquire(asSessionId('cached'))).toThrow('disposed')
-    expect(() => engine.ownConversations({ create: () => { throw new Error('late factory') } })).toThrow('owner has changed')
+    expect(() =>
+      engine.ownConversations({
+        create: () => {
+          throw new Error('late factory')
+        },
+      }),
+    ).toThrow('owner has changed')
   })
 })

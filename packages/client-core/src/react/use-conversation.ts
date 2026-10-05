@@ -14,13 +14,19 @@ export function useConversation<T extends Conversation = Conversation>(
 ): T | undefined {
   const owner = useStoreHandle()
   const create = useRef(createOptions)
-  const [held, setHeld] = useState<{ owner: typeof owner; id: SessionId; conversation: Conversation }>()
-  useLayoutEffect(() => { create.current = createOptions }, [createOptions])
+  const [held, setHeld] = useState<{
+    owner: typeof owner
+    id: SessionId
+    conversation: Conversation
+  }>()
+  useLayoutEffect(() => {
+    create.current = createOptions
+  }, [createOptions])
   const enabled = options.enabled !== false
   useLayoutEffect(() => {
     if (!enabled || sessionId === undefined) return
     let byId = factories.get(owner)
-    if (!byId) factories.set(owner, byId = new Map())
+    if (!byId) factories.set(owner, (byId = new Map()))
     const factory = () => {
       const value = create.current(owner.drafts)
       return value instanceof Conversation ? value : new Conversation(value)
@@ -29,7 +35,7 @@ export function useConversation<T extends Conversation = Conversation>(
     const registered = byId
     const cache = owner.ownConversations({
       warmLimit: options.warmLimit,
-      create: id => {
+      create: (id) => {
         const factory = registered.get(id)
         if (!factory) throw new Error(`No conversation host for ${id}`)
         return factory()
@@ -42,5 +48,7 @@ export function useConversation<T extends Conversation = Conversation>(
       if (registered.get(sessionId) === factory) registered.delete(sessionId)
     }
   }, [owner, sessionId, enabled, options.warmLimit])
-  return enabled && held?.owner === owner && held.id === sessionId ? held.conversation as T : undefined
+  return enabled && held?.owner === owner && held.id === sessionId
+    ? (held.conversation as T)
+    : undefined
 }

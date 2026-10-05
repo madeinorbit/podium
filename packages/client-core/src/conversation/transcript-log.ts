@@ -2,17 +2,17 @@ import type { SessionId, TranscriptItem } from '@podium/model'
 import { action, makeObservable, observable, observableRef, observableShallow } from 'mobx'
 import { isAskUserQuestion } from '../values/ask-question'
 import type {
-  TranscriptControllerOptions,
+  TranscriptSourceOptions,
   TranscriptFreshness,
   TranscriptPage,
   TranscriptRefreshOptions,
   TranscriptState,
   TranscriptActivity,
-} from '../transcript/controller'
+} from '../transcript/contracts'
 import {
   TRANSCRIPT_ACTIVITY_SETTLE_MS,
   TRANSCRIPT_LIVE_HEARTBEAT_MS,
-} from '../transcript/controller'
+} from '../transcript/contracts'
 import {
   LatestTranscriptId,
   mergeIndexedTranscriptFrame,
@@ -30,7 +30,7 @@ export interface TranscriptChange {
   readonly rebuild: boolean
 }
 
-export interface TranscriptLogOptions extends TranscriptControllerOptions {
+export interface TranscriptLogOptions extends TranscriptSourceOptions {
   /** The conversation owns real-time scheduling; a standalone log merges immediately. */
   enqueueFrame?: (items: TranscriptItem[], meta: { reset: boolean }) => void
   onChange?: (change: TranscriptChange) => void
