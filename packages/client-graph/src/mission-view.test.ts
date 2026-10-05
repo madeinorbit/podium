@@ -62,6 +62,20 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(load).toHaveBeenCalledTimes(1)
 })
 
+it('passes an unloaded child through its own and every ancestor rollup', () => {
+  const { pool, reader } = open([issue('root'), issue('branch', { parentId: 'root' }),
+    issue('leaf', { ...coldRoot(), id: 'leaf', parentId: 'branch' })], [])
+  const deck = reader.deck('root'), seen: unknown[] = []
+  const stop = autorun(() => { seen.push(['leaf', 'branch', 'root'].map(id => deck.model(id).rollup)) })
+  try {
+    expect(seen).toEqual([[LOADING, LOADING, LOADING]])
+    expect(pool.hydrate()).toBe(1)
+    expect(seen.at(-1)).toMatchObject([
+      { tasks: 1, done: 1 }, { tasks: 2, done: 1 }, { tasks: 3, done: 1 },
+    ])
+  } finally { stop() }
+})
+
 it('requests cold mission ancestry together without changing the shared root answer', () => {
   const rows = Array.from({ length: 100 }, (_, index) => issue(`ancestor-${index}`, {
     ...coldRoot(), id: `ancestor-${index}`, parentId: index ? `ancestor-${index - 1}` : null,

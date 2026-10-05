@@ -1900,7 +1900,7 @@ export const ProposalRow = observer(function ProposalRow({
             'shell-type-micro flex-none truncate text-right font-mono text-fuchsia-500',
             STATE_COL,
           )}
-          title={author ? `Proposed by ${authorRef}` : undefined}
+          title={authorRef ? `Proposed by ${authorRef}` : undefined}
         >
           {authorRef}
         </span>
@@ -1908,4 +1908,3 @@ export const ProposalRow = observer(function ProposalRow({
     </div>
   )
 })
-

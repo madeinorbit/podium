@@ -112,6 +112,7 @@ function legacyHandoff(issues: readonly IssueNavigationModel[], sessions: readon
 }
 
 export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | null, mode: FlightDeckMode = 'full'): SidebarSnapshot | typeof LOADING {
+  try {
   const reader = missionView(pool), values = readMissionView(reader, selectedId, mode)
   if (values === LOADING) return LOADING
   // The deck reads its count from the pane and the list only while shown;
@@ -120,6 +121,7 @@ export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | nul
   if (archived === LOADING) return LOADING
   if (archived.length !== values.archivedCount) throw new Error(`Archived count ${values.archivedCount} disagrees with its list (${archived.length})`)
   return snapshot(values, archived, values.root ? readMissionHandoff(reader, values.root.id) : EMPTY_MISSION_HANDOFF)
+  } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
 
 export function checkMissionView(pool: MobxPool, issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], selectedId: string | null,

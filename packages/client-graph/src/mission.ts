@@ -3,11 +3,6 @@ import type { MobxPool } from './pool'
 import { MISSION_SCHEMA } from './mission-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-interface RootFacts {
-  readonly hidden: boolean
-  readonly resident: boolean
-}
-
 /** A mission member set has no ordering contract. Consumers needing issue or
  * session order keep their own presentation order, as legacy navigation does.
  * Values contain IDs only and live with this principal's pool. */
@@ -20,10 +15,6 @@ export interface MissionViews {
   dispose(): void
 }
 
-function equalMembers(a: ReadonlySet<string> | typeof LOADING, b: ReadonlySet<string> | typeof LOADING): boolean {
-  return a === b || (a !== LOADING && b !== LOADING && a.size === b.size && [...a].every(id => b.has(id)))
-}
-
 export function createMissionViews(pool: MobxPool): MissionViews {
   const stats = { roots: 0, members: 0 }
   let disposed = false
@@ -32,33 +23,36 @@ export function createMissionViews(pool: MobxPool): MissionViews {
   // it and is released with its last observer. A gesture has no observer: it
   // computes afresh, bounded by the ancestry or the one mission it addresses.
   // No reaction keeps a visited id's computed alive (review finding 2).
-  const rootFacts = cachedKey('Mission', 'topology', (id): Loaded<RootFacts> => {
+  const rootRow = (id: string) => {
     // The one reader overlays pending values on both rows and summaries.
     let row = pool.row('issue', id, 'summary')
     // stage is required on every full issue and on our declared summary.
     // Without it an empty/partial summary cannot answer optional parents.
     if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = pool.row('issue', id)
-    if (row === undefined || row === LOADING) return row
-    const value = row as { parentId?: string | null; archived?: boolean; deletedAt?: string | null }
-    return { hidden: Boolean(value.archived || value.deletedAt), resident: pool.row('issue', id, 'mark') !== LOADING }
-  }, (a, b) => a === b || (a !== undefined && b !== undefined && a !== LOADING && b !== LOADING && a.hidden === b.hidden && a.resident === b.resident))
+    return row as Loaded<{ archived?: boolean; deletedAt?: string | null }>
+  }
+  const hidden = cachedKey('Mission', 'hidden', (id): Loaded<boolean> => {
+    const row = rootRow(id)
+    return row === undefined || row === LOADING ? row : Boolean(row.archived || row.deletedAt)
+  })
+  const resident = cachedKey('Mission', 'resident', id => pool.row('issue', id, 'mark') !== LOADING)
 
   const roots = cachedKey('Mission', 'root', (id): Loaded<string> => {
     stats.roots++
     let current = id
-    const value = rootFacts(current)
+    const value = hidden(current)
     if (value === undefined || value === LOADING) return value
     const seen = new Set<string>()
     while (!seen.has(current)) {
       seen.add(current)
       const parentId = pool.graph.one('issue', current, MISSION_SCHEMA.root.parent)
       if (!parentId) break
-      const parent = rootFacts(parentId)
+      const parent = hidden(parentId)
       if (parent === LOADING) return LOADING
-      if (parent === undefined || parent.hidden) break
+      if (parent === undefined || parent) break
       // Navigation waits for a live ancestor's full row, as the sidebar did
       // before this cache. Archived/deleted ancestors stop at the summary.
-      if (!parent.resident) { pool.row('issue', parentId); return LOADING }
+      if (!resident(parentId)) { pool.row('issue', parentId); return LOADING }
       current = parentId
     }
     return current
@@ -68,7 +62,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
     stats.members++
     // A cold root is answered by its declared summary, or explicitly waits
     // for the batched loader. An unknown root still names itself in legacy.
-    if (rootFacts(rootId) === LOADING) return LOADING
+    if (hidden(rootId) === LOADING) return LOADING
     const ids = new Set<string>()
     const stack = [rootId]
     while (stack.length) {
@@ -88,7 +82,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
       }
     }
     return ids
-  }, equalMembers)
+  })
 
   function rootFor(id: string | null): Loaded<string> {
     if (disposed) return LOADING

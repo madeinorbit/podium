@@ -852,7 +852,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
   const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
     const blockers = (issue.deps ?? [])
       .filter((dep) => dep.type === 'blocks')
-      .map((dep) => ctx.issue(dep.id))
+      .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !issueClosed(candidate)),
       )
@@ -881,7 +881,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
       continue
     const openBlockers = (issue.deps ?? [])
       .filter((dep) => dep.type === 'blocks')
-      .map((dep) => ctx.issue(dep.id))
+      .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !issueClosed(candidate)),
       )
@@ -925,7 +925,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
 function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, parentId: string): IssueNavigationModel[] {
   return [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
     if (!members.has(id)) return []
-    const issue = ctx.issue(id)
+    const issue = requireLoaded(ctx.issue(id))
     return issue && issue.stage !== 'proposed' && visible(issue) && !issueClosed(issue) ? [issue] : []
   }).sort(rowOrder)
 }
@@ -1019,7 +1019,7 @@ function deriveMissionHandoff(view: MissionViewReader, rootId: string): MissionH
     if (members === LOADING) return LOADING
     if (!view.prepareHandoff(members)) return LOADING
     const ctx = view
-    const issues = [...members].sort().flatMap(id => { const issue = ctx.issue(id); return issue ? [issue] : [] })
+    const issues = [...members].sort().flatMap(id => { const issue = requireLoaded(ctx.issue(id)); return issue ? [issue] : [] })
     const crew = [...new Map([...members].flatMap(id => requireLoaded(ctx.present(id))).map(session => [session.sessionId, session])).values()].sort(view.sessionOrder)
     // A session has one issue, so member histories never overlap.
     let count = 0

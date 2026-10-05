@@ -20,7 +20,7 @@ function fixture(scale: number) {
     agentKind: 'codex', status: 'live', archived: false, createdAt: stamp, lastActiveAt: stamp,
     agentState: { phase: 'working', since: stamp },
   })) as unknown as SessionView[]
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, { worklist: 'demand' })
+  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, { load: () => undefined, worklist: 'demand' })
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),

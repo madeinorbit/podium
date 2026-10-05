@@ -29,13 +29,14 @@ const fields = {
   needsHuman: field('needsHuman'), closedReason: field('closedReason'), blocked: field('blocked'),
   coordinatorSessionId: field('coordinatorSessionId'),
 }
+const exists = cachedGroup('deck.exists', (node: MissionIssueFacts) => Boolean(node.row))
 
 /** The issue's scalar mission facts. No rich navigation record is read here.
  * Each scalar computed is allocated only while something observes it. */
 export class MissionIssueFacts {
   constructor(readonly id: string, readonly view: MissionViewReader) {}
   get row(): IssueNavigationModel | undefined { return requireLoaded(this.view.catalogIssue(this.id)) }
-  get stage() { return fields.stage(this) ?? '' }
+  get stage() { return fields.stage(this) ?? 'backlog' }
   get parentId() { return fields.parentId(this) ?? null }
   get startedBySession() { return fields.startedBySession(this) }
   get sortKey() { return fields.sortKey(this) }
@@ -45,7 +46,7 @@ export class MissionIssueFacts {
   get blocked() { return fields.blocked(this) }
   get needsHuman() { return fields.needsHuman(this) }
   get coordinatorSessionId() { return fields.coordinatorSessionId(this) }
-  get visible() { return !fields.archived(this) && !fields.deletedAt(this) && this.stage !== '' }
+  get visible() { return exists(this) && !fields.archived(this) && !fields.deletedAt(this) }
   private static readonly live = cachedGroup('deck.live', (node: MissionIssueFacts) =>
     requireLoaded(node.view.present(node.id)).some(sessionPresentOnTask))
   get live() { return MissionIssueFacts.live(this) }
