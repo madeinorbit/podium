@@ -277,7 +277,7 @@ export function createHeaderEntities() {
       machineOrder.clear()
       machineSequence = 0
       offlineRevision.set(offlineRevision.get() + 1)
-      for (const listener of offlineListeners) listener(undefined)
+      for (const listener of [...offlineListeners]) listener(undefined)
     },
   }
 }

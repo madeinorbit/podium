@@ -8,7 +8,7 @@ import type { MachineId } from '@podium/model/browser'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { usePoolPanelMetric } from './header-data'
+import { usePoolOfflineMachines, usePoolPanelMetric } from './header-data'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
 vi.mock('./store-worklist-pool', () => ({
@@ -20,6 +20,56 @@ vi.mock('./store-worklist-pool', () => ({
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+})
+
+it('the actual offline indicator hook reads only displayed machines and releases hidden rows at 1x/4x', () => {
+  const samples = []
+  const now = Date.parse('2026-10-05T12:00:00Z'), week = 7 * 86_400_000
+  for (const scale of [1, 4]) {
+    const pool = new Pool({ selectedIssueId: null, coarseNow: now })
+    state.pool = pool
+    const machine = (id: string, online: boolean, seen: number): HeaderRows['machine'] => ({
+      id: id as MachineId, name: id, hostname: id, online, lastSeenAt: new Date(seen).toISOString(),
+    })
+    const online = Array.from({ length: 128 * scale }, (_, at) => machine(`online-${at}`, true, now))
+    const history = Array.from({ length: 128 * scale }, (_, at) => machine(`history-${at}`, false, now - 2 * week))
+    const target = machine('target', false, now - week + 1000)
+    pool.header.apply([...online, ...history].map(value => ({ kind: 'machine', id: value.id, value })))
+    const row = vi.spyOn(pool, 'row'), all = vi.spyOn(pool.headerViews, 'ids')
+    const view = renderHook(() => usePoolOfflineMachines())
+    try {
+      expect(view.result.current).toEqual([])
+      expect(row).not.toHaveBeenCalled()
+      act(() => pool.header.apply([{ kind: 'machine', id: 'target', value: target }]))
+      expect(view.result.current).toEqual([target])
+      const first = row.mock.calls.length
+      expect(row.mock.calls.every(call => call[0] === 'machine' && call[1] === 'target')).toBe(true)
+      row.mockClear()
+      act(() => pool.header.apply([{ kind: 'machine', id: history[17]!.id,
+        value: { ...history[17]!, name: 'Changed history' } }]))
+      expect(row).not.toHaveBeenCalled()
+      act(() => pool.clock.advance(now + 1001))
+      expect(view.result.current).toEqual([])
+      expect(row).not.toHaveBeenCalled()
+      act(() => pool.header.apply([{ kind: 'machine', id: 'target', value: { ...target, name: 'Expired target' } }]))
+      expect(row).not.toHaveBeenCalled()
+      act(() => pool.clock.advance(now))
+      expect(view.result.current.map(value => value.name)).toEqual(['Expired target'])
+      const restored = row.mock.calls.length
+      expect(row.mock.calls.every(call => call[0] === 'machine' && call[1] === 'target')).toBe(true)
+      expect(all).not.toHaveBeenCalled()
+      view.unmount()
+      row.mockClear()
+      act(() => {
+        pool.header.apply([{ kind: 'machine', id: 'target', value: target }])
+        pool.clock.advance(now + 2000)
+      })
+      expect(row).not.toHaveBeenCalled()
+      samples.push({ scale, first, restored })
+    } finally { view.unmount(); row.mockRestore(); all.mockRestore(); pool.dispose() }
+  }
+  expect(samples[1]).toEqual({ ...samples[0], scale: 4 })
+  console.info('[actual offline indicator hook row reads1x4x]', JSON.stringify(samples))
 })
 
 it('asks for only the default or named metric and suspends all closed hook demand at 1x/4x', () => {

@@ -52,6 +52,23 @@ function fixture(prefix = '') {
 }
 
 describe('maintained query answers', () => {
+  it('finds strict predecessor and successor across scalar ties, deletion and persistent forks', () => {
+    type Value = { id: string; time: number }
+    const builder = createKeyedAnswerBuilder<Value>((a, b) => a.time - b.time)
+    for (const id of ['c', 'a', 'b']) builder.answer.set(id, '', { id, time: 10 })
+    builder.answer.set('older', '', { id: 'older', time: 5 })
+    builder.answer.set('newer', '', { id: 'newer', time: 15 })
+    const pivot = { id: '', time: 10 }
+    expect(builder.answer.before(pivot, '')?.id).toBe('older')
+    expect(builder.answer.after(pivot, '')?.id).toBe('a')
+    expect(builder.answer.before(pivot, 'b')?.id).toBe('a')
+    expect(builder.answer.after(pivot, 'b')?.id).toBe('c')
+    const answer = builder.finish(), fork = answer.fork()
+    answer.delete('older')
+    expect(answer.before(pivot, '')).toBeUndefined()
+    expect(fork.before(pivot, '')?.id).toBe('older')
+    expect(answer.after({ id: '', time: 20 }, '')).toBeUndefined()
+  })
   it.each([256, 1024])('builds initial ordered demand without replaying insertion paths (%i entries)', (count) => {
     let comparisons = 0
     const ids = Array.from({ length: count }, (_, rank) => String(rank).padStart(5, '0'))
