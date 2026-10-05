@@ -165,9 +165,9 @@ export function createBoardLayout(pool: MobxPool) {
     if (!result) {
       result = createQueryResult({
         name: `IssueBoard.column:${key}`,
-        // untracked-read: query-membership-seed
+        // untracked-read: board-column-seed
         ids: () => untracked(() => new Set(questions.flatMap(question => pool.queries.ids(question)))),
-        // untracked-read: query-membership-probe
+        // untracked-read: board-column-probe
         has: id => untracked(() => questions.some(question => pool.queries.has(question, id))),
         read: id => {
           const all = members(queryKey)

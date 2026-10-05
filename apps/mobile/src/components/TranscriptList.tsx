@@ -1037,6 +1037,7 @@ export const TranscriptList = observer(function TranscriptList({
   // Order is the list's subscription. Message versions belong to row observers.
   const order = transcript ? JSON.stringify(transcript.ids.slice()) : undefined
   const items = useMemo(
+    // untracked-read: transcript-order-snapshot
     () => (transcript ? untracked(() => transcript.items) : (suppliedItems ?? [])),
     [transcript, order, suppliedItems],
   )
