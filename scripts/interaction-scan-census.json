@@ -1755,24 +1755,6 @@
     },
     {
       "file": "apps/mobile/src/components/SessionConversation.tsx",
-      "holder": "SessionConversation/retractPending/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "b56fa189b615e57a22443308c67e418d22317dbe511c026a10a5a41495479e08",
-      "gate": [],
-      "origin": [
-        "01f44a71586e03586d448b3fd5346108ddf6f1b6f836864ed92b1d869f101608"
-      ],
-      "fingerprint": "b9d504c6c9612e240496513947160a2aa27151475a0e787a718c001e77bb695b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SessionConversation/retractPending/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/conversationController/useMemo:callback",
       "rule": "reader-summary",
       "tokens": "d72b9b671ade6d0885df7e851a7d8a9a16682b6d03f8154434fe17829faaeeea",
@@ -1806,6 +1788,24 @@
       "trigger": "Invocation of SessionConversation/conversationController/useMemo:callback/interrupt/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/components/SessionConversation.tsx",
+      "holder": "SessionConversation/retractPending/useCallback:callback",
+      "rule": "reader-summary",
+      "tokens": "b56fa189b615e57a22443308c67e418d22317dbe511c026a10a5a41495479e08",
+      "gate": [],
+      "origin": [
+        "01f44a71586e03586d448b3fd5346108ddf6f1b6f836864ed92b1d869f101608"
+      ],
+      "fingerprint": "b9d504c6c9612e240496513947160a2aa27151475a0e787a718c001e77bb695b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of SessionConversation/retractPending/useCallback:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3604,16 +3604,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/addMissionAgent/callback",
+      "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
       "rule": "helper-consumer",
       "tokens": "87367a788a816db00866aa307f1c4d91e7889e0a12b7417650b955bc123858ad",
       "gate": [
         "exit:then:0082e008c53345145bd2dde94872c8ed4ef99d535aa3a866c0ee64bcf0269f34"
       ],
       "origin": [
-        "9953175a6c6c02ae408ba87bdace561e0cc18b146aa9adee264d74a39c522be1"
+        "d4481356193825eafd441154731229aeec2d65912e924cdc0ba01f74e392069f"
       ],
-      "fingerprint": "ce60f927a73fdae908550ebb6c1c988192df2d9a8eedf31208f4d77348324161",
+      "fingerprint": "7dd2327d3bba2fd48abe288ac20b37508405efeddb82c9c986cbf7269353a292",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3624,16 +3624,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/addMissionAgent/callback",
+      "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
       "rule": "reader-summary",
       "tokens": "f890114edcd150d1625515b394af5387712441357460f5e2504c4a9cc126cda8",
       "gate": [
         "exit:then:0082e008c53345145bd2dde94872c8ed4ef99d535aa3a866c0ee64bcf0269f34"
       ],
       "origin": [
-        "9953175a6c6c02ae408ba87bdace561e0cc18b146aa9adee264d74a39c522be1"
+        "d4481356193825eafd441154731229aeec2d65912e924cdc0ba01f74e392069f"
       ],
-      "fingerprint": "d8c88aaf4d7061f987aa756618cddf7d2e7e308278cbda49647bb4262c30e37e",
+      "fingerprint": "9004634db0021369202a9d162eaa045e2cdbbace2cb6125d90c512e9eb51a3a8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3644,89 +3644,34 @@
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/ledIssueIds/useMemo:callback/hasLead",
-      "rule": "consume:some",
-      "tokens": "22003e95d9b697ebdfd3c32673cb811c68480a49dceff0174e0dc8cc4e71dbd8",
-      "gate": [],
-      "origin": [
-        "625173e8d7963af827f01cb8bea667c414184e57c344fd1fef43352ea28543c5"
-      ],
-      "fingerprint": "b0b7b3f644a63492f4ec734159cd81f4741f57b2e6967e3a6ba8a44cc9956a4f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/ledIssueIds/useMemo:callback/hasLead",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/missionSessionIds/useMemo:callback",
-      "rule": "loop:for-of",
-      "tokens": "7c07b80a50e5e82a3d41967dabeaa966a7a30bf208b4656f3a8065c5b5d16dd0",
-      "gate": [],
-      "origin": [
-        "493d9e8b61f2eeb2643b3021c3c6c1b05688727712b98835778874370d18dc22"
-      ],
-      "fingerprint": "36691320deaff8051407fe1da53f660b1251eb768de0b3a3051b29f19bc385fd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/missionSessionIds/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/missionSessionNames/useMemo:callback",
-      "rule": "loop:for-of",
-      "tokens": "9f6e56b71b397a0341bede45edfdc7bd885e08749e4a12072e440bf93632722f",
-      "gate": [],
-      "origin": [
-        "3f35e82814dd40c21753352ae153b22ebcc8e3d42b0f3d28c1be255fb7cc3361"
-      ],
-      "fingerprint": "799cb9094ec75205317784d7fa6aaa479bc231fde24e4a0dd6f532095228f3fb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/missionSessionNames/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/rootSessions/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "441a2448c478d4f5a3bd30b2c05e47305b01b60d254a9b89dc6f9eca767bc6aa",
+      "holder": "FlightDeckContent/FlightDeckContent/issues",
+      "rule": "zero-arg:issues",
+      "tokens": "fc105dd4e5bd47b76eec5ed2d11199c01f752189d243402d725f046c3275829d",
       "gate": [
-        "then:bb16e8893e1f6d243ea256f4f6e367f3730d365e4e71bc793141c2b766373761"
+        "then:227647da6703356f39f48b1c0923c38e86c3b7514c23ac2e76c0d3441b92df23"
       ],
       "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+        "4c3e6508993cc15f8e1a16c1cafaef08ab71d78c98e3a503ec7ad0f32712404e"
       ],
-      "fingerprint": "0fe6df8db7e83ec748e32bba4b8f95bee270c540ed39e5d8994ba66ea796d860",
+      "fingerprint": "e8918cfb75e294a3af289effba8f97680b9eb170d52e73bf7e7d364553440a1a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/rootSessions/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "owner": "POD-5575",
+      "trigger": "Observed FlightDeckContent/FlightDeckContent/issues",
+      "bound": "The explicit waterfall/handoff issue collection; no fixed cardinality cap is claimed.",
+      "reason": "Whole-list presentation remains explicit and separate from the bounded spine row path.",
+      "guard": "Exact fingerprint/multiplicity retained; FlightDeck.pool.test.tsx covers waterfall/handoff render parity."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/selectIssue/callback/active",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/active",
       "rule": "consume:filter",
       "tokens": "ef3388aceec88662b203f7511f05b955522c752276ae93e9ef86a12d360dfcd8",
       "gate": [],
       "origin": [
-        "0299e7476e51c3b593c89c6fcf8316a7b7da69dde38b2e6ad97e3ca7cb0a4ef5"
+        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
       ],
-      "fingerprint": "8c114a9a9e6efb67d9a06808016ebc34ade75e01046fe95325748de82c24a9d2",
+      "fingerprint": "a1a98bdbd1c990e7804128d221ab95a2bab920f9b7d3f578a5e5226d8f2a10af",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3737,54 +3682,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/selectIssue/callback/target",
-      "rule": "consume:sort",
-      "tokens": "2bb9b089d46b9d924eea7be6ed11a28c5c5d84c2d8b991112ee31fd8a9b79920",
-      "gate": [
-        "??:2222857acc5b0c57dbb4d840f0e94838f7174d5a4ab50730d961769a2c8945b5"
-      ],
-      "origin": [
-        "0299e7476e51c3b593c89c6fcf8316a7b7da69dde38b2e6ad97e3ca7cb0a4ef5"
-      ],
-      "fingerprint": "1760aa4356ac2387488dd5387a4b1b43db8d9c7388498df2423be8ec8d03ba5c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/selectIssue/callback/target",
-      "rule": "consume:find",
-      "tokens": "5046f12d0d413ffeaccdafd5a523212c29e1edaf2826a363212e3bd570ac73e7",
-      "gate": [],
-      "origin": [
-        "0299e7476e51c3b593c89c6fcf8316a7b7da69dde38b2e6ad97e3ca7cb0a4ef5"
-      ],
-      "fingerprint": "ea0ff0bf247fe5289087a1dfd124988c21bcc29fe2bfd113d4a7064191b4ad21",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/selectIssue/callback/target",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
       "rule": "spread",
       "tokens": "2c30395d2515212f9326e1ae4ee6b6ee01b16495aa874ef6eca6ee850ba775bc",
       "gate": [
         "??:2222857acc5b0c57dbb4d840f0e94838f7174d5a4ab50730d961769a2c8945b5"
       ],
       "origin": [
-        "0299e7476e51c3b593c89c6fcf8316a7b7da69dde38b2e6ad97e3ca7cb0a4ef5"
+        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
       ],
-      "fingerprint": "f7fcece805dbf898ac04429c23b13f9afa04631f0c5171737e27fc3e992f0b0b",
+      "fingerprint": "7887a4ee5c9a697449990a28e2180fc45b048b5ea553095d38990c900d115cfe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3795,165 +3702,97 @@
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/sessionKeys/useMemo:callback/flatMap:callback",
-      "rule": "consume:map",
-      "tokens": "854b981808192b94e7bde2037a3a2385ab02793b5566befb84d7d7a1ed12c62d",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
+      "rule": "consume:find",
+      "tokens": "5046f12d0d413ffeaccdafd5a523212c29e1edaf2826a363212e3bd570ac73e7",
       "gate": [],
       "origin": [
-        "6251d2e723266f070b06b3b1655e8ae1c4408a76f8ac0925b9c5d38a1a3a27d2"
+        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
       ],
-      "fingerprint": "19b0b0e71e67ac79f0ba28020433d212804f5aaae3671756644b1f298b5e25e7",
+      "fingerprint": "9a156b9548ad479dff553780bd6baf2fc460746f1d19902b342bc3925a27d8fa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/sessionKeys/useMemo:callback/flatMap:callback",
+      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/spineGeometry/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "25510a521bab7f5dbfb3cb2b263a247367eab3c16a21256c984e1e7a2cf5938e",
+      "holder": "FlightDeckContent/FlightDeckContent/selectIssue/callback/target",
+      "rule": "consume:sort",
+      "tokens": "2bb9b089d46b9d924eea7be6ed11a28c5c5d84c2d8b991112ee31fd8a9b79920",
       "gate": [
-        "then:bb16e8893e1f6d243ea256f4f6e367f3730d365e4e71bc793141c2b766373761"
+        "??:2222857acc5b0c57dbb4d840f0e94838f7174d5a4ab50730d961769a2c8945b5"
       ],
       "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+        "65d819847d56cc62b1b73733ea4300614ab49e37db0ae088b9e50f973f311998"
       ],
-      "fingerprint": "2f4180c410a3ef9e720aca6e187e352a52c6b36dccb112d3c074c53643102ba5",
+      "fingerprint": "9fee75fbfbaee07b9f03b5debf3fb0774540947ced6091c98bed76084c55f0f7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/spineGeometry/useMemo:callback",
+      "trigger": "Invocation of FlightDeckContent/selectIssue/callback/target",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/spineGeometry/useMemo:callback",
-      "rule": "loop:for-of",
-      "tokens": "7aa8d607c5f621ad6e44b1029e050fd0a52e2212c73276a9560356dc43c61ce0",
+      "holder": "FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text",
+      "rule": "consume:filter",
+      "tokens": "46aa3b737e78aa1447101cc48d5ec11208e45a0c80120803eaf20af27f7efb4c",
       "gate": [],
       "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+        "d5305dbd4dcf087237a5a18b4e103023c988a132debe6a5531ca5b5fef530ee7"
       ],
-      "fingerprint": "85f1797e0b4f9eaf91778e441967fd805733e1287bc449e87281a84f11db0459",
+      "fingerprint": "8792d971ff8ae2e81332efc2c9d59ea64b801b2c2ce88233e6496adea1174571",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/spineGeometry/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text",
+      "bound": "One placeholder text getter for one issue; its own crew and cached scalar/capped collapsed facts.",
+      "reason": "The list stores lazy text accessors; a placeholder observer reads its own search text without a rich issue navigation record.",
+      "guard": "apps/web/src/app/flight-deck-window.test.tsx and FlightDeck.pool.test.tsx (render parity)."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/spineGeometry/useMemo:callback",
-      "rule": "loop:for-of",
-      "tokens": "b54d035c9e66c8aa6336d283d364305c42becbe92d95762a67b29244770ce297",
-      "gate": [
-        "then:935ed53275b030e68ffa6eeae924933104cc51bbc23fc62e49c034474557dc41"
-      ],
+      "holder": "FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text",
+      "rule": "spread",
+      "tokens": "38628bc4dcadc280cec8d5780d519bfece1455e5ef8ac68f34bbddd24276122d",
+      "gate": [],
       "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+        "d5305dbd4dcf087237a5a18b4e103023c988a132debe6a5531ca5b5fef530ee7"
       ],
-      "fingerprint": "b1b71bbda9b15e445e9686847b39efba527ad7393bf94da6212591dc7222e57e",
+      "fingerprint": "c38191db5bc05d618b08b2f5dd26eeb053f7323eb6ff3223983cec9dbfae1664",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/spineGeometry/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text",
+      "bound": "One placeholder text getter for one issue; its own crew and cached scalar/capped collapsed facts.",
+      "reason": "The list stores lazy text accessors; a placeholder observer reads its own search text without a rich issue navigation record.",
+      "guard": "apps/web/src/app/flight-deck-window.test.tsx and FlightDeck.pool.test.tsx (render parity)."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/spineGeometry/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "1d84abb52d7fb9aad6dae927722ae1fc6dd9f64a86c92f43332f216e86150a33",
-      "gate": [
-        "then:935ed53275b030e68ffa6eeae924933104cc51bbc23fc62e49c034474557dc41"
-      ],
-      "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
-      ],
-      "fingerprint": "bc4c0dd0a4ae349b28be0b53c5680365838e0df425c2c1f4d67f666f45d991c7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/spineGeometry/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/spineGeometry/useMemo:callback/sessions",
+      "holder": "FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text/seat",
       "rule": "reader-summary",
-      "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
+      "tokens": "7674e69a9abd5147c8f3410f29b7f5dff2998003d7369db7255f15f1d726f42f",
       "gate": [
-        "then:935ed53275b030e68ffa6eeae924933104cc51bbc23fc62e49c034474557dc41"
+        "else:1ed78d717be03bff251d4b277cd7c01943853ed40a8b24656bc7762c73cef265"
       ],
       "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+        "d5305dbd4dcf087237a5a18b4e103023c988a132debe6a5531ca5b5fef530ee7"
       ],
-      "fingerprint": "1c64b474c7dcaa4186ba29c969c1106d55eafd3539a0e4ab861aa84ffc2cd5d3",
+      "fingerprint": "59b191ab24032637574a9bf19a52b83e55e87c61dea6dad054be9d1c4516b4a9",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/spineGeometry/useMemo:callback/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "matchesQuery",
-      "rule": "consume:some",
-      "tokens": "4209e596de2c8b29057123a31ca0b90311391f395ae9525a87fdda26f34db1a0",
-      "gate": [
-        "||:9f69a72bb7b093442f2fe0f1abc698054c9bf181d9fb1e78cd5b7b4e4408a84a"
-      ],
-      "origin": [
-        "9a012126090503025818cbc149ed77857e3042b5de7db9549febff3e64d6b66c"
-      ],
-      "fingerprint": "7dae35c097ef33569d425ed305dd1f9b1635c02f009a103c4b308bb9d3db53d7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of matchesQuery",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "TaskRow/TaskRow/sessions",
-      "rule": "reader-summary",
-      "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
-      "gate": [
-        "exit:then:e7a98bd368f0a95bf68d75eab7e4e53bc0db7816c49d4c1472af6c51f82a0600"
-      ],
-      "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
-      ],
-      "fingerprint": "2d51925276cdbd04e5739fe6d4f8e15c3019e6dd264066876f9f93f9040e2400",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TaskRow/TaskRow/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed FlightDeckContent/FlightDeckContent/spineGeometry/useMemo:callback/block/text/seat",
+      "bound": "One placeholder text getter for one issue; its own crew and cached scalar/capped collapsed facts.",
+      "reason": "The list stores lazy text accessors; a placeholder observer reads its own search text without a rich issue navigation record.",
+      "guard": "apps/web/src/app/flight-deck-window.test.tsx and FlightDeck.pool.test.tsx (render parity)."
     },
     {
       "file": "apps/web/src/app/FlightDeckHandoff.tsx",
@@ -4088,6 +3927,110 @@
       "trigger": "Invocation of PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "HungRows/HungRows",
+      "rule": "consume:map",
+      "tokens": "8910e8d778120b9c0a0839bf95e4f995933f4e82c283aff82f8fd8b47abd0076",
+      "gate": [
+        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe"
+      ],
+      "origin": [
+        "151a842bb26b09746f4be6e73abc3813fbe645814a2d3a2008e048202699b7ae"
+      ],
+      "fingerprint": "c99ed98f9a79ab0f35e7ad22cac54389ac992767679010a0a44306ba0cfd88b9",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed HungRows/HungRows",
+      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
+      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
+      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "HungRows/HungRows/ids",
+      "rule": "consume:map",
+      "tokens": "4e2032bfb4f587c6b59a1a603d2fd5cc48d6cf6cf03a974e8278f776fb49d313",
+      "gate": [
+        "??:e8dc133ae30cec6f7c23164aaf498271d30ed4129b98f4470fce9f3a239e9721"
+      ],
+      "origin": [
+        "151a842bb26b09746f4be6e73abc3813fbe645814a2d3a2008e048202699b7ae"
+      ],
+      "fingerprint": "1321b17c9c5c49e45f9f2189a0cb84a995d693b8ab0ee3d97562e6e76a49a361",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed HungRows/HungRows/ids",
+      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
+      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
+      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "HungRows/HungRows/map:callback/role",
+      "rule": "reader-summary",
+      "tokens": "5ffd331d6264ff45e6cc0dcf960d734983603759b79ecea4c144f9c64e49e4d0",
+      "gate": [
+        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
+        "exit:then:2210a5b9bb5219549a0847f7700437d104ebfdfbb193bce630058ad0ecf9d9e6"
+      ],
+      "origin": [
+        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
+      ],
+      "fingerprint": "6572efeafe52990dde88c27027e33e5087c133f405fcdced1a05a05ad637b15f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5575",
+      "trigger": "Observed HungRows/HungRows/map:callback/role",
+      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
+      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
+      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "matchesQuery",
+      "rule": "consume:some",
+      "tokens": "4209e596de2c8b29057123a31ca0b90311391f395ae9525a87fdda26f34db1a0",
+      "gate": [
+        "||:9f69a72bb7b093442f2fe0f1abc698054c9bf181d9fb1e78cd5b7b4e4408a84a"
+      ],
+      "origin": [
+        "5ef3b38b452752d2df58bd223faaaaaf6deb605862d7e0b7a179dc2459c0c83f"
+      ],
+      "fingerprint": "b456f82ccbfca0f678785ff67e339883b76e3f5d1f28fb62d1397b7ed66bb320",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of matchesQuery",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "TaskRow/TaskRow/sessions",
+      "rule": "reader-summary",
+      "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
+      "gate": [
+        "exit:then:e7a98bd368f0a95bf68d75eab7e4e53bc0db7816c49d4c1472af6c51f82a0600",
+        "exit:then:15e2d5e6e51966fcae1ed71c10637cf41a1d4e2d693093d5a601a3f200e5bd36",
+        "exit:then:e2ad28c1cf52a2277e59dd4bdcfe076d6169717185a4851229370cc2dd3821cd"
+      ],
+      "origin": [
+        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
+        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
+      ],
+      "fingerprint": "ce89812d382ef72cad8febdd8a5e6dd19c335b4d22a3dc3228b6dc42987722ad",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of TaskRow/TaskRow/sessions",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -31341,9 +31284,9 @@
       "tokens": "a02258323fcbbc5cfb8ae7f34b9711e195323c7d5a0884fb7eb8a721ea1a633c",
       "gate": [],
       "origin": [
-        "a4ccf66195b41819f9364af3d2f33faf862a2cfab0f5dc686e3f772a6c4e2308"
+        "b45effc05dcdf761c96328fad04f5e43c023b27cfc66c7576717658f3dd07280"
       ],
-      "fingerprint": "87085e40ac0b929ddc57e99c0a4c1f304451937f64d565d48667974863967bed",
+      "fingerprint": "6ba9f4864be495acf61f89f418db2fcce3503747992a1b252ba58c40fcaccd3f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31395,9 +31338,9 @@
       "tokens": "cd69ac865292c22711f10aae631906ae4496b074eedf641c9b57fce762dadd04",
       "gate": [],
       "origin": [
-        "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
+        "b45effc05dcdf761c96328fad04f5e43c023b27cfc66c7576717658f3dd07280"
       ],
-      "fingerprint": "4157e8f56118dd826637cdf388db1264d90d53885f270b2a92ae6aba861c9f40",
+      "fingerprint": "30e9f44611da730c12cfa0733ef7d2654d37a91fdd8622100f6081b3da857749",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31413,9 +31356,9 @@
       "tokens": "cd69ac865292c22711f10aae631906ae4496b074eedf641c9b57fce762dadd04",
       "gate": [],
       "origin": [
-        "a4ccf66195b41819f9364af3d2f33faf862a2cfab0f5dc686e3f772a6c4e2308"
+        "74cd43ede098ec816655ec529f3abf66297eca955ba6d5959dc53555c8316419"
       ],
-      "fingerprint": "e68f63c25d990a6873606ecba535e5011070d99f181ba161abba32fb7d023497",
+      "fingerprint": "4157e8f56118dd826637cdf388db1264d90d53885f270b2a92ae6aba861c9f40",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38550,6 +38493,24 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-graph/src/cached.ts",
+      "holder": "cachedGroup",
+      "rule": "reader-summary",
+      "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
+      "gate": [],
+      "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "c8544efccb6482af18308e71d8c0be00abfb490b6b10e66e5d98c701fd3dbcdf",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of cachedGroup",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "spread",
@@ -40882,75 +40843,218 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "deriveMissionView/presence",
-      "rule": "helper-consumer",
-      "tokens": "92aaf7cb4fadca39dbc71b9426867ee71ec3dc4ccc1a153dfd88a24e264b7014",
-      "gate": [
-        "exit:then:8a1ab285233a7cf1cd04ff6a2b9d9f7eb0086c47cc72e35c0ab427ea3472bc5a",
-        "exit:then:322554b8923608513d3a18e41df64782211f87fe39c1f50defd5b659deaf6906",
-        "exit:then:79d72a87106b553ddf8b89e3b8067f97b5a25d1ccdaf399cc29bbe6eab388a1e",
-        "exit:then:a40595926f26015ec76a380ca72291ee4ffaccb09a846e105e663b550d3777a1"
-      ],
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "collapsedCrew/cachedGroup:callback",
+      "rule": "loop:for-of",
+      "tokens": "85afb403c605e8021531ca302817d1c3e433590aea80314dec016aa8fd2b130f",
+      "gate": [],
       "origin": [
-        "a4d5b5c4b30f10c23daab7976e4bc394cce47fdbff6eb25191b761c2f4f8729e"
+        "1230442dfd375629adaba088107273b56193de98f6ff22c253d309f39c04122d",
+        "64c5f650c1908a950ebb82d6f4443df112029b7b686d6f58935ce6dbad90a0e4",
+        "9083f24ebd0ae28739812de5dd27b81bdb332ede26a147d3b3399be8bbdfd286"
       ],
-      "fingerprint": "3fc7a38b53813d716ed15599c4b0c3919d1d0ac4ad82b50b4f1d2bb4d232742e",
+      "fingerprint": "427ed9127856d43a5b38871e817bb2abe3bc558c86d9c7e84c3c5841bb0a7196",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of deriveMissionView/presence",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed collapsedCrew/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "deriveMissionView/presence",
-      "rule": "helper-consumer",
-      "tokens": "dd500b31501872ffecd0c36203021c33fb098455f4c9bf64700d26c20944b7fe",
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "collapsedCrew/cachedGroup:callback/groups",
+      "rule": "spread",
+      "tokens": "69493bdbf21030960da5c6361774137482197d8ca1e6e2bb410ef53f65185dc2",
       "gate": [
-        "exit:then:8a1ab285233a7cf1cd04ff6a2b9d9f7eb0086c47cc72e35c0ab427ea3472bc5a",
-        "exit:then:322554b8923608513d3a18e41df64782211f87fe39c1f50defd5b659deaf6906",
-        "exit:then:79d72a87106b553ddf8b89e3b8067f97b5a25d1ccdaf399cc29bbe6eab388a1e",
-        "exit:then:a40595926f26015ec76a380ca72291ee4ffaccb09a846e105e663b550d3777a1",
-        "exit:then:f07916d8918bc7d1a7dc8d43d236d2c3a5743d4ca12617a0fd26d722f29092d5"
+        "then:64d98a64e7549bac24f354d27d411117178ab3d0719251d23a95bf5ea2675a2d"
       ],
       "origin": [
-        "49b2d2c0625348eb77e34bccfc0b373935669cb72d28c24bb0b3a13aca47b3a8"
+        "1230442dfd375629adaba088107273b56193de98f6ff22c253d309f39c04122d"
       ],
-      "fingerprint": "adacdce17e9bc4dac670ce590799323212e46d4ec3b76e96280a4f00af28378b",
+      "fingerprint": "0cb7a5c4801aef994df3fe9e19450255018630b6f69c25343baac2713e23adfc",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of deriveMissionView/presence",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed collapsedCrew/cachedGroup:callback/groups",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "deriveMissionView/state",
-      "rule": "helper-consumer",
-      "tokens": "773cfe743949d2e4ca0426d6a75fb28aa55eedc7f0ac2c476711a28a3ff43a22",
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "kindCodes/cachedGroup:callback",
+      "rule": "loop:for-of",
+      "tokens": "fc7dd4f57e37c476ff8436bb524f54c708c64271223b0e6fab234678bb7d5dfa",
+      "gate": [],
+      "origin": [
+        "443e920c9cd1b4a9c4ce7e21ddc886d21b237d8faf7c9de7674ce3f76269dcec",
+        "da93bb020ac00a0104915eb2dcf6303f2fb3de38daa569dc38d8b3ef88d21613"
+      ],
+      "fingerprint": "7a908665f908c8c44663422aebb44b803099e4c3a6c56895583fe1e567a2a8c3",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed kindCodes/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "matchedWorking/cachedGroup:callback",
+      "rule": "consume:some",
+      "tokens": "5a1e4d06bc0646b923517e04595375ff84dc46a56f801d2a8af0e0d7166cb8d0",
+      "gate": [],
+      "origin": [
+        "2d9266b01f6c21bad0fd85cb4f28224b3f0d923aefafa63c9ca91ff0ebe1253a"
+      ],
+      "fingerprint": "f1fdc7c2adc63ce025324d3a538d25e9c617d297951945c56108574dfe84eade",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed matchedWorking/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "MissionDeckIssueModel/presentation",
+      "rule": "reader-summary",
+      "tokens": "69e9a81d63599cc8871e0b53ff0ccda56352f635655dea60b14bbb8c1948b996",
+      "gate": [],
+      "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "2d1fc51856ade56af43967fe0a81fc42026fcb4c2280b0ca4e89d105011007de",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed MissionDeckIssueModel/presentation",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "f6bde2d1b5c7c0af5ea1d379e247468dbe28b19a2f20a631669cd5700d4b359d",
       "gate": [
-        "exit:then:8a1ab285233a7cf1cd04ff6a2b9d9f7eb0086c47cc72e35c0ab427ea3472bc5a",
-        "exit:then:322554b8923608513d3a18e41df64782211f87fe39c1f50defd5b659deaf6906",
-        "exit:then:79d72a87106b553ddf8b89e3b8067f97b5a25d1ccdaf399cc29bbe6eab388a1e",
-        "exit:then:a40595926f26015ec76a380ca72291ee4ffaccb09a846e105e663b550d3777a1",
-        "exit:then:f07916d8918bc7d1a7dc8d43d236d2c3a5743d4ca12617a0fd26d722f29092d5"
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
+        "then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af"
       ],
       "origin": [
-        "a4ccf66195b41819f9364af3d2f33faf862a2cfab0f5dc686e3f772a6c4e2308"
+        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
       ],
-      "fingerprint": "193f70540ec00fc8b0c7b8de478c0d93bde6bbc0dcf4db80f4818f9ca805c575",
+      "fingerprint": "236037b3b18a85e87cf321a464b24bd879fe2dd0dfce3f4884abf882b5a7879d",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of deriveMissionView/state",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "768f07cadf4908a3b9709090ab48c491bc35bc429156e01682ee173dc3d91242",
+      "gate": [
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
+        "then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4"
+      ],
+      "origin": [
+        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
+      ],
+      "fingerprint": "4fa1b3293aef94f6955694d7a005d08a55a2d9660ad130dc95f6e81edd190500",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "helper-consumer",
+      "tokens": "3b52b7d3ccbb26e81dff49989ef8f2381244d6463bd0dcd9a131c9ce54d81f1a",
+      "gate": [
+        "exit:then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22",
+        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508"
+      ],
+      "origin": [
+        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
+      ],
+      "fingerprint": "80a735dd4b07debe8c7143bce1b1d9ec7d929a72caaed448b9ea4f382903b71e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "ownCount/callback/cachedGroup:callback",
+      "rule": "consume:filter",
+      "tokens": "d387fdd111dee0cd87c14be420f28226d8d4e9fda82da48b53529671201793ca",
+      "gate": [
+        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
+        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
+        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
+        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
+        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
+        "exit:then:92609ae10b968333a74a87deee51fecd19ba298fd550c28ee250a47308c3d508",
+        "then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22"
+      ],
+      "origin": [
+        "6935a12d750b65fd63c67c392af55b0645a074babd328264c9ed5d2a514c3dff"
+      ],
+      "fingerprint": "e785c2cf53c8347a31876306f18fc7412725b3ca0fb13f57a406a1457d0f5f02",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed ownCount/callback/cachedGroup:callback",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-deck-model.ts",
+      "holder": "presentation",
+      "rule": "reader-summary",
+      "tokens": "0fcd66bab40a3da54a63173d987341b6071254f73a8428159c5beef2fb45195b",
+      "gate": [],
+      "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "9d96374798e24de4f2cc679a494f24e4834a86a9f9da6ec6652aa1e8bc8a69e9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed presentation",
+      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
+      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -41008,14 +41112,14 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/preferred",
+      "holder": "MissionViewReader/preferred",
       "rule": "spread",
       "tokens": "2c9ea2bbabc97221153705b8917fdbfd2d77117cbc3eadc0d336205c1e5c3671",
       "gate": [],
       "origin": [
-        "05cd899bee4bd87b70dddda6758f70b49ef5a809f5d666f0f2624f7dd4fda1b1"
+        "bd37c3beaee12f929045a7b6f5a1ad22cb382ca4e619a36b7c11f409c9dc2398"
       ],
-      "fingerprint": "2ea337697ee55982f42a706658a0a2af8798f5f6932d30f83f875c02707eab18",
+      "fingerprint": "4ea8cad2db7b50d3105af744b37613cb59f94d9af36308ddfbb04a1c256a95b8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41026,14 +41130,14 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/preferred",
+      "holder": "MissionViewReader/preferred",
       "rule": "consume:sort",
       "tokens": "60e5cfdc129af36cb27922cbeaad7d267cdfac2340c9bdb67d65d2d4c80a7132",
       "gate": [],
       "origin": [
-        "05cd899bee4bd87b70dddda6758f70b49ef5a809f5d666f0f2624f7dd4fda1b1"
+        "bd37c3beaee12f929045a7b6f5a1ad22cb382ca4e619a36b7c11f409c9dc2398"
       ],
-      "fingerprint": "e376fa2e0d38d66ac722b21cb8e3db4da93e92c7bd4f80f694804823f9064a21",
+      "fingerprint": "88501b645bd2ee339b1b4bed38744a22f1b2166213eb36c8b88dcb09841e2ef9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41044,16 +41148,16 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/preferred/staffed",
+      "holder": "MissionViewReader/preferred/staffed",
       "rule": "consume:filter",
       "tokens": "ec4e1d1ee3d5c5625efd95c045b5cb51c5317458ed19dbadf8e3ddbbe2cd56ca",
       "gate": [
         "else:427ff4f491221144cc748841aeff394e7c2a28546f3f809bc27590d14f71eb87"
       ],
       "origin": [
-        "05cd899bee4bd87b70dddda6758f70b49ef5a809f5d666f0f2624f7dd4fda1b1"
+        "bd37c3beaee12f929045a7b6f5a1ad22cb382ca4e619a36b7c11f409c9dc2398"
       ],
-      "fingerprint": "bfbb7a8a7dea1327737e25cd9a0ef0fe5120f45c92b08df3fb8233b76739397d",
+      "fingerprint": "a608a71e8f930ff9cbed9129e3a4340e4d655ac16697f6adb52139273db2bbd5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41064,14 +41168,14 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/preferred/unfinished",
+      "holder": "MissionViewReader/preferred/unfinished",
       "rule": "consume:filter",
       "tokens": "6bca70da35b4786d6ded1acaf28dbcb04025ae848752058e00e925c216677709",
       "gate": [],
       "origin": [
-        "05cd899bee4bd87b70dddda6758f70b49ef5a809f5d666f0f2624f7dd4fda1b1"
+        "bd37c3beaee12f929045a7b6f5a1ad22cb382ca4e619a36b7c11f409c9dc2398"
       ],
-      "fingerprint": "c09cf05bec7c075cb7e22e3f8faba20c320b3d796e3f8974bd2f4138faf36c39",
+      "fingerprint": "5ffffee8c006bdd33441bf435511b821bd999db84d4ca12198a774e9f69030ee",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41082,14 +41186,14 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/presence",
+      "holder": "MissionViewReader/presence",
       "rule": "consume:some",
       "tokens": "fd29920c44d1eef63f5da6a2593cb21329e2309f5ce5e2e5ebfbe999b518d97f",
       "gate": [],
       "origin": [
-        "2dd3300a6a89d868a68093bb683d749b7adfd86bd4b4d7db94a7ada490bacd50"
+        "74d4c8664b0063c98d6e884f7d4afdbdcbca3d2f5f1dfe71cdddedf0c88acaa8"
       ],
-      "fingerprint": "23233b836c4df2d82c51dbd916f0c21e7086650d2a3cfa99b059410bdf6c1d52",
+      "fingerprint": "58777aca6725ce98573bca6d2a242d2c00d7f0eaba05c82ad822802a535e2aaf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41100,7 +41204,7 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "MissionContext/presence/moved",
+      "holder": "MissionViewReader/presence/moved",
       "rule": "consume:find",
       "tokens": "b0f298c175c4e87fa1fe6349d4dad2fca3e1f8c5390ddd11f41b2d2bf7f45814",
       "gate": [
@@ -41108,9 +41212,9 @@
         "then:a14fcabe31271611df421f58085c33a3cf1f6bd1484d374287292c2a5d577b56"
       ],
       "origin": [
-        "2dd3300a6a89d868a68093bb683d749b7adfd86bd4b4d7db94a7ada490bacd50"
+        "74d4c8664b0063c98d6e884f7d4afdbdcbca3d2f5f1dfe71cdddedf0c88acaa8"
       ],
-      "fingerprint": "2f742c6875a7ef567def2ebe2cfe8fcd4cefd5a409c2dc3e7545e70352187f1c",
+      "fingerprint": "b119c08be2b934b70adacb5758da01956aa453cd8d5783622ff11b54cf6f6a58",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41118,6 +41222,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "MissionViewReader/presentation/state",
+      "rule": "helper-consumer",
+      "tokens": "be15ad122b32235aae7910c0f0559fbb227b29891deed741d26596ff59645734",
+      "gate": [],
+      "origin": [
+        "b45effc05dcdf761c96328fad04f5e43c023b27cfc66c7576717658f3dd07280"
+      ],
+      "fingerprint": "67758552994540c77c5fb82003475dc59dff7432be9140d47c26dea5a9348d19",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5575",
+      "trigger": "Observed MissionViewReader/presentation/state",
+      "bound": "The explicit waterfall/handoff issue collection; no fixed cardinality cap is claimed.",
+      "reason": "Whole-list presentation remains explicit and separate from the bounded spine row path.",
+      "guard": "Exact fingerprint/multiplicity retained; FlightDeck.pool.test.tsx covers waterfall/handoff render parity."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -41141,12 +41263,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "poolHandoffNext",
       "rule": "loop:for-of",
-      "tokens": "96ea5f5fc20706d06e15e5398c3b735163f2f0ae2059b85a10c60338edb94614",
+      "tokens": "88228a92b8246f99b742233ed61d9748e88c526f8ff6d378224f1768fce433b0",
       "gate": [],
       "origin": [
         "4563a6dc1d20bb639d2cf87d92976fc6c9a9313f7c51a9026cda706452056682"
       ],
-      "fingerprint": "830c8ac55236e23678e9c2d4e48051dc7e12c6a56cf20dca9e13295fc95119c9",
+      "fingerprint": "d4d9e9c7defc5a4c9c6f23fdc091153eb774985ed286257fd600048511022dd6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41159,12 +41281,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "poolHandoffNow",
       "rule": "loop:for-of",
-      "tokens": "0ca46a3a9676fd29a6d15d33e335aca1071c4df61fd97b3e79fc1bcf999c03ec",
+      "tokens": "3ad75985f1fa7b90803785d91fd7f71eed8f4be370f8c94dc42c4075c44f7904",
       "gate": [],
       "origin": [
         "c005c95150cdadb0702f638efe2266e4da3f06c864e63b28369d59ec21de0bb3"
       ],
-      "fingerprint": "ffb3fb7b12085723d6ea11ede7af7d8bbf8fbf2fbbc93c487d3b5fc7408fb763",
+      "fingerprint": "818b005fdf87e13e2d2830212d9c280b1f7197ceaac48f1967bb1d231bdf5db8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41392,13 +41514,13 @@
       "file": "packages/client-graph/src/mobile-screens.ts",
       "holder": "createMobileScreenReader/deck",
       "rule": "reader-summary",
-      "tokens": "578a169225d988c43c7af8e9036e4ed30e38668a88287ba2a78fecb7e73cf3ab",
+      "tokens": "58527a6bbe12bac7e0e7fe747d54973308c3c0037c7ee41535f97be1a1d54d3a",
       "gate": [],
       "origin": [
         "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
         "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
       ],
-      "fingerprint": "8477e372c74544ed2849b0ddc225814e1000f25fecabf242214d3db504c32766",
+      "fingerprint": "3be37718114d8b0acc8add311a9c26d1150faded5e8e34851ff3de7249da429f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41555,13 +41677,13 @@
       "file": "packages/client-graph/src/mobile-screens.ts",
       "holder": "createMobileScreenReader/readMission",
       "rule": "reader-summary",
-      "tokens": "dda529aba26501fd3e72c065b1d9123b1da4ec28e54bd9574d0a3a7bc48227ec",
+      "tokens": "b7662fcc8f230097574afba94ba8b0becd1926942f113d469506750b2a5545f4",
       "gate": [],
       "origin": [
         "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
         "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
       ],
-      "fingerprint": "ac51d69d47e3fee3b2afc02354a8b6b5bd7e29b424d732b37a26027e51aa7fd1",
+      "fingerprint": "063bb18c771a73a31cc09c2c3b9a482819a44e91c765c21ef934229f0eeabef0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46192,6 +46314,27 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "69e9597ffe5a337d523761c3a72f99d4a4d4c60c6e4191adf813cd9086503896",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
         "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
         "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
       ],
@@ -46340,6 +46483,26 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "41ce3d3a7cb3d3eec54cf39c464d557dc9cc4c9f00f0a88353504d9df60dccfd",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
         "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
         "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
       ],
@@ -46469,6 +46632,27 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
       "fingerprint": "16e7f74bb2b3c274f43ec1beac7af274bd239dcbc8151b1c7ff17055f0ae7070",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "1bbd7db390a1846aa7ae469b415cc653fce55bb9de9591bbe11f5def1199325e"
+      ],
+      "fingerprint": "2d2e64c68df5bf4ab5ab25b91e4e232e2a9fb526e15c87ab6ced2e226990f36c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
