@@ -1,4 +1,5 @@
 /** Row and local channels consumed by the worklist pool. */
+import type { FeedDiagnostics } from './feed-diagnostics'
 import type { ColdQueries, HeldSummaries } from './cold-index'
 import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
 
@@ -8,6 +9,8 @@ import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } 
  * object, no view-model import.
  */
 export interface RowSource {
+  /** Always-on failure counters, shared with the attached pool. */
+  readonly diagnostics?: FeedDiagnostics
   /** Current rows of one kind, in stream order. */
   snapshot(kind: RowRecord['kind']): RowRecord[]
   /** One callback per publication, coalesced: never a transient half-applied list. */

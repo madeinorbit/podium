@@ -34,6 +34,7 @@ import {
   repoNameFromOrigin,
   sessionUserStateRowId,
 } from '@podium/model'
+import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSource, RowSourceEvent } from './source'
@@ -89,6 +90,8 @@ export interface RowSourceStats {
   enumerations: number
   flushes: number
   events: number
+  /** Failed cold-index or listener applications, including recovery attempts. */
+  applyErrors: number
   reset(): void
 }
 
@@ -110,7 +113,9 @@ export interface RowSourceRepaint {
    * log, so the change and the visible row land together. Visits exactly the
    * rows named.
    */
-  repaint(rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>): RowSourceEvent | null
+  repaint(
+    rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,
+  ): RowSourceEvent | null
   /**
    * The server-truth row a pending overlay is judged against, by overlay
    * target and row id: the session view with this principal's truth markers
@@ -197,9 +202,7 @@ export function createRowSource(
 ): RowSourceHandle & RowSourceRepaint {
   const { mode } = options
   if (mode !== 'truth' && mode !== 'pooled') {
-    throw new Error(
-      `createRowSource: mode must be 'truth' or 'pooled', got ${String(mode)}`,
-    )
+    throw new Error(`createRowSource: mode must be 'truth' or 'pooled', got ${String(mode)}`)
   }
   const pooled = options.mode === 'pooled' ? options.pending : null
   const rowOf = replica.row?.bind(replica)
@@ -215,6 +218,7 @@ export function createRowSource(
   const subscribeAddressed: NonNullable<RowSourceReplica['subscribeAddressedBatch']> = addressedOf
   const listeners = new Set<(event: RowSourceEvent) => void>()
   let disposed = false
+  const diagnostics = new FeedDiagnostics()
 
   const userStateKeys = new Map<string, string>()
   const issueRepos = new Map<string, string>()
@@ -356,7 +360,7 @@ export function createRowSource(
   // Pending signals since the last flush.
   const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
-    let discoveryDirty = false
+  let discoveryDirty = false
   let scheduled = false
 
   /** The value last emitted for each slice row that had overlays at the last
@@ -379,11 +383,13 @@ export function createRowSource(
     enumerations: 0,
     flushes: 0,
     events: 0,
+    applyErrors: 0,
     reset() {
       stats.rowsVisited = 0
       stats.enumerations = 0
       stats.flushes = 0
       stats.events = 0
+      stats.applyErrors = 0
     },
   }
 
@@ -911,7 +917,8 @@ export function createRowSource(
 
   function flush(): RowSourceEvent | null {
     if (disposed) return null
-    const hadReplace = pendingReplace
+    const recovering = diagnostics.resyncPending
+    const hadReplace = pendingReplace !== null || recovering
     const addresses = [...pendingAddresses.values()]
     const hadRuntime = discoveryDirty
     pendingAddresses.clear()
@@ -923,6 +930,8 @@ export function createRowSource(
 
     stats.flushes += 1
     if (hadReplace) {
+      diagnostics.resyncPending = false
+      if (recovering) diagnostics.replaceResyncs += 1
       seedIssueJoins()
       seedSessionJoins()
       edgesReady = false
@@ -950,7 +959,7 @@ export function createRowSource(
           ...unscannedRepos(),
         ],
       }
-      emit(event)
+      emit(event, recovering)
       return event
     }
 
@@ -1056,23 +1065,41 @@ export function createRowSource(
     return event
   }
 
-  function emit(event: RowSourceEvent): void {
+  function emit(event: RowSourceEvent, recovering = false): void {
     stats.events += 1
+    function failed(kind: 'listener' | 'cold-index', error: unknown): void {
+      stats.applyErrors += 1
+      diagnostics.resyncPending = true
+      // One automatic recovery per failing publication. A recovery that also
+      // fails waits for the next signal/explicit flush, rather than starving
+      // the event loop with an unbounded microtask chain.
+      if (!recovering) schedule()
+      diagnostics.report(`${kind}:${event.type}`, error)
+    }
     if (coldIndex !== null) {
       try {
-        coldIndex.apply(event)
-      } catch {
-        // Never let the index stop the feed. A dropped index reseeds from one
-        // snapshot per kind on its next question.
-        coldIndex = null
+        if (coldNeedsReseed) {
+          // Use this replacement's rows and every declared summary field.
+          // Never let a reader silently rebuild the damaged index on demand.
+          const index = createColdIndex(SCHEMA, coldHeld)
+          index.apply(event)
+          coldIndex = index
+          coldNeedsReseed = false
+        } else coldIndex.apply(event)
+      } catch (error) {
+        coldNeedsReseed = true
+        failed('cold-index', error)
+        // The pool must not consume a publication backed by a partial index.
+        return
       }
     }
     for (const listener of [...listeners]) {
       try {
         listener(event)
-      } catch {
-        // One throwing arm must not stop the others; matches the facade's
-        // observer isolation contract.
+      } catch (error) {
+        // Preserve observer isolation, but replace the potentially partial
+        // pool before delivering another incremental publication.
+        failed('listener', error)
       }
     }
   }
@@ -1108,12 +1135,18 @@ export function createRowSource(
 
   /** POD-5405 — the cold index, built on the first question and fed by `emit`. */
   let coldIndex: ColdIndex | null = null
+  let coldNeedsReseed = false
   /** POD-5407 — the declared summary fields it holds (the union of every caller's), and the last declaration found held. */
   let coldHeld: HeldSummaries = {}
   let coldChecked: HeldSummaries | undefined
   function cold(summaries?: HeldSummaries): ColdQueries {
     if (disposed) {
-      throw new Error('createRowSource: cold() on a disposed source (the principal switched; rebind first)')
+      throw new Error(
+        'createRowSource: cold() on a disposed source (the principal switched; rebind first)',
+      )
+    }
+    if (coldNeedsReseed) {
+      throw new Error('createRowSource: cold index awaiting replacement resync')
     }
     if (coldIndex !== null && summaries !== undefined && summaries !== coldChecked) {
       if (coldIndex.holds(summaries)) coldChecked = summaries
@@ -1137,13 +1170,18 @@ export function createRowSource(
   }
 
   const source: RowSource = {
+    diagnostics,
     snapshot,
     row,
     cold,
-    ...(replica.issueIdByRef ? { issueIdByRef(ref: string): string | undefined {
-      if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
-      return replica.issueIdByRef!(ref)
-    } } : {}),
+    ...(replica.issueIdByRef
+      ? {
+          issueIdByRef(ref: string): string | undefined {
+            if (disposed) throw new Error('createRowSource: issueIdByRef() on a disposed source')
+            return replica.issueIdByRef!(ref)
+          },
+        }
+      : {}),
     ...(replica.issueIdsByRef
       ? {
           issueIdsByRef(ref: string): readonly string[] {
@@ -1172,6 +1210,7 @@ export function createRowSource(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,
   ): RowSourceEvent | null {
     if (disposed) return null
+    if (diagnostics.resyncPending) return flush()
     const pending = readPending()
     const byKey = new Map<string, RowRecord>()
     for (const { kind, id } of rows) {
@@ -1259,6 +1298,8 @@ export function createRowSource(
       }
       listeners.clear()
       coldIndex = null
+      coldNeedsReseed = false
+      diagnostics.resyncPending = false
       pendingAddresses.clear()
       overlaid.clear()
       held = null

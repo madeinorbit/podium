@@ -19,16 +19,25 @@ export function createWorklistPool(
     )
   }
   const pool = new MobxPool(locals.get(), undefined, {
-    ...loader, load: row, issueIdByRef: source.issueIdByRef?.bind(source), cold: source.cold?.bind(source),
+    ...loader,
+    diagnostics: source.diagnostics,
+    load: row,
+    issueIdByRef: source.issueIdByRef?.bind(source),
+    cold: source.cold?.bind(source),
   })
   // POD-5407: a source with its own cold index hands over only the rows that
   // are never cold (lanes); the pool places the index's resident candidates
   // itself, each read once by id. No history row is visited.
   pool.apply({
     type: 'replace',
-    rows: source.cold === undefined
-      ? [...source.snapshot('session'), ...source.snapshot('issue'), ...source.snapshot('worktree')]
-      : source.snapshot('worktree'),
+    rows:
+      source.cold === undefined
+        ? [
+            ...source.snapshot('session'),
+            ...source.snapshot('issue'),
+            ...source.snapshot('worktree'),
+          ]
+        : source.snapshot('worktree'),
   })
   const offRows = source.subscribe((event) => pool.apply(event))
   const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))

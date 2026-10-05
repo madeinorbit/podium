@@ -59,6 +59,9 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // reader-queries the addressed worktree answers, and the sidebar close
   // guard and issue menus read issuePages.closeFacts (POD-5530/5569/5570/5577).
   'src/issue-page.ts', 'src/shared/issue-mention-question.ts', 'src/shared/worktree-questions.ts',
+  // The startup pool and header polls share these failure counters. This
+  // keeps no rows or errors and adds no optional screen dependency (POD-5540).
+  'src/shared/feed-diagnostics.ts',
   // The first mission view still delegates these pure value rules here.
   'diagnostics/reference/issue-views.ts',
 ])

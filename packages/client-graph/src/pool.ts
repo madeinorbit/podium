@@ -104,6 +104,7 @@ import { relationLinks } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import type { LocalsKey, SliceIssue, SliceLocals, SliceSession } from './shared/slice-types'
+import { FeedDiagnostics } from './shared/feed-diagnostics'
 import type { RowSourceEvent } from './shared/source'
 import {
   commandFor,
@@ -176,6 +177,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
+  readonly diagnostics?: FeedDiagnostics
   readonly load: LoadRow
   /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
   readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
@@ -233,6 +235,8 @@ export interface LazyMembers {
 }
 
 export class MobxPool {
+  /** Failure counters and replacement recovery status for this principal. */
+  readonly diagnostics: FeedDiagnostics
   /** The tables: every read and write in the pool goes here. */
   readonly sidebar: SidebarIndex
   readonly mobileWork: MobileWorkIndex
@@ -328,6 +332,7 @@ export class MobxPool {
   }
 
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
+    this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
     this.setupOrderVersion = this.settingsEnabled
@@ -585,6 +590,7 @@ export class MobxPool {
       | 'transactions'
       | 'spawnLog'
     >(this, {
+      diagnostics: false,
       sidebar: false,
       mobileWork: false,
       references: false,
@@ -1018,7 +1024,7 @@ export class MobxPool {
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
-      // A source that rebuilt its index (a dropped index reseeds) is a new
+      // A source that explicitly reseeded its failed index is a new
       // slice to the pool: attach to it, whatever this publication carries.
       const fresh = this.indexSeen !== undefined && this.indexSeen !== index
       this.indexSeen = index

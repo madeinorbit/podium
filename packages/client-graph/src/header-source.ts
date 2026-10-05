@@ -24,14 +24,16 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     if (disposed) return
     const next = new Set(entries.map(([id]) => id))
     const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
-    for (const id of known.get(entity) ?? []) {
+    // A previous apply may have thrown after writing some rows. Reconcile
+    // the actual table so its next successful poll removes those leftovers.
+    for (const id of pool.header.tables[entity].keys()) {
       if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
     }
-    known.set(entity, next)
     runInAction(() => {
       pool.header.apply(records)
       pool.header.order(entity, [...next])
     })
+    known.set(entity, next)
   }
   // Keyed (POD-5433): machines and repos arrive by id, with only the rows
   // that changed; the window wakes on its own four locals.
@@ -83,13 +85,14 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     try {
       const rows = await api.quota.summary.query()
       if (disposed) return
-      pool.header.received.quotas = rows
       replace(
         'quota',
         rows.map((row) => [row.machineId, row]),
       )
-    } catch {
-      /* Preserve the last reading, as the legacy indicator does. */
+      pool.header.received.quotas = rows
+    } catch (error) {
+      if (!disposed) pool.diagnostics.report('header:quota', error)
+      // Keep the last successful reading; the next poll replaces it.
     } finally {
       quotaPending = false
     }
@@ -138,14 +141,24 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]])),
   ]
   void quota()
-  void api.settings.get
-    .query()
-    .then((settings) => {
+  let lifecyclePending = false
+  let lifecycleReceived = false
+  async function lifecycle(): Promise<void> {
+    if (disposed || lifecyclePending || lifecycleReceived) return
+    lifecyclePending = true
+    try {
+      const settings = await api.settings.get.query()
       if (disposed) return
-      pool.header.received.lifecycle = settings
       replace('lifecycle', [['hosts', settings]])
-    })
-    .catch(() => {})
+      pool.header.received.lifecycle = settings
+      lifecycleReceived = true
+    } catch (error) {
+      if (!disposed) pool.diagnostics.report('header:lifecycle', error)
+    } finally {
+      lifecyclePending = false
+    }
+  }
+  void lifecycle()
   // This endpoint is optional on the structural client API; the web supplies it.
   const historyApi = (
     api.sessions as
@@ -174,10 +187,11 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
             Number.isFinite(Date.parse(bucket.start)),
         )
       ) {
-        pool.header.received.history = reading
         replace('history', [['fleet', reading]])
+        pool.header.received.history = reading
       }
-    } catch {
+    } catch (error) {
+      if (!disposed) pool.diagnostics.report('header:history', error)
     } finally {
       historyPending = false
     }
@@ -196,6 +210,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
   }, 5 * 60_000)
   const timer = setInterval(() => {
     void quota()
+    void lifecycle()
   }, 60_000)
   return () => {
     if (disposed) return
