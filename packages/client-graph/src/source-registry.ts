@@ -131,14 +131,17 @@ export class PoolSources {
     return value as T
   }
 
+  peekView<T extends object>(key: string): T | undefined {
+    return this.views.get(key) as T | undefined
+  }
+
   dispose(): void {
     if (this.disposed) return
     runInAction(() => {
       this.disposed = true
-      for (const source of new Set(this.byEntity.values())) source.dispose()
-      for (const view of this.views.values()) {
-        const dispose = Reflect.get(view, 'dispose')
-        if (typeof dispose === 'function') dispose()
+      for (const owner of new Set<object>([...this.byEntity.values(), ...this.views.values()])) {
+        const dispose = Reflect.get(owner, 'dispose')
+        if (typeof dispose === 'function') dispose.call(owner)
       }
       this.views.clear()
       this.ensured.clear()

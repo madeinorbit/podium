@@ -1,3 +1,4 @@
+import type { MobxPool } from './pool'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
@@ -280,4 +281,12 @@ export function createHeaderEntities() {
       for (const listener of [...offlineListeners]) listener(undefined)
     },
   }
+}
+
+/** The screen registry owns creation and teardown of this view. */
+export function headerEntities(pool: MobxPool) {
+  return pool.sources.view('header.entities', () => {
+    const view = createHeaderEntities()
+    return Object.assign(view, { dispose: () => view.clear() })
+  })
 }

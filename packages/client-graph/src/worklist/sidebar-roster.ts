@@ -8,7 +8,7 @@ import { keyedComputed } from '@podium/mobx-helpers'
  * never be a retained seat; one only waiting for the load window is filed
  * when it arrives. The former cold lane summaries (one per history session,
  * built at every attach) are gone. */
-import { compareStructural, observable, type ObservableSet } from 'mobx'
+import { compareStructural, observable, observe, type ObservableSet } from 'mobx'
 import { debugName } from '../debug-name'
 import { cachedKey } from '../cached'
 import type { MobxPool } from '../pool'
@@ -26,6 +26,11 @@ export interface SidebarOwner {
 }
 interface SeatLocation { readonly owner: string | null; readonly path: string }
 const EMPTY: readonly string[] = Object.freeze([])
+
+/** The screen owns this view in the existing pool registry. */
+export function sidebarRosterView(pool: MobxPool): SidebarRosterIndex {
+  return pool.sources.view('sidebar.rosters', () => new SidebarRosterIndex(pool))
+}
 
 export class SidebarRosterIndex {
   private readonly seats = new Map<string, SeatLocation>()
@@ -83,7 +88,19 @@ export class SidebarRosterIndex {
   private readonly candidateIds = cachedKey('pool.sidebar', 'candidateIds', (path) =>
     [...(this.lanes.get(path) ?? EMPTY)].filter((id) => this.candidate(id)), compareStructural)
 
-  constructor(private readonly pool: MobxPool) { this.now = pool.clock.current }
+  private readonly stops: readonly (() => void)[]
+  constructor(private readonly pool: MobxPool) {
+    this.now = pool.clock.current
+    this.stops = [
+      observe(pool.tables.session, change => this.queueSession(change.name)),
+      observe(pool.tables.worktree, change => this.fileWorktree(change.name)),
+    ]
+  }
+
+  dispose(): void {
+    for (const stop of this.stops) stop()
+    this.clear()
+  }
 
   /** TRACKED. Only the path's resident seats and their owners are observed. */
   candidates(path: string): Iterable<string> {

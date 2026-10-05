@@ -1,14 +1,13 @@
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
-import { createSessionPaneReader } from './session-pane'
+import { sessionPaneView } from './session-pane'
 import {
   isSettingsEntity,
   SETTINGS_SCHEMA,
   SETUP_SESSION_SUMMARY_FIELDS,
   type SetupSession,
-  setupSessionSummary,
 } from './settings-schema'
 import { type SettingsOwner, SettingsSource } from './settings-source'
-import { createSettingsViews } from './settings-views'
+import { readSetupSession, settingsHasFirstTask, settingsView } from './settings-views'
 import {
   mergePoolSummaries,
   type PoolSourceRows,
@@ -78,14 +77,14 @@ import {
 import { DeadlineClock } from './clock'
 import { debugName } from './debug-name'
 import { reseed } from './enumerate'
-import { createHeaderEntities } from './header-entities'
+import { headerEntities } from './header-entities'
 import {
   HEADER_ISSUE_SUMMARY_FIELDS,
   HEADER_SESSION_SUMMARY_FIELDS,
   type HeaderEntity,
   isHeaderEntity,
 } from './header-schema'
-import { createHeaderViews } from './header-views'
+import { headerView } from './header-views'
 import { IssueReferences } from './issue-reference'
 import {
   type EntityModel,
@@ -95,7 +94,7 @@ import {
   type SessionModel,
 } from './models'
 import type { PreferenceRow } from './preference-schema'
-import { PreferenceSource } from './preference-source'
+import { attachPreferenceSource, preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
@@ -122,12 +121,12 @@ import {
   type PoolTables,
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
-import { WorklistGroups } from './worklist/groups'
-import { MobileWorkIndex } from './worklist/mobile'
+import { worklistGroups } from './worklist/groups'
+import { mobileWorkView } from './worklist/mobile'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import { SeatVerdicts } from './worklist/seat-verdicts'
-import { SidebarIndex } from './worklist/sidebar'
-import { SidebarRosterIndex } from './worklist/sidebar-roster'
+import { sidebarView } from './worklist/sidebar'
+import { sidebarRosterView } from './worklist/sidebar-roster'
 import {
   type HeldIssue,
   HIDDEN_ISSUE_FIELDS,
@@ -237,29 +236,23 @@ export interface LazyMembers {
 export class MobxPool {
   /** Failure counters and replacement recovery status for this principal. */
   readonly diagnostics: FeedDiagnostics
-  /** The tables: every read and write in the pool goes here. */
-  readonly sidebar: SidebarIndex
-  readonly mobileWork: MobileWorkIndex
-  readonly sidebarRosters: SidebarRosterIndex
+  /** Temporary compatibility accessors while consumers move to screen modules. */
+  get sidebar() { return sidebarView(this) }
+  get mobileWork() { return mobileWorkView(this) }
+  get sidebarRosters() { return sidebarRosterView(this) }
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
-  private preferenceSource: PreferenceSource | undefined
   readonly sources = new PoolSources()
-  readonly sessionPanes = createSessionPaneReader(this)
+  get sessionPanes() { return sessionPaneView(this) }
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
   private readonly settingsEnabled: boolean
-  private readonly setupOrderVersion: IObservableValue<number> | undefined
-  readonly settingsViews = createSettingsViews(this)
-  /** Issues the feed carries with no `deletedAt` (the index's count), at the last publication. */
-  private readonly firstTaskCount = observable.box(0)
-  private headerState: ReturnType<typeof createHeaderEntities> | undefined
-  /** Off means no extra observable maps, relations or sidebar census objects. */
-  get header() {
-    this.headerState ??= createHeaderEntities()
-    return this.headerState
-  }
-  readonly headerViews = createHeaderViews(this)
+  private readonly sourcePositionVersion: IObservableValue<number> | undefined
+  get settingsViews() { return settingsView(this) }
+  /** The source index's undeleted issue count, published with each batch. */
+  private readonly issueCount = observable.box(0)
+  get header() { return headerEntities(this) }
+  get headerViews() { return headerView(this) }
   readonly tables: PoolTables
   readonly queries: ReaderQueries
   readonly relations: RelationReader
@@ -283,9 +276,9 @@ export class MobxPool {
   /** The visible collection and its order. */
   readonly worklist: VisibleCollection
   /** The groups and closed folds over that order. */
-  readonly groups: WorklistGroups
+  readonly groups: ReturnType<typeof worklistGroups>
   /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
-  readonly foldLatch: IObservableValue<boolean>
+  get foldLatch(): IObservableValue<boolean> { return this.groups.foldLatch }
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
   /**
@@ -337,9 +330,9 @@ export class MobxPool {
     this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
     this.issueIdByRef = lazy?.issueIdByRef
     this.settingsEnabled = lazy?.settings === true
-    this.setupOrderVersion = this.settingsEnabled
+    this.sourcePositionVersion = this.settingsEnabled
       ? observable.box(0, {
-          name: debugName(() => 'pool.setupOrderVersion'),
+          name: debugName(() => 'pool.sourcePositionVersion'),
         })
       : undefined
     this.tables = createObservableTables()
@@ -440,7 +433,7 @@ export class MobxPool {
       // read, in the same action that moved the bucket: binary search by id
       // (default `.sort()` order, UTF-16 code units) + splice at its position.
       onBucket: (collection, target, member, added) => {
-        if (collection === 'worktree.sessions') this.sidebarRosters.queueSession(member)
+        if (collection === 'worktree.sessions') sidebarRosters.queueSession(member)
         if (collection !== 'issue.sessions') return
         this.seatVerdicts.queueMember(target, member, added)
         const list = seats.get(target)
@@ -483,7 +476,7 @@ export class MobxPool {
       },
       ...(residency === null ? {} : { residency }),
     }
-    this.sidebarRosters = new SidebarRosterIndex(this)
+    const sidebarRosters = sidebarRosterView(this)
     // Maintenance reads: untracked, so a summary never depends on a seat's row.
     this.seatVerdicts = new SeatVerdicts({
       // untracked-read: seat-membership-maintenance
@@ -494,8 +487,7 @@ export class MobxPool {
       issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
       now: () => this.clock.current,
     })
-    this.sidebar = new SidebarIndex(this)
-    this.mobileWork = new MobileWorkIndex(this)
+    sidebarView(this)
     this.selectedId = null
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (pending changes arrive as
@@ -557,16 +549,7 @@ export class MobxPool {
       issue: (id) => this.issueObject(id),
       fileGroups: (id, filing) => this.groups.file(id, filing),
     })
-    this.foldLatch = observable.box(locals.selectedIssueWasFolded === true, {
-      name: debugName(() => 'pool.foldLatch'),
-    })
-    this.groups = new WorklistGroups({
-      node: (id) => this.knownIssue(id),
-      // At most one entry (`select`): the key walk is the selection itself.
-      selectedId: () => this.selection.keys().next().value ?? null,
-      foldLatch: () => this.foldLatch.get(),
-      demand: () => this.worklist.need(),
-    })
+    this.groups = worklistGroups(this, locals.selectedIssueWasFolded === true)
     // Every issue in memory is a filing candidate: taken when its row enters
     // the table, released when it leaves (inside the action that moved it).
     // Its filing reaction runs only while the list is live (POD-5423).
@@ -575,10 +558,8 @@ export class MobxPool {
       this.seatVerdicts.queueIssue(change.name)
     })
     observe(this.tables.session, (change) => {
-      this.sidebarRosters.queueSession(change.name)
       this.seatVerdicts.queueSession(change.name)
     })
-    observe(this.tables.worktree, (change) => this.sidebarRosters.fileWorktree(change.name))
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
     if (lazy?.worklist !== 'demand') this.worklist.retain()
@@ -601,15 +582,14 @@ export class MobxPool {
    * Unknown rows answer undefined. Never blocks.
    */
   attachPreferences(ui: RoutedUiState): void {
-    if (this.preferenceSource) throw new Error('Preferences already attached to this pool')
-    this.preferenceSource = new PreferenceSource(ui)
+    attachPreferenceSource(this, ui)
   }
 
   preferenceKeys(): readonly string[] {
-    return this.preferenceSource?.keys() ?? []
+    return preferenceSource(this)?.keys() ?? []
   }
   preferenceCounts() {
-    return this.preferenceSource?.counts ?? null
+    return preferenceSource(this)?.counts ?? null
   }
 
   attachSettings(owner: SettingsOwner): void {
@@ -634,20 +614,7 @@ export class MobxPool {
     id: string,
     absent: AbsentRead = 'load',
   ): Loaded<object> {
-    if (entity === 'setupSession') {
-      const row = this.row('session', id, 'summary')
-      // Only source-order changes wake this metadata dependency. No tracking
-      // object or full-row copy is installed for a cold session at ingest.
-      this.setupOrderVersion?.get()
-      return row && row !== LOADING
-        ? setupSessionSummary(
-            row as Readonly<Record<string, unknown>>,
-            // untracked-read: pool-session-position
-            untracked(() => this.coldIndex().position('session', id)),
-          )
-        : row
-    }
-    if (entity === 'preference') return this.preferenceSource?.read(id) ?? LOADING
+    if (entity === 'setupSession') return readSetupSession(this, id)
     if (isHeaderEntity(entity)) return this.header.get(entity, id)
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
     const core = entity as EntityName
@@ -699,8 +666,15 @@ export class MobxPool {
   /** Whether the feed carries any issue with no `deletedAt`, archived and
    * draft rows included: the cold index's count (POD-5407), set at each
    * publication. Getter cost is independent of both hot and cold history. */
-  get hasFirstTask(): Loaded<boolean> {
-    return this.firstTaskCount.get() > 0
+  get hasFirstTask(): Loaded<boolean> { return settingsHasFirstTask(this) }
+
+  get undeletedIssueCount(): number { return this.issueCount.get() }
+
+  /** Source ordering is tracked independently from the named row payload. */
+  sourcePosition(entity: EntityName, id: string): number {
+    this.sourcePositionVersion?.get()
+    // untracked-read: pool-session-position
+    return untracked(() => this.coldIndex().position(entity, id))
   }
 
   /**
@@ -979,10 +953,10 @@ export class MobxPool {
         this.residency?.settle(this.target, out, fresh ? undefined : delta)
         if (!fresh) this.graph.publish(delta)
       }
-      this.firstTaskCount.set(index.undeleted('issue'))
-      if (this.setupOrderVersion !== undefined && this.positionsSeen !== index.positionVersion) {
+      this.issueCount.set(index.undeleted('issue'))
+      if (this.sourcePositionVersion !== undefined && this.positionsSeen !== index.positionVersion) {
         this.positionsSeen = index.positionVersion
-        this.setupOrderVersion.set(this.setupOrderVersion.get() + 1)
+        this.sourcePositionVersion.set(this.sourcePositionVersion.get() + 1)
       }
       // An attach files its resident sessions as they enter the table
       // (`observe` above); a history row it carries is never visited.
@@ -1048,26 +1022,19 @@ export class MobxPool {
 
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
-    this.sidebar.dispose()
     this.queries.dispose()
     this.disposed = true
-    this.preferenceSource?.dispose()
-    this.sources.dispose()
-    this.settingsViews.clear()
     this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
-      this.groups.clear()
+      this.sources.dispose()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
-      this.headerState?.clear()
-      this.headerViews.clear()
       this.clearSeats()
       this.selection.clear()
       this.readStates.clear()
-      this.sidebarRosters.clear()
       this.seatVerdicts.clear()
-      this.firstTaskCount.set(0)
+      this.issueCount.set(0)
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()

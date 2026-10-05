@@ -4,8 +4,8 @@ import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
-import type { SetupSession } from './settings-schema'
-import { LOADING } from './worklist/rollup'
+import { setupSessionSummary, type SetupSession } from './settings-schema'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Observed summaries suspend when settings/setup unmounts. No full-session
  * mirror or cold-row index; every value is read through the pool's one reader. */
@@ -46,4 +46,23 @@ export function createSettingsViews(pool: MobxPool) {
     return pool.queries.setupSessionPresent(id)
   }
   return { setup, sessions, sessionPresent, sessionCount: () => pool.queries.setupSessionCount(), clear: () => cache.clear() }
+}
+
+/** The screen registry owns creation and teardown of this view. */
+export function settingsView(pool: MobxPool) {
+  return pool.sources.view('settings.views', () => {
+    const view = createSettingsViews(pool)
+    return Object.assign(view, { dispose: () => view.clear() })
+  })
+}
+
+/** Setup decoration and the first-task decision belong to the setup screen. */
+export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
+  const row = pool.row('session', id, 'summary')
+  return row && row !== LOADING
+    ? setupSessionSummary(row as Readonly<Record<string, unknown>>, pool.sourcePosition('session', id))
+    : row
+}
+export function settingsHasFirstTask(pool: MobxPool): Loaded<boolean> {
+  return pool.undeletedIssueCount > 0
 }

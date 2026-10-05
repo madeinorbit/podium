@@ -1,3 +1,4 @@
+import type { MobxPool } from '../pool'
 /**
  * The worklist's groups and closed folds, over the ordered
  * visible ids (`visible.ts`).
@@ -510,4 +511,18 @@ export class WorklistGroups {
     this.rootSnoozed.clear()
     this.rootClosed.clear()
   }
+}
+
+/** Screen-local fold state and grouping share the existing view lifetime. */
+export function worklistGroups(pool: MobxPool, initiallyFolded: boolean) {
+  return pool.sources.view('worklist.groups', () => {
+    const foldLatch = observable.box(initiallyFolded, { name: debugName(() => 'pool.foldLatch') })
+    const groups = new WorklistGroups({
+      node: id => pool.knownIssue(id),
+      selectedId: () => pool.selection.keys().next().value ?? null,
+      foldLatch: () => foldLatch.get(),
+      demand: () => pool.worklist.need(),
+    })
+    return Object.assign(groups, { foldLatch, dispose: () => groups.clear() })
+  })
 }

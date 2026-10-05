@@ -57,6 +57,11 @@ const issueRow = cachedGroup(
   },
 )
 
+/** The screen owns this view in the existing pool registry. */
+export function mobileWorkView(pool: MobxPool): MobileWorkIndex {
+  return pool.sources.view('mobileWork', () => new MobileWorkIndex(pool))
+}
+
 export class MobileWorkIndex {
   private readonly views = new WeakMap<MobileWorkState, MobileSectionsView>()
   constructor(private readonly pool: MobxPool) {}

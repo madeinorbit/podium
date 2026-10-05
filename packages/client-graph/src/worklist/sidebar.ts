@@ -101,7 +101,6 @@ function sameSidebar(a: Loaded<SidebarRowValues>, b: Loaded<SidebarRowValues>): 
  * carried them. The compatibility view borrows all other issue properties. */
 const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
 
-
 /** One drawn issue payload, shared only while a screen observes it. */
 export const sidebarIssueRow = cachedGroup(
   'sidebar', sidebarValues, sameSidebar,
@@ -237,6 +236,11 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   }
 }
 
+
+/** The screen owns this view in the existing pool registry. */
+export function sidebarView(pool: MobxPool): SidebarIndex {
+  return pool.sources.view('sidebar', () => new SidebarIndex(pool))
+}
 
 export class SidebarIndex {
   private seenSelected: string | null = null

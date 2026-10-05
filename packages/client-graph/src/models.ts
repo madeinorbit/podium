@@ -449,7 +449,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
   // These rule groups construct fresh records/arrays; compare values explicitly.
-  // TODO(POD-5575): move pane/phone consumers onto smaller model answers.
+  // Screen payloads are owned by their view modules.
   private static readonly groups = {
     /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
     facts: cachedGroup('facts', (issue: IssueModel) =>

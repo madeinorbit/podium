@@ -1,9 +1,14 @@
+import type { MobxPool } from './pool'
 import { defineSource } from './source-registry'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { runInAction } from 'mobx'
 import { declarePreference, type PreferenceRow } from './preference-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
+
+declare module './source-registry' {
+  interface PoolSourceRows { preference: PreferenceRow }
+}
 
 /** Read-only pool storage. Only MobxPool.row calls read; the runtime's routed UI
  * port retains hydration, optimism, rollback, rescope and write ownership. */
@@ -40,8 +45,10 @@ export class PreferenceSource {
     })
   }
 
-  read(key: string): Loaded<PreferenceRow> {
-    return this.source.read(key) as Loaded<PreferenceRow>
+  read(key: string): Loaded<PreferenceRow>
+  read(entity: 'preference', key: string): Loaded<PreferenceRow>
+  read(keyOrEntity: string, key?: string): Loaded<PreferenceRow> {
+    return this.source.read(key ?? keyOrEntity) as Loaded<PreferenceRow>
   }
 
   private readById(key: string): Loaded<PreferenceRow> {
@@ -116,4 +123,15 @@ export class PreferenceSource {
       }),
     )
   }
+}
+
+/** UI routing and preference source lifetime stay with the preference module. */
+export function attachPreferenceSource(pool: MobxPool, ui: RoutedUiState): void {
+  if (preferenceSource(pool)) throw new Error('Preferences already attached to this pool')
+  const source = new PreferenceSource(ui)
+  pool.sources.register(['preference'], source)
+  pool.sources.view('preferences', () => source)
+}
+export function preferenceSource(pool: MobxPool): PreferenceSource | undefined {
+  return pool.sources.peekView<PreferenceSource>('preferences')
 }

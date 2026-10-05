@@ -74,6 +74,23 @@ it('source teardown honors the strict observable read trap', async () => {
   }
 })
 
+it('releases a subscribed class owner once when shared by a source and a screen view', () => {
+  const registry = new PoolSources(), signal = observable.box(1), observed: number[] = []
+  class Owner {
+    releases = 0
+    private readonly stop = autorun(() => observed.push(signal.get()))
+    read() { return { settingsTab: 'general' as const } }
+    dispose() { this.releases++; this.stop() }
+  }
+  const owner = new Owner()
+  registry.register(['settingsWindow'], owner)
+  registry.view('subscribed screen', () => owner)
+  registry.dispose(); registry.dispose()
+  runInAction(() => signal.set(2))
+  expect(owner.releases).toBe(1)
+  expect(observed).toEqual([1])
+})
+
 it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
   const custom = new SourceProbe<'sourceTypeProbe'>({ sourceTypeProbe: { count: 3 } })
