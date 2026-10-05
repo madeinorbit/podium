@@ -41,6 +41,28 @@ async function filter(value: string): Promise<void> {
 }
 
 describe('TableFilePanel search ownership', () => {
+  it.each([1_000, 4_000])('materializes only the display window for %i file rows', (count) => {
+    documentState.content = `name,count\n${Array.from({ length: count }, (_, i) => `row-${i},${i}`).join('\n')}`
+    const map = vi.spyOn(Array.prototype, 'map')
+    let results: typeof map.mock.results
+    try {
+      render(panel())
+      results = map.mock.results.slice()
+    } finally {
+      map.mockRestore()
+    }
+    const projectionSizes: number[] = []
+    for (const result of results) {
+      if (result.type !== 'return' || !Array.isArray(result.value)) continue
+      const first = result.value[0]
+      if (first && typeof first === 'object' && 'row' in first && 'sourceIndex' in first) {
+        projectionSizes.push(result.value.length)
+      }
+    }
+    expect(projectionSizes).toEqual([500])
+    expect(screen.getByTestId('table-file-viewer').querySelectorAll('tbody tr')).toHaveLength(500)
+  })
+
   it('keeps exact counts, reuses search on sort changes, and clears without searching cells', async () => {
     documentState.content = `name,count\n${Array.from({ length: 650 }, (_, i) => `cell-${i},${650 - i}`).join('\n')}`
     const lower = vi.spyOn(String.prototype, 'toLocaleLowerCase')
