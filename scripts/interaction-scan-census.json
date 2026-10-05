@@ -16025,7 +16025,7 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectIssue/callback",
       "rule": "helper-consumer",
-      "tokens": "edd3be0e3b5584200d881f81831c5121bea8c6503733f92c8b032573522816c1",
+      "tokens": "ba36d92d2b78ededc29a99e1ab4c96adfdaf2b325215393f99a3e6915532ad3a",
       "gate": [
         "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
         "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
@@ -16034,7 +16034,7 @@
       "origin": [
         "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
       ],
-      "fingerprint": "fd3421c108b15552542718ffb5c26a207ebe0183e91b5639aaddb460c42e3887",
+      "fingerprint": "1619d03d90abd0bd539e10c952014b31f15e52a11249be514e38a2d40eca0383",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -16140,12 +16140,12 @@
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "createPoolWorkActions/selectWorktree/callback/batch:callback",
       "rule": "helper-consumer",
-      "tokens": "9b67b8586714183ea5c33fce8dde901d6293bfc437f713b44a79c2cec48b49f8",
+      "tokens": "d6c30cfe664b6f5b5c7da8349dd9f9ad8b6db308af0e45e3ff98312e236bd8b8",
       "gate": [],
       "origin": [
         "83badcfdfc41aa3e3ae7f0fd24fd2bfb886371bff69b1dd5f1464f446e902252"
       ],
-      "fingerprint": "253c09e636bcc9be8dceea157b2b7ca7a9e52f45f06bf923a51011aac5b4d34a",
+      "fingerprint": "075444f653395e9835cb93d7349a14533b1635c4bce4c53b74dd7b943afff79a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -20854,14 +20854,14 @@
       "file": "packages/client-core/src/session-index.ts",
       "holder": "sessionById",
       "rule": "helper-consumer",
-      "tokens": "14880f20abb7b7f23ca4a4a52a27a9d4eb29ea1c81424a76f4f13ab87d776c25",
+      "tokens": "299c4bb2123bb400ef0491329def0690af1a1428fae799f21feaeaf736190ab8",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "5f0b90470a29f457ef0ad5388dd41c921e4a107c75585aa45d073bffc79634cd"
       ],
-      "fingerprint": "38918e82ecc4f2b1e0dfaec3b59005eae402d1af0960d89e18d759175bb335d2",
+      "fingerprint": "146e70011717a66b59534e343657cc205abc73525f6878b22b2d1ad809620432",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43462,80 +43462,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/sidebar-perf.ts",
-      "holder": "observeWorklistPoolPerf",
-      "rule": "loop:for-of",
-      "tokens": "f59483bb72dd12893543227676c844583f1d3053b456095aee60f5be664b7422",
-      "gate": [],
-      "origin": [
-        "be58e10d225b6383fa62106b3d712518967665f7f2551a27430b25b201bc1b70"
-      ],
-      "fingerprint": "2d0731b742254f25d3f285cee6af5e10aa85cdbda4717327f5a1a38eb14a07ec",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of observeWorklistPoolPerf",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/sidebar-perf.ts",
-      "holder": "observeWorklistPoolPerf/callback",
-      "rule": "loop:for-of",
-      "tokens": "f59483bb72dd12893543227676c844583f1d3053b456095aee60f5be664b7422",
-      "gate": [
-        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
-      ],
-      "origin": [
-        "be58e10d225b6383fa62106b3d712518967665f7f2551a27430b25b201bc1b70"
-      ],
-      "fingerprint": "ada26dab79fc836349b934c46ccc38872f2f1ffa1cd6eceb035b687f35221d3e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of observeWorklistPoolPerf/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/sidebar-perf.ts",
-      "holder": "observeWorklistPoolPerf/rows/runInAction:callback",
-      "rule": "consume:reduce",
-      "tokens": "cec84e7d8196c006eb7a89dc0f901edee63712dc2f550c3d01e311097431af15",
-      "gate": [],
-      "origin": [
-        "b52479433d934b51a21e20c15ebe5d9284bfe5857722c8df407504283e3edb11"
-      ],
-      "fingerprint": "47684962c72a02eddfa99793dafb759a910e680897c21bb8a8d9d3dd475ccfb3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of observeWorklistPoolPerf/rows/runInAction:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:reduce carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/sidebar-perf.ts",
-      "holder": "observeWorklistPoolPerf/stops",
-      "rule": "consume:map",
-      "tokens": "483cae2b73d5d54d23e71a8790eae3dcacff657ca9ed4ba7e97a38bf5b8e44b8",
-      "gate": [],
-      "origin": [
-        "be58e10d225b6383fa62106b3d712518967665f7f2551a27430b25b201bc1b70"
-      ],
-      "fingerprint": "8c1dfa55d5559dc899089e3b109c7357702092181dd45cde5c0d2b935e8edb2e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of observeWorklistPoolPerf/stops",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/superagent.ts",
       "holder": "createSuperagentSource/Source/schedule/queueMicrotask:callback/runInAction:callback",
       "rule": "loop:for-of",
@@ -45655,7 +45581,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     }
   ]
 }
