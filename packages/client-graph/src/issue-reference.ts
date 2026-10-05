@@ -1,3 +1,4 @@
+import type { MobxPool } from './pool'
 import { keyedComputed } from '@podium/mobx-helpers'
 import {
   canonicalIssueRef,
@@ -190,4 +191,12 @@ export class IssueReferences implements IssueReferenceReader {
       this.values.clear()
     })
   }
+}
+
+/** Reference chips and navigation share the screen-owned addressed view. */
+export function referenceView(pool: MobxPool): IssueReferences {
+  return pool.sources.view('references', () => new IssueReferences(pool, ref => pool.requestReference(ref)))
+}
+export function referenceViewIfPresent(pool: MobxPool): IssueReferences | undefined {
+  return pool.sources.peekView<IssueReferences>('references')
 }

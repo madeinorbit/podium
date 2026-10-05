@@ -514,7 +514,7 @@ export class WorklistGroups {
 }
 
 /** Screen-local fold state and grouping share the existing view lifetime. */
-export function worklistGroups(pool: MobxPool, initiallyFolded: boolean) {
+export function worklistGroups(pool: MobxPool, initiallyFolded = false) {
   return pool.sources.view('worklist.groups', () => {
     const foldLatch = observable.box(initiallyFolded, { name: debugName(() => 'pool.foldLatch') })
     const groups = new WorklistGroups({

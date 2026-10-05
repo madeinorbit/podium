@@ -85,7 +85,7 @@ import {
   isHeaderEntity,
 } from './header-schema'
 import { headerView } from './header-views'
-import { IssueReferences } from './issue-reference'
+import { referenceView, referenceViewIfPresent } from './issue-reference'
 import {
   type EntityModel,
   type IssueModel,
@@ -276,7 +276,7 @@ export class MobxPool {
   /** The visible collection and its order. */
   readonly worklist: VisibleCollection
   /** The groups and closed folds over that order. */
-  readonly groups: ReturnType<typeof worklistGroups>
+  get groups() { return worklistGroups(this) }
   /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
   get foldLatch(): IObservableValue<boolean> { return this.groups.foldLatch }
   /** Residency (POD-4567); null when the pool holds every row. */
@@ -311,7 +311,6 @@ export class MobxPool {
   private indexSeen: ColdQueries | undefined
   /** What a disposed pool answers from: nothing. */
   private emptyIndex: ColdIndex | undefined
-  private referenceReader: IssueReferences | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private readonly joinedRows = new WeakMap<object, object>()
   private companionMachines = new Set<string>()
@@ -319,11 +318,10 @@ export class MobxPool {
 
   /** A reference borrows the source's keyed identity answer and one named
    * model. Constructing this facade retains no resident-table observers. */
-  get references(): IssueReferences {
-    this.referenceReader ??= new IssueReferences(this, (ref) => {
-      if (!this.disposed) this.residency?.requestReference(ref)
-    })
-    return this.referenceReader
+  get references() { return referenceView(this) }
+
+  requestReference(ref: string): void {
+    if (!this.disposed) this.residency?.requestReference(ref)
   }
 
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
@@ -549,7 +547,7 @@ export class MobxPool {
       issue: (id) => this.issueObject(id),
       fileGroups: (id, filing) => this.groups.file(id, filing),
     })
-    this.groups = worklistGroups(this, locals.selectedIssueWasFolded === true)
+    worklistGroups(this, locals.selectedIssueWasFolded === true)
     // Every issue in memory is a filing candidate: taken when its row enters
     // the table, released when it leaves (inside the action that moved it).
     // Its filing reaction runs only while the list is live (POD-5423).
@@ -879,7 +877,7 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
-    const refs = residency.takeReferences().filter((ref) => this.referenceReader?.hasRequest(ref))
+    const refs = residency.takeReferences().filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
     const identities = refs.map((ref) => [ref, this.issueIdByRef?.(ref) ?? null] as const)
     const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
     for (const [, id] of identities) {
@@ -891,7 +889,7 @@ export class MobxPool {
     if (batch.length === 0 && identities.length === 0) return 0
     const out = ingestOut()
     return runInAction(() => {
-      for (const [ref, id] of identities) this.referenceReader?.resolved(ref, id)
+      for (const [ref, id] of identities) referenceViewIfPresent(this)?.resolved(ref, id)
       const rows = residency.install(this.target, batch, out)
       this.sidebarRosters.flush()
       this.seatVerdicts.flush()
@@ -929,7 +927,7 @@ export class MobxPool {
       const fresh = this.indexSeen !== undefined && this.indexSeen !== index
       this.indexSeen = index
       if (event.type === 'replace') {
-        this.referenceReader?.resetUnresolved()
+        referenceViewIfPresent(this)?.resetUnresolved()
         reseed(this.target, event.rows, out, this.ownIndex === undefined)
         this.graph.reset()
         this.reseatAll()
@@ -970,7 +968,7 @@ export class MobxPool {
         if (record.kind === 'issue') {
           this.seatVerdicts.queueIssue(record.id)
           if (record.value && this.residency?.isCold('issue', record.id))
-            this.referenceReader?.arrived(record.value as SliceIssue)
+            referenceViewIfPresent(this)?.arrived(record.value as SliceIssue)
         }
       }
       this.sidebarRosters.flush()
@@ -1024,7 +1022,6 @@ export class MobxPool {
   dispose(): void {
     this.queries.dispose()
     this.disposed = true
-    this.referenceReader?.dispose()
     runInAction(() => {
       this.worklist.clear()
       this.sources.dispose()
