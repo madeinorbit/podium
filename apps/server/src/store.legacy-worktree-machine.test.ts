@@ -167,22 +167,24 @@ describe('the run-once migration for legacy worktree machine identity', () => {
       expect(
         captured.at('warn').filter((record) => String(record.msg).includes('legacy worktree')),
       ).toHaveLength(1)
+      const db = openDatabase(path)
+      const receipt = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)
+      expect(receipt).toEqual({ value: JSON.stringify({ hostMachineId: HOST, backfilled: 2, skipped: 2 }) })
+      db.exec("DELETE FROM sessions; UPDATE issues SET machine_id = NULL WHERE id = 'i-unpinned'")
+      const before = db.prepare('SELECT * FROM issues ORDER BY id').all()
+      db.exec("CREATE TRIGGER refuse_issue_updates BEFORE UPDATE ON issues BEGIN SELECT RAISE(ABORT, 'boot wrote issues'); END")
+      db.close()
+      await (await openTestStore(path, HOST)).close()
+      const after = openDatabase(path)
+      expect(after.prepare('SELECT * FROM issues ORDER BY id').all()).toEqual(before)
+      expect(after.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)).toEqual(receipt)
+      after.close()
+      expect(
+        captured.at('warn').filter((record) => String(record.msg).includes('legacy worktree')),
+      ).toHaveLength(1)
     } finally {
       captured.restore()
     }
-    const db = openDatabase(path)
-    const receipt = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)
-    expect(receipt).toEqual({ value: JSON.stringify({ hostMachineId: HOST, backfilled: 2, skipped: 2 }) })
-    db.exec("DELETE FROM sessions; UPDATE issues SET machine_id = NULL WHERE id = 'i-unpinned'")
-    const before = db.prepare('SELECT * FROM issues ORDER BY id').all()
-    db.exec("CREATE TRIGGER refuse_issue_updates BEFORE UPDATE ON issues BEGIN SELECT RAISE(ABORT, 'boot wrote issues'); END")
-    db.close()
-    await (await openTestStore(path, HOST)).close()
-    const after = openDatabase(path)
-    expect(after.prepare('SELECT * FROM issues ORDER BY id').all()).toEqual(before)
-    expect(after.prepare('SELECT value FROM meta WHERE key = ?').get(LEGACY_WORKTREE_MIGRATION)).toEqual(receipt)
-    after.close()
-    expect(warning.mock.calls.filter(([message]) => String(message).includes('legacy worktree'))).toHaveLength(1)
   })
 
   it('defers without a receipt until the host has an enrolled database row', async () => {
