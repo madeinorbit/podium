@@ -13,7 +13,7 @@ import type { RowRecord } from '@podium/client-graph/shared/source'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueIsActionable } from '@podium/client-core/values'
-import { autorun, compareStructural, untracked } from 'mobx'
+import { autorun, compareStructural, getDependencyTree, untracked } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { poolScreenCellsAt } from './pool-screen-work'
 import {
@@ -302,6 +302,29 @@ function cells(work: WorkCounts): ScreenWorkCell[] {
 }
 
 describe('pool screens work ratios: declared query incrementality', () => {
+  it.each([1, 4])('identity observes only its declared membership at %ix', (scale) => {
+    const f = fixture(scale)
+    let ids: string[] = []
+    const stop = autorun(() => {
+      ids = f.pool.queries.ids({ kind: 'pageIssues' })
+    })
+    const dependencies = () => getDependencyTree(stop).dependencies?.map((value) => value.name)
+    try {
+      expect(dependencies()).toEqual(['history.{"kind":"pageIssues"}'])
+      const before = ids
+      f.patch('issue', 'new-history', {
+        ...(f.values.get('issue:history-0') as object),
+        id: 'new-history',
+      })
+      expect(ids).toContain('new-history')
+      expect(before).not.toContain('new-history')
+      expect(dependencies()).toEqual(['history.{"kind":"pageIssues"}'])
+    } finally {
+      stop()
+      f.pool.dispose()
+    }
+  })
+
   it.each([
     'summary',
     'count',
