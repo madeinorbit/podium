@@ -898,7 +898,7 @@ function JumpToNewest({
   )
 }
 
-export function TranscriptList({
+export const TranscriptList = memo(function TranscriptList({
   items,
   transcriptQuestion,
   liveItem,
@@ -1369,7 +1369,7 @@ export function TranscriptList({
       />
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   listFrame: {

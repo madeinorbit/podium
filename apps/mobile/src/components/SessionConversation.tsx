@@ -1,4 +1,5 @@
 import {
+  type ConversationController,
   type ConversationPendingTurn,
   createConversationController,
   hubConnection,
@@ -115,6 +116,73 @@ function EmptyTranscript({ warming }: { warming: boolean }) {
 }
 
 /**
+ * THE COMPOSER OWNS THE DRAFT (this issue).
+ *
+ * The screen subscribes to the controller SURFACE only (no draft), so typing
+ * never re-renders the transcript or the screen chrome. This leaf is the only
+ * place that subscribes to the draft: the text field, Send-enabled (via
+ * canSend inside Composer), draft saving (onDraftChange -> store) and the
+ * other-device copy (stored draft -> replaceDraft) all live here. Stop reads
+ * the draft only when pressed, via getSnapshot at press time, so its control
+ * stays stable across keystrokes. Follows the desktop shell boundary
+ * (subscribeSurface/getSurfaceSnapshot, apps/web use-chat-send.ts).
+ */
+function SessionComposer({
+  controller,
+  sessionId,
+  placeholder,
+  onSend,
+  caption,
+  captionTone,
+  sendDisabled,
+  draftInsertion,
+  attachments,
+  onRestingHeight,
+  turnActive,
+  canInterrupt,
+}: {
+  controller: ConversationController
+  sessionId: SessionView['sessionId']
+  placeholder: string
+  onSend: (text: string, files?: readonly SentAttachment[]) => void
+  caption?: string | null
+  captionTone?: 'working' | 'attention'
+  sendDisabled?: boolean
+  draftInsertion?: { id: number; text: string } | null
+  attachments?: ReturnType<typeof useComposerAttachments>
+  onRestingHeight?: (height: number) => void
+  turnActive: boolean
+  canInterrupt: boolean
+}) {
+  const getDraft = useCallback(() => controller.getSnapshot().draft, [controller])
+  const draft = useSyncExternalStore(controller.subscribe, getDraft)
+  const storedDraft = useSessionDraft(sessionId)
+  useEffect(() => {
+    controller.replaceDraft(storedDraft)
+  }, [controller, storedDraft])
+  const setDraft = useCallback((text: string) => controller.setDraft(text), [controller])
+  const handleStop = useCallback(() => {
+    void controller.interrupt(controller.getSnapshot().draft)
+  }, [controller])
+  const onStop = turnActive && canInterrupt ? handleStop : undefined
+  return (
+    <Composer
+      placeholder={placeholder}
+      onSend={onSend}
+      value={draft}
+      onChangeText={setDraft}
+      caption={caption}
+      captionTone={captionTone}
+      sendDisabled={sendDisabled}
+      draftInsertion={draftInsertion}
+      attachments={attachments}
+      onRestingHeight={onRestingHeight}
+      onStop={onStop}
+    />
+  )
+}
+
+/**
  * ONE CONVERSATION, TWO HOSTS [POD-724].
  *
  * The transcript is no longer only what a SESSION screen shows: opening a task
@@ -196,7 +264,6 @@ export function SessionConversation({
     return machineName || 'This machine'
   }, [machine, machineName])
   const currentQuestion = useSessionContextQuestion(sessionId)
-  const storedDraft = useSessionDraft(sessionId)
   const ports = useSessionConversationPorts(sessionId)
   // biome-ignore lint/correctness/useExhaustiveDependencies: one seed when this addressed conversation's ports become ready
   const draftSeed = useMemo(() => ports.draft, [sessionId, ports.ready])
@@ -378,8 +445,8 @@ export function SessionConversation({
     ],
   )
   const conversation = useSyncExternalStore(
-    conversationController.subscribe,
-    conversationController.getSnapshot,
+    conversationController.subscribeSurface,
+    conversationController.getSurfaceSnapshot,
   )
   const pendingTurns = useMemo<LocalPendingTurn[]>(
     () => conversation.bubbles.map(pendingTurnOf),
@@ -420,10 +487,6 @@ export function SessionConversation({
     conversationController.start()
     return () => conversationController.stop()
   }, [conversationController, ports.ready])
-
-  useEffect(() => {
-    conversationController.replaceDraft(storedDraft)
-  }, [conversationController, storedDraft])
 
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
@@ -566,12 +629,11 @@ export function SessionConversation({
    * Stop makes: it puts the last prompt back in an empty draft and sends
    * `sessions.interrupt` with the queued message it selected, so whatever the
    * server does per harness to end the turn, the phone gets too.
+   *
+   * The draft is read at press time inside the composer leaf, so this flag and
+   * the interrupt capability stay stable across keystrokes (this issue).
    */
   const turnActive = isAgentComputing(session) || justSent
-  const stopTurn =
-    turnActive && conversation.canInterrupt
-      ? () => void conversationController.interrupt(conversation.draft)
-      : undefined
   // "Not stopped", not "Not sent": what failed is that the agent is STILL
   // running, and the phone has no other place that would say so.
   const composerCaption = conversation.interruptError
@@ -635,8 +697,69 @@ export function SessionConversation({
    * with the reason and a Try again, and the caller sees the throw so the card
    * can say "Not sent" too.
    */
-  const acceptOffer = (prompt: string, offerCreatedAt: string): Promise<void> =>
-    conversationController.sendOffer(prompt, offerCreatedAt).then(() => {})
+  const acceptOffer = useCallback(
+    (prompt: string, offerCreatedAt: string): Promise<void> =>
+      conversationController.sendOffer(prompt, offerCreatedAt).then(() => {}),
+    [conversationController],
+  )
+  const retractPending = useCallback(
+    (id: string) => void conversationController.retract(id),
+    [conversationController],
+  )
+  const quoteIntoDraft = useCallback((text: string) => {
+    setDraftInsertion({ id: insertionSeq.current++, text })
+  }, [])
+  const dismissOfferRow = useCallback(
+    (offerCreatedAt: string) => conversationController.dismissOffer(offerCreatedAt),
+    [conversationController],
+  )
+  const openOfferEvidence = useCallback(() => {
+    if (issue) setPeekIssue(issue)
+  }, [issue])
+  const assetContext = useMemo(
+    () => ({ httpOrigin: store.httpOrigin, sessionId, cwd: session.cwd }),
+    [store.httpOrigin, sessionId, session.cwd],
+  )
+  const tailState = useMemo(
+    () => ({
+      label: activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+      tone: (activity?.tone === 'attention'
+        ? 'attention'
+        : activity
+          ? 'working'
+          : 'idle') as 'working' | 'attention' | 'idle',
+      since: session.agentState?.since,
+    }),
+    [activity, session.agentState?.phase, session.agentState?.since, session.status],
+  )
+  const streamingActive =
+    activity?.tone === 'working' &&
+    items.at(-1)?.role === 'assistant' &&
+    items.at(-1)?.answer !== true
+  const emptyState = useMemo(
+    () =>
+      loaded && items.length === 0 && pendingTurns.length === 0 && !offer && !pendingQuestion ? (
+        <EmptyTranscript warming={warming} />
+      ) : undefined,
+    [loaded, items.length, pendingTurns.length, offer, pendingQuestion, warming],
+  )
+  const footerNode = useMemo(
+    () =>
+      offer ? (
+        <SessionActionCard
+          offer={offer}
+          issue={issue}
+          {...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {})}
+          onAction={(prompt) => acceptOffer(prompt, offer.createdAt)}
+          // The same write the web x makes: the offer leaves every
+          // surface and every viewer, not just this phone.
+          onDismiss={dismissOfferRow}
+          onOpenEvidence={issue ? openOfferEvidence : undefined}
+        />
+      ) : undefined,
+    [offer, issue, session.lastInputAt, acceptOffer, dismissOfferRow, openOfferEvidence],
+  )
+  const captionTone = conversation.interruptError ? 'attention' : 'working'
 
   return (
     <View style={styles.flex}>
@@ -671,41 +794,21 @@ export function SessionConversation({
               items={items}
               transcriptQuestion={transcriptQuestion}
               live={session.status === 'live'}
-              assetContext={{ httpOrigin: store.httpOrigin, sessionId, cwd: session.cwd }}
+              assetContext={assetContext}
               pendingTurns={pendingTurns}
               hidePendingQuestion
               findRequest={findRequest}
               onRetryPending={retry}
               onDiscardPending={discard}
               onSendAgainPending={sendAgain}
-              onRetractPending={(id) => void conversationController.retract(id)}
-              onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
+              onRetractPending={retractPending}
+              onQuote={quoteIntoDraft}
               bottomInset={composerHeight + askHeight + keyboardLift}
-              streaming={
-                activity?.tone === 'working' &&
-                items.at(-1)?.role === 'assistant' &&
-                items.at(-1)?.answer !== true
-              }
-              tail={{
-                label:
-                  activity?.label ??
-                  (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
-                tone: activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle',
-                since: session.agentState?.since,
-              }}
+              streaming={streamingActive}
+              tail={tailState}
               refreshControl={refreshControl}
               refreshAccessibilityProps={refreshAccessibilityProps}
-              emptyComponent={
-                // An offer is itself the thing to act on — do not tell the
-                // operator the session is empty underneath a pending decision.
-                loaded &&
-                items.length === 0 &&
-                pendingTurns.length === 0 &&
-                !offer &&
-                !pendingQuestion ? (
-                  <EmptyTranscript warming={warming} />
-                ) : undefined
-              }
+              emptyComponent={emptyState}
               onAnswer={answerAsk}
               answerInteractionId={currentQuestion?.id}
               onLoadOlder={loadOlder}
@@ -714,22 +817,7 @@ export function SessionConversation({
               onFollowChange={followTranscript}
               onSearchChange={searchTranscript}
               onRefPress={setRequestedRef}
-              footer={
-                offer ? (
-                  <SessionActionCard
-                    offer={offer}
-                    issue={issue}
-                    {...(session.lastInputAt ? { lastInputAt: session.lastInputAt } : {})}
-                    onAction={(prompt) => acceptOffer(prompt, offer.createdAt)}
-                    // The same write the web x makes: the offer leaves every
-                    // surface and every viewer, not just this phone.
-                    onDismiss={(offerCreatedAt) =>
-                      conversationController.dismissOffer(offerCreatedAt)
-                    }
-                    onOpenEvidence={issue ? () => setPeekIssue(issue) : undefined}
-                  />
-                ) : undefined
-              }
+              footer={footerNode}
             />
           </PullToRefreshBoundary>
         </BootstrapCrossfade>
@@ -759,18 +847,19 @@ export function SessionConversation({
               />
             </View>
           ) : null}
-          <Composer
+          <SessionComposer
+            controller={conversationController}
+            sessionId={sessionId}
             placeholder={composer.placeholder}
             onSend={send}
-            value={conversation.draft}
-            onChangeText={conversationController.setDraft.bind(conversationController)}
             caption={composerCaption}
-            captionTone={conversation.interruptError ? 'attention' : 'working'}
+            captionTone={captionTone}
             sendDisabled={!composer.deliverable}
             draftInsertion={draftInsertion}
             attachments={attachments}
             onRestingHeight={setComposerHeight}
-            onStop={stopTurn}
+            turnActive={turnActive}
+            canInterrupt={conversation.canInterrupt}
           />
         </View>
       )}
