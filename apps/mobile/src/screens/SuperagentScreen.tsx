@@ -399,16 +399,17 @@ export function SuperagentScreen() {
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (!transcriptController || pendingTurns.length === 0) return
-    const reconcile = () => setPendingTurns((previous) => {
-      const next = previous.filter(
-        (turn) =>
-          !transcriptController.hasUserEcho(
-            turn.text,
-            (turn.files ?? []).map((file) => file.path),
-          ),
-      )
-      return next.length === previous.length ? previous : next
-    })
+    const reconcile = () =>
+      setPendingTurns((previous) => {
+        const next = previous.filter(
+          (turn) =>
+            !transcriptController.hasUserEcho(
+              turn.text,
+              (turn.files ?? []).map((file) => file.path),
+            ),
+        )
+        return next.length === previous.length ? previous : next
+      })
     reconcile()
     return transcriptController.subscribe(reconcile)
   }, [transcriptController, pendingTurns.length])

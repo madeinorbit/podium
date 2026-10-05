@@ -185,6 +185,7 @@ describe('SuperagentScreen chrome', () => {
   it('uses raw facts for failure restoration and optimistic sends without rereading history at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {
+      console.log('[Superagent fact fixture scale]', scale)
       let roleReads = 0,
         timeReads = 0
       const items: TranscriptItem[] = Array.from({ length: 128 * scale }, (_, index) => ({
@@ -212,7 +213,7 @@ describe('SuperagentScreen chrome', () => {
       }))
       const view = await renderWithMobileStore(
         <SuperagentScreen />,
-        failureFixture(latestTurnFailure, () => items, sendTurn),
+        { ...failureFixture(latestTurnFailure, () => items, sendTurn), principal: `user:superagent-facts-${scale}` },
       )
       await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
       expect(transcriptProps.at(-1)?.items).toHaveLength(items.length)
@@ -249,6 +250,8 @@ describe('SuperagentScreen chrome', () => {
       }
       samples.push({ scale, actions: { restore, send, status } })
       view.unmount()
+      cleanup()
+      await act(async () => { await Promise.resolve() })
       transcriptProps.length = 0
       composerProps.length = 0
     }
