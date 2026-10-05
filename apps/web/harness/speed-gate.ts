@@ -770,9 +770,17 @@ async function main() {
     const missionClicks = missionClicksOnly || missionBefore
       ? await coldMissions(origin, missionBefore)
       : undefined
+    const missionRegressions = missionBefore ? missionClicks?.flatMap((clicks) => {
+      const prior = missionBefore.missionClicks.find((before) => before.scale === clicks.scale)!
+      return (['firstClickMs', 'revisitMs'] as const)
+        .filter((kind) => clicks[kind] > prior[kind])
+        .map((kind) => ({ scale: clicks.scale, kind, beforeMs: prior[kind], afterMs: clicks[kind] }))
+    }) ?? [] : []
     if (missionClicksOnly) {
       await writeFile(resolve(root, 'mission-clicks.json'), JSON.stringify({
         sourceSha, captureSha, dirtyProduct, machine, seed: 4443, missionClicks,
+        missionBaselineSha: missionBefore?.sourceSha,
+        missionRegressions,
         metric: 'trusted pointerdown to first Chromium Paint after expected mission DOM change',
         diagnosticOnly: true,
         runtimeSeconds: round((performance.now() - began) / 1000),
@@ -814,12 +822,6 @@ async function main() {
       : ACTIONS.filter(
           (action) => latest.actions[action].medianMs > baseline!.actions[action].medianMs * 1.1,
         )
-    const missionRegressions = missionClicks?.flatMap((clicks) => {
-      const prior = missionBefore!.missionClicks.find((before) => before.scale === clicks.scale)!
-      return (['firstClickMs', 'revisitMs'] as const)
-        .filter((kind) => clicks[kind] > prior[kind])
-        .map((kind) => ({ scale: clicks.scale, kind, beforeMs: prior[kind], afterMs: clicks[kind] }))
-    }) ?? []
     const report = {
       version: 1,
       sourceSha,
