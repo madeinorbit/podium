@@ -911,7 +911,21 @@ export class MobxPool {
         if (record.value === undefined) this.companionMachines.delete(record.id)
         else this.companionMachines.add(record.id)
       }
-      if (machineRows.length) this.header.apply(machineRows as never)
+      // Feed companions carry replicated display facts without live presence.
+      // Merge them over the live rows they accompany: a wholesale replace
+      // drops online/availability and every presence reader goes blind until
+      // the next hub emit (POD-5661). Companion fields win; live-only fields
+      // survive. Removals still delete; the live path is untouched.
+      const mergedMachineRows = machineRows.map((record) => {
+        if (record.value === undefined || typeof record.value !== 'object') return record
+        const live = this.header.get('machine', record.id)
+        if (!live || typeof live !== 'object') return record
+        return {
+          ...record,
+          value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
+        }
+      })
+      if (mergedMachineRows.length) this.header.apply(mergedMachineRows as never)
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()

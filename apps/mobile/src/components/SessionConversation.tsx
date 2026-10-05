@@ -41,6 +41,7 @@ import {
   useSessionContextSessions as useSessions,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
+import { useSessionMachineHomeName } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { chatSendTransport } from '../lib/chat-send-transport'
 import { interruptSession } from '../lib/interrupt-session'
@@ -393,15 +394,18 @@ const SessionConversationBody = observer(function SessionConversationBody({
   }, [requestedRef, referencedIssue, onOpenTerminalRef])
   const machine = useSessionContextMachine(session.machineId)
   const sessionId = session.sessionId
-  const machineName = session.machineName
-  // LIVE machine presence (this issue, POD-4830's desktop banner):
-  // session.machineId -> its named live machine row, via the same
-  // live-terminal predicate (online OR daemon). Unknown (no row) reads as no
-  // banner — never a fabricated offline.
+  const homeName = useSessionMachineHomeName(session.machineId)
+  // Offline predicate on LIVE presence, display name on the REPLICATED home
+  // (POD-5661; POD-4830's desktop banner reads the same server truth from its
+  // transcript page): session.machineId -> the live machine row for the
+  // live-terminal predicate (online OR daemon), and -> the feed's machine
+  // home for the name. The live row's label and the session row's stale label
+  // never name the banner; an absent or empty home reads 'This machine'.
+  // Unknown (no live row) reads as no banner — never a fabricated offline.
   const offlineMachineName = useMemo(() => {
     if (!machine || !isMachineOfflineForLiveTerminal(machine)) return null
-    return machineName || 'This machine'
-  }, [machine, machineName])
+    return homeName || 'This machine'
+  }, [machine, homeName])
   const currentQuestion = useSessionContextQuestion(sessionId)
   const trpc = store.trpc
   /**

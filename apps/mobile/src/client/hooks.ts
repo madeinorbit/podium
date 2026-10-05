@@ -15,7 +15,7 @@ import {
 } from '@podium/client-graph/mobile-screens-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { mobilePaintNow } from '../lib/work-sections'
 import { demoEnabled } from './demoData'
 import { useMobilePoolProjection } from './mobile-pool'
@@ -78,6 +78,24 @@ export function useStoreActions(): StoreActions {
 /** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): MobileStore['replica'] {
   return useStoreHandle<MobileTrpc>().access.replica
+}
+
+/** Replicated machine display name (POD-5661). The offline predicate stays on
+ * live presence (useSessionContextMachine); the NAME comes from the feed's
+ * machine home, never the live row or the session row's stale label — the
+ * documented split (replicated display facts vs principal-scoped live detail).
+ * Absent home reads undefined so the banner can fall back. */
+export function useSessionMachineHomeName(machineId: string | undefined): string | undefined {
+  const replica = useReplica()
+  const subscribe = useCallback(
+    (wake: () => void) => replica.subscribeRows('machines', wake),
+    [replica],
+  )
+  const snapshot = useCallback(() => {
+    if (machineId === undefined) return undefined
+    return replica.rows('machines').find((row) => row.id === machineId)?.name
+  }, [replica, machineId])
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
 /** The server this app is talking to, e.g. `http://ludovico:18787`. */
