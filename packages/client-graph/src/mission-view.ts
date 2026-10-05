@@ -412,10 +412,16 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
   for (const id of scope) if (settled(() => view.facts(id).live) === LOADING) pending = true
   if (pending) return LOADING
   const accepted = scope.filter(id => formal.has(id) && view.facts(id).stage !== 'proposed' && !issueAbandoned(view.facts(id)))
-  const units = (accepted.length ? accepted : [deck.id]).filter(id => {
-    const facts = view.facts(id)
-    return !issueAbandoned(facts) && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
-  })
+  const units: string[] = []
+  for (const id of accepted.length ? accepted : [deck.id]) {
+    const eligible = settled(() => {
+      const facts = view.facts(id)
+      return !issueAbandoned(facts) && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
+    })
+    if (eligible === LOADING) pending = true
+    else if (eligible) units.push(id)
+  }
+  if (pending) return LOADING
   const staffed = new Set<string>()
   for (const issueId of scope) {
     if (!view.facts(issueId).live) continue
@@ -1001,13 +1007,16 @@ export class MissionViewReader {
   private presentStrict(id: string) { return requireLoaded(this.present(id)) }
   private rosterStrict(id: string, archived = false) { return [...requireLoaded(this.roster(id, archived))] }
   rulesIssue(id: string): IssueNavigationModel | undefined {
-    const raw = requireLoaded(this.catalogIssue(id))
+    const raw = this.catalogIssue(id)
     if (!raw) return undefined
+    let pending = raw === LOADING
     const dependents: IssueNavigationModel['dependents'] = []
     for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
-      const source = requireLoaded(this.catalogIssue(sourceId))
-      if (source) for (const dep of source.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
+      const source = this.catalogIssue(sourceId)
+      if (source === LOADING) pending = true
+      else if (source) for (const dep of source.deps ?? []) if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
     }
+    if (pending || raw === LOADING) throw LOADING
     return issueNavigationOverlay(raw, { dependents }) as IssueNavigationModel
   }
   hasSpinOffDependent(id: string) { return this.rulesIssue(id)?.dependents.some(dep => dep.type === 'discovered-from') ?? false }
@@ -1031,6 +1040,7 @@ export class MissionViewReader {
   }
   tips(origin: string, local = false): IssueNavigationModel[] {
     const seen = new Set<string>(), descendants: IssueNavigationModel[] = []
+    let pending = false
     const stack = [origin]
     while (stack.length) {
       const parentId = stack.pop()!
@@ -1038,13 +1048,17 @@ export class MissionViewReader {
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
-        if (!this.facts(id).visible) continue
-        const issue = this.rulesIssue(id)
+        const visible = settled(() => this.facts(id).visible)
+        if (visible === LOADING) { pending = true; stack.push(id); continue }
+        if (!visible) continue
+        const issue = settled(() => this.rulesIssue(id))
+        if (issue === LOADING) { pending = true; stack.push(id); continue }
         // Legacy's first discovered-from edge is the origin, not every edge.
         if (!issue || originId(issue) !== parentId) continue
         descendants.push(issue); stack.push(id)
       }
     }
+    if (pending) throw LOADING
     const branches = new Map<string, IssueNavigationModel[]>()
     for (const issue of descendants) {
       if (!leftMission(issue) && (local || !this.live(issue.id))) continue
