@@ -9,27 +9,10 @@ import { parseDelimitedDocument } from './delimited-document'
 import { canSave } from './editor-save'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { SourceEditor } from './SourceEditor'
-import { tableRenderWindow } from './table-window'
+import { TableFileSearch, type TableFileSort } from './table-file-search'
 import { useFileDocument } from './useFileDocument'
 
-const VALUE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-
-/** Sort a column the way its data reads. The collator alone treats `-` as
- * punctuation and a decimal point as a separator between two integer runs, so
- * `-10` sorts above `-2` and `1.10` above `1.5`. Compare as numbers whenever both
- * cells are numbers, and fall back to the natural-order collator for everything
- * else (mixed columns, ids, dates, text). */
-function compareCellValues(a: string, b: string): number {
-  const left = Number(a)
-  const right = Number(b)
-  if (a.trim() !== '' && b.trim() !== '' && Number.isFinite(left) && Number.isFinite(right)) {
-    return left === right ? 0 : left < right ? -1 : 1
-  }
-  return VALUE_COLLATOR.compare(a, b)
-}
-
 type Mode = 'preview' | 'source'
-type Sort = { column: number; direction: 'asc' | 'desc' } | null
 
 /** A read-first table for CSV and TSV fixtures and exports. Source mode remains
  * the editing path, so sorting and filtering never rewrite the file by accident. */
@@ -148,27 +131,15 @@ export function TableFilePanel({
 function TablePreview({ path, content }: { path: string; content: string }): JSX.Element {
   const filterId = useId()
   const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<Sort>(null)
+  const [sort, setSort] = useState<TableFileSort>(null)
   const deferredContent = useDeferredValue(content)
   const deferredQuery = useDeferredValue(query.trim().toLocaleLowerCase())
   const table = useMemo(
     () => parseDelimitedDocument(deferredContent, /\.tsv$/i.test(path) ? '\t' : ','),
     [deferredContent, path],
   )
-  const filtered = useMemo(() => {
-    const indexed = table.rows.map((row, sourceIndex) => ({ row, sourceIndex }))
-    const matching = deferredQuery
-      ? indexed.filter(({ row }) =>
-          row.some((value) => value.toLocaleLowerCase().includes(deferredQuery)),
-        )
-      : indexed
-    if (!sort) return matching
-    return matching.sort((a, b) => {
-      const order = compareCellValues(a.row[sort.column] ?? '', b.row[sort.column] ?? '')
-      return (sort.direction === 'asc' ? order : -order) || a.sourceIndex - b.sourceIndex
-    })
-  }, [deferredQuery, sort, table.rows])
-  const window = tableRenderWindow(filtered.length, table.columnCount)
+  const search = useMemo(() => new TableFileSearch(table, deferredQuery), [table, deferredQuery])
+  const window = useMemo(() => search.window(sort), [search, sort])
   const visibleHeaders = useMemo(() => {
     const counts = new Map<string, number>()
     return table.headers.slice(0, window.columns).map((header, column) => {
@@ -177,9 +148,9 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
       return { header, column, key: `${header}\u0000${occurrence}` }
     })
   }, [table.headers, window.columns])
-  const visibleRows = filtered.slice(0, window.rows)
+  const visibleRows = window.rows
   const limited =
-    table.truncated || window.rows < filtered.length || window.columns < table.columnCount
+    table.truncated || visibleRows.length < search.matchCount || window.columns < table.columnCount
 
   const toggleSort = (column: number): void => {
     setSort((current) => {
@@ -204,6 +175,11 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Filter rows"
+            title={
+              table.truncated
+                ? 'Search all parsed rows and columns; data beyond the preview cap is not searched.'
+                : 'Search all rows and columns, including those outside the displayed window.'
+            }
             className="h-7 rounded-md border-border bg-muted/20 pr-7 pl-7 text-xs"
           />
           {query && (
@@ -221,12 +197,13 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
         <span
           className="truncate text-right text-[10px] tabular-nums text-muted-foreground"
           role="status"
+          aria-label="Table row count"
         >
-          {filtered.length === table.rows.length
+          {search.matchCount === table.rows.length
             ? `${table.rows.length} rows · ${table.columnCount} columns`
-            : `${filtered.length} of ${table.rows.length} rows`}
-          {limited && ` · showing ${window.rows} rows × ${window.columns} columns`}
-          {table.truncated && ' · preview capped for performance'}
+            : `${search.matchCount} of ${table.rows.length} rows`}
+          {limited && ` · showing ${visibleRows.length} rows × ${window.columns} columns`}
+          {table.truncated && ' · preview capped · search covers preview only'}
         </span>
       </div>
       {table.headers.length === 0 ? (
@@ -304,7 +281,7 @@ function TablePreview({ path, content }: { path: string; content: string }): JSX
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && (
+          {search.matchCount === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
               {query.trim() ? `No rows match "${query.trim()}".` : 'No data rows.'}
             </div>

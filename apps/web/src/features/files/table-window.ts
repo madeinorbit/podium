@@ -3,7 +3,7 @@ const MAX_COLUMNS = 50
 const MAX_CELLS = 5_000
 
 /** Keep table previews useful without letting very wide exports create thousands
- * of DOM nodes per row. Filtering still considers the complete document. */
+ * of DOM nodes per row. Search considers the complete parsed preview. */
 export function tableRenderWindow(
   rowCount: number,
   columnCount: number,
