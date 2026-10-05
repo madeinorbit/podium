@@ -53,6 +53,8 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/shared/reader-questions.ts', 'src/shared/relation-index.ts', 'src/shared/repo-from-lane.ts',
   'src/shared/row-view.ts', 'src/shared/schema.ts', 'src/shared/session-questions.ts',
   'src/shared/write-contract.ts',
+  // Read-time companion joins and normalized ref keys serve the startup pool (POD-5485).
+  'src/shared/joined-fields.ts', 'src/shared/session-reference.ts',
   // Header and sidebar startup readers share these scalar lifecycle rules.
   // This facade adds no optional screen or store implementation (POD-5545).
   'src/shared/predicates.ts',

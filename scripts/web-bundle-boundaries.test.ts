@@ -50,6 +50,8 @@ describe('pool startup bundle boundary', () => {
       'packages/client-graph/src/host/pool-host.ts',
       'packages/client-graph/src/worklist/sidebar.ts',
       'packages/client-graph/src/shared/session-questions.ts',
+      'packages/client-graph/src/shared/joined-fields.ts',
+      'packages/client-graph/src/shared/session-reference.ts',
       'packages/client-graph/src/shared/feed-diagnostics.ts',
       'packages/client-graph/src/shared/predicates.ts',
       'packages/client-graph/src/header-repositories.ts',
