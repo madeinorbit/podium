@@ -8,7 +8,7 @@
  *    device's process, so a RELOAD finds what the last life queued;
  *  - `sendChatThroughOutbox` under an id minted before the first attempt, the
  *    one chat send path both apps take since POD-4762;
- *  - a `Conversation` per session, wired as `use-chat-send.ts` wires
+ *  - a `Conversation` per session, wired as `the shared React useConversation hook` wires
  *    it (deliver through the outbox, retract, discard, dismiss, and the
  *    catch-up by id on start and on every reconnect, POD-4811), fed by a real
  *    `/client` socket: `transcriptDelta` frames for the history, and the
@@ -103,7 +103,7 @@ interface FeedRow {
 /**
  * The `message` records this device's feed carries (POD-4764), folded from
  * the pushed `feedDelta` frames after one
- * catch-up read. Each session's controller borrows its records directly
+ * catch-up read. Each session's conversation borrows its records directly
  * from this fixture's pushed-feed owner.
  */
 export class RecordsView {
@@ -180,7 +180,7 @@ export class Device {
   private readonly settlements = new OutboxSettlements()
   private outbox: EngineOutbox | undefined
   private readonly transcripts = new Map<SessionId, TranscriptLog>()
-  private readonly controllers = new Map<SessionId, Conversation>()
+  private readonly conversations = new Map<SessionId, Conversation>()
   private drafts: DraftStore | undefined
   private records = new RecordsView()
   private socket: WebSocket | undefined
@@ -229,7 +229,7 @@ export class Device {
     return device
   }
 
-  /** One life of the app: queue, controllers and socket, over the device's disk. */
+  /** One life of the app: queue, conversations and socket, over the device's disk. */
   private async boot(): Promise<void> {
     const create = await openKernelEngineOutbox({
       store: this.options.disk.outbox,
@@ -257,8 +257,8 @@ export class Device {
       hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'down', since: Date.now() }) } as never,
     })
     for (const sessionId of this.options.sessionIds) {
-      // What a reload restores (use-chat-send.ts): every send the outbox still
-      // holds comes back as the bubble it was, and the controller waits on it.
+      // What a reload restores (the shared React useConversation hook): every send the outbox still
+      // holds comes back as the bubble it was, and the conversation waits on it.
       const held: ConversationPendingTurn[] = outboxChatSends(outbox, sessionId).map(
         (send, index) => ({
           id: `outbox-${index}-${send.mutationId}`,
@@ -271,7 +271,7 @@ export class Device {
           ...(send.failure ? { error: send.failure.message } : {}),
         }),
       )
-      const controller = new Conversation({
+      const conversation = new Conversation({
         sessionId,
         drafts: this.drafts,
         connection: { connected: () => this.connected, subscribe: listener => { this.connectionListeners.add(listener); return () => { this.connectionListeners.delete(listener) } } },
@@ -305,9 +305,9 @@ export class Device {
         dismissNotice: (id) => this.api.messages.dismissNotice.mutate({ id }).then(() => undefined),
         },
       })
-      this.transcripts.set(sessionId, controller.transcript)
-      this.controllers.set(sessionId, controller)
-      controller.start()
+      this.transcripts.set(sessionId, conversation.transcript)
+      this.conversations.set(sessionId, conversation)
+      conversation.start()
     }
     await this.catchUp()
     this.openSocket()
@@ -436,10 +436,10 @@ export class Device {
    * heard the server's answer or gave up.
    */
   send(sessionId: SessionId, label: string): { id: string; settled: Promise<void> } {
-    const controller = this.controller(sessionId)
+    const conversation = this.conversation(sessionId)
     const id = `msg_${randomUUID()}`
     this.nextId = id
-    const settled = controller.sends.submit({ text: messageText(id, label) }).then(
+    const settled = conversation.sends.submit({ text: messageText(id, label) }).then(
       () => undefined,
       () => undefined,
     )
@@ -450,7 +450,7 @@ export class Device {
   async retry(sessionId: SessionId, messageId: string): Promise<void> {
     const bubble = this.bubble(sessionId, messageId)
     if (!bubble) throw new Error(`${this.name}: no bubble for ${messageId} to retry`)
-    await this.controller(sessionId).sends
+    await this.conversation(sessionId).sends
       .retry(bubble.id)
       .catch(() => undefined)
   }
@@ -471,13 +471,13 @@ export class Device {
         `${this.name}: no bubble for ${messageId} to retract (frames: ${JSON.stringify([...this.socketFrames])}, records: ${this.records.all().length})`,
       )
     }
-    await this.controller(sessionId).sends
+    await this.conversation(sessionId).sends
       .retract(bubble.id)
       .catch(() => undefined)
   }
 
   private bubble(sessionId: SessionId, messageId: string) {
-    return this.controller(sessionId).sends
+    return this.conversation(sessionId).sends
       .bubbles.find((candidate) => candidate.deliveryId === messageId)
   }
 
@@ -493,10 +493,10 @@ export class Device {
     await this.boot()
   }
 
-  controller(sessionId: SessionId): Conversation {
-    const controller = this.controllers.get(sessionId)
-    if (!controller) throw new Error(`${this.name}: no conversation for ${sessionId}`)
-    return controller
+  conversation(sessionId: SessionId): Conversation {
+    const conversation = this.conversations.get(sessionId)
+    if (!conversation) throw new Error(`${this.name}: no conversation for ${sessionId}`)
+    return conversation
   }
 
   /** The chat sends this device's queue still holds for a session: `sending`
@@ -518,7 +518,7 @@ export class Device {
   /** Every message id this device shows for a session, and how. */
   screen(sessionId: SessionId): Map<string, MessageOnScreen> {
     return bubblesOf(
-      this.controller(sessionId).sends,
+      this.conversation(sessionId).sends,
       this.transcripts.get(sessionId)?.items ?? [],
     )
   }
@@ -533,12 +533,12 @@ export class Device {
     this.socket?.terminate()
     this.socket = undefined
     // A reload starts with no socket; its first open is the edge the new
-    // controllers catch up on (they also catch up as they start).
+    // conversations catch up on (they also catch up as they start).
     this.connected = false
-    for (const controller of this.controllers.values()) controller.dispose()
+    for (const conversation of this.conversations.values()) conversation.dispose()
     this.drafts?.dispose()
     this.drafts = undefined
-    this.controllers.clear()
+    this.conversations.clear()
     this.transcripts.clear()
     this.records = new RecordsView()
     this.outbox?.dispose()
@@ -550,7 +550,7 @@ export class Device {
 
 /**
  * The bubbles a chat surface draws for one session, counted per message id:
- * the controller's bubbles (this device's sends and the synced records, by
+ * the conversation's bubbles (this device's sends and the synced records, by
  * id) and the transcript's user entries. A message drawn twice is a duplicate
  * bubble no matter which two of these drew it.
  */

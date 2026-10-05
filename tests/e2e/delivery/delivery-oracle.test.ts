@@ -7,7 +7,7 @@
  * shape AND its clean neighbour, so a rule that fires on everything fails too.
  */
 
-import type { ConversationBubble, ConversationState } from '@podium/client-core/conversation'
+import type { ConversationBubble, Sends } from '@podium/client-core/conversation'
 import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -267,8 +267,8 @@ describe('delivery oracle', () => {
 })
 
 describe('bubblesOf — what a chat surface draws', () => {
-  const state = (bubbles: Partial<ConversationBubble>[]): ConversationState =>
-    ({ bubbles }) as unknown as ConversationState
+  const state = (bubbles: Partial<ConversationBubble>[]): Pick<Sends, 'bubbles'> =>
+    ({ bubbles }) as unknown as Pick<Sends, 'bubbles'>
   const item = (id: string): TranscriptItem =>
     ({ id: `t-${id}`, role: 'user', text: text(id) }) as TranscriptItem
 

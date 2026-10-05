@@ -173,7 +173,7 @@ export function useSessionConversationPorts(id: SessionId): Ports {
   const read = useCallback((reader: Reader) => reader.conversationPorts(id), [id])
   const data = useRead(read, EMPTY_PORTS_INPUT)
   // One bridge per conversation. Late attachment restores the seed once;
-  // subsequent records/outbox demand never replaces the live controller.
+  // subsequent records/outbox demand never replaces the live Conversation.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the bridge owns its listeners per addressed conversation
   const bridge = useMemo(() => {
     let records = data.records,

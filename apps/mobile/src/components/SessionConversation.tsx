@@ -320,7 +320,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const currentQuestion = useSessionContextQuestion(sessionId)
   const trpc = store.trpc
   /**
-   * THE SEND ROUTE, READ PER SEND (POD-4688). The conversation controller is
+   * THE SEND ROUTE, READ PER SEND (POD-4688). The Conversation is
    * created once per session and owns the pending turns, so it must not be
    * rebuilt when the session's state moves — the route is a ref the deliver
    * closure reads at call time instead of a memo input.
@@ -467,7 +467,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
    * running as far as this phone can tell — the agent is computing, or a send
    * has just left — and only when a stop may be attempted at all. The press is
-   * the shared controller's `interrupt`, the same call the desktop composer's
+   * the shared Sends model's `interrupt`, the same call the desktop composer's
    * Stop makes: it puts the last prompt back in an empty draft and sends
    * `sessions.interrupt` with the queued message it selected, so whatever the
    * server does per harness to end the turn, the phone gets too.

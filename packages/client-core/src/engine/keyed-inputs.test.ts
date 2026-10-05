@@ -36,7 +36,7 @@ describe('keyed inputs (POD-5433)', () => {
     const inputs = createKeyedInputs(() => state)
     state = { ...state, paletteOpen: true }
     expect(inputs.readLocal('paletteOpen')).toBe(false)
-    inputs.emit(new Set(['paletteOpen']), new Set())
+    inputs.emit(new Set(['paletteOpen']))
     expect(inputs.readLocal('paletteOpen')).toBe(true)
   })
 
