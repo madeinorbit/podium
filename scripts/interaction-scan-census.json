@@ -2520,46 +2520,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
-      "holder": "SuperagentScreen/loadOlder/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "cb897399e7e4c707a9c4098fa7b94b0532528dc52d785dba085c99319d97f8ba",
-      "gate": [
-        "exit:then:88a7f1def8eedbe681bc5e0aaac8504e62772fd189a7aad94203e0e719624dbe"
-      ],
-      "origin": [
-        "f8b028406c7c196403d1a0bce7e9d95aedb0b5b7984ed03cb8f07aca4f9eb256"
-      ],
-      "fingerprint": "8cc85700c3f8be0ffec0605887539a73262914249982f2ac12a86fac98a15626",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SuperagentScreen/loadOlder/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
-      "holder": "SuperagentScreen/useEffect:callback",
-      "rule": "reader-summary",
-      "tokens": "37b2de9fd7aaa3886245b769438bf171f20550127181c7cc00e7b7722de04fd5",
-      "gate": [
-        "exit:then:18a778ca9b35300c6cf3e5030c9264088cc13eb54cca674e4565bb2522acd908"
-      ],
-      "origin": [
-        "f8b028406c7c196403d1a0bce7e9d95aedb0b5b7984ed03cb8f07aca4f9eb256"
-      ],
-      "fingerprint": "f9a5d961f69526c847194714688220fcb203910aad12d27fc6205140029c0deb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SuperagentScreen/useEffect:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/screens/WorkListRow.tsx",
       "holder": "PoolWorkRowSlot/PoolWorkRowSlot",
       "rule": "reader-summary",

@@ -211,10 +211,10 @@ describe('SuperagentScreen chrome', () => {
         threadId: 'global',
         podiumSessionId: 'session:superagent',
       }))
-      const view = await renderWithMobileStore(
-        <SuperagentScreen />,
-        { ...failureFixture(latestTurnFailure, () => items, sendTurn), principal: `user:superagent-facts-${scale}` },
-      )
+      const view = await renderWithMobileStore(<SuperagentScreen />, {
+        ...failureFixture(latestTurnFailure, () => items, sendTurn),
+        principal: `user:superagent-facts-${scale}`,
+      })
       await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
       expect(transcriptProps.at(-1)?.items).toHaveLength(items.length)
       expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
@@ -251,7 +251,9 @@ describe('SuperagentScreen chrome', () => {
       samples.push({ scale, actions: { restore, send, status } })
       view.unmount()
       cleanup()
-      await act(async () => { await Promise.resolve() })
+      await act(async () => {
+        await Promise.resolve()
+      })
       transcriptProps.length = 0
       composerProps.length = 0
     }
