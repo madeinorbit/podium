@@ -1,6 +1,6 @@
 import type { TranscriptChange, TranscriptLog } from '@podium/client-core/conversation'
 import { type ChatBlock, type ChatRow, type TranscriptSearchState } from '@podium/client-core/values'
-import { action, comparer, computed, makeObservable, observable, runInAction, type IComputedValue } from 'mobx'
+import { action, actionBound, comparer, computed, makeObservable, observable, runInAction, type IComputedValue } from 'mobx'
 import { transcriptComputeClient, type WebTranscriptComputeResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 
@@ -58,10 +58,10 @@ export class ConversationPresentation {
       search: computed({ equals: comparer.structural }),
       renderStart: computed,
       visibleRows: computed({ equals: sameRows }),
-      setQuery: action.bound,
-      moveCursor: action.bound,
-      setRenderCount: action.bound,
-      setFollowTail: action.bound,
+      setQuery: actionBound,
+      moveCursor: actionBound,
+      setRenderCount: actionBound,
+      setFollowTail: actionBound,
     })
   }
 

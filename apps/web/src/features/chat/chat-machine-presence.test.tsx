@@ -81,13 +81,13 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         { pool },
       )
     let view:
-      | ReturnType<typeof renderHook<{ presenceOfflineMachineName: string | null; setBackendEffort: (value: string) => void }, { active: boolean }>>
+      | ReturnType<typeof renderHook<{ presenceOfflineMachineName: string | null }, { active: boolean }>>
       | undefined
     try {
       const closedBefore = await measure(() => {
-        view = renderHook<{ presenceOfflineMachineName: string | null; setBackendEffort: (value: string) => void }, { active: boolean }>(
+        view = renderHook<{ presenceOfflineMachineName: string | null }, { active: boolean }>(
           ({ active }: { active: boolean }) =>
-            ({ presenceOfflineMachineName: useChatMachinePresence(f.session, active), setBackendEffort: () => {} }),
+            ({ presenceOfflineMachineName: useChatMachinePresence(f.session, active) }),
           { initialProps: { active: false } },
         )
       })
@@ -108,8 +108,6 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       )
       expect(changed.work.rows).toBe(1)
       expect(view!.result.current.presenceOfflineMachineName).toBe('Host 0')
-      const interaction = await measure(() => view!.result.current.setBackendEffort('high'))
-      expect(interaction.work.rows).toBe(0)
       const hidden = await measure(() => view!.rerender({ active: false }))
       expect(hidden.work.rows).toBe(0)
       const closed = await measure(() =>

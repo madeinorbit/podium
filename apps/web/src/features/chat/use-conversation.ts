@@ -8,7 +8,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, HarnessAgent, type SessionId } from '@podium/model/browser'
-import { action, comparer, computed, makeObservable, observable, reaction, runInAction } from 'mobx'
+import { action, actionBound, comparer, computed, makeObservable, observable, reaction, runInAction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
@@ -22,7 +22,8 @@ export interface ConversationMountOptions {
   deferInitialTranscript?: boolean
   compact?: boolean
 }
-const loaded = <T,>(row: T | symbol | undefined): T | undefined => typeof row === 'symbol' ? undefined : row
+type Loaded<T> = Exclude<T, symbol>
+const loaded = <T,>(row: T): Loaded<T> | undefined => typeof row === 'symbol' ? undefined : row as Loaded<T>
 
 /** Web ports and worker presentation; the inherited model owns every live state. */
 export class WebConversation extends Conversation {
@@ -41,7 +42,7 @@ export class WebConversation extends Conversation {
     this.presentation = presentation
     makeObservable(this, {
       lastSubmittedPrompt: observable,
-      rememberPrompt: action.bound,
+      rememberPrompt: actionBound,
       ctxSeq: observable,
       backendPick: observable.ref,
       session: computed,
@@ -49,8 +50,8 @@ export class WebConversation extends Conversation {
       backend: computed,
       ready: computed,
       hasPending: computed,
-      setBackendModel: action.bound,
-      setBackendEffort: action.bound,
+      setBackendModel: actionBound,
+      setBackendEffort: actionBound,
     })
     presentation.bind(this.transcript)
   }
@@ -105,6 +106,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     sessionId, drafts: runtime.drafts, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
     initialTurnRunning: mount.initialTurnRunning,
     readSession,
+    ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
     readContext: () => {
       const session = readSession()
       const prompt = conversation.lastSubmittedPrompt ?? conversation.transcript.latestOperatorPrompt

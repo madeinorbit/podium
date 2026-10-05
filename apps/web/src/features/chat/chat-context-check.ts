@@ -12,7 +12,8 @@ import {
   chatReferenceMachines,
   chatReferenceSessions,
 } from '@podium/client-graph/chat-context'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+type Store = ReferenceState & { drafts?: Record<string, string> }
 import {
   type CheckSection,
   compareSidebarSnapshots,

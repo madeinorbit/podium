@@ -139,7 +139,7 @@ const Surface = observer(function Surface() {
     owner = runtime
     graph = pool
     if (!pool) sawUnattached = true
-    ready = !!session && conversation?.ready && draft !== '' && !!pool
+    ready = !!session && !!conversation?.ready && draft !== '' && !!pool
   }, [runtime, pool, session, conversation?.ready, draft])
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-5 p-8">
@@ -171,7 +171,7 @@ const Surface = observer(function Surface() {
         taRef={taRef}
         draft={draft}
         onDraftChange={(text) => runtime.drafts.set(id, text)}
-        deliverable={conversation?.ready}
+        deliverable={conversation?.ready ?? false}
         placeholder="Synthetic prompt"
         compact={false}
         isMobile={false}
@@ -268,7 +268,7 @@ const driver = {
   },
   check() {
     if (!owner || !graph) return null
-    return checkChatContext(graph, referenceState(owner), allIssueViewModels(owner.replica), [
+    return checkChatContext(graph, { ...referenceState(owner), drafts: Object.fromEntries(owner.drafts.values) }, allIssueViewModels(owner.replica), [
       id,
       asSessionId('synthetic-session-1'),
     ])

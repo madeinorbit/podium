@@ -5,7 +5,9 @@ import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { normalizedFixtureIssues } from './normalized-issues'
 import { isDeepStrictEqual } from 'node:util'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+// Older provider-free fixtures carry saved documents as plain test data.
+type Store = ReferenceState & { drafts?: Record<string, string> }
 import type { MobxPool } from '@podium/client-graph'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { settingsRepositoryId } from '@podium/client-graph/settings-schema'
