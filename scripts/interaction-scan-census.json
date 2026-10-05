@@ -39937,107 +39937,6 @@
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "768f07cadf4908a3b9709090ab48c491bc35bc429156e01682ee173dc3d91242",
-      "gate": [
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
-        "then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4"
-      ],
-      "origin": [
-        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
-      ],
-      "fingerprint": "0e64097f21acee8096f33af5a5e0c847f038093316d1c8ea318e1247b1600242",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "d387fdd111dee0cd87c14be420f28226d8d4e9fda82da48b53529671201793ca",
-      "gate": [
-        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
-        "then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22"
-      ],
-      "origin": [
-        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
-      ],
-      "fingerprint": "68c3f5b7cb374e7645a28bcc77b5fe5632d70e5d54acfa93541485535b9e1892",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "helper-consumer",
-      "tokens": "3b52b7d3ccbb26e81dff49989ef8f2381244d6463bd0dcd9a131c9ce54d81f1a",
-      "gate": [
-        "exit:then:48a9f7796146bdf396ee1c4a0cead13664052b74f5e20cd4a64247b329569b22",
-        "exit:then:bb8b279cab39fef7a0e1e27b63a526402d3a99ac32cf8b90c22009d27648f8c4",
-        "exit:then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af",
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89"
-      ],
-      "origin": [
-        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
-      ],
-      "fingerprint": "69733e6c6fe7c09f5dce3b5d97dc502c56422b0a8c81edf0f0627d941a703655",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "ownCount/callback/cachedGroup:callback",
-      "rule": "consume:filter",
-      "tokens": "f6bde2d1b5c7c0af5ea1d379e247468dbe28b19a2f20a631669cd5700d4b359d",
-      "gate": [
-        "exit:then:ff528cf5dad668134149c647846bbd40f15e5d5a13b03f4a9426772593a086f1",
-        "exit:then:2caef72e2cd23fecbb13c9b9692cd58412a8762a96f5ab8694210fc14dee0c5c",
-        "exit:then:014d90197f94b3e219346b41ad84427d37f2cb4d75e1ec1d8448c658ecffd1ff",
-        "exit:then:ed77a587da6e7e30e3b76fdba351a698ad889ac6666c8dd7c48a3cff01913b89",
-        "then:b145e88d2d06e1af85d8120e36ac19a1872aaaa4815b954d875eb7c310f8e6af"
-      ],
-      "origin": [
-        "c7e63323b97311d3b872cb460c9759ca18c9f1650a5340fc87d00dfc120d24ee"
-      ],
-      "fingerprint": "c9f7d74aff20e7a1737cc02a74a881f66c03ab330828f6339cd4ca757c033b18",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5575",
-      "trigger": "Observed ownCount/callback/cachedGroup:callback",
-      "bound": "The addressed issue's own crew, immediate child rollups, or the capped 12-session collapsed census; malformed overlap uses that mission's unique closure.",
-      "reason": "Lazy MobX questions compose mission-local scalar values; unchanged numbers stop propagation without scanning unrelated missions.",
-      "guard": "packages/client-graph/src/mission-pane.work.test.ts (fixed 24-row viewport at 1x/4x and heartbeat ancestry); mission-view.test.ts (LOADING propagation)."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
       "holder": "poolHandoffNext",
       "rule": "loop:for-of",
       "tokens": "88228a92b8246f99b742233ed61d9748e88c526f8ff6d378224f1768fce433b0",
@@ -45676,6 +45575,122 @@
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
       "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "packages/client-graph/src/cached.ts",
+      "holder": "cachedGroup",
+      "rule": "reader-summary",
+      "tokens": "bc4d99a6b362f8b6f0509097bab4e26e8db1710145ddb05c0483aec7fec3cb7d",
+      "gate": [],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "3f3839f3c022c4dd78584e40e7459b277951a818ee54c771db61ae7b7c19869c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "MissionDeckModel/presence",
+      "rule": "reader-summary",
+      "tokens": "1695ec5f3857b4255da1972bedf79ba896f166e83161bffad7f773df5f1d8c4c",
+      "gate": [],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "b6da1cdb1dbac4edde90534583ce224b15e94968052594d67f966dfb9f388fe2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "rootPresence",
+      "rule": "reader-summary",
+      "tokens": "4c68335c174707e7344bb45b4dbde79f1d0f55558de2c5fd7ee3f2dd9239a9aa",
+      "gate": [],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "51aa78fcb678e7417bed7b01200d54b5f5120499aec1e30590377a0bc8f3ee67",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "ebbd13d8c3ec9f630be906feb1162510baccbfb4fce5d55656a428b61e5b6350",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "e895f7b59e6cba8648457bad7a7cbdcb120cdac30709618653ac80be62c96c94",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "eb66a52db688caed6b8f134aed2ee716f18039d785ef32816399a923ef0ae33e"
+      ],
+      "fingerprint": "a27be314faa6c0b5b6e48ac0e8928eeb76086f5dc5aac3a21047041c8e4e9bac",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5575",
+      "trigger": "Observed mission root presence",
+      "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
+      "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
+      "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
     }
   ]
 }
