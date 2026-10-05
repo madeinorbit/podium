@@ -221,10 +221,10 @@ export function changedKeyDraftTests(name: string, create: () => Promise<DraftFi
       const cache = await seed(store)
       const untouched = cache.read('session', 'b')
       await store.unitOfWork.transact(async (span) => {
-        cache.applyAtomic({ operations: [upsert('c'), remove('a'), upsert('a', 2), upsert('d'), remove('c'), upsert('c', 3)] }, span)
-        cache.applyAtomic({ operations: [{ kind: 'evict', entity: 'session', entityId: 'd' }], cursor: POST }, span)
+        cache.applyAtomic({ operations: [upsert('c'), remove('a'), remove('c'), upsert('d'), upsert('c', 3), upsert('a', 2), upsert('e')] }, span)
+        cache.applyAtomic({ operations: [{ kind: 'evict', entity: 'session', entityId: 'e' }], cursor: POST }, span)
       })
-      expect(cache.readEntities()).toEqual([row('b'), row('a', 2), row('c', 3)])
+      expect(cache.readEntities()).toEqual([row('b'), row('d', 1), row('c', 3), row('a', 2)])
       expect(cache.read('session', 'b')).toBe(untouched)
     })
 

@@ -13,7 +13,11 @@ export class ChangedKeyDraft<T> {
 
   set(key: string, value: T): void {
     if (this.replacement !== undefined) this.replacement.set(key, value)
-    else this.changes.set(key, value)
+    else {
+      // Reinsertion order comes from the upsert, not its earlier tombstone.
+      if (this.changes.get(key) === undefined) this.changes.delete(key)
+      this.changes.set(key, value)
+    }
   }
 
   delete(key: string): void {
