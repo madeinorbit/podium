@@ -234,10 +234,10 @@ export function LaunchConfigurationFields({
           {plan.refusal}
         </Text>
       ) : null}
-      {rows.map((row) => (
+      {rows.map((row) => fallback === row.key ? (
         <ActionSheet
           key={row.key}
-          visible={fallback === row.key}
+          visible
           title={row.label}
           actions={row.options.map((option) => ({
             label: option.label,
@@ -247,7 +247,7 @@ export function LaunchConfigurationFields({
           }))}
           onClose={() => setFallback((current) => (current === row.key ? null : current))}
         />
-      ))}
+      ) : null)}
     </>
   )
 }
