@@ -45,6 +45,7 @@
     "vitest": "5.0.0-beta.6",
     "@podium/api-types": "workspace:*",
     "happy-dom": "^20.10.2",
-    "@podium/client-core": "workspace:*"
+    "@podium/client-core": "workspace:*",
+    "@xterm/addon-fit": "^0.10.0"
   }
 }
