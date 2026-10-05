@@ -23,10 +23,10 @@ import { entryBadge, entryStatus, entryTone, type StatusEntry, untrackedDiff } f
  *
  * WHAT THE SHEET ADDS BEYOND ROOM. Three things, all of them things the dock
  * could not afford:
- *  - A rail of every changed file with its own +/− counts, so moving between
- *    files is one click (or j/k) and never a close-and-reopen. Every file's
- *    diff is fetched in the background as you read the first one, so the second
- *    click has nothing to wait for.
+ *  - A rail of every changed file, so moving between files is one click (or
+ *    j/k) and never a close-and-reopen. Only the file being read is fetched —
+ *    visited files stay cached, so going back has nothing to wait for — and a
+ *    rail row shows its +/− counts once that file has been read.
  *  - Line numbers on both sides, from git's own hunk headers — the diff says
  *    WHERE, not just what.
  *  - Sticky hunk headers, so the enclosing function stays on screen while its
@@ -132,24 +132,26 @@ export function DiffSheet({
     if (railRef.current?.contains(document.activeElement)) row.focus({ preventScroll: true })
   }, [current?.path])
 
+  // Totals over VISITED files only, so the memo never walks the rail: with
+  // on-demand fetching, unvisited files are pending by definition, and a figure
+  // that climbs while the reader visits files would be a progress bar wearing a
+  // number's clothes (see the toolbar comment). Totals land only once every
+  // file has been visited and settled.
   const totals = useMemo(() => {
     let added = 0
     let removed = 0
-    let pending = 0
-    for (const e of entries) {
-      const state = diffs[e.path]
+    let settled = 0
+    for (const state of Object.values(diffs)) {
       // Pending means UNRESOLVED, not "has no diff": a binary blob and an
       // untracked folder are answers, and totals that waited for lines from
       // them would never appear in a tree that holds one.
-      if (!state || state.loading) {
-        pending += 1
-        continue
-      }
+      if (!state || state.loading) continue
+      settled += 1
       added += state.parsed?.added ?? 0
       removed += state.parsed?.removed ?? 0
     }
-    return { added, removed, pending }
-  }, [entries, diffs])
+    return { added, removed, pending: entries.length - settled }
+  }, [entries.length, diffs])
 
   return (
     <AppSheet
@@ -185,8 +187,9 @@ export function DiffSheet({
       }
       toolbar={
         <span className="diff-sheet-toolbar">
-          {/* The totals land when every file has: a figure that climbs while
-              the fetches arrive is a progress bar wearing a number's clothes. */}
+          {/* The totals land when every file has been visited: a figure that
+              climbs while the reader visits files is a progress bar wearing a
+              number's clothes. */}
           {totals.pending === 0 && entries.length > 0 && (
             <span
               className="diff-sheet-totals"
@@ -466,13 +469,12 @@ const BINARY_FILE = 'A binary file — there are no text lines to diff.'
 const TOO_LARGE = 'This file is too large to read here.'
 
 /**
- * Every file's diff, fetched three at a time with the one you are reading
- * first. Prefetching the rest is what makes the rail's counts real and the
- * next click instant; the op is a lock-free `git diff HEAD -- <path>` per file
- * [POD-114], so the cost of reading ahead is a handful of cheap reads at the
- * moment the sheet opens, and none afterwards.
+ * Only the file being read is fetched. Visited files stay cached under the
+ * sheet owner, so going back is instant, but opening the sheet on one file of
+ * F issues one payload request — never one per rail row. There is no
+ * background prefetch and no rail-wide pump: the demand effect below names a
+ * single path, so neither selection nor any fetch completion walks the rail.
  */
-const CONCURRENCY = 3
 
 function useDiffs({
   entries,
@@ -496,7 +498,6 @@ function useDiffs({
   const commitSha = commit?.sha
   const [diffs, setDiffs] = useState<Record<string, DiffState>>({})
   const inflight = useRef(new Set<string>())
-  const running = useRef(0)
   const alive = useRef(true)
   useEffect(() => {
     alive.current = true
@@ -516,7 +517,8 @@ function useDiffs({
     (entry: StatusEntry) => {
       if (inflight.current.has(entry.path)) return
       inflight.current.add(entry.path)
-      running.current += 1
+      // The record holds visited files only, so this copy is bounded by
+      // visited selections — never by the rail length.
       setDiffs((d) => ({ ...d, [entry.path]: { loading: true } }))
       void (async () => {
         let next: DiffState
@@ -568,26 +570,24 @@ function useDiffs({
         } catch (e) {
           next = { loading: false, error: e instanceof Error ? e.message : String(e) }
         }
-        running.current -= 1
         if (!alive.current) return
+        // Visited-only record: this copy grows with selections made, not files.
         setDiffs((d) => ({ ...d, [entry.path]: next }))
       })()
     },
     [cwd, machineId, gitDiffFile, gitCommitDiffFile, readFileScoped, sources, commitSha],
   )
 
-  // The pump: re-entered on every arrival, so a finished fetch frees its slot
-  // for the next file in rail order.
+  // Demand: exactly the file being read, nothing else. Deliberately NOT keyed
+  // on the results — a completion must not re-walk the rail looking for more
+  // work. The `find … ?? first` mirrors the pane's own fallback, so a stale
+  // selection after a re-probe still loads the file actually shown.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selection/inventory demand only; results must not retrigger.
   useEffect(() => {
-    for (const entry of [
-      ...entries.filter((e) => e.path === selected),
-      ...entries.filter((e) => e.path !== selected),
-    ]) {
-      if (running.current >= CONCURRENCY) break
-      if (diffs[entry.path] || inflight.current.has(entry.path)) continue
-      load(entry)
-    }
-  }, [entries, selected, diffs, load])
+    const entry = entries.find((e) => e.path === selected) ?? entries[0]
+    if (!entry) return
+    load(entry)
+  }, [entries, selected, load])
 
   return diffs
 }
