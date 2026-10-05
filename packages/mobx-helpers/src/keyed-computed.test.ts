@@ -1,4 +1,5 @@
 import { autorun, compareStructural, configure, observable, onBecomeObserved, onBecomeUnobserved, runInAction, spy, untracked } from 'mobx'
+import { addSink, type LogRecord } from '@podium/logger'
 import { describe, expect, it, vi } from 'vitest'
 import { allowImperativeRead, keyedComputed } from './keyed-computed'
 
@@ -131,16 +132,19 @@ describe('keyedComputed', () => {
   })
 
   it('warns in development without retaining an untracked entry', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // The warning routes through @podium/logger now, so watch the logged
+    // records rather than the console (POD-5614).
+    const records: LogRecord[] = []
+    const dispose = addSink({ name: 'test-capture', write: (record) => records.push(record) })
     configure({ computedRequiresReaction: true })
     try {
       const read = vi.fn((_key: string) => 1)
       const memo = keyedComputed('guarded', read, { requiresReaction: true })
       memo('a')
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('outside a reactive context'))
+      expect(records.map((record) => record.msg).join('\n')).toContain('outside a reactive context')
       const stop = autorun(() => memo('a'))
       expect(read).toHaveBeenCalledTimes(2)
       stop()
-    } finally { warn.mockRestore(); configure({ computedRequiresReaction: false }) }
+    } finally { dispose(); configure({ computedRequiresReaction: false }) }
   })
 })
