@@ -9,32 +9,75 @@ import type { LaunchConfiguration } from '../lib/launch-configuration'
 import * as sheets from './ActionSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 
-const state = vi.hoisted(() => ({ repos: [] as GitRepositoryWire[], machines: [] as MachineWire[] }))
+const state = vi.hoisted(() => ({
+  repos: [] as GitRepositoryWire[],
+  machines: [] as MachineWire[],
+}))
 vi.mock('../client/use-launch-inputs', () => ({ useLaunchInputs: () => state }))
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
 }))
-afterEach(() => { cleanup(); vi.restoreAllMocks(); state.repos = []; state.machines = [] })
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  state.repos = []
+  state.machines = []
+})
 
 it('requests no fallback menu while closed at 1x/4x and builds only the opened picker', async () => {
   for (const scale of [1, 4] as const) {
-    state.repos = [{ kind: 'repository', path: '/synthetic', branch: 'main', originUrl: 'https://example.test/project', worktrees: [] }]
-    state.machines = Array.from({ length: 128 * scale }, (_, n) => ({
-      id: asMachineId(`machine-${n}`), name: `Machine ${n}`, online: true,
-      serviceAssignment: { server: false, agentExecution: true }, availability: { daemon: true },
-      inventory: { agents: [{ kind: 'claude-code', installed: true }, { kind: 'codex', installed: true }] },
-    } as MachineWire))
+    console.info('[closed launch picker fixture]', scale)
+    state.repos = [
+      {
+        kind: 'repository',
+        path: '/synthetic',
+        branch: 'main',
+        originUrl: 'https://example.test/project',
+        worktrees: [],
+      },
+    ]
+    state.machines = Array.from(
+      { length: 128 * scale },
+      (_, n) =>
+        ({
+          id: asMachineId(`machine-${n}`),
+          name: `Machine ${n}`,
+          online: true,
+          serviceAssignment: { server: false, agentExecution: true },
+          availability: { daemon: true },
+          inventory: {
+            agents: [
+              { kind: 'claude-code', installed: true },
+              { kind: 'codex', installed: true },
+            ],
+          },
+        }) as MachineWire,
+    )
     const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => null)
     const onChange = vi.fn()
-    const value: LaunchConfiguration = { agentKind: 'claude-code', modelPick: AUTO, effort: AUTO, machineId: '' }
+    const value: LaunchConfiguration = {
+      agentKind: 'claude-code',
+      modelPick: AUTO,
+      effort: AUTO,
+      machineId: '',
+    }
     let changeAgent = () => {}
     function Harness() {
       const [current, setCurrent] = useState(value)
       changeAgent = () => setCurrent((previous) => ({ ...previous, agentKind: 'codex' }))
-      return <LaunchConfigurationFields repoPath="/synthetic" value={current} onChange={(next) => { onChange(next); setCurrent(next) }} />
+      return (
+        <LaunchConfigurationFields
+          repoPath="/synthetic"
+          value={current}
+          onChange={(next) => {
+            onChange(next)
+            setCurrent(next)
+          }}
+        />
+      )
     }
-    const view = await renderWithMobileStore(<Harness />)
+    const view = await renderWithMobileStore(<Harness />, { principal: `user:closed-launch-picker-${scale}` })
     try {
       expect(sheet).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Machine, Auto' }))
@@ -56,6 +99,11 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
       fireEvent.click(screen.getByRole('button', { name: /^Agent, / }))
       expect(sheet.mock.calls.every(([props]) => props.title === 'Agent')).toBe(true)
       expect(sheet.mock.lastCall?.[0].actions.length).toBeLessThan(10)
-    } finally { view.unmount(); sheet.mockRestore() }
+    } finally {
+      view.unmount()
+      sheet.mockRestore()
+      cleanup()
+      await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    }
   }
 })

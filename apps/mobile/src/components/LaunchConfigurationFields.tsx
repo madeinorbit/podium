@@ -234,20 +234,22 @@ export function LaunchConfigurationFields({
           {plan.refusal}
         </Text>
       ) : null}
-      {rows.map((row) => fallback === row.key ? (
-        <ActionSheet
-          key={row.key}
-          visible
-          title={row.label}
-          actions={row.options.map((option) => ({
-            label: option.label,
-            selected: option.value === row.selected,
-            disabled: option.disabled,
-            onPress: () => row.select(option.value),
-          }))}
-          onClose={() => setFallback((current) => (current === row.key ? null : current))}
-        />
-      ) : null)}
+      {rows.map((row) =>
+        fallback === row.key ? (
+          <ActionSheet
+            key={row.key}
+            visible
+            title={row.label}
+            actions={row.options.map((option) => ({
+              label: option.label,
+              selected: option.value === row.selected,
+              disabled: option.disabled,
+              onPress: () => row.select(option.value),
+            }))}
+            onClose={() => setFallback((current) => (current === row.key ? null : current))}
+          />
+        ) : null,
+      )}
     </>
   )
 }
