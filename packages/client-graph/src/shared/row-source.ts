@@ -260,7 +260,7 @@ export function createRowSource(
   }
   /** One session's view: its row joined with this principal's per-user row
    *  (read, snooze) folded over that row's own pending overlays (POD-4974 S3),
-   *  its repo and its machines. A placeholder with no server row yet is the
+   *  its own fields. Machine and repo companions are joined by readers. A placeholder with no server row yet is the
    *  spawn insert, joined the same way. */
   function sessionInput(id: string, pending: PendingByRow | null): AnyRow | undefined {
     const overlays = pending?.sessions.get(id) ?? NO_OVERLAYS
@@ -1057,6 +1057,7 @@ export function createRowSource(
   const source: RowSource = {
     diagnostics,
     snapshot,
+    companions: () => [...snapshot('repo'), ...snapshot('machine')],
     row,
     cold,
     ...(replica.issueIdByRef

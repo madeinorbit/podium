@@ -36,10 +36,9 @@ export function createWorklistPool(
             ...source.snapshot('session'),
             ...source.snapshot('issue'),
             ...source.snapshot('worktree'),
-            ...source.snapshot('repo'),
-            ...source.snapshot('machine'),
+            ...(source.companions?.() ?? []),
           ]
-        : [...source.snapshot('worktree'), ...source.snapshot('repo'), ...source.snapshot('machine')],
+        : [...source.snapshot('worktree'), ...(source.companions?.() ?? [])],
   })
   const offRows = source.subscribe((event) => pool.apply(event))
   const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))

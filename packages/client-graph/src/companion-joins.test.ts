@@ -66,15 +66,17 @@ it('preserves display parity against the frozen base synthetic corpus', () => {
 for (const scale of [1, 4] as const) it(`touches one companion and zero session rows at ${scale}x with fresh cold/hot readers`, () => {
   const f = fixture(scale), events: RowSourceEvent[] = []
   const stopEvents = f.source.source.subscribe(event => events.push(event))
-  let writes = 0, coldRuns = 0, hotRuns = 0, cold: Row = {}, hot: Row = {}, ref: string | undefined
+  let writes = 0, coldRuns = 0, hotRuns = 0, cold: Row = {}, hot: Row = {}, matching: string[] = [], ref: string | undefined
   const stopWrites = observe(f.pool.tables.session, () => writes++)
   const stopCold = autorun(() => { coldRuns++; cold = sessionValues(f.pool.row('session', 'session-1', 'summary') as never) as unknown as Row })
   const stopHot = autorun(() => { hotRuns++; hot = sessionValues(f.pool.row('session', 'session-0') as never) as unknown as Row })
+  const stopMatching = autorun(() => { matching = f.pool.queries.ids({ kind: 'sessionReference', ref: 'POD-2-A' }) })
   const stopRef = autorun(() => { ref = f.pool.queries.linkedSessionId('POD-2-A') })
   try {
     expect(f.pool.tables.session.size).toBe(1)
     expect((f.pool.row('session', 'session-1', 'summary') as Row).machineName).toBe('Workstation')
     expect(ref).toBe('session-1')
+    expect(matching).toEqual(['session-1'])
     f.source.stats.reset()
     const machine = f.change('machines', 'host', { name: 'Renamed', loggedOutHarnesses: ['codex'] })!
     expect(machine.rows).toHaveLength(1)
@@ -93,6 +95,7 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
     const visited = f.source.stats.rowsVisited
     expect(cold.displayRef).toBe('NEW-2-A')
     expect(ref).toBeUndefined()
+    expect(matching).toEqual([])
     expect(f.pool.queries.linkedSessionId('NEW-2-A')).toBe('session-1')
     expect(f.pool.queries.ids({ kind: 'sessionReference', ref: 'NEW-2-A' })).toEqual(['session-1'])
     expect(f.pool.queries.ids({ kind: 'sessionReference', ref: 'POD-2-A' })).toEqual([])
@@ -102,7 +105,7 @@ for (const scale of [1, 4] as const) it(`touches one companion and zero session 
       for (const field of ['machineName', 'condition', 'handoffTarget', 'displayRef']) expect(row.value).not.toHaveProperty(field)
     expect(f.source.source.row!('issue', 'history')).not.toHaveProperty('repoPath')
     console.info(`companion ${scale}x`, JSON.stringify({ sessions: 32 * scale, records: 1, sessionWrites: writes, visited }))
-  } finally { stopRef(); stopHot(); stopCold(); stopWrites(); stopEvents(); f.dispose() }
+  } finally { stopMatching(); stopRef(); stopHot(); stopCold(); stopWrites(); stopEvents(); f.dispose() }
 })
 
 for (const scale of [1, 4] as const) it(`a repo prefix change alone publishes one record at ${scale}x`, () => {

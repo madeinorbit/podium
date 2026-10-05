@@ -358,7 +358,7 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
       }
     },
   },
-  { name: 'phone prefix', read: (pool) => pool.queries.hasIssuePrefix('Q', true) },
+  { name: 'phone prefix', read: (pool) => pool.queries.hasIssuePrefix('QUERY', true) },
   {
     name: 'settings',
     read: (pool) => ({

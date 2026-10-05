@@ -13,6 +13,8 @@ export interface RowSource {
   readonly diagnostics?: FeedDiagnostics
   /** Current rows of one kind, in stream order. */
   snapshot(kind: RowRecord['kind']): RowRecord[]
+  /** Always-resident companion records, when this source owns that channel. */
+  companions?(): RowRecord[]
   /** One callback per publication, coalesced: never a transient half-applied list. */
   subscribe(listener: (event: RowSourceEvent) => void): () => void
   /**

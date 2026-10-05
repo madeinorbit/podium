@@ -418,7 +418,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
           if (question.stage) keys.push(`issue:status:${question.stage}`)
           if (question.status) keys.push(`issue:${question.status}`)
-          for (const path of question.projectPaths ?? []) keys.push(`issue:path:${path}`)
+          for (const path of question.projectPaths ?? []) keys.push(...pathKeys(path), `issueRepoPath:${path}`)
           keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
           if (question.explorerTab === 'cancelled')
             keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')

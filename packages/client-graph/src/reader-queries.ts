@@ -871,7 +871,9 @@ export class ReaderQueries {
     for (const [key, state] of this.observed) {
       const version = state.revision(index)
       const result = this.identities.get(key)
-      if (result && (event.type === 'replace' || result.source !== index)) {
+      const joinedQuestion = result?.question.kind === 'sessionReference' || (result?.question.kind === 'boardIssues' && !!result.question.projectPaths?.length)
+      const companionMoved = joinedQuestion && state.version !== version && event.rows.some(row => row.kind === 'repo' || row.kind === 'worktree')
+      if (result && (event.type === 'replace' || result.source !== index || companionMoved)) {
         this.identities.set(key, this.identityResult(result.question, index))
         state.version = version
         state.atom.reportChanged()

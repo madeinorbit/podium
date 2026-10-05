@@ -82,7 +82,7 @@ function repoState(table: WritableTable): RepoState {
 /** Replace staging transfers only its resident repo ownership bookkeeping. */
 export function replaceRepoHolders(from: WritableTable, to: WritableTable): void {
   repoState(to).holders = new Map(repoState(from).holders)
-  repoState(to).records = new Map(repoState(from).records)
+  repoState(to).records = repoState(from).records
 }
 
 /** The write surface ingest needs; a MobX map and a plain `Map` both have it. */
