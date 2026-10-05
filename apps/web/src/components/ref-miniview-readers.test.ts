@@ -49,8 +49,8 @@ function fixture(size: number) {
         session,
         { ...session, sessionId: 'headless', displayRef: 'POD-2-B', headless: true },
         { ...session, sessionId: 'dead', displayRef: 'POD-2-C', status: 'exited' },
-        { ...session, sessionId: 'archived', archived: true },
-        { ...session, sessionId: 'shell', agentKind: 'shell' },
+        { ...session, sessionId: 'archived', displayRef: 'POD-2-D', archived: true },
+        { ...session, sessionId: 'shell', displayRef: 'POD-2-E', agentKind: 'shell' },
       ].map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
       ...Array.from({ length: size }, (_, i) => [
         {
