@@ -39462,19 +39462,19 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "createHeaderEntities/apply/runInAction:callback",
       "rule": "loop:for-of",
-      "tokens": "56d94ff94a402e00ed5929217dfaa91157cef87abffb4e1285508741b3d5a160",
+      "tokens": "ed446702866e153b9933e920d302cfc4e42d40b5ea5b605cff8a455151c83392",
       "gate": [],
       "origin": [
         "69071382a5594fda4d2bde35ce2c843ecb216f33aa7d8ab62c368713dd9cbd5d"
       ],
-      "fingerprint": "0e6d01c599f1e971cb67cdff7d8dfd50d9711a1dd850825728c8f3d66d8c7594",
+      "fingerprint": "270fcfe80d929193275f000c56e19fd731bbd63a9264ec3c7a75c061d575ce8e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderEntities/apply/runInAction:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "The existing apply loop consumes the same caller-supplied records. Its body now maintains shipping cardinalities; other unconstrained callers remain REQUIRED REPAIR and this entry does not license a full snapshot on an interaction.",
+      "guard": "Exact fingerprint and multiplicity; header-source.test.ts proves changed-key production deltas and header-shipping-inputs.test.ts proves scalar shipping demand, but unconstrained record callers still require repair."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",

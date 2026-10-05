@@ -12,11 +12,7 @@ const DEFAULT_BUCKET_MS = 30 * 60 * 1_000
  * hover/focus reveals precision, and its one adjacent action shares the current
  * reading rather than changing the instrument.
  */
-export function AgentConcurrencyHistory({
-  working,
-}: {
-  working: number
-}): JSX.Element {
+export function AgentConcurrencyHistory({ working }: { working: number }): JSX.Element {
   const [rosterOpen, setRosterOpen] = useState(false)
   const history = usePoolConcurrencyHistory()
 

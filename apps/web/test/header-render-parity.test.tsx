@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { expectPoolOutput } from '../../../packages/worklist-proto/harness/src/oracle/pool-output'
 import { AgentConcurrencyHistory } from '../src/app/AgentConcurrencyHistory'
-import { useHeaderActions, useHeaderStatus } from '../src/app/header-data'
+import { useHeaderStatus } from '../src/app/header-data'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { HeaderHostIndicators } from '../src/features/machines/HostIndicators'
 import { createHeaderFixture } from './header-fixture'
@@ -48,7 +48,6 @@ async function mount(roster = false) {
   let runtime: ClientRuntime | undefined
   function Working() {
     const { workingCount } = useHeaderStatus()
-    const { trpc } = useHeaderActions()
     return <AgentConcurrencyHistory working={workingCount} />
   }
   function Header() {

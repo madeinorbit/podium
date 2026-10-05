@@ -1,15 +1,28 @@
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
-import { HEADER_RELATIONS, HEADER_SCHEMA, type HeaderEntity, type HeaderRecord, type HeaderRows, type ShippingCounts } from './header-schema'
+import {
+  HEADER_RELATIONS,
+  HEADER_SCHEMA,
+  type HeaderEntity,
+  type HeaderRecord,
+  type HeaderRows,
+  type ShippingCounts,
+} from './header-schema'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
 export function createHeaderEntities() {
-  const tables = Object.fromEntries(Object.keys(HEADER_SCHEMA).map((entity) => [
-    entity, observable.map<string, object>(undefined, { deep: false, name: debugName(() => `pool.${entity}`) }),
-  ])) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
+  const tables = Object.fromEntries(
+    Object.keys(HEADER_SCHEMA).map((entity) => [
+      entity,
+      observable.map<string, object>(undefined, {
+        deep: false,
+        name: debugName(() => `pool.${entity}`),
+      }),
+    ]),
+  ) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
   const orders = observable.map<HeaderEntity, readonly string[]>(undefined, { deep: false })
   const members = observable.map<string, readonly string[]>(undefined, { deep: false })
   const refs = observable.map<string, string>(undefined, { deep: false })
@@ -20,7 +33,11 @@ export function createHeaderEntities() {
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
   // Borrow the last successful API response for opt-in differential checks.
   // Same objects as the rows, no second fetch, replica or mutation owner.
-  const received: { quotas: HeaderRows['quota'][]; history?: HeaderRows['history']; lifecycle?: HeaderRows['lifecycle'] } = { quotas: [] }
+  const received: {
+    quotas: HeaderRows['quota'][]
+    history?: HeaderRows['history']
+    lifecycle?: HeaderRows['lifecycle']
+  } = { quotas: [] }
 
   function shippingContribution(value: object | undefined) {
     const order = value as HeaderRows['shipOrder'] | undefined
@@ -80,7 +97,8 @@ export function createHeaderEntities() {
     sessionOrder,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
     one: (entity: string, id: string, relation: string) => refs.get(`${entity}:${id}:${relation}`),
-    members: (entity: string, id: string, relation: string) => members.get(`${entity}:${id}:${relation}`) ?? [],
+    members: (entity: string, id: string, relation: string) =>
+      members.get(`${entity}:${id}:${relation}`) ?? [],
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     change,
     apply(records: readonly HeaderRecord[]): void {
@@ -90,7 +108,8 @@ export function createHeaderEntities() {
           const previous = table.get(record.id)
           if (compareStructural(previous, record.value)) continue
           if (record.kind === 'shipOrder') {
-            const before = shippingContribution(previous), after = shippingContribution(record.value)
+            const before = shippingContribution(previous),
+              after = shippingContribution(record.value)
             if (!compareStructural(before, after)) {
               adjustShipping(before, -1)
               adjustShipping(after, 1)
