@@ -67,10 +67,50 @@ SHAs, timings and limits. Raw traces and profiles remain in the issue-owned
 `~/podium-test-5239` checkout on flatblock. The capture controller releases
 `bench:flatblock` immediately after capture and stops only its recorded processes.
 
-## Remaining work
+## Initial demanded roots
 
-Per-row persistent insertion still allocates a tree path for every initial index
-entry. The coordinator cleared a bulk construction algorithm on October 5:
-retain the same tree type and snapshot semantics, prove equivalence including
-ties and ordering, and take one matched 4× pair after landing the first fix.
+The second fix collects initial answers, sorts once, and builds the same immutable
+tree with one node per entry. Predicate trees use the same algorithm. Subsequent
+updates still use persistent paths. The focused guard fails on the prior code:
+ordering reads fall from 7,172 to 1,020 at 256 entries and from 36,868 to 4,092 at
+1,024 entries. All 23 query-result and reader-question tests pass, including bulk
+versus incremental equivalence for empty, singleton, reversed and mixed inputs,
+ordering ties and predicate counts.
+
+| Runtime | Cold first row Paint | Cold main thread CPU | Warm first row Paint | Warm main thread CPU |
+| --- | ---: | ---: | ---: | ---: |
+| Before `51da487185` | 12,736.1 ms | 7,784.6 ms | 8,976.1 ms | 5,393.0 ms |
+| Bulk demanded roots `b113ab1842` | 9,249.4 ms | 7,627.6 ms | 6,887.2 ms | 5,209.0 ms |
+| Change | −27.4% | −2.0% | −23.3% | −3.4% |
+
+This is another single matched pair under the same capture contract, after the
+first fix landed. The first load average is 16.07 before and 6.86 after, rising
+to 25.11 by the baseline's end. The wall-time decrease is confounded by host load;
+these observations do not establish the size of the latency benefit.
+
+The first candidate capture was rejected: Turbo replayed the baseline bundle
+`Brp6zalX` for candidate `5f587ad108`, despite stamping the new source SHA. The
+archived source map contained the old algorithm. Both client build tasks omitted
+`packages/client-graph/package.json` and `packages/client-graph/src/**` from their
+inputs. The repair adds those inputs. The existing build-input guard fails for
+both clients with the omission and passes all six checks after the repair. A
+normal build then misses the cache, produces bundle `DX3ZA-RN`, and maps the new
+algorithm. Only that replacement capture enters the table; no cache bypass was
+used.
+
+The [bulk baseline](POD-5239-startup-scale/before-bulk.json),
+[valid bulk capture](POD-5239-startup-scale/after-bulk.json),
+[excluded stale capture](POD-5239-startup-scale/excluded-stale-bulk.json) and
+[bulk guard provenance](POD-5239-startup-scale/proof-bulk.json) preserve this
+distinction. Build and guard logs remain in the private remote checkout.
+
+## Landing and remaining work
+
+The first fix landed at `51da487185` after rebasing onto the coordinator branch.
+Measurements name the pre-rebase candidates; later landings are not additional
+timed runs. The bulk-root fix will likewise preserve intervening pilot changes.
+
+The initial profile locates larger repeated tree construction in scalar session
+indexes. The coordinator cleared bulk seeding at bootstrap with the same trees,
+equivalence coverage and public question semantics. That is the next local fix.
 No server, sync, residency or operator runtime changes are included.

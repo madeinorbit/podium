@@ -1,0 +1,10 @@
+{
+  "oldSha": "51da487185",
+  "candidateSha": "5f587ad10860006cb51a36824075a66e1448ad02",
+  "oldExit": 1,
+  "candidateExit": 0,
+  "files": [
+    "packages/client-graph/src/query-result.test.ts",
+    "packages/client-graph/src/reader-question-bounds.test.ts"
+  ]
+}
