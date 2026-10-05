@@ -108,6 +108,18 @@ describe('declared command and launch targets', () => {
       })
       expect(runs).toEqual({ ...before, target: before.target + 1 })
       expect(views.sessionIds()).toBe(beforeIds)
+      const repoId = 'launcher-reference-regression'
+      f.pool.apply({ type: 'update', rows: [
+        { kind: 'repo', id: repoId, value: { id: repoId, prefix: 'HEAD', repoPath: '/launcher/reference' } as never },
+        { kind: 'session', id: target, value: { ...row, refRepoId: repoId, refSeq: 1, refLetter: 'A' } },
+      ] })
+      expect(views.session(target)).toMatchObject({ displayRef: 'HEAD-1-A' })
+      const beforePrefix = { ...runs }
+      f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId,
+        value: { id: repoId, prefix: 'NEXT', repoPath: '/launcher/reference' } as never }] })
+      expect(views.session(target)).toMatchObject({ displayRef: 'NEXT-1-A' })
+      expect(runs).toEqual({ ...beforePrefix, target: beforePrefix.target + 1 })
+      expect(views.sessionIds()).toBe(beforeIds)
       for (const stop of stops) stop()
       const afterRelease = { ...views.counts }
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Offscreen title' } }] })
