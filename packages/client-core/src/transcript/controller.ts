@@ -445,7 +445,8 @@ export class TranscriptController {
       if (this.state.items.length > 0) this.patch({ freshness: 'saved' })
       return true
     }
-    const held = this.state.items.find((item) => item.id === remote.id)
+    const position = this.itemPositions.get(remote.id)
+    const held = position === undefined ? undefined : this.state.items[position]
     if (held && sameTranscriptItem(held, remote)) {
       if (this.state.freshness !== null) this.patch({ freshness: null })
       return true

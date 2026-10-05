@@ -63,6 +63,61 @@ const clients = [
 ] as const
 
 describe.each(clients)('$name transcript contract', ({ initialLimit, pageLimit }) => {
+  it('looks up one heartbeat item without scanning retained history at 1x/4x', async () => {
+    async function measured(scale: 1 | 4) {
+      const io = source()
+      let idReads = 0
+      const rows = Array.from({ length: 128 * scale }, (_, index) => {
+        const value = item(`row-${index}`, `cursor-${String(index).padStart(4, '0')}`)
+        Object.defineProperty(value, 'id', {
+          configurable: true, enumerable: true,
+          get: () => { idReads++; return `row-${index}` },
+        })
+        return value
+      })
+      const remote = item(`row-${rows.length - 1}`, `cursor-${String(rows.length - 1).padStart(4, '0')}`)
+      const controller = createTranscriptController({
+        sessionId: asSessionId('s1'), source: io.port,
+        initialLimit: 1024, pageLimit, retainHistory: () => true,
+      })
+      try {
+        const starting = controller.start()
+        io.pending.at(-1)!.resolve({ items: rows, head: 'head', tail: remote.cursor, hasMore: true })
+        await starting
+        const changed = vi.fn(), stop = controller.subscribe(changed)
+        const probe = async () => {
+          const before = controller.getSnapshot().items
+          idReads = 0
+          const checking = controller.probe()
+          expect(io.reads.at(-1)?.limit).toBe(1)
+          io.pending.at(-1)!.resolve({ items: [remote], hasMore: false })
+          expect(await checking).toBe(true)
+          const reads = idReads
+          expect(controller.getSnapshot().items).toBe(before)
+          expect(changed).not.toHaveBeenCalled()
+          return reads
+        }
+        const first = await probe(), repeated = await probe()
+        // A preceding page shifts the held positions; the same heartbeat must
+        // still compare exactly its addressed item after the index rebuild.
+        const older = controller.loadOlder()
+        io.pending.at(-1)!.resolve({ items: [item('older', 'cursor-before')], head: 'older-head', hasMore: false })
+        await older
+        changed.mockClear()
+        const afterPrepend = await probe()
+        stop()
+        // Prove the read counter would reject the original whole-window find.
+        idReads = 0
+        controller.getSnapshot().items.find(row => row.id === remote.id)
+        expect(idReads).toBe(128 * scale)
+        return { first, repeated, afterPrepend }
+      } finally { controller.dispose() }
+    }
+    const first = await measured(1), second = await measured(4)
+    expect(first).toEqual({ first: 1, repeated: 1, afterPrepend: 1 })
+    expect(second).toEqual(first)
+  })
+
   it('bounds a marathon live window, updates retained ids, and recovers trimmed history by its native anchor', async () => {
     const io = source()
     let reading = false
