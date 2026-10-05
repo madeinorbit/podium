@@ -20,6 +20,7 @@ it('keeps closed Find and selected-match lookup flat and detects the former whol
       })),
     )
     const model: MobileTranscriptModel = {
+      ...built,
       blocks: built.blocks.map((block) => ({
         ...block,
         item: {

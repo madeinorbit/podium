@@ -2,7 +2,6 @@ import {
   type ChatBlock,
   failLine,
   formatChurn,
-  latestPendingQuestion,
   type ParsedEnvelope,
   resultPreview,
   toolBatchTitle,
@@ -1051,7 +1050,7 @@ export function TranscriptList({
     () => liveAssistantRow(liveItem, model.blocks.length),
     [liveItem, model.blocks.length],
   )
-  const pending = useMemo(() => latestPendingQuestion(items), [items])
+  const pending = model.pendingQuestion
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
   const visibleModel = useMemo(
@@ -1148,10 +1147,7 @@ export function TranscriptList({
     suffixCommitted.current = true
     for (const row of suffixRows) seenSuffixKeys.current.add(row.key)
   }, [suffixRows])
-  const latestAssistantKey = useMemo(
-    () => [...rows].reverse().find((row) => row.kind === 'prose' || row.kind === 'answer')?.key,
-    [rows],
-  )
+  const latestAssistantKey = model.latestAssistantKey
   const transcriptId = assetContext?.sessionId ?? 'transcript'
   const followChangeRef = useRef(onFollowChange)
   useLayoutEffect(() => {

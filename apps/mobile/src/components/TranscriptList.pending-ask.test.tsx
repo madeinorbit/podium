@@ -72,6 +72,7 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
       const model = actual.buildMobileTranscript(...args)
       if (!searchWork.enabled) return model
       return {
+        ...model,
         blocks: model.blocks.map((block) => ({
           ...block,
           item: {
