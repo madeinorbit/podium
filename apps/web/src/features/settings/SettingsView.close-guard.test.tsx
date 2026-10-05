@@ -21,11 +21,23 @@ const storeState = {
   setSettingsTab: vi.fn(),
   hostMetrics: undefined,
 }
+const demand = vi.hoisted(() => ({
+  metrics: vi.fn(() => []),
+  idleCap: vi.fn(() => 3),
+}))
 
 vi.mock('@/app/store', () => ({
-  useHostMetrics: () => [],
+  useHostMetrics: demand.metrics,
   useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
   useReplicaIssues: () => [],
+}))
+vi.mock('@/app/header-data', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/app/header-data')>(),
+  usePoolIdleCapUnmetCount: demand.idleCap,
+}))
+vi.mock('./readers', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./readers')>(),
+  useSettingsTab: () => storeState.settingsTab,
 }))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => false,
@@ -41,6 +53,8 @@ import { SettingsView } from './SettingsView'
 const onClose = vi.fn()
 
 beforeEach(() => {
+  demand.metrics.mockClear()
+  demand.idleCap.mockClear()
   onClose.mockClear()
   storeState.settingsTab = 'sessions'
   const settings = normalizeSettings({})
@@ -100,6 +114,28 @@ async function makeDirty(): Promise<void> {
 }
 
 describe('Settings sheet — closing with unsaved edits', () => {
+  it('demands the cap scalar only on Hibernation and never demands fleet metric rows', async () => {
+    const view = render(<SettingsView onClose={onClose} />)
+    await makeDirty()
+    expect(demand.metrics).not.toHaveBeenCalled()
+    expect(demand.idleCap).not.toHaveBeenCalled()
+
+    storeState.settingsTab = 'hibernation'
+    view.rerender(<SettingsView onClose={onClose} />)
+    expect(await screen.findByText('Cap unmet: 3 protected/ineligible')).toBeTruthy()
+    expect(demand.idleCap).toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Maximum idle sessions'), { target: { value: '4' } })
+    expect(screen.getByText('Cap unmet: 3 protected/ineligible')).toBeTruthy()
+    expect(demand.metrics).not.toHaveBeenCalled()
+
+    demand.idleCap.mockClear()
+    storeState.settingsTab = 'sessions'
+    view.rerender(<SettingsView onClose={onClose} />)
+    expect(screen.queryByText('Cap unmet: 3 protected/ineligible')).toBeNull()
+    expect(demand.idleCap).not.toHaveBeenCalled()
+    expect(demand.metrics).not.toHaveBeenCalled()
+  })
+
   it('closes on Escape when nothing is dirty', async () => {
     render(<SettingsView onClose={onClose} />)
     await waitFor(() => expect(document.querySelector('[data-slot="switch"]')).not.toBeNull())
