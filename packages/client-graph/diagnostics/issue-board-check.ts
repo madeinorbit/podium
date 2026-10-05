@@ -2,12 +2,25 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { operationalState, type TaskProgress } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model/browser'
-import { runInAction } from 'mobx'
+import { autorun } from 'mobx'
 import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '../src/issue-board-schema'
 import type { MobxPool } from '../src/pool'
 import { LOADING } from '../src/worklist/rollup'
 import { issuePageFirstDifference } from './issue-page-check'
-export const inBoardCheck = <T>(read: () => T): T => runInAction(read)
+/** Observe the same computed demand as the screen, then release it. A batch
+ * alone is untracked and would repeatedly expand dependency-free ID answers. */
+export function inBoardCheck<T>(read: () => T): T {
+  let value!: T
+  let failure: unknown
+  let failed = false
+  const stop = autorun(() => {
+    try { value = read() }
+    catch (error) { failed = true; failure = error }
+  })
+  stop()
+  if (failed) throw failure
+  return value
+}
 
 export const BOARD_CHECK_FIELDS = [
   'id',
