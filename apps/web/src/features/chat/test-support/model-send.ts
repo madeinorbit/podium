@@ -155,10 +155,26 @@ export function useModelSend(options: ModelSendOptions): ModelSendResult {
     offer: sends.offer, canInterrupt: sends.canInterrupt,
     draft: options.observeDraft === false ? '' : conversation.draft,
   }), { equals: compareStructural }), [conversation, options.observeDraft])
-  const source = useMemo(() => ({
-    subscribe: (listener: () => void) => reaction(() => snapshot.get(), listener),
-    getSnapshot: () => snapshot.get(),
-  }), [snapshot])
+  const source = useMemo(() => {
+    let current = snapshot.get()
+    return {
+      subscribe: (listener: () => void) => reaction(() => snapshot.get(), listener),
+      getSnapshot: () => {
+        const next = snapshot.get()
+        if (!compareStructural(current, next)) current = next
+        return current
+      },
+    }
+  }, [snapshot])
+  const hadInitialPending = useMemo(() => sends.pending.some(turn => turn.id === 'pending-first-turn'), [sends])
+  useEffect(() => {
+    const onSettled = options.onInitialPendingSettled
+    if (!hadInitialPending || !onSettled) return
+    let settled = false
+    return reaction(() => sends.pending.some(turn => turn.id === 'pending-first-turn'), pending => {
+      if (!pending && !settled) { settled = true; onSettled() }
+    }, { fireImmediately: true })
+  }, [sends, hadInitialPending, options.onInitialPendingSettled])
   const state = useSyncExternalStore(source.subscribe, source.getSnapshot)
   return {
     conversation, ...state, ready: ports.ready, ctxSeq: null,

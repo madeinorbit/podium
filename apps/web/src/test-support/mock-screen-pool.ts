@@ -397,10 +397,17 @@ vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
     const pool = useFixturePool()
     const selected = useMemo(() => computed(() => read(pool), { equals: isDeepStrictEqual }), [pool, read])
-    const source = useMemo(() => ({
-      subscribe: (wake: () => void) => reaction(() => selected.get(), wake),
-      getSnapshot: () => selected.get(),
-    }), [selected])
+    const source = useMemo(() => {
+      let current = selected.get()
+      return {
+        subscribe: (wake: () => void) => reaction(() => selected.get(), wake),
+        getSnapshot: () => {
+          const next = selected.get()
+          if (!isDeepStrictEqual(current, next)) current = next
+          return current
+        },
+      }
+    }, [selected])
     return useSyncExternalStore(source.subscribe, source.getSnapshot)
   },
 }))

@@ -41,9 +41,9 @@ export class WebConversation extends Conversation {
     super(options)
     this.presentation = presentation
     makeObservable(this, {
-      lastSubmittedPrompt: observable, observableRef,
+      lastSubmittedPrompt: observable,
       rememberPrompt: actionBound,
-      ctxSeq: observable, observableRef,
+      ctxSeq: observable,
       backendPick: observableRef,
       session: computed,
       thread: computed,
@@ -198,13 +198,13 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   const conversation = useOwnedConversation<WebConversation>(sessionId,
     () => createWebConversation(runtime, pool!, sessionId, options),
     { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript }) ?? null
-  const { onInitialPendingSettled, initialPendingText } = options
+  const onInitialPendingSettled = options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled
   useEffect(() => {
-    if (!conversation || !onInitialPendingSettled || initialPendingText === undefined) return
+    if (!conversation || !onInitialPendingSettled || conversation.mount.initialPendingText === undefined) return
     let settled = false
     return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn'), pending => {
       if (!pending && !settled) { settled = true; onInitialPendingSettled() }
     }, { fireImmediately: true })
-  }, [conversation, onInitialPendingSettled, initialPendingText])
+  }, [conversation, onInitialPendingSettled])
   return conversation
 }

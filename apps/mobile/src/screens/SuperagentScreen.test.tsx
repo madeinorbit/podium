@@ -26,6 +26,7 @@ async function frameAct(work: () => unknown) {
 const transcriptProps = vi.hoisted(
   () =>
     [] as {
+      transcript?: import('@podium/client-core/conversation').TranscriptLog
       items: { text: string }[]
       liveItem?: { text: string }
       pendingTurns?: { text: string; failed?: string }[]
@@ -107,6 +108,7 @@ vi.mock('../components/TranscriptList', async () => {
           items = transcript.items
         }
         transcriptProps.push({
+          transcript,
           items,
           ...(liveItem ? { liveItem } : {}),
           pendingTurns,
@@ -240,6 +242,7 @@ describe('SuperagentScreen chrome', () => {
         principal: `user:superagent-facts-${scale}`,
       })
       await waitFor(() => expect(latestTurnFailure).toHaveBeenCalledOnce())
+      await waitFor(() => expect(transcriptProps.at(-1)?.transcript?.initialLoaded).toBe(true))
       expect(transcriptProps.at(-1)?.items).toHaveLength(items.length)
       expect(transcriptProps.at(-1)?.transcriptQuestion).toBeNull()
       const measure = async (action: () => Promise<void>) => {

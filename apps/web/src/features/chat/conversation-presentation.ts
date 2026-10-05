@@ -43,12 +43,12 @@ export class ConversationPresentation {
   constructor() {
     makeObservable<this, 'heldHead'>(this, {
       result: observableRef,
-      query: observable, observableRef,
-      cursor: observable, observableRef,
-      renderCount: observable, observableRef,
-      followTail: observable, observableRef,
-      heldHead: observable, observableRef,
-      deepeningSearch: observable, observableRef,
+      query: observable,
+      cursor: observable,
+      renderCount: observable,
+      followTail: observable,
+      heldHead: observable,
+      deepeningSearch: observable,
       changed: action,
       blocks: computed({ equals: (a: ChatBlock[], b: ChatBlock[]) => compareStructural(a.map(blockShape), b.map(blockShape)) }),
       rows: computed({ equals: sameRows }),
