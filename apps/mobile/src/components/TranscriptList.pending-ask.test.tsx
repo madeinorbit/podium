@@ -15,7 +15,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const markdownRenders = vi.hoisted(() => new Map<string, number>())
 const transcriptBuilds = vi.hoisted(() => vi.fn())
 const viewportData = vi.hoisted(() => [] as unknown[])
-const searchWork = vi.hoisted(() => ({ enabled: false, rowReads: 0, blockReads: 0, matches: vi.fn(), positions: vi.fn() }))
+const searchWork = vi.hoisted(() => ({
+  enabled: false,
+  rowReads: 0,
+  blockReads: 0,
+  matches: vi.fn(),
+  positions: vi.fn(),
+}))
 
 afterEach(() => {
   cleanup()
@@ -66,15 +72,32 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
       const model = actual.buildMobileTranscript(...args)
       if (!searchWork.enabled) return model
       return {
-        blocks: model.blocks.map(block => ({ ...block, item: { ...block.item, get text() { searchWork.blockReads++; return block.item.text } } })),
-        rows: model.rows.map(row => ({ ...row, get blockIndices() { searchWork.rowReads++; return row.blockIndices } })),
+        blocks: model.blocks.map((block) => ({
+          ...block,
+          item: {
+            ...block.item,
+            get text() {
+              searchWork.blockReads++
+              return block.item.text
+            },
+          },
+        })),
+        rows: model.rows.map((row) => ({
+          ...row,
+          get blockIndices() {
+            searchWork.rowReads++
+            return row.blockIndices
+          },
+        })),
       }
     },
     matchMobileTranscript: (...args: Parameters<typeof actual.matchMobileTranscript>) => {
       searchWork.matches(args[1])
       return actual.matchMobileTranscript(...args)
     },
-    positionMobileTranscriptSearch: (...args: Parameters<typeof actual.positionMobileTranscriptSearch>) => {
+    positionMobileTranscriptSearch: (
+      ...args: Parameters<typeof actual.positionMobileTranscriptSearch>
+    ) => {
       searchWork.positions(args[1])
       return actual.positionMobileTranscriptSearch(...args)
     },
@@ -131,11 +154,14 @@ describe('TranscriptList pendingAsk', () => {
     const onAnswer = async () => {}
     for (const scale of [1, 4] as const) {
       searchWork.enabled = true
-      const items = Array.from({ length: 128 * scale }, (_, index): TranscriptItem => ({
-        id: `find:${index}`,
-        role: 'assistant',
-        text: [2, 5, 10].includes(index) ? `needle ${index}` : `Settled ${index}`,
-      }))
+      const items = Array.from(
+        { length: 128 * scale },
+        (_, index): TranscriptItem => ({
+          id: `find:${index}`,
+          role: 'assistant',
+          text: [2, 5, 10].includes(index) ? `needle ${index}` : `Settled ${index}`,
+        }),
+      )
       const reset = () => {
         searchWork.rowReads = 0
         searchWork.blockReads = 0
@@ -143,7 +169,9 @@ describe('TranscriptList pendingAsk', () => {
         searchWork.positions.mockClear()
       }
       reset()
-      const { rerender, unmount } = render(<TranscriptList items={items} live={false} onAnswer={onAnswer} />)
+      const { rerender, unmount } = render(
+        <TranscriptList items={items} live={false} onAnswer={onAnswer} />,
+      )
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
       reset()
@@ -164,13 +192,33 @@ describe('TranscriptList pendingAsk', () => {
       expect(searchWork.positions).toHaveBeenCalledTimes(7)
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
-      samples.push({ scale, rowReads: searchWork.rowReads, blockReads: searchWork.blockReads, matchQueries: searchWork.matches.mock.calls.length, cursorQueries: searchWork.positions.mock.calls.length })
+      samples.push({
+        scale,
+        rowReads: searchWork.rowReads,
+        blockReads: searchWork.blockReads,
+        matchQueries: searchWork.matches.mock.calls.length,
+        cursorQueries: searchWork.positions.mock.calls.length,
+      })
       fireEvent.click(screen.getByLabelText('Close transcript search'))
       reset()
-      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={1} onAnswer={onAnswer} />)
+      rerender(
+        <TranscriptList
+          items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]}
+          live={false}
+          findRequest={1}
+          onAnswer={onAnswer}
+        />,
+      )
       expect(searchWork.rowReads).toBe(0)
       expect(searchWork.blockReads).toBe(0)
-      rerender(<TranscriptList items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]} live={false} findRequest={2} onAnswer={onAnswer} />)
+      rerender(
+        <TranscriptList
+          items={[...items, { id: 'new', role: 'assistant', text: 'new needle' }]}
+          live={false}
+          findRequest={2}
+          onAnswer={onAnswer}
+        />,
+      )
       fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
       expect(screen.getByText('1/4')).toBeTruthy()
       unmount()

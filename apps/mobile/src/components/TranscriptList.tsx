@@ -46,10 +46,10 @@ import {
   liveAssistantRow,
   type MobileTranscriptRow,
   machineContextLabel,
-  parseAskQuestions,
-  quoteTranscriptText,
   matchMobileTranscript,
+  parseAskQuestions,
   positionMobileTranscriptSearch,
+  quoteTranscriptText,
   transcriptItemKey,
 } from '../lib/transcript-feed'
 import {
@@ -1106,10 +1106,7 @@ export function TranscriptList({
     () => matchMobileTranscript(visibleModel, findOpen ? query : ''),
     [findOpen, query, visibleModel],
   )
-  const search = useMemo(
-    () => positionMobileTranscriptSearch(matches, cursor),
-    [cursor, matches],
-  )
+  const search = useMemo(() => positionMobileTranscriptSearch(matches, cursor), [cursor, matches])
   const listRef = useRef<TranscriptViewportHandle>(null)
   const seenKeys = useRef<Set<string> | null>(null)
   const previousKeys = useRef<string[]>([])

@@ -1,33 +1,72 @@
-import type { MobileTranscriptModel } from './transcript-feed'
 import { expect, it } from 'vitest'
 import { insideArm, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
-import { buildMobileTranscript, matchMobileTranscript, positionMobileTranscriptSearch } from './transcript-feed'
+import type { MobileTranscriptModel } from './transcript-feed'
+import {
+  buildMobileTranscript,
+  matchMobileTranscript,
+  positionMobileTranscriptSearch,
+} from './transcript-feed'
 
 it('keeps closed Find and selected-match lookup flat and detects the former whole-row walk', async () => {
   const samples = []
   for (const scale of [1, 4] as const) {
-    let rowReads = 0, blockReads = 0
-    const built = buildMobileTranscript(Array.from({ length: 128 * scale }, (_, index) => ({ id: `b${index}`, role: 'assistant' as const, text: index === 5 || index === 10 ? 'needle' : 'Settled' })))
+    let rowReads = 0,
+      blockReads = 0
+    const built = buildMobileTranscript(
+      Array.from({ length: 128 * scale }, (_, index) => ({
+        id: `b${index}`,
+        role: 'assistant' as const,
+        text: index === 5 || index === 10 ? 'needle' : 'Settled',
+      })),
+    )
     const model: MobileTranscriptModel = {
-      blocks: built.blocks.map(block => ({ ...block, item: { ...block.item, get text() { blockReads++; return block.item.text } } })),
-      rows: built.rows.map(row => ({ ...row, get blockIndices() { rowReads++; return row.blockIndices } })),
+      blocks: built.blocks.map((block) => ({
+        ...block,
+        item: {
+          ...block.item,
+          get text() {
+            blockReads++
+            return block.item.text
+          },
+        },
+      })),
+      rows: built.rows.map((row) => ({
+        ...row,
+        get blockIndices() {
+          rowReads++
+          return row.blockIndices
+        },
+      })),
     }
     const measure = async (action: () => unknown) => {
-      rowReads = 0; blockReads = 0
-      const result = await measureWork(async () => { insideArm(action) })
+      rowReads = 0
+      blockReads = 0
+      const result = await measureWork(async () => {
+        insideArm(action)
+      })
       return { work: result.work, rowReads, blockReads }
     }
-    const closed = await measure(() => { matchMobileTranscript(model, '') })
-    const blank = await measure(() => { matchMobileTranscript(model, '   ') })
+    const closed = await measure(() => {
+      matchMobileTranscript(model, '')
+    })
+    const blank = await measure(() => {
+      matchMobileTranscript(model, '   ')
+    })
     const answer = matchMobileTranscript(model, 'needle')
-    const next = await measure(() => { positionMobileTranscriptSearch(answer, 1) })
-    const previous = await measure(() => { positionMobileTranscriptSearch(answer, -1) })
+    const next = await measure(() => {
+      positionMobileTranscriptSearch(answer, 1)
+    })
+    const previous = await measure(() => {
+      positionMobileTranscriptSearch(answer, -1)
+    })
     expect(positionMobileTranscriptSearch(answer, 1).activeRow).toBe(10)
     expect(positionMobileTranscriptSearch(answer, 2).activeRow).toBe(5)
     const control = await measure(() => {
       // The former implementation walked every row even for a closed query.
       const matches: number[] = []
-      model.rows.forEach(row => { row.blockIndices.some(index => matches.includes(index)) })
+      model.rows.forEach((row) => {
+        row.blockIndices.some((index) => matches.includes(index))
+      })
     })
     const actions = { closed, blank, next, previous }
     for (const action of Object.values(actions)) {

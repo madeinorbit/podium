@@ -72,25 +72,45 @@ describe('mobile transcript feed', () => {
 
   it('maps every envelope row sharing a match and selects its first row when wrapping', () => {
     const model = buildMobileTranscript([
-      item('batch', 'user', '[podium message msg_a · from system:auto-continue · to your session]\nneedle\n[end podium message msg_a]\n[podium message msg_b · from system:auto-continue · to your session]\nalso needle\n[end podium message msg_b]'),
+      item(
+        'batch',
+        'user',
+        '[podium message msg_a · from system:auto-continue · to your session]\nneedle\n[end podium message msg_a]\n[podium message msg_b · from system:auto-continue · to your session]\nalso needle\n[end podium message msg_b]',
+      ),
       item('answer', 'assistant', 'Another needle', { answer: true }),
     ])
     const answer = matchMobileTranscript(model, 'needle')
     expect(answer.matches).toEqual([0, 1])
     expect([...answer.matchingRows]).toEqual([0, 1, 2])
-    expect(positionMobileTranscriptSearch(answer, 0)).toMatchObject({ activeRow: 0, position: 1, total: 2 })
+    expect(positionMobileTranscriptSearch(answer, 0)).toMatchObject({
+      activeRow: 0,
+      position: 1,
+      total: 2,
+    })
     expect(positionMobileTranscriptSearch(answer, -1)).toMatchObject({ activeRow: 2, position: 2 })
     expect(positionMobileTranscriptSearch(answer, 2)).toMatchObject({ activeRow: 0, position: 1 })
     const noRows = matchMobileTranscript({ ...model, rows: [] }, 'needle')
-    expect(positionMobileTranscriptSearch(noRows, 0)).toMatchObject({ activeRow: undefined, position: 1, total: 2 })
+    expect(positionMobileTranscriptSearch(noRows, 0)).toMatchObject({
+      activeRow: undefined,
+      position: 1,
+      total: 2,
+    })
   })
 
   it('makes an empty or unmatched answer selectable without transcript demand', () => {
     const model = buildMobileTranscript([item('answer', 'assistant', 'No matches here')])
-    expect(searchMobileTranscript(model, 'missing', 100)).toMatchObject({ activeRow: undefined, position: 0, total: 0 })
+    expect(searchMobileTranscript(model, 'missing', 100)).toMatchObject({
+      activeRow: undefined,
+      position: 0,
+      total: 0,
+    })
     const closed = matchMobileTranscript(model, '   ')
     expect(closed.matches).toEqual([])
-    expect(positionMobileTranscriptSearch(closed, -100)).toMatchObject({ activeRow: undefined, position: 0, total: 0 })
+    expect(positionMobileTranscriptSearch(closed, -100)).toMatchObject({
+      activeRow: undefined,
+      position: 0,
+      total: 0,
+    })
   })
 
   it('quotes every source line for composer insertion', () => {

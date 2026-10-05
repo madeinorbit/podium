@@ -260,8 +260,7 @@ export function matchMobileTranscript(
   model: MobileTranscriptModel,
   query: string,
 ): MobileTranscriptMatches {
-  if (!query.trim())
-    return { matches: [], matchingRows: new Set(), firstRowByBlock: new Map() }
+  if (!query.trim()) return { matches: [], matchingRows: new Set(), firstRowByBlock: new Map() }
   const matches = searchBlocks(model.blocks, query)
   const matchingRows = new Set<number>()
   const firstRowByBlock = new Map<number, number>()
