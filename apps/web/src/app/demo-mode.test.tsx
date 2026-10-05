@@ -10,7 +10,18 @@ import { PoolIssuePage } from '@/features/issues/pool-issue-page'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { WebDemoProvider } from './demo-mode'
 
+/** The runtime opens a socket on start; nothing here is about the transport,
+ *  and the real one takes the worker down with an unhandled error event. */
+class SilentSocket {
+  readyState = 0
+  send(): void {}
+  close(): void {}
+  addEventListener(): void {}
+  removeEventListener(): void {}
+}
+
 beforeEach(() => {
+  ;(globalThis as { WebSocket?: unknown }).WebSocket = SilentSocket
   window.history.replaceState({}, '', '/?demo=1')
 })
 
@@ -24,8 +35,11 @@ const DEMO_AUTH = DEMO_ISSUES.find((issue) => issue.id === 'demo-issue-auth')!
 
 async function mountDemo(node: React.ReactNode) {
   render(<WebDemoProvider>{node}</WebDemoProvider>)
+  // Pool attach is async by design (the graph arrives through a dynamic
+  // import) and the demo slice publishes once it has attached, so first
+  // paint waits on both. A shared-host CI worker can take seconds.
   await waitFor(() => expect(screen.getByText(DEMO_AUTH.title)).not.toBeNull(), {
-    timeout: 10_000,
+    timeout: 15_000,
   })
 }
 

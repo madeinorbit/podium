@@ -73,7 +73,15 @@ export function demoTrpc(): Trpc {
       },
     },
     settings: {
-      get: { query: async () => ({ sessionDefaults: { agent: 'codex' } }) },
+      // The boot publishes `settings.sidebar` straight into engine state, so
+      // the answer must carry the sidebar (an answer without it would replace
+      // the default with undefined and the work list would crash reading it).
+      get: {
+        query: async () => ({
+          sessionDefaults: { agent: 'codex' },
+          sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+        }),
+      },
     },
     features: {
       state: { query: async () => ({ devMode: true, channel: 'edge', flags: [] }) },
