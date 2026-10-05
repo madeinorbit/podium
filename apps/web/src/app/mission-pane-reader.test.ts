@@ -1,5 +1,4 @@
 import { screenOptions } from '@podium/client-graph/host'
-import { missionView } from '@podium/client-graph/mission-view'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph'
 import { expect, it } from 'vitest'
@@ -16,25 +15,14 @@ it('settles a cold production mission before its first visible pane', async () =
   const stop = projection.subscribe(() => {})
   let pane = projection.getSnapshot()
   try {
-    for (let turn = 0; turn < 100; turn++) {
+    const batches: number[] = []
+    for (let turn = 0; turn < 8; turn++) {
       const loaded = handle.pool.hydrate()
+      batches.push(loaded)
       pane = projection.getSnapshot()
       if (!loaded) break
     }
-    const diagnostic: Record<string, unknown> = {}
-    const inspect = createPoolProjection(handle.pool, () => {
-      const view = missionView(handle.pool), deck = view.deck(input.selectedIssueId)
-      diagnostic.root = view.selectedRoot(input.selectedIssueId)
-      diagnostic.topology = deck.topology
-      diagnostic.progress = deck.progress
-      diagnostic.archive = view.archiveCount(deck)
-      diagnostic.session = view.session(input.paneA)
-      return diagnostic
-    })
-    inspect.getSnapshot()
-    inspect.dispose()
-    expect(pane, JSON.stringify(diagnostic, (_key, value) =>
-      value === LOADING ? 'LOADING' : value instanceof Map || value instanceof Set ? [...value] : value)).not.toBe(LOADING)
+    expect(pane, `cold loader batches: ${batches.join(', ')}`).not.toBe(LOADING)
     if (pane === LOADING) throw new Error('Cold mission did not settle')
     expect(pane.mission.root?.id).toBe(input.selectedIssueId)
     expect(pane.mission.rows.length).toBeGreaterThan(0)

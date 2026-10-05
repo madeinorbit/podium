@@ -181,16 +181,25 @@ interface DeckTopology {
 const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopology | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
   const scope = new Set<string>(), children = new Map<string, string[]>()
+  let pending = false
+  const visible = (id: string) => {
+    const value = settled(() => view.facts(id).visible)
+    if (value === LOADING) { pending = true; return undefined }
+    return value
+  }
   const stack = [...members]
   while (stack.length) {
     const id = stack.pop()!
     if (scope.has(id)) continue
     scope.add(id)
-    if (!view.facts(id).visible) continue
+    if (visible(id) === false) continue
     const kids = [...view.pool.graph.many('issue', id, 'children')]
     stack.push(...kids)
-    children.set(id, kids.filter(child => view.facts(child).visible))
+    children.set(id, kids.filter(child => visible(child) === true))
   }
+  // A pending child must not prevent its siblings from being requested in
+  // this same loader batch. No topology is published until every input settles.
+  if (pending) return LOADING
   for (const id of members) {
     const issue = view.facts(id)
     if (!issue.visible || id === deck.id || (issue.parentId && members.has(issue.parentId))) continue
@@ -256,10 +265,18 @@ const own = Object.fromEntries(COUNTS.map(name => [name, ownCount(name)])) as Re
 const sum = Object.fromEntries(COUNTS.map(name => [name, cachedGroup(`deck.rollup.${name}`, (row: MissionDeckIssueModel) => settled(() => {
   row.view.stats.onRollup?.(row.id)
   const shape = requireLoaded(row.deck.topology)
-  if (shape.overlap) return [row.id, ...row.descendantIds].reduce((total, id) => total + own[name](row.deck.model(id)), 0)
-  let total = own[name](row)
-  for (const id of requireLoaded(row.deckChildren)) total += requireLoaded(sum[name](row.deck.model(id)))
-  return total
+  let total = 0, pending = false
+  const add = (value: number | typeof LOADING) => {
+    if (value === LOADING) pending = true
+    else total += value
+  }
+  if (shape.overlap) {
+    for (const id of [row.id, ...row.descendantIds]) add(settled(() => own[name](row.deck.model(id))))
+  } else {
+    add(settled(() => own[name](row)))
+    for (const id of requireLoaded(row.deckChildren)) add(sum[name](row.deck.model(id)))
+  }
+  return pending ? LOADING : total
 }))])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
 const descendants = cachedGroup('deck.descendants', (row: MissionDeckIssueModel) => {
   const shape = requireLoaded(row.deck.topology), seen = new Set<string>([row.id]), ids: string[] = []
@@ -389,6 +406,11 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
     formal.add(id); stack.push(...view.pool.graph.many('issue', id, 'children'))
   }
   const scope = [...members].filter(id => view.facts(id).visible)
+  // Progress needs staffing throughout this formal scope. Observe every
+  // required crew before propagating LOADING instead of loading one per frame.
+  let pending = false
+  for (const id of scope) if (settled(() => view.facts(id).live) === LOADING) pending = true
+  if (pending) return LOADING
   const accepted = scope.filter(id => formal.has(id) && view.facts(id).stage !== 'proposed' && !issueAbandoned(view.facts(id)))
   const units = (accepted.length ? accepted : [deck.id]).filter(id => {
     const facts = view.facts(id)
@@ -915,9 +937,13 @@ export class MissionViewReader {
   archiveCount(deck: MissionDeckModel): number | typeof LOADING { return archiveCountValue(deck) }
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
-      let count = 0
-      for (const id of requireLoaded(deck.rowIds())) count += requireLoaded(this.history(id)).roster
-      return count
+      let count = 0, pending = false
+      for (const id of requireLoaded(deck.rowIds())) {
+        const history = this.history(id)
+        if (history === LOADING) pending = true
+        else count += history.roster
+      }
+      return pending ? LOADING : count
     })
   }
   addressedIds(deck: MissionDeckModel): string[] {
