@@ -1,8 +1,8 @@
 /**
  * Demo mode over the kernel facade (POD-5277) — the SAME data path as real use.
  *
- * The phone's demo mode used to build a legacy TanStack replica with
- * `createReplica()` and seed it via `applySnapshot`: a second writer path the
+ * The phone's demo mode used to build a legacy TanStack replica through the
+ * old constructor and seed it via `applySnapshot`: a second writer path the
  * product no longer uses, which meant the demo surface and the product surface
  * could diverge silently. Now the fixtures are ROWS in the kernel's own
  * vocabulary (`EntityRecord`s keyed by kernel entity name), and the ordinary
