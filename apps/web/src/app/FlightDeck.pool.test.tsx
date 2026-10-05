@@ -9,7 +9,8 @@ import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
 import { missionView } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { screenOptions } from '@podium/client-graph/host'
+import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Profiler, type ProfilerOnRenderCallback, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,11 +18,12 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
 import { expectPoolOutput } from '../../../../packages/worklist-proto/harness/src/oracle/pool-output'
-import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { seedCacheFromCorpus, startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
 import { FlightDeck, type FlightDeckView } from './FlightDeck'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
 import { OperatorFocusProvider } from './operator-focus'
+import { poolBackedScreens } from './pool-screens'
 
 const state = vi.hoisted(() => ({
   pool: null as unknown,
@@ -208,6 +210,26 @@ async function settled() {
 }
 
 describe('rendered mission pane parity', () => {
+  it.each([1, 4] as const)('paints a cold runtime mission at %sx using the automatic loader', async (scale) => {
+    const ctx = await startScenarioEngine(scale, { seed: 4443 })
+    const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
+    pool.dispose()
+    pool = handle.pool
+    state.pool = pool
+    state.replica = ctx.engine.replica
+    state.selectedIssueId = scale === 1 ? 'i1766' : 'i13916'
+    state.paneA = 's0'
+    try {
+      const current = mount('full')
+      await waitFor(() => expect(current.container.querySelector('[data-testid="flight-deck-scroller"]')).not.toBeNull(), { timeout: 10_000 })
+      expect(current.container.querySelector('.deck-header')?.textContent).toContain(state.selectedIssueId.replace('i', ''))
+    } finally {
+      cleanup()
+      handle.dispose()
+      ctx.engine.destroy()
+    }
+  }, 60_000)
+
   it('does not commit another roster render when the host catalog publishes equal values', async () => {
     const root = issues.find(
       (issue) =>

@@ -426,7 +426,7 @@ async function main() {
           text: el.textContent?.slice(0, 180),
         })),
       }))
-      throw new Error(`${action} did not paint: ${JSON.stringify(diagnostic)}`, { cause: error })
+      throw new Error(`${action} did not paint: ${JSON.stringify({ ...diagnostic, browserErrors: fixture.errors })}`, { cause: error })
     } finally {
       events = await stop()
       await page.evaluate(() => {
