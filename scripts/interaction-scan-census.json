@@ -113,24 +113,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/mobile-pool.ts",
-      "holder": "useMobilePoolProjection",
-      "rule": "reader-summary",
-      "tokens": "dc23d861eab8781d165fffdc44460474d6398b7edf88363074ed0cbe0def7857",
-      "gate": [],
-      "origin": [
-        "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
-      ],
-      "fingerprint": "dfd72ffeca9b43edf2bbc3b9cc375f7780b1f5526574a36824b9104a3b2ac318",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useMobilePoolProjection",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/client/MobileSyncBoundary.tsx",
       "holder": "coldStatusSource/getSnapshot/callback",
       "rule": "reader-summary",
@@ -977,13 +959,12 @@
       "origin": [
         "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "8c10a759456f51584dfbd158531a958791c39a496f89bcd3d79c37dfef939a7b",
         "8e0f81a318944ccf22d8410e9c59c1dcfbf06fc5699cc1434b55526a403ac2c2",
         "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20",
         "eb9278eb21e5e097ffe6a702f0fea70be0a298d65ac34ac55ccffae4285d2994",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "278fb001677c691d30e02a7573f35e40dbc88f95686bf5198aab22a8eea69dc2",
+      "fingerprint": "109b9dd4b0f5e6f33641139be410cd602d4847ce3a2efd0cf692c879c2fada03",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1281,24 +1262,6 @@
     },
     {
       "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/allProjects",
-      "rule": "helper-consumer",
-      "tokens": "a469bde1b5ae7dffe3c5e0ef493a7c00915aae72b436e5855eeac697d2bba728",
-      "gate": [],
-      "origin": [
-        "8c10a759456f51584dfbd158531a958791c39a496f89bcd3d79c37dfef939a7b"
-      ],
-      "fingerprint": "54351ba35674b49d60d7f57b325e31aa313f118da270e7e7696661ddf04b27a6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/allProjects",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
       "holder": "readLaunchInputs/allProjects/map:callback/worktrees",
       "rule": "consume:map",
       "tokens": "4574b11c6a779913aafb47752b1ec77ea6b799cf378207bd6b7ab556e2ceae16",
@@ -1520,51 +1483,15 @@
     },
     {
       "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/scans",
-      "rule": "consume:flatMap",
-      "tokens": "cc3293c22924a46ae501a53a4fb9475fc99f9e37898ebd92bdb508b95535b02e",
-      "gate": [],
-      "origin": [
-        "8c10a759456f51584dfbd158531a958791c39a496f89bcd3d79c37dfef939a7b"
-      ],
-      "fingerprint": "27d9544bb55d3ca7da3c8a694649b79cb62beb68d8aa40e5698200789e425297",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/scans",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/scans",
-      "rule": "dynamic-question",
-      "tokens": "0280be7fb84d1b93ff9b5d8d4026e259bbe259f6fad59b0785beac577f2c6db9",
-      "gate": [],
-      "origin": [
-        "8c10a759456f51584dfbd158531a958791c39a496f89bcd3d79c37dfef939a7b"
-      ],
-      "fingerprint": "f56867e0d5d60f79f2f977437b5737d4b5a54cd13778666f587bc2b9a5c8946d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/scans",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
       "holder": "usePoolLaunchInputs",
       "rule": "reader-summary",
-      "tokens": "3c7d6a418419e06fac33f192dae949b7bae21e86ec9eaf72bef92bea3cf9f8c9",
+      "tokens": "6ad25a633b44c1e6b52b6775520f7c69a9891d4630223c4e18224d3e7300776f",
       "gate": [],
       "origin": [
         "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
         "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
       ],
-      "fingerprint": "68b4e7c30b0e5c4ad1d02f54313a2c9c43ab355adb93da9a1a64dc16ebe5929d",
+      "fingerprint": "dce5cbb87d701ad975b098a4166e1e84fe58f78738af640a0220fdf2c39c1a2e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2451,35 +2378,18 @@
     },
     {
       "file": "apps/mobile/src/screens/WorkListRow.tsx",
-      "holder": "PoolWorkRowSlot/PoolWorkRowSlot",
-      "rule": "reader-summary",
-      "tokens": "e64b44fcac8cdd768df40198ae078a3ae721d816c1de953cf0ee08f8aa9000b7",
-      "gate": [],
-      "origin": [
-        "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
-      ],
-      "fingerprint": "84150a379fe8c1e0f509e2bece628f9f4fc6a7f8aa7fb1c1eae8f286efcd779b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkRowSlot/PoolWorkRowSlot",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/WorkListRow.tsx",
-      "holder": "PoolWorkRowSlot/PoolWorkRowSlot/read/useCallback:callback/shown",
+      "holder": "PoolWorkRowSlot/PoolWorkRowSlot/shown/useMemo:callback/computed:callback",
       "rule": "reader-summary",
       "tokens": "05f2b5febb695e6cf09ef0251f6b263ef029837e6e661a74c13d45014d7d4d7f",
       "gate": [
+        "exit:then:3897776c72fcd22131898b34dd9b1a71e1d9d57cd0183aaa0072afd75db56ff3",
         "else:d6964368f80128663f31aca74b8bd8f38338c91477d5ba0b2cbf376ae135165a",
         "then:0a19fccc7869dacfd991b4c29945afccd9a2b9e062be872166a0f6265fef12f5"
       ],
       "origin": [
         "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
       ],
-      "fingerprint": "010ef8ab504f6011cde75ebab62a199d8518cf00d2453a336c69c3320e584edd",
+      "fingerprint": "06f26d882b5da0091b71db6abccbf6c3be4604b54cdb5ffb64fa0297fbb1c191",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
