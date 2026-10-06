@@ -90,7 +90,14 @@ export const HostFeature = { SCREEN: 1 } as const
  * where the C host queues without limit. An ERR that refuses a WRITE may carry
  * that write's u32 id after the message (the Rust host always sends it).
  */
-export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5, UNSUPPORTED_SIGNAL: 7 } as const
+export const HostErr = {
+  NOT_WRITER: 1,
+  NO_PTY: 2,
+  BAD_FRAME: 3,
+  EXITED: 4,
+  INPUT_FULL: 5,
+  UNSUPPORTED_SIGNAL: 7,
+} as const
 
 /** `fromSeq` meaning "from the tail: replay nothing". */
 export const HOST_TAIL = 0xffff_ffff_ffff_ffffn
