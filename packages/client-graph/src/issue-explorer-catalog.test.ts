@@ -1,6 +1,6 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { createIssuePageViews } from './issue-page'
+import { issuePages } from './issue-page'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 import { LOADING } from './worklist/rollup'
@@ -19,7 +19,7 @@ it('retains catalog values and snapshots while updates read only the changed ses
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     pool.apply({ type: 'replace', rows: [issue('parent'), issue('child', { parentId: 'parent' }),
       ...Array.from({ length: 128 * scale }, (_, n) => seat(`seat-${n}`))] })
-    const views = createIssuePageViews(pool)
+    const views = issuePages(pool)
     let catalog: ReturnType<typeof views.explorer>
     const stop = autorun(() => { catalog = views.explorer() })
     const spy = vi.spyOn(pool, 'row')
