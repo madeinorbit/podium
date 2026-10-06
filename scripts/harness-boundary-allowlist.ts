@@ -228,9 +228,10 @@ export interface HarnessBoundaryAllowlistEntry {
  *  component entry is deleted, and the policy module's entry covers the
  *  literal: policy 37 → 37, total 63 → 63, baselines unchanged.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 26
+// POD-5544: deleting the legacy replica retired its two cursor homonyms.
+export const HARNESS_BASELINE_LEAK_COUNT = 24
 export const HARNESS_BASELINE_POLICY_COUNT = 37
-export const HARNESS_BASELINE_TOTAL = 63
+export const HARNESS_BASELINE_TOTAL = 61
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
