@@ -258,6 +258,7 @@ export class SidebarIndex {
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
   private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareStructural)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
+  private readonly rosterViews = keyedViews<RosterFacts>('pool.sidebar', 'rosterFacts', compareStructural)
   constructor(private readonly pool: MobxPool) {
     // Reaction effects run as actions. Selection history never changes during a render read.
     this.stopSelection = reaction(
@@ -423,6 +424,14 @@ export class SidebarIndex {
     })
   }
 
+  /** Band ordering reads presence and head metadata, never roster contents. */
+  private rosterFacts(key: string): RosterFacts {
+    return this.rosterViews(key, () => {
+      const roster = sidebarRosterView(this.pool).band(key)
+      return { shown: roster.ids.length > 0, label: roster.label, repoPath: roster.repoPath }
+    })
+  }
+
   private specValues(state: SidebarState): BandSpecs {
     const index = sidebarRosterView(this.pool)
     const repos = [...index.projects]
@@ -448,7 +457,7 @@ export class SidebarIndex {
     ): BandSpec => {
       const previous = specs.get(key)
       if (previous) return previous
-      const spec: BandSpec = { key, label, aliases, repoPath: path, group: false, roster: false }
+      const spec: BandSpec = { key, label, aliases, repoPath: path, group: false }
       specs.set(key, spec)
       return spec
     }
@@ -467,14 +476,18 @@ export class SidebarIndex {
       specs.set(key, { ...spec, label: facts.label, group: true })
     }
     for (const key of index.keys()) {
-      const roster = index.band(key)
-      if (!roster.ids.length) continue
+      const existing = specs.get(key)
+      const facts = existing?.group ? this.groupFacts(key) : undefined
+      // An existing project/issue band needs no roster presence to keep its
+      // place. Only the snoozed-head rule borrows the roster's label.
+      if (existing && !(facts?.folded === true && facts.headBand2)) continue
+      const roster = this.rosterFacts(key)
+      if (!roster.shown) continue
       const spec = add(key, roster.label, roster.repoPath)
       // The unified head names the section before folds: worktrees (band 1)
       // precede snoozed roots (band 2), even when a root is in the closed fold.
-      const facts = spec.group ? this.groupFacts(key) : undefined
       const label = facts?.folded === true && facts.headBand2 ? roster.label : spec.label
-      specs.set(key, { ...spec, label, roster: true })
+      specs.set(key, { ...spec, label })
     }
     const base = [...specs.values()]
     const registered = new Set(repos.map((repo) => repo.repoId ?? repo.repoPath))
@@ -510,7 +523,7 @@ export class SidebarIndex {
     const snoozedFoldKey = `podium:sidebar:snoozed-fold:${band}`
     const closedFoldKey = `podium:sidebar:closed-fold:${band}`
     const rows = spec.group ? worklistGroups(this.pool).group(band).sidebarRows : undefined
-    const worktreeIds = spec.roster ? sidebarRosterView(this.pool).band(band).ids : NO_IDS
+    const worktreeIds = sidebarRosterView(this.pool).band(band).ids
     return {
       key: band,
       label: spec.label,
@@ -526,7 +539,7 @@ export class SidebarIndex {
       collapsed: state.collapsed?.[foldKey] === true,
       snoozedCollapsed: state.collapsed?.[snoozedFoldKey] !== false,
       closedCollapsed: state.collapsed?.[closedFoldKey] !== false,
-      startFirstTask: !spec.group && !spec.roster,
+      startFirstTask: !spec.group && worktreeIds.length === 0,
     }
   }
 }
@@ -538,8 +551,6 @@ interface BandSpec {
   readonly repoPath: string
   /** It holds the group's root rows. */
   readonly group: boolean
-  /** It holds the roster's worktrees. */
-  readonly roster: boolean
 }
 interface BandSpecs {
   readonly order: readonly string[]
@@ -551,6 +562,11 @@ interface GroupFacts {
   readonly path: string
   readonly folded: boolean
   readonly headBand2: boolean
+}
+interface RosterFacts {
+  readonly shown: boolean
+  readonly label: string
+  readonly repoPath: string
 }
 
 const NO_IDS: readonly string[] = Object.freeze([])
