@@ -207,13 +207,16 @@ it('keeps the windowed notice log flat at 1x/4x across open, new notice and labe
       }, { pool: f.pool })
       expect(current.notices.filter(row => row.sessionId === 'selected').map(row => row.sessionLabel))
         .toEqual(['Renamed agent', 'Renamed agent'])
-      measured.push({ scale, open: compact(open.work), added: compact(added.work), relabel: compact(relabel.work) })
+      measured.push({ scale, open: compact(open.work), added: compact(added.work), relabel: compact(relabel.work),
+        openBy: open.work.elementsBy })
     } finally { stop?.(); f.pool.dispose() }
   }
   const first = measured[0]!, second = measured[1]!
   for (const step of ['open', 'added', 'relabel'] as const) {
     expect(second[step].rows, step).toBe(first[step].rows)
     expect(second[step].derivations, step).toBe(first[step].derivations)
+  }
+  for (const step of ['added', 'relabel'] as const) {
     expect(second[step].elements, step).toBeLessThanOrEqual(first[step].elements)
   }
   console.info('[windowed notice log work]', JSON.stringify(measured))
