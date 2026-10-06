@@ -15,6 +15,8 @@
 #   boat-win.sh click ID X Y [TEXT]   left-click at screen pixel X,Y (as in a shot), then type TEXT
 #                                     (SendKeys syntax: {ENTER}, ^a, …). Type in the SAME call: a
 #                                     separate call's helper process takes the keyboard focus.
+#   boat-win.sh app ID [EXE]          (re)start the desktop app with WebView2 remote debugging on
+#   boat-win.sh ui ID STEP...         drive the app UI by text (see ui.ts); `ui ID shot OUT.png` fetches it
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
 #   boat-win.sh stop ID               shut Windows down cleanly, then stop (snapshot) the sandbox
 #   boat-win.sh resume ID             resume a stopped sandbox and wait for Windows SSH
@@ -129,6 +131,28 @@ for s in json.load(sys.stdin)["sandboxes"]:
     boat scp "$(dirname "$0")/click.ps1" "$id:/home/user/win/shared/click.ps1" >/dev/null
     text="${*//\'/\'\'}"
     "$0" gui "$id" "& \\\\host.lan\\Data\\click.ps1 -X $x -Y $y${text:+ -Text '$text'}"
+    ;;
+  app)
+    need_id "${1:-}"; id="$1"
+    exe="${2:-C:\\src\\podium\\apps\\desktop\\src-tauri\\target\\release\\Podium.exe}"
+    ps "$id" 'Get-Process Podium,msedgewebview2 -EA 0 | Stop-Process -Force' >/dev/null 2>&1 || true
+    "$0" gui "$id" "\$env:PODIUM_WEBVIEW_DEBUG_PORT = '9222'; Start-Process -WindowStyle Maximized '$exe'"
+    deadline=$((SECONDS + 120))
+    until ps "$id" '(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9222/json/version -TimeoutSec 3).StatusCode' 2>/dev/null | grep -q 200; do
+      (( SECONDS < deadline )) || die "the app's WebView2 debugging port did not open"
+      sleep 3
+    done
+    ;;
+  ui)
+    need_id "${1:-}"; id="$1"; shift
+    if [[ "${1:-}" == shot ]]; then
+      "$0" bun "$id" "$(dirname "$0")/ui.ts" shot 'C:\\ui.png'
+      ps "$id" 'Copy-Item -Force C:\ui.png \\host.lan\Data\ui.png'
+      boat scp "$id:/home/user/win/shared/ui.png" "${2:-ui.png}" >/dev/null
+    else
+      args=""; for a in "$@"; do args+=" '${a//\'/\'\'}'"; done
+      "$0" bun "$id" "$(dirname "$0")/ui.ts" $args
+    fi
     ;;
   gui|shot)
     need_id "${1:-}"; id="$1"; shift

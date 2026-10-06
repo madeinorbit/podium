@@ -17,6 +17,9 @@ function Refresh-Path {
 Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
 Add-MpPreference -ExclusionPath 'C:\src', "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup", "$env:LOCALAPPDATA\mise" -ErrorAction SilentlyContinue
 Set-ExecutionPolicy -Scope LocalMachine Bypass -Force
+# QEMU's RTC runs in UTC; Windows reads it as local time unless told otherwise, which put
+# the guest clock hours off and made Cargo trust stale outputs (POD-5728).
+Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\TimeZoneInformation' RealTimeIsUniversal 1 -Type DWord
 # Long paths: node_modules trees exceed MAX_PATH.
 Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1
 # No automatic updates or reboots in the middle of an agent's run.
