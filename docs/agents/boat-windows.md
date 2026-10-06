@@ -46,9 +46,32 @@ $W resume $ID                     # later: same disk, warm caches
 $W rm $ID                         # done with it
 ```
 
+### Driving the desktop app (GUI checks)
+
+```bash
+$W app $ID                        # (re)start Podium with PODIUM_WEBVIEW_DEBUG_PORT=9222, fresh SW cache
+$W ui $ID text                    # visible page text
+$W ui $ID buttons                 # visible buttons/menu items by accessible name
+$W ui $ID click 'Pick a project' then fill 'project' 'C:\src\podium' then button 'Use repository'
+$W ui $ID button 'Shell' then css '.xterm-screen' then type 'claude --version' then press Enter
+$W ui $ID shot out.png            # screenshot of the page (CDP)
+$W window $ID 1000 640            # resize the app window for real (Win32 MoveWindow)
+$W shot $ID desk.png              # screenshot of the whole Windows desktop
+$W bun $ID probe.ts               # run a local .ts in the guest checkout (apps/cli, source conditions)
+```
+
+`ui` drives the app by text over the Chrome DevTools Protocol (scripts/boat-windows/ui.ts,
+Playwright `connectOverCDP`), so it does not depend on window size or pixel positions. Prefer
+it to `click X Y`, which needs the app's current layout.
+
 `win` runs PowerShell. The script travels base64-encoded, so quote it once for bash
 and write normal PowerShell inside. A failing command makes `win` exit non-zero (boat
 reports every failure as exit code 1).
+
+On Windows the Shell panel opens PowerShell (7 if installed, else Windows PowerShell);
+agent sessions run under the Windows podium-host (ConPTY, owner-only named pipes) and
+survive a daemon restart like on macOS. Claude Code's native installer does not add
+`~\.local\bin` to PATH: Podium's agent discovery finds it there, a user's own shell does not.
 
 Until POD-5301 is fixed, the desktop build hangs forever at "archiving ... with pigz"
 when mise is on PATH. Run Bun without mise's directories on PATH, so the build falls
