@@ -23,7 +23,7 @@ import {
   type OutboxPendingWrite,
   type TxId,
   WriteContractError,
-} from '@podium/client-graph/shared/write-contract'
+} from './write-contract'
 import { createPendingLog, ECHO_TTL_MS, type LogOutcome, type PendingLog } from './pending-log'
 
 type Clock = { t: number }

@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '@podium/client-graph/create'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import * as writeClock from '@podium/client-graph/shared/write-contract'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
@@ -28,7 +27,7 @@ installMobxWarnTrap()
 /** Pending mark-read values use the same deterministic clock as server echoes. */
 async function mobileRun(corpus = genCorpus()) {
   let now = () => corpus.fixedNow
-  vi.spyOn(writeClock, 'wallClockNow').mockImplementation(() => now())
+  vi.spyOn(Date, 'now').mockImplementation(() => now())
   const run = await startGenRun({ corpus, feedMode: 'pooled' })
   now = () => run.ctx.engine.readLocal('coarseNow')
   return run
@@ -45,7 +44,7 @@ function settle(pool: MobxPool, state: MobileWorkState = {}): void {
 describe('mobile pool values', () => {
   for (const scale of [1, 4] as const) it(`corpus and methodology changes at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
-    vi.spyOn(writeClock, 'wallClockNow').mockImplementation(() => ctx.engine.readLocal('coarseNow'))
+    vi.spyOn(Date, 'now').mockImplementation(() => ctx.engine.readLocal('coarseNow'))
     const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     feeds.attachPool(handle.pool)

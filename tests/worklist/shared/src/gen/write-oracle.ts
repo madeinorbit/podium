@@ -46,14 +46,14 @@ import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-mo
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import type { Replica } from '@podium/client-core/replica'
-import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
+import { baseOf, subscribeReceipts } from '../receipts'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import {
   type EditPatch,
   editForPendingWrite,
   type OutboxPendingWrite,
   type TxId,
-} from '@podium/client-graph/shared/write-contract'
+} from '../write-contract'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
 import type { RowSource } from '../arm'
 import { createPendingLog, type PendingLog } from '../pending-log'

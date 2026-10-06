@@ -105,7 +105,7 @@ import {
   type TxId,
   type WritableKind,
   WriteContractError,
-} from './shared/write-contract'
+} from './write/commands'
 import {
   createObservableTables,
   ENTITIES,

@@ -14,8 +14,8 @@ import {
   type ReceiptEvent,
   type ReceiptsRuntime,
   subscribeReceipts,
-} from '@podium/client-graph/shared/receipts'
-import type { WriteTransport } from '@podium/client-graph/shared/write-contract'
+} from './receipts'
+import type { WriteTransport } from './write-contract'
 import { asIssueId, asMutationId, issueUserStateRowId, type MutationId } from '@podium/model'
 import { Outbox as KernelOutbox } from '@podium/sync/outbox'
 import { describe, expect, it, vi } from 'vitest'

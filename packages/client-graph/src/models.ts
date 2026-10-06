@@ -47,7 +47,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * setters stay the schema's: `issue.title = x` edits the title.
  *
  * EDITS, LINEAR'S SHAPE. Every field the write contract declares editable
- * (`FIELD_COVERAGE`, `shared/src/write-contract.ts`) also has a setter:
+ * (`EDITABLE_FIELDS`, `write/commands.ts`) also has a setter:
  * `issue.title = x` is `issue.update({ title: x })`, and `update(patch)` is
  * ONE transaction of the write layer's edit log (`write/edit.ts`: paint at
  * once, remember the prior values, send). Reading the field afterwards shows
@@ -93,10 +93,10 @@ import type { SliceIssue, SlicePhase, SliceSession, SliceWorktree } from './shar
 import {
   type EditableStage,
   type EditPatch,
-  FIELD_COVERAGE,
+  EDITABLE_FIELDS,
   type TxId,
   type WritableKind,
-} from './shared/write-contract'
+} from './write/commands'
 import type { StoredRow } from './tables'
 import {
   activityAtOf,
@@ -244,7 +244,7 @@ function installFields(
   const spec = SCHEMA[entity]
   const spelling = FEED_SPELLING[entity] ?? {}
   const editable: Readonly<Record<string, unknown>> =
-    (FIELD_COVERAGE as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
+    (EDITABLE_FIELDS as Readonly<Record<string, Readonly<Record<string, unknown>>>>)[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
     if (INSTANCE_MEMBERS.includes(field)) {
       if (field === spec.key && !Object.hasOwn(editable, field)) continue

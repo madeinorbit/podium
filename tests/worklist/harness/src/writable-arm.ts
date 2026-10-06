@@ -30,7 +30,7 @@ import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 import { asIssueId } from '@podium/model'
 import type { EngineOptions, ScenarioEngine, ScenarioServer } from '../../shared/src/scenarios'
 import type { RowRecord } from '../../shared/src/stats'
-import type { OutboxPendingWrite, TxId, WriteTransport } from '@podium/client-graph/shared/write-contract'
+import type { OutboxPendingWrite, TxId, WriteTransport } from '../../shared/src/write-contract'
 
 export const WRITE_VARIANTS = ['idle', 'pending'] as const
 export type WriteVariant = (typeof WRITE_VARIANTS)[number]

@@ -36,7 +36,6 @@ import { asMutationId, type MutationId } from '@podium/model'
 import { type ObservableMap, observable, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
-import { wallClockNow } from '../shared/write-contract'
 
 type PatchOverlay = Extract<PendingOverlay, { op: 'patch' }>
 type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
@@ -177,7 +176,7 @@ const keyOfTruth: Record<OverlayTarget, (row: Record<string, unknown>) => string
 export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransactions {
   // Wall-clock liveness, as the log's TTL is: it fires a timer and stamps
   // a press, and no derivation reads it.
-  const now = ports.now ?? wallClockNow
+  const now = ports.now ?? (() => Date.now())
   const schedule = ports.schedule ?? realSchedule
   const mintId = ports.mintId ?? (() => asMutationId(crypto.randomUUID()))
   const reduce = ports.reduce ?? overlaysForOutboxEntry

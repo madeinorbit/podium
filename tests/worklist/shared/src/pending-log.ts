@@ -22,7 +22,7 @@ import {
   type WritableKind,
   WriteContractError,
   wallClockNow,
-} from '@podium/client-graph/shared/write-contract'
+} from './write-contract'
 
 /** One optimistic transaction (W1). Immutable once appended. */
 export interface Edit<K extends WritableKind = WritableKind> {
