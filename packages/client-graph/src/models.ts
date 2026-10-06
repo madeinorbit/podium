@@ -54,10 +54,10 @@ import type { SessionView } from '@podium/client-core/session-values'
  * the pending value, because the getter reads the one reader. Without a write
  * layer the pool refuses the edit.
  *
- * DERIVED VALUES ARE CACHED IN GROUPS. Each group is one cached value (a
+ * DERIVED VALUES USE @lazy GETTERS. Each group is one cached value (a
  * structural computed: an unchanged group keeps its identity and stops the
  * propagation), built the first time a reaction reads it and dropped when
- * nothing observes it (`cached.ts`), so an object costs nothing until its
+ * nothing observes it (`@podium/mobx-helpers`), so an object costs nothing until its
  * groups are read, and only the groups that are. A group holds several parts
  * computed by the pure part functions
  * (`views.ts`, `worklist/visible.ts`, `worklist/rollup.ts`), which the
@@ -70,7 +70,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import { compareStructural, untracked } from 'mobx'
-import { cachedGroup } from './cached'
+import { lazy } from '@podium/mobx-helpers'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
 import type { Residence } from './pool'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
@@ -82,7 +82,6 @@ import {
   type RowOriginTick,
   type RowRank,
   type RowView,
-  type RowViewField,
 } from './shared/row-view'
 
 const overlayRow = createRowOverlay()
@@ -408,29 +407,6 @@ export interface Loaded {
   readonly originRef: string | null
 }
 
-/**
- * One row field as a cached value of the issue: built when a drawn row (or
- * any reaction) first reads it, dropped when none does. Its value compares
- * by identity (the object-valued origin tick opts into structural equality),
- * so a field whose inputs moved but whose value did not
- * notifies no row.
- */
-function rowField<V>(
-  field: RowViewField,
-  compute: (issue: IssueModel) => V,
-  equals?: (before: V, next: V) => boolean,
-): (issue: IssueModel) => V {
-  return cachedGroup(field, (issue: IssueModel) => compute(issue), equals)
-}
-
-/**
- * THE issue: its row, its visibility, its roll-ups and its edits. The groups
- * (cached values) are `facts`, `rank`, `members`, `presence`, `nesting`,
- * `nestBelow`, `nested`, `tip`, `attention`, `activity`, `unitOwn`, `unitsBelow`,
- * `loaded`, `inMemory` and `rowRollup`, and
- * one per field of the row (`fields`); each is a cached group
- * (`cachedGroup`), built on first reactive read.
- */
 /** Roll-ups carry seat ids and plain facts (POD-5423): compared by value. */
 function sameAttention(a: Attention, b: Attention): boolean {
   return compareStructural(a.ownAttention, b.ownAttention) && compareStructural(a.aggregate, b.aggregate)
@@ -447,150 +423,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
 
-  // These rule groups construct fresh records/arrays; compare values explicitly.
-  // Screen payloads are owned by their view modules.
-  private static readonly groups = {
-    /** The own row, hot or cold, and the clock: standing, own part, settled placement. */
-    facts: cachedGroup('facts', (issue: IssueModel) =>
-      issueFactsPartOf(issue.host.visibleInputs, issue.id), compareStructural,
-    ),
-    rank: cachedGroup('rank', (issue: IssueModel) => {
-      const part = issue.facts?.part
-      return part === undefined ? undefined : rankOfPart(issue.id, part)
-    }, compareStructural),
-    /**
-     * The members' verdicts at the clock. The explicit seats come judged per
-     * seat change (`seat-verdicts.ts`, POD-5423), so a re-run (a heartbeat
-     * moving the standing, one seat's mark-read) never walks the seat history.
-     */
-    members: cachedGroup('members', (issue: IssueModel) =>
-      memberVerdictsOf(issue.host.visibleInputs, issue.id, issue.standing, issue), compareStructural,
-    ),
-    /** A hidden issue's from its summary (POD-4753): its row and its sessions are not read. */
-    presence: cachedGroup('presence', (issue: IssueModel) => {
-      const hidden = issue.hidden
-      return hidden === undefined
-        ? presenceOf(issue.host.visibleInputs, issue.id, issue)
-        : hiddenPresenceOf(issue.host.visibleInputs, issue.id, hidden, issue)
-    }, compareStructural),
-    /** Independent of nesting: cycle rejection can follow candidates without recursion. */
-    nestCandidate: cachedGroup('nestCandidate', (issue: IssueModel) => {
-      const present = issue.present
-      return nestCandidatePartOf(
-        issue.host.visibleInputs,
-        issue.id,
-        present ? issue.standing : undefined,
-        present,
-      )
-    }, compareStructural),
-    /** Presence first: a row that is not present (a hidden one among them) reads no standing. */
-    nesting: cachedGroup('nesting', (issue: IssueModel) => {
-      const present = issue.present
-      return nestingOf(
-        issue.host.visibleInputs,
-        issue.id,
-        present ? issue.standing : undefined,
-        present,
-        issue.nestCandidate,
-      )
-    }, compareStructural),
-    /** The nest candidates down the raw parent edge (read by the parent's `nestBelow` and `nested`). */
-    nestBelow: cachedGroup('nestBelow', (issue: IssueModel) =>
-      nestBelowPartOf(issue.host.visibleInputs, issue.id), compareStructural,
-    ),
-    /** The present rows nested under this one: the attention roll-up composes over them. */
-    nested: cachedGroup('nested', (issue: IssueModel) =>
-      nestedPartOf(issue.host.visibleInputs, issue.id, issue), compareStructural,
-    ),
-    tip: cachedGroup('tip', (issue: IssueModel) => tipPartOf(issue.host.rollupInputs, issue.id), compareStructural),
-    attention: cachedGroup(
-      'attention',
-      (issue: IssueModel) => attentionOf(issue.host.rollupInputs, issue.id, issue),
-      sameAttention,
-    ),
-    /**
-     * The latest seat activity of the visible subtree (POD-5423, review
-     * finding 9): a number composed over the nest children's, apart from the
-     * attention group, so a heartbeat re-runs this chain and nothing else.
-     */
-    activity: cachedGroup('activity', (issue: IssueModel) =>
-      seatActivityPartOf(issue.host.rollupInputs, issue.id, issue),
-    ),
-    /** Its own contribution to its formal ancestors' progress (its own row, and whether it is vacated). */
-    unitOwn: cachedGroup('unitOwn', (issue: IssueModel) =>
-      unitOwnPartOf(issue.host.rollupInputs, issue.id, issue), compareStructural,
-    ),
-    /**
-     * The formal closure's counts, composed over its formal children's cached
-     * units: apart from `unitOwn`, so a change to its own row (a rename) walks
-     * no child.
-     */
-    unitsBelow: cachedGroup('unitsBelow', (issue: IssueModel) =>
-      unitsBelowPartOf(issue.host.rollupInputs, issue.id), compareStructural,
-    ),
-    /**
-     * What the IN-MEMORY row gives (one read of it, which queues a cold row's
-     * load): its decision facts for the roll-up (`state` says whether it is in
-     * memory), its label for the view and a spin-off's origin tick, and its
-     * origin. Cached, so a view or a composition re-running reads no row and
-     * resolves no relation.
-     */
-    loaded: cachedGroup('loaded', (issue: IssueModel): Loaded => {
-      const row = issue.host.rollupInputs.loadedIssue(issue.id)
-      return {
-        facts: ownFactsOf(row),
-        label: labelOfRow(issue.host.inputs, issue.id, row === LOADING ? undefined : row),
-        originRef: originRefPartOf(issue.host.inputs, issue.id),
-      }
-    }, compareStructural),
-    /** Whether the row is in memory: a row is drawn only then (else its load is queued, or it is gone). */
-    inMemory: cachedGroup('inMemory', (issue: IssueModel) => issue.loaded.facts.state === 'ready'),
-    /** The roll-up as the row reads it: the worklist's (`ViewInputs.rollup`), else none. */
-    rowRollup: cachedGroup(
-      'rowRollup',
-      (issue: IssueModel): Rollup => issue.host.inputs.rollup(issue.id) ?? NO_ROLLUP, compareStructural,
-    ),
-  }
-
-  /**
-   * The row's fields (L1b `RowView`), one cached value each, from the groups
-   * above and the rules the rebuild's plain view uses (`views.ts`). `id` is
-   * the object's own and `selected` a keyed read of the selection: neither
-   * needs one.
-   */
-  private static readonly fields = {
-    displayRef: rowField('displayRef', (issue) => issue.label.displayRef ?? ''),
-    title: rowField('title', (issue) => issue.label.displayTitle ?? ''),
-    phase: rowField('phase', (issue) => issue.rowRollup.phase),
-    progressDone: rowField('progressDone', (issue) => issue.rowRollup.progressDone),
-    progressTotal: rowField('progressTotal', (issue) => issue.rowRollup.progressTotal),
-    working: rowField('working', (issue) => issue.rowRollup.working),
-    asking: rowField('asking', (issue) => issue.rowRollup.asking),
-    workingSince: rowField('workingSince', (issue) => issue.rowRollup.workingSince),
-    band: rowField('band', (issue) => issue.own?.band ?? 1),
-    repoKey: rowField('repoKey', (issue) => issue.own?.repoKey ?? ''),
-    closed: rowField('closed', (issue) =>
-      unlessWaiting(issue.own?.closed === true, issue.rowRollup),
-    ),
-    dismissed: rowField('dismissed', (issue) =>
-      unlessWaiting(issue.own?.dismissed === true, issue.rowRollup),
-    ),
-    pinned: rowField('pinned', (issue) => issue.own?.pinned === true),
-    sortKey: rowField('sortKey', (issue) => issue.own?.sortKey ?? null),
-    createdAt: rowField('createdAt', (issue) => issue.own?.createdAt ?? ''),
-    seq: rowField('seq', (issue) => issue.own?.seq ?? 0),
-    foldAt: rowField('foldAt', (issue) => issue.own?.foldAt ?? ''),
-    originTick: rowField('originTick', (issue) =>
-      originTickPartOf(issue.host.inputs, issue.originId), compareStructural,
-    ),
-    activityAt: rowField('activityAt', (issue) =>
-      rowActivityAtOf(issue.ownActivityAt, issue.rowRollup),
-    ),
-    loading: rowField('loading', (issue) => rowLoadingOf(issue.lazyLoading, issue.rowRollup)),
-  } satisfies {
-    readonly [F in Exclude<RowViewField, 'id' | 'selected'>]: (issue: IssueModel) => RowView[F]
-  }
-
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
   }
@@ -603,20 +435,28 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   // ------------------------------------------------------------- the groups
 
+  @lazy({ equals: compareStructural })
   get facts(): IssueFacts | undefined {
-    return IssueModel.groups.facts(this)
+    return issueFactsPartOf(this.host.visibleInputs, this.id)
   }
 
+  @lazy({ equals: compareStructural })
   get rank(): RowRank | undefined {
-    return IssueModel.groups.rank(this)
+    const part = this.facts?.part
+    return part === undefined ? undefined : rankOfPart(this.id, part)
   }
 
+  @lazy({ equals: compareStructural })
   get members(): MemberVerdicts {
-    return IssueModel.groups.members(this)
+    return memberVerdictsOf(this.host.visibleInputs, this.id, this.standing, this)
   }
 
+  @lazy({ equals: compareStructural })
   get presence(): Presence {
-    return IssueModel.groups.presence(this)
+    const hidden = this.hidden
+    return hidden === undefined
+      ? presenceOf(this.host.visibleInputs, this.id, this)
+      : hiddenPresenceOf(this.host.visibleInputs, this.id, hidden, this)
   }
 
   get nesting(): Nesting {
@@ -632,117 +472,174 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
       return nestingOf(this.host.visibleInputs, this.id, standing, true, null)
     }
-    return IssueModel.groups.nesting(this)
+    return this.nestingValue
   }
 
+  // Keep the root/absent shortcuts outside the lazy fields: those reads
+  // need neither a candidate nor a nesting cache.
+  @lazy({ equals: compareStructural })
+  private get nestingValue(): Nesting {
+    const present = this.present
+    return nestingOf(
+      this.host.visibleInputs,
+      this.id,
+      present ? this.standing : undefined,
+      present,
+      this.nestCandidate,
+    )
+  }
+
+  @lazy({ equals: compareStructural })
+  private get nestCandidateValue(): string | null {
+    const present = this.present
+    return nestCandidatePartOf(
+      this.host.visibleInputs,
+      this.id,
+      present ? this.standing : undefined,
+      present,
+    )
+  }
+
+  @lazy({ equals: compareStructural })
   get nestBelow(): readonly string[] {
-    return IssueModel.groups.nestBelow(this)
+    return nestBelowPartOf(this.host.visibleInputs, this.id)
   }
 
+  @lazy({ equals: compareStructural })
   get nested(): readonly string[] {
-    return IssueModel.groups.nested(this)
+    return nestedPartOf(this.host.visibleInputs, this.id, this)
   }
 
+  @lazy({ equals: compareStructural })
   get tip(): import('./worklist/rollup').Tip {
-    return IssueModel.groups.tip(this)
+    return tipPartOf(this.host.rollupInputs, this.id)
   }
 
+  @lazy({ equals: sameAttention })
   get attention(): Attention {
-    return IssueModel.groups.attention(this)
+    return attentionOf(this.host.rollupInputs, this.id, this)
   }
 
+  @lazy({ equals: compareStructural })
   get loaded(): Loaded {
-    return IssueModel.groups.loaded(this)
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return {
+      facts: ownFactsOf(row),
+      label: labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row),
+      originRef: originRefPartOf(this.host.inputs, this.id),
+    }
   }
 
+  @lazy
   get inMemory(): boolean {
-    return IssueModel.groups.inMemory(this)
+    return this.loaded.facts.state === 'ready'
   }
 
+  @lazy({ equals: compareStructural })
   get rowRollup(): Rollup {
-    return IssueModel.groups.rowRollup(this)
+    return this.host.inputs.rollup(this.id) ?? NO_ROLLUP
   }
 
   // ------------------------------------------ the row (RowView, L1b): the fields
 
+  @lazy
   get displayRef(): string {
-    return IssueModel.fields.displayRef(this)
+    return this.label.displayRef ?? ''
   }
 
+  @lazy
   get title(): string {
-    return IssueModel.fields.title(this)
+    return this.label.displayTitle ?? ''
   }
 
+  @lazy
   get phase(): SlicePhase {
-    return IssueModel.fields.phase(this)
+    return this.rowRollup.phase
   }
 
+  @lazy
   get progressDone(): number {
-    return IssueModel.fields.progressDone(this)
+    return this.rowRollup.progressDone
   }
 
+  @lazy
   get progressTotal(): number {
-    return IssueModel.fields.progressTotal(this)
+    return this.rowRollup.progressTotal
   }
 
+  @lazy
   get working(): boolean {
-    return IssueModel.fields.working(this)
+    return this.rowRollup.working
   }
 
+  @lazy
   get asking(): boolean {
-    return IssueModel.fields.asking(this)
+    return this.rowRollup.asking
   }
 
+  @lazy
   get workingSince(): number | null {
-    return IssueModel.fields.workingSince(this)
+    return this.rowRollup.workingSince
   }
 
+  @lazy
   get band(): 0 | 1 | 2 {
-    return IssueModel.fields.band(this)
+    return this.own?.band ?? 1
   }
 
+  @lazy
   get repoKey(): string {
-    return IssueModel.fields.repoKey(this)
+    return this.own?.repoKey ?? ''
   }
 
+  @lazy
   get closed(): boolean {
-    return IssueModel.fields.closed(this)
+    return unlessWaiting(this.own?.closed === true, this.rowRollup)
   }
 
+  @lazy
   get dismissed(): boolean {
-    return IssueModel.fields.dismissed(this)
+    return unlessWaiting(this.own?.dismissed === true, this.rowRollup)
   }
 
+  @lazy
   get pinned(): boolean {
-    return IssueModel.fields.pinned(this)
+    return this.own?.pinned === true
   }
 
+  @lazy
   get sortKey(): string | null {
-    return IssueModel.fields.sortKey(this)
+    return this.own?.sortKey ?? null
   }
 
+  @lazy
   get createdAt(): string {
-    return IssueModel.fields.createdAt(this)
+    return this.own?.createdAt ?? ''
   }
 
+  @lazy
   get seq(): number {
-    return IssueModel.fields.seq(this)
+    return this.own?.seq ?? 0
   }
 
+  @lazy
   get foldAt(): string {
-    return IssueModel.fields.foldAt(this)
+    return this.own?.foldAt ?? ''
   }
 
+  @lazy({ equals: compareStructural })
   get originTick(): RowOriginTick | null {
-    return IssueModel.fields.originTick(this)
+    return originTickPartOf(this.host.inputs, this.originId)
   }
 
+  @lazy
   get activityAt(): number {
-    return IssueModel.fields.activityAt(this)
+    return rowActivityAtOf(this.ownActivityAt, this.rowRollup)
   }
 
+  @lazy
   get loading(): true | undefined {
-    return IssueModel.fields.loading(this)
+    return rowLoadingOf(this.lazyLoading, this.rowRollup)
   }
 
   /** The selection local (a keyed read: only a change of THIS row's selection notifies). */
@@ -833,7 +730,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
       return null
     }
-    return IssueModel.groups.nestCandidate(this)
+    return this.nestCandidateValue
   }
 
   get nestParent(): string | null {
@@ -856,16 +753,19 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.attention.aggregate
   }
 
+  @lazy
   get seatActivity(): number | null {
-    return IssueModel.groups.activity(this)
+    return seatActivityPartOf(this.host.rollupInputs, this.id, this)
   }
 
+  @lazy({ equals: compareStructural })
   get unitOwn(): UnitOwn {
-    return IssueModel.groups.unitOwn(this)
+    return unitOwnPartOf(this.host.rollupInputs, this.id, this)
   }
 
+  @lazy({ equals: compareStructural })
   get unitsBelow(): Units {
-    return IssueModel.groups.unitsBelow(this)
+    return unitsBelowPartOf(this.host.rollupInputs, this.id)
   }
 
   get label(): Label {
@@ -968,39 +868,19 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
-  private static readonly headerWorking = cachedGroup('headerWorking', (session: SessionModel) =>
-    headerWorkingSession(session.row as SessionView | undefined, session.host.inputs.passed), compareStructural,
-  )
-  private static readonly headerHost = cachedGroup('headerHost', (session: SessionModel) =>
-    headerHostSession(session.row as SessionView | undefined), compareStructural,
-  )
+  @lazy({ equals: compareStructural })
   get headerWorking() {
-    return SessionModel.headerWorking(this)
+    return headerWorkingSession(this.row as SessionView | undefined, this.host.inputs.passed)
   }
+
+  @lazy({ equals: compareStructural })
   get headerHost() {
-    return SessionModel.headerHost(this)
+    return headerHostSession(this.row as SessionView | undefined)
   }
-  private static readonly headerDock = cachedGroup('headerDock', (session: SessionModel) =>
-    headerDockSession(session.row as SessionView | undefined), compareStructural,
-  )
+
+  @lazy({ equals: compareStructural })
   get headerDock() {
-    return SessionModel.headerDock(this)
-  }
-  private static readonly groups = {
-    retention: cachedGroup('retention', (session: SessionModel) =>
-      retentionOf(session.host.visibleInputs.sessionRow(session.id)), compareStructural,
-    ),
-    activityMs: cachedGroup('activityMs', (session: SessionModel) =>
-      activityMsOf(session.host.visibleInputs.sessionRow(session.id)),
-    ),
-    links: cachedGroup('links', (session: SessionModel) =>
-      sessionLinksOf(session.host.visibleInputs, session.id), compareStructural,
-    ),
-    verdict: cachedGroup(
-      'verdict',
-      (session: SessionModel) => verdictPartOf(session.host.visibleInputs, session.id),
-      sameVerdict,
-    ),
+    return headerDockSession(this.row as SessionView | undefined)
   }
 
   constructor(id: string, host: ModelHost) {
@@ -1008,22 +888,26 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   }
 
   /** Its part in its issue's visibility, hot or cold. */
+  @lazy({ equals: compareStructural })
   get retention(): Retention | null {
-    return SessionModel.groups.retention(this)
+    return retentionOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
   /** Its `lastActiveAt`, hot or cold: the unread rollup's and the row's activity stamp. */
+  @lazy
   get activityMs(): number | null {
-    return SessionModel.groups.activityMs(this)
+    return activityMsOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
+  @lazy({ equals: compareStructural })
   get links(): SessionLinks {
-    return SessionModel.groups.links(this)
+    return sessionLinksOf(this.host.visibleInputs, this.id)
   }
 
   /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
+  @lazy({ equals: sameVerdict })
   get verdict(): LoadedRow<SeatVerdict> {
-    return SessionModel.groups.verdict(this)
+    return verdictPartOf(this.host.visibleInputs, this.id)
   }
 
   get issueLink(): string | null {
@@ -1036,16 +920,13 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 }
 
 class WorktreeModel extends EntityModel {
-  private static readonly roster = cachedGroup('roster', (worktree: WorktreeModel) =>
-    sidebarRosterOf(worktree.host, worktree.id), compareStructural,
-  )
-
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
   }
 
+  @lazy({ equals: compareStructural })
   get roster(): SidebarRoster {
-    return WorktreeModel.roster(this)
+    return sidebarRosterOf(this.host, this.id)
   }
 }
 
