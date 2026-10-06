@@ -78,6 +78,37 @@ function flushViewport(): void {
 }
 
 describe('bounded variable-height issue window', () => {
+  it('keeps selection redraw and scroll ID reads flat at 1x and 4x', () => {
+    vi.useFakeTimers()
+    const counts = [1, 4].map(scale => {
+      let reads = 0
+      const keys = new Proxy(Array.from({ length: 674 * scale }, (_, index) => `issue-${index}`), {
+        get(target, key, receiver) {
+          if (typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key)) reads++
+          return Reflect.get(target, key, receiver)
+        },
+      })
+      const view = render(<WindowHarness keys={keys} />)
+      const scroll = view.getByTestId('scroll')
+      sizeViewport(scroll, 320)
+      flushViewport()
+      reads = 0
+      view.rerender(<WindowHarness keys={keys} focusKey="issue-2" />)
+      flushViewport()
+      const selection = reads
+      reads = 0
+      scroll.scrollTop = 400
+      fireEvent.scroll(scroll)
+      flushViewport()
+      const scrolling = reads
+      expect(view.getAllByTestId('row').length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS + 1)
+      view.unmount()
+      console.info('board viewport ID reads', JSON.stringify({ scale, selection, scrolling }))
+      return { selection, scrolling }
+    })
+    expect(counts[1]).toEqual(counts[0])
+  })
+
   it('keeps the 674-row DOM bounded after deep scrolling', () => {
     vi.useFakeTimers()
     const view = render(<WindowHarness />)
