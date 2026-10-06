@@ -11,6 +11,7 @@ import type { TranscriptPage } from '@podium/client-core/transcript'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId, asSessionId, asUserId, type SessionId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
@@ -275,15 +276,22 @@ it('FlightDeckWaterfall activity acquires the existing runtime API without a sna
 
 it('useHandoffTranscript acquires the existing runtime and replica without a snapshot subscription', async () => {
   const ctx = setup()
-  const { result } = renderHook(() => useHandoffTranscript(true, [session]), {
-    wrapper: ctx.Wrapper,
+  // The hook reads the shared log while rendering, so its consumer is an
+  // observer like the handoff leaf in FlightDeckHandoff.
+  const ref: { current: ReturnType<typeof useHandoffTranscript> | undefined } = {
+    current: undefined,
+  }
+  const Probe = observer(function Probe() {
+    ref.current = useHandoffTranscript(true, [session])
+    return null
   })
+  render(<Probe />, { wrapper: ctx.Wrapper })
   await ctx.prove()
   expect(ctx.reads.transcript).toHaveBeenCalledExactlyOnceWith({
     sessionId: session.sessionId,
     direction: 'before',
     limit: 200,
   })
-  expect(result.current.pair?.prompt.item.text).toBe('Synthetic prompt')
+  expect(ref.current?.pair?.prompt.item.text).toBe('Synthetic prompt')
   expect(ctx.replica.putTranscriptWindow).toHaveBeenCalledTimes(1)
 })

@@ -11,6 +11,7 @@ import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { renderReadoutMarkdown } from '@/lib/markdown'
@@ -236,50 +237,18 @@ function ExpandRows({ count, onClick }: { count: number; onClick: () => void }):
   )
 }
 
-export function FlightDeckHandoff({
-  rootIssue,
-  issues,
-  lookupSession,
+/** Latest prompt/answer cards. An observer leaf so the shared transcript pair
+ *  is read while rendering (POD-5652); the surrounding pane never subscribes. */
+const HandoffTranscript = observer(function HandoffTranscript({
+  candidates,
   visitReadAt,
-  proposed,
   onOpenTranscript,
-  onOpenSession,
-  onOpenIssue,
-  poolValues,
 }: {
-  rootIssue: IssueNavigationModel
-  issues: readonly IssueNavigationModel[]
-  /** A mission sender by id, archived included. */
-  lookupSession: (id: string) => SessionView | undefined
+  candidates: readonly SessionView[]
   visitReadAt: string | null
-  proposed: ReactNode
   onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
-  onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
-  onOpenIssue: (issueId: IssueId) => void
-  poolValues: MissionHandoffValues
 }): JSX.Element {
-  const { crew, retired, current, next } = poolValues
-  // Archived senders arrive summarized: their latest prompt competes with the
-  // seated crew's, and every one of them counts as exited or archived.
-  const candidates = useMemo(
-    () => (retired.latestPrompt ? [...crew, retired.latestPrompt] : crew),
-    [crew, retired.latestPrompt],
-  )
   const transcript = useHandoffTranscript(true, candidates)
-  const summary = useMemo(() => {
-    const seated = summarizeHandoffSessions(crew)
-    return { ...seated, exited: seated.exited + retired.count }
-  }, [crew, retired.count])
-  const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
-  const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)
-  const displayedCurrent = useMemo(() => current.slice(0, currentLimit), [current, currentLimit])
-  const returns = useReviewReturns(displayedCurrent, issues)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset visible limits when the mission changes.
-  useEffect(() => {
-    setCurrentLimit(INITIAL_ROWS)
-    setNextLimit(INITIAL_ROWS)
-  }, [rootIssue.id])
-  const issueById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
   const pair = transcript.pair
   const answer = pair?.answer
   const answerAt = answer?.item.ts ? Date.parse(answer.item.ts) : Number.NaN
@@ -290,32 +259,8 @@ export function FlightDeckHandoff({
     Number.isFinite(answerAt) &&
     Number.isFinite(baselineAt) &&
     answerAt > baselineAt
-
-  const summaryParts = [
-    `${summary.computing} computing now`,
-    `${summary.idle} live but idle`,
-    `${summary.hibernated} hibernated`,
-    ...(summary.exited > 0 ? [`${summary.exited} exited or archived`] : []),
-  ]
-
   return (
-    <div className="handoff-view" data-testid="flight-deck-handoff">
-      <section className="handoff-return-brief">
-        <div className="handoff-return-brief-head">
-          <h3>Last update</h3>
-          {formatStamp(rootIssue.notesUpdatedAt) && (
-            <span className="tabular-nums">{formatStamp(rootIssue.notesUpdatedAt)}</span>
-          )}
-        </div>
-        {rootIssue.activityNotes?.trim() ? (
-          <div className="handoff-return-copy">
-            <ReadoutMarkdown text={rootIssue.activityNotes.trim()} />
-          </div>
-        ) : (
-          <p className="handoff-empty">No issue update has been recorded.</p>
-        )}
-      </section>
-
+    <>
       <HandoffSection
         title="Last prompt"
         meta={
@@ -370,6 +315,84 @@ export function FlightDeckHandoff({
           )}
         </div>
       </HandoffSection>
+    </>
+  )
+})
+
+export function FlightDeckHandoff({
+  rootIssue,
+  issues,
+  lookupSession,
+  visitReadAt,
+  proposed,
+  onOpenTranscript,
+  onOpenSession,
+  onOpenIssue,
+  poolValues,
+}: {
+  rootIssue: IssueNavigationModel
+  issues: readonly IssueNavigationModel[]
+  /** A mission sender by id, archived included. */
+  lookupSession: (id: string) => SessionView | undefined
+  visitReadAt: string | null
+  proposed: ReactNode
+  onOpenTranscript: (sessionId: SessionId, itemKey: string) => void
+  onOpenSession: (issueId: IssueId, sessionId: SessionId) => void
+  onOpenIssue: (issueId: IssueId) => void
+  poolValues: MissionHandoffValues
+}): JSX.Element {
+  const { crew, retired, current, next } = poolValues
+  // Archived senders arrive summarized: their latest prompt competes with the
+  // seated crew's, and every one of them counts as exited or archived.
+  const candidates = useMemo(
+    () => (retired.latestPrompt ? [...crew, retired.latestPrompt] : crew),
+    [crew, retired.latestPrompt],
+  )
+  const summary = useMemo(() => {
+    const seated = summarizeHandoffSessions(crew)
+    return { ...seated, exited: seated.exited + retired.count }
+  }, [crew, retired.count])
+  const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
+  const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)
+  const displayedCurrent = useMemo(() => current.slice(0, currentLimit), [current, currentLimit])
+  const returns = useReviewReturns(displayedCurrent, issues)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset visible limits when the mission changes.
+  useEffect(() => {
+    setCurrentLimit(INITIAL_ROWS)
+    setNextLimit(INITIAL_ROWS)
+  }, [rootIssue.id])
+  const issueById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
+
+  const summaryParts = [
+    `${summary.computing} computing now`,
+    `${summary.idle} live but idle`,
+    `${summary.hibernated} hibernated`,
+    ...(summary.exited > 0 ? [`${summary.exited} exited or archived`] : []),
+  ]
+
+  return (
+    <div className="handoff-view" data-testid="flight-deck-handoff">
+      <section className="handoff-return-brief">
+        <div className="handoff-return-brief-head">
+          <h3>Last update</h3>
+          {formatStamp(rootIssue.notesUpdatedAt) && (
+            <span className="tabular-nums">{formatStamp(rootIssue.notesUpdatedAt)}</span>
+          )}
+        </div>
+        {rootIssue.activityNotes?.trim() ? (
+          <div className="handoff-return-copy">
+            <ReadoutMarkdown text={rootIssue.activityNotes.trim()} />
+          </div>
+        ) : (
+          <p className="handoff-empty">No issue update has been recorded.</p>
+        )}
+      </section>
+
+      <HandoffTranscript
+        candidates={candidates}
+        visitReadAt={visitReadAt}
+        onOpenTranscript={onOpenTranscript}
+      />
 
       <div className="handoff-now-divider">
         <span>Now · issue and session state</span>

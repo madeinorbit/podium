@@ -3,7 +3,8 @@ import { TranscriptLog } from '@podium/client-core/conversation'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 import type { TranscriptPage } from '@podium/client-core/transcript'
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useHandoffTranscript } from './use-handoff-transcript'
 
@@ -87,6 +88,20 @@ const item = (id: string, role: TranscriptItem['role'], text: string, offset: nu
   cursor: at(offset),
 })
 
+type HandoffState = ReturnType<typeof useHandoffTranscript>
+
+// The hook reads shared observables while rendering, so its consumer must be
+// an observer: this probe stands in for the handoff leaf in FlightDeckHandoff.
+function probe(active: boolean, sessions: readonly SessionView[]): { current: HandoffState | undefined } {
+  const ref: { current: HandoffState | undefined } = { current: undefined }
+  const Probe = observer(function Probe() {
+    ref.current = useHandoffTranscript(active, sessions)
+    return null
+  })
+  render(<Probe />)
+  return ref
+}
+
 beforeEach(() => {
   for (const entry of harness.shells.values()) entry.conversation.transcript.dispose()
   harness.shells.clear()
@@ -95,8 +110,8 @@ beforeEach(() => {
 describe('useHandoffTranscript', () => {
   it('does no transcript work while inactive', () => {
     shell('hook-inactive', { items: [], hasMore: false })
-    const { result } = renderHook(() => useHandoffTranscript(false, [session('hook-inactive')]))
-    expect(result.current.status).toBe('empty')
+    const ref = probe(false, [session('hook-inactive')])
+    expect(ref.current?.status).toBe('empty')
     expect(harness.shells.get('hook-inactive')!.read).not.toHaveBeenCalled()
   })
 
@@ -107,9 +122,7 @@ describe('useHandoffTranscript', () => {
       tail: at(30),
       hasMore: true,
     })
-    const { result } = renderHook(() =>
-      useHandoffTranscript(true, [session('hook-paged', '2026-09-01T10:01:00.000Z')]),
-    )
+    const ref = probe(true, [session('hook-paged', '2026-09-01T10:01:00.000Z')])
     // Stage the older page synchronously: the shared log reads it on a
     // microtask the hook has not reached yet.
     entry.setPage({
@@ -121,11 +134,11 @@ describe('useHandoffTranscript', () => {
       tail: at(20),
       hasMore: false,
     })
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    expect(result.current.pair?.prompt.item.id).toBe('prompt')
-    expect(result.current.pair?.answer?.item.id).toBe('answer')
-    expect(result.current.pair?.prompt.anchor.itemKey).toBe(at(10))
-    expect(result.current.pair?.answer?.anchor.itemKey).toBe(at(30))
+    await waitFor(() => expect(ref.current?.status).toBe('ready'))
+    expect(ref.current?.pair?.prompt.item.id).toBe('prompt')
+    expect(ref.current?.pair?.answer?.item.id).toBe('answer')
+    expect(ref.current?.pair?.prompt.anchor.itemKey).toBe(at(10))
+    expect(ref.current?.pair?.answer?.anchor.itemKey).toBe(at(30))
     expect(entry.read).toHaveBeenNthCalledWith(2, {
       sessionId: 'hook-paged',
       anchor: at(30),
@@ -141,13 +154,11 @@ describe('useHandoffTranscript', () => {
       tail: at(30),
       hasMore: true,
     })
-    const { result } = renderHook(() =>
-      useHandoffTranscript(true, [session('hook-retry', '2026-09-01T10:02:00.000Z')]),
-    )
+    const ref = probe(true, [session('hook-retry', '2026-09-01T10:02:00.000Z')])
     // Fail the hook's older-page read, not the log's initial refresh: queue
     // synchronously so it lands on the second source call.
     entry.read.mockRejectedValueOnce(new Error('offline'))
-    await waitFor(() => expect(result.current.status).toBe('error'))
+    await waitFor(() => expect(ref.current?.status).toBe('error'))
     entry.setPage({
       items: [
         item('prompt', 'user', 'Fresh question', 10),
@@ -157,9 +168,9 @@ describe('useHandoffTranscript', () => {
       tail: at(30),
       hasMore: false,
     })
-    act(() => result.current.retry())
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    expect(result.current.pair?.prompt.item.id).toBe('prompt')
+    act(() => ref.current?.retry())
+    await waitFor(() => expect(ref.current?.status).toBe('ready'))
+    expect(ref.current?.pair?.prompt.item.id).toBe('prompt')
   })
 
   it('follows a new message on the shared log', async () => {
@@ -172,15 +183,13 @@ describe('useHandoffTranscript', () => {
       tail: at(20),
       hasMore: false,
     })
-    const { result } = renderHook(() =>
-      useHandoffTranscript(true, [session('hook-live', '2026-09-01T10:03:00.000Z')]),
-    )
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    expect(result.current.pair?.answer?.item.id).toBe('reply-1')
-    expect(result.current.pair?.answer?.legacy).toBe(true)
+    const ref = probe(true, [session('hook-live', '2026-09-01T10:03:00.000Z')])
+    await waitFor(() => expect(ref.current?.status).toBe('ready'))
+    expect(ref.current?.pair?.answer?.item.id).toBe('reply-1')
+    expect(ref.current?.pair?.answer?.legacy).toBe(true)
     act(() => {
       entry.conversation.transcript.merge([item('reply-2', 'assistant', 'latest', 40)])
     })
-    await waitFor(() => expect(result.current.pair?.answer?.item.id).toBe('reply-2'))
+    await waitFor(() => expect(ref.current?.pair?.answer?.item.id).toBe('reply-2'))
   })
 })

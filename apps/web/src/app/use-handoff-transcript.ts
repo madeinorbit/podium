@@ -7,7 +7,6 @@ import {
   selectLatestPromptSession,
   type HandoffTranscriptPair,
 } from '@podium/client-core/values'
-import { reaction } from 'mobx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import {
@@ -29,6 +28,10 @@ type HandoffTranscriptState =
  *  session opened here and in chat shares one log, one read stream and one
  *  maintained prompt/answer pair. The hook never fetches or merges transcript
  *  pages itself; it pages the shared log until the maintained pair resolves.
+ *
+ *  Call this inside an observer component: the pair and paging flags below
+ *  are read while rendering, which subscribes that component to the shared
+ *  log. There is no snapshot state and no reaction here.
  */
 export function useHandoffTranscript(
   active: boolean,
@@ -51,32 +54,10 @@ export function useHandoffTranscript(
     { enabled },
   )
   const transcript = conversation?.transcript
-  const [snapshot, setSnapshot] = useState(() => ({
-    pair: transcript?.latestHandoffPair ?? null,
-    initialLoaded: transcript?.initialLoaded ?? false,
-    hasMoreOlder: transcript?.hasMoreOlder ?? false,
-    loadingOlder: transcript?.loadingOlder ?? false,
-  }))
-  // Bridge the shared log's observables into React state. The reaction wakes
-  // only when a field it read moves; setting state from it cannot loop.
-  useEffect(() => {
-    setSnapshot({
-      pair: transcript?.latestHandoffPair ?? null,
-      initialLoaded: transcript?.initialLoaded ?? false,
-      hasMoreOlder: transcript?.hasMoreOlder ?? false,
-      loadingOlder: transcript?.loadingOlder ?? false,
-    })
-    if (!transcript) return
-    return reaction(
-      () => ({
-        pair: transcript.latestHandoffPair ?? null,
-        initialLoaded: transcript.initialLoaded,
-        hasMoreOlder: transcript.hasMoreOlder,
-        loadingOlder: transcript.loadingOlder,
-      }),
-      (next) => setSnapshot(next),
-    )
-  }, [transcript])
+  const pair = transcript?.latestHandoffPair ?? null
+  const initialLoaded = transcript?.initialLoaded ?? false
+  const hasMoreOlder = transcript?.hasMoreOlder ?? false
+  const loadingOlder = transcript?.loadingOlder ?? false
   const [pageFailed, setPageFailed] = useState(false)
   const failedRef = useRef(false)
   useEffect(() => {
@@ -86,7 +67,7 @@ export function useHandoffTranscript(
 
   useEffect(() => {
     if (!active || !transcript || failedRef.current) return
-    if (transcript.latestHandoffPair !== null) return
+    if (pair !== null) return
     let cancelled = false
     void (async () => {
       while (
@@ -108,14 +89,7 @@ export function useHandoffTranscript(
     return () => {
       cancelled = true
     }
-  }, [
-    active,
-    transcript,
-    snapshot.pair,
-    snapshot.loadingOlder,
-    snapshot.hasMoreOlder,
-    pageFailed,
-  ])
+  }, [active, transcript, pair, loadingOlder, hasMoreOlder, pageFailed])
 
   const retry = useCallback(() => {
     if (!transcript) return
@@ -128,10 +102,9 @@ export function useHandoffTranscript(
   }, [transcript])
 
   if (!active || !session) return { status: 'empty', session: null, pair: null, retry }
-  if (snapshot.pair)
-    return { status: 'ready', session, pair: snapshot.pair, retry }
+  if (pair) return { status: 'ready', session, pair, retry }
   if (pageFailed) return { status: 'error', session, pair: null, retry }
-  if (!snapshot.initialLoaded || snapshot.loadingOlder || snapshot.hasMoreOlder)
+  if (!initialLoaded || loadingOlder || hasMoreOlder)
     return { status: 'loading', session, pair: null, retry }
   return { status: 'empty', session, pair: null, retry }
 }
