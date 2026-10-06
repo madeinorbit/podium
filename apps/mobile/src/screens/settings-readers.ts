@@ -92,7 +92,7 @@ function machineReaders(pool: MobxPool) {
         if (!loaded(row)) return null
         const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
         const { name, online, statusLabel, updateChannel, updateLabel } = view
-        return { id, name, online, statusLabel, updateChannel, updateLabel }
+        return { id: view.id, name, online, statusLabel, updateChannel, updateLabel }
       },
     )
     return {
