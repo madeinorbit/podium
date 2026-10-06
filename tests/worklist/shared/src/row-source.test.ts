@@ -21,7 +21,12 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import type { RowSourceReplica, RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import {
+  type CompanionRead,
+  joinedFields,
+  SESSION_JOIN_FIELDS,
+} from '@podium/client-graph/shared/joined-fields'
 import { type RowSourceMode } from './row-source'
 import { createRowSource } from './row-source'
 import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
@@ -80,6 +85,41 @@ const joinedSessionValues = {
   condition: 'logged-out',
   handoffTarget: 'Target',
 } as const
+
+/**
+ * S6: the source emits own fields + personal markers. Display companions
+ * (displayRef, machineName, condition, handoffTarget) arrive as repo/machine
+ * records and join at the readers — never in the session event. These pin
+ * the value the event no longer carries, through the layer that now owns it,
+ * over the same fixture companions, so no pinned value is lost.
+ */
+const ownSessionMarkers = {
+  readAt: joinedSessionValues.readAt,
+  unread: joinedSessionValues.unread,
+  snoozedUntil: joinedSessionValues.snoozedUntil,
+} as const
+const joinedDisplayValues = {
+  displayRef: joinedSessionValues.displayRef,
+  machineName: joinedSessionValues.machineName,
+  condition: joinedSessionValues.condition,
+  handoffTarget: joinedSessionValues.handoffTarget,
+} as const
+function companionReader(replica: Pick<RowSourceReplica, 'row'>): CompanionRead {
+  return (kind, id) =>
+    (replica.row?.(
+      kind === 'machine' ? 'machines' : 'repos',
+      id,
+    ) as Record<string, unknown> | undefined) ?? undefined
+}
+/** The full composed session the event carried pre-S6, via the join facade. */
+function expectJoinedSession(
+  replica: Pick<RowSourceReplica, 'row'>,
+  value: Record<string, unknown>,
+) {
+  expect({ ...joinedFields('session', value, SESSION_JOIN_FIELDS, companionReader(replica)) }).toEqual(
+    { ...value, ...joinedDisplayValues },
+  )
+}
 
 /** S6 keeps display and personal cells in companions, never in the raw session. */
 function sessionWithCompanions(cache: FakeCache, id: string, extra: Record<string, unknown> = {}) {
@@ -311,7 +351,20 @@ describe('row-source over the real facade (fake runtime)', () => {
       expect(event?.type).toBe('update')
       expect(event?.rows).toHaveLength(1)
       expect(event?.rows[0]).toMatchObject({ kind: 'session', id: 's1' })
-      expect(event?.rows[0]?.value).toEqual({ ...value, ...joinedSessionValues })
+      // S6: own fields + personal markers on the event; companions join at readers.
+      expect(event?.rows[0]?.value).toEqual({ ...value, ...ownSessionMarkers })
+      expectJoinedSession(replica, event?.rows[0]?.value as Record<string, unknown>)
+      expect(replica.row?.('repos', 'r1')).toEqual({ id: 'r1', prefix: 'POD' })
+      expect(replica.row?.('machines', 'm1')).toEqual({
+        id: 'm1',
+        name: 'Source',
+        loggedOutHarnesses: ['codex'],
+      })
+      expect(replica.row?.('machines', 'm2')).toEqual({
+        id: 'm2',
+        name: 'Target',
+        loggedOutHarnesses: [],
+      })
       expect(event?.rows[0]?.value).not.toBe(value)
       expect(event?.rows[0]?.value).toBe(handle.source.row?.('session', 's1'))
       expect(replica.row?.('sessions', 's1')).toBe(value)
@@ -433,13 +486,23 @@ describe('row-source over the real facade (fake runtime)', () => {
         pinned: true,
         readAt: 'read',
         tuckedAt: 'tuck',
-        repoPath: '/repo',
         gitState: { ahead: 3 },
         asked: { question: 'Ship?' },
         intentOrigin: 'agent',
         isDraftVessel: true,
       })
       expect(issue?.value).not.toHaveProperty('commentCount')
+      // S6: the repo path is not on the issue row; it joins at the readers.
+      expect(issue?.value).not.toHaveProperty('repoPath')
+      expect(
+        joinedFields(
+          'issue',
+          issue?.value as Record<string, unknown>,
+          ['repoPath'],
+          companionReader(replica),
+        ),
+      ).toMatchObject({ repoPath: '/repo' })
+      expect(replica.row?.('repos', 'r1')).toEqual({ id: 'r1', repoPath: '/repo' })
       expect(handle.source.row?.('issue', 'i1')).toBe(issue?.value)
       handle.stats.reset()
       cache.put(
@@ -454,8 +517,8 @@ describe('row-source over the real facade (fake runtime)', () => {
         title: 'Projection-only update',
         pinned: true,
         readAt: 'read',
-        repoPath: '/repo',
       })
+      expect(updated?.rows[0]?.value).not.toHaveProperty('repoPath')
       expect(handle.stats.rowsVisited).toBe(1)
       expect(handle.stats.enumerations).toBe(0)
     } finally {
@@ -604,8 +667,9 @@ describe('row-source over the real facade (fake runtime)', () => {
       runtime.publish()
       const inserted = events.at(-1)
       expect(inserted?.rows).toEqual([
-        { kind: 'session', id: 's2', value: { ...placeholder, ...joinedSessionValues } },
+        { kind: 'session', id: 's2', value: { ...placeholder, ...ownSessionMarkers } },
       ])
+      expectJoinedSession(replica, inserted?.rows[0]?.value as Record<string, unknown>)
       expect(handle.source.row?.('session', 's2')).toBe(inserted?.rows[0]?.value)
 
       // The server row lands in the same drain the ledger retires the insert.
@@ -618,8 +682,9 @@ describe('row-source over the real facade (fake runtime)', () => {
       const landed = events.at(-1)
       expect(events).toHaveLength(3)
       expect(landed?.rows).toEqual([
-        { kind: 'session', id: 's2', value: { ...real, ...joinedSessionValues } },
+        { kind: 'session', id: 's2', value: { ...real, ...ownSessionMarkers } },
       ])
+      expectJoinedSession(replica, landed?.rows[0]?.value as Record<string, unknown>)
       expect(landed?.rows[0]?.value).not.toBe(inserted?.rows[0]?.value)
       expect(handle.source.row?.('session', 's2')).toBe(landed?.rows[0]?.value)
       expect(handle.source.row?.('session', 's1')).toBe(before)
@@ -659,7 +724,8 @@ describe('row-source over the real facade (fake runtime)', () => {
         expect(one).toEqual(all)
         if (mode === 'truth') expect(one).toBe(truth)
         // Unchanged normalized inputs keep the same composed session object.
-        expect(composedSession).toEqual({ ...session, ...joinedSessionValues })
+        expect(composedSession).toEqual({ ...session, ...ownSessionMarkers })
+        expectJoinedSession(replica, composedSession as Record<string, unknown>)
         expect(handle.source.row?.('session', 's1')).toBe(composedSession)
         expect(replica.row?.('sessions', 's1')).toBe(session)
         expect(handle.source.row?.('session', 'gone')).toBeUndefined()
@@ -686,8 +752,9 @@ describe('row-source over the real facade (fake runtime)', () => {
     try {
       const sessions = handle.source.snapshot('session')
       expect(sessions).toEqual([
-        { kind: 'session', id: 's1', value: { ...s, ...joinedSessionValues } },
+        { kind: 'session', id: 's1', value: { ...s, ...ownSessionMarkers } },
       ])
+      expectJoinedSession(replica, sessions[0]?.value as Record<string, unknown>)
       expect(handle.source.snapshot('session')[0]?.value).toBe(sessions[0]?.value)
       expect(handle.source.row?.('session', 's1')).toBe(sessions[0]?.value)
       expect(replica.row?.('sessions', 's1')).toBe(s)
@@ -1161,7 +1228,6 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
                 repoId: 'r1',
                 repoPath: '/repo-a',
                 repoName: 'repo-a',
-                prefix: 'POD',
                 branch: 'main',
                 isMain: true,
                 projectIndex: 0,
@@ -1170,6 +1236,8 @@ describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)'
               },
             },
           ])
+          // S6: the prefix lives on the repo companion record, not the lane.
+          expect(cache.read('repo', 'r1')?.value).toEqual({ id: 'r1', prefix: 'POD' })
           expect(events, 'one discovery, one event').toHaveLength(1)
           expect(handle.stats.rowsVisited, 'visited == the lanes the answer names').toBe(1)
 
