@@ -131,7 +131,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
   const latest = vi.spyOn(pool.queries, 'latestMachineSession').mockReturnValue(undefined)
   const pins = observable.box({
     repos: ['/first'],
-    worktrees: ['/first', '/first/linked', '/second', '/second/linked'],
+    worktrees: ['/first', '/first/linked', '/second', '/second/linked', '/unlisted'],
   })
   pool.sources.register(['commandWindow'], {
     read: () =>
