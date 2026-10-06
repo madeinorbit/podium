@@ -8,15 +8,15 @@ import {
   taskStateWord,
 } from '@podium/client-core/values'
 import { autorun, reaction } from 'mobx'
-import type { MissionViewValues } from '../../../packages/client-graph/src/mission-view'
+import type { MissionViewValues } from '@podium/client-graph/mission-view'
 import type {
   MobileMissionData,
   MobileTasksData,
   MobileTasksOptions,
-} from '../../../packages/client-graph/src/mobile-screens-schema'
-import { EMPTY_MOBILE_TASKS } from '../../../packages/client-graph/src/mobile-screens-schema'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+} from '@podium/client-graph/mobile-screens-schema'
+import { EMPTY_MOBILE_TASKS } from '@podium/client-graph/mobile-screens-schema'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sessionComparable } from './oracle'
 import {
   type SidebarSnapshot,

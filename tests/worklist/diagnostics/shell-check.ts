@@ -15,10 +15,10 @@ import {
 } from '@podium/client-core/values'
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { ReferenceState as Store } from './reference-state'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { SHELL_SCHEMA, SHELL_SUMMARIES } from '../../../packages/client-graph/src/shell-schema'
-import { shellViews } from '../../../packages/client-graph/src/shell-views'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
+import { shellViews } from '@podium/client-graph/shell-views'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 const fields = (value: object, keys: readonly string[]) =>

@@ -146,7 +146,7 @@ describe('the pool over the app-owned runtime', () => {
     const offPool = vi.spyOn(handle.pool, 'dispose')
     try {
       expect(rows.mock.calls[0]?.slice(0, 2)).toEqual([ctx.engine, ctx.engine.replica])
-      expect(rows.mock.calls[0]?.[2]?.mode).toBe('pooled')
+      expect(rows.mock.calls[0]?.[2]?.pending).toBe(handle.transactions.pending)
       expect(locals).toHaveBeenCalledWith(ctx.engine)
       handle.dispose()
       handle.dispose()

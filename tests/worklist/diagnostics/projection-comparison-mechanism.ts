@@ -1,6 +1,6 @@
 /** Counts collection-field comparisons for one active selection click. */
-import { MobxPool } from '../../../packages/client-graph/src/pool'
-import { createPoolProjection } from '../../../packages/client-graph/src/runtime-pool'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 
 export function projectionComparisonMechanism(scale: 1 | 4) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })

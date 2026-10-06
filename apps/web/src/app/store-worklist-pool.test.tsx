@@ -129,7 +129,9 @@ describe('StoreProvider owns the sidebar pool', () => {
     try {
       render()
       await ready()
-      expect(create.mock.calls[0]?.[1]?.owns).toEqual(POOL_OWNED_KINDS)
+      const attached = create.mock.results[0]!.value
+      expect(attached.transactions.pending.byRow('sessions')).toBeDefined()
+      expect(attached.transactions.pending.byRow('issueProjections')).toBeDefined()
       expect(errors).toEqual([])
     } finally {
       history.replaceState(null, '', previous)

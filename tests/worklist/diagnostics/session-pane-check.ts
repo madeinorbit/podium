@@ -9,10 +9,10 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 
 import { allIssueViewModels } from './reference/issue-view-models'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { paneSession, paneWindow, paneMachines, paneStampIssue, paneIssueColor } from '../../../packages/client-graph/src/session-pane'
-import { SESSION_PANE_SCHEMA } from '../../../packages/client-graph/src/session-pane-schema'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { paneSession, paneWindow, paneMachines, paneStampIssue, paneIssueColor } from '@podium/client-graph/session-pane'
+import { SESSION_PANE_SCHEMA } from '@podium/client-graph/session-pane-schema'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
 
 export function paneComparable(row: SessionView | undefined, now: number): Record<string, unknown> {

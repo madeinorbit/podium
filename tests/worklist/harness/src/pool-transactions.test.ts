@@ -611,7 +611,7 @@ describe.each([
         if (counting) reads += 1
         return original(...args)
       }
-      const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
+      const pooled = createRuntimeWorklistPool(ctx.engine)
       cleanups.push(() => pooled.dispose())
       const pool = pooled.pool
       // A mounted sidebar: the layout and each visible row's displayed cells.
@@ -773,7 +773,7 @@ describe.each([
         if (counting) reads += 1
         return original(...args)
       }
-      const pooled = createRuntimeWorklistPool(ctx.engine, { owns })
+      const pooled = createRuntimeWorklistPool(ctx.engine)
       cleanups.push(() => pooled.dispose())
       const pool = pooled.pool
       const stop = autorun(() => {

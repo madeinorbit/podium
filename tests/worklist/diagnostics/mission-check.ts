@@ -4,10 +4,10 @@ import { missionIssueIds, missionRootFor } from '@podium/client-core/values'
 import type { MissionIssueTopology } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { knownIds } from '../../../packages/client-graph/src/enumerate'
-import { missions } from '../../../packages/client-graph/src/mission'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { knownIds } from '@podium/client-graph/enumerate'
+import { missions } from '@podium/client-graph/mission'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 export interface MissionCheckRow {
   readonly id: string

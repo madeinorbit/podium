@@ -1,4 +1,4 @@
-import { isFinished } from '../../../packages/client-graph/src/shared/predicates'
+import { isFinished } from '@podium/client-graph/shared/predicates'
 /** Diagnostic only: compare actual mission-view inputs from one publication.
  * Report locations, counts and opaque IDs; prose never leaves the comparator. */
 import type { ReferenceState as Store } from './reference-state'
@@ -13,9 +13,9 @@ import {
   missionIssueIds, missionProgress, missionRootFor, missionSessions, presenceNote, reposToViews,
   selectedMissionRoot, selectLatestPromptSession, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
 } from '@podium/client-core/values'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { EMPTY_MISSION_HANDOFF, missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '../../../packages/client-graph/src/mission-view'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { EMPTY_MISSION_HANDOFF, missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { ISSUE_CONTENT_FIELDS, sessionComparable } from './oracle'
 import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot, type SidebarDifference } from './sidebar-check'
 

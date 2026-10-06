@@ -9,9 +9,9 @@ import type { ReferenceState as Store } from './reference-state'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MessageRecordWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import { MobxPool } from '../../../packages/client-graph/src/pool'
-import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from '../../../packages/client-graph/src/notice-schema'
-import { NoticeSource } from '../../../packages/client-graph/src/notice-source'
+import { MobxPool } from '@podium/client-graph/pool'
+import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import { NoticeSource } from '@podium/client-graph/notice-source'
 import { checkNotices } from './notice-check'
 
 /** The browser package does not install Bun globals. This local-only adapter

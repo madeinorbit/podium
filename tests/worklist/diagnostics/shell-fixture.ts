@@ -8,9 +8,9 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { emptyWorkspace, openTab, missionRootFor, workspaceKeyFor } from '@podium/client-core/values'
 import { asIssueId, asMachineId, asRepoId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { shipLaneId, type ShipOrderProjection, type ShipLaneProjection } from '@podium/model'
-import { MobxPool } from '../../../packages/client-graph/src/pool'
-import { SHELL_ENTITIES, SHELL_SUMMARIES } from '../../../packages/client-graph/src/shell-schema'
-import { ShellSource } from '../../../packages/client-graph/src/shell-source'
+import { MobxPool } from '@podium/client-graph/pool'
+import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
+import { ShellSource } from '@podium/client-graph/shell-source'
 
 
 export const SHELL_NOW = Date.parse('2026-10-01T14:00:00Z')

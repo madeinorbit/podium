@@ -1,7 +1,7 @@
 import { referenceState } from './reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { runInAction } from 'mobx'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { checkMissionViewFromStore } from './mission-view-check'
 
 /** Explicit checks run outside input handling. No hot-path legacy oracle. */

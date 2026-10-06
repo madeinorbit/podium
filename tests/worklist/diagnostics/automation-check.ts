@@ -1,7 +1,7 @@
 import type { ReferenceState as Store } from './reference-state'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { automationViews, type AutomationTarget, type TargetExclusions } from '../../../packages/client-graph/src/automation-views'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { automationViews, type AutomationTarget, type TargetExclusions } from '@podium/client-graph/automation-views'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type CheckSection, type SidebarSnapshot } from './sidebar-check'
 
 export type AutomationCheckStore = Pick<Store, 'automations' | 'automationRuns' | 'repos' | 'sessions'>

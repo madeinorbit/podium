@@ -10,8 +10,8 @@ import {
   reposToViews, resolveActiveWorktree, selectedMissionRoot, shippingPanelModel,
 } from '@podium/client-core/values'
 import { isAgentConfirmedComputing, isMachineOfflineForLiveTerminal, type HostMetricsWire, type MachineQuotaWire } from '@podium/model/browser'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import type { HeaderRows } from '../../../packages/client-graph/src/header-schema'
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { HeaderRows } from '@podium/client-graph/header-schema'
 import { legacyDerivationFromStore } from './legacy'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 

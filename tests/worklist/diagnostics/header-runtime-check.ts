@@ -4,7 +4,7 @@ import { referenceState } from './reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { runInAction } from 'mobx'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { checkHeader } from './header-check'
 
 /** Both flags are frozen by the app. Comparison is an explicit timer job and

@@ -2,9 +2,9 @@ import type { ReferenceState as Store } from './reference-state'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { workflowMachines, workflowSubject } from '../../../packages/client-graph/src/workflow-views'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
 
 /** RPC rows are borrowed from the caller's sole service. No query, subscription

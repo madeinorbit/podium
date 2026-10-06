@@ -2,9 +2,9 @@ import { preferenceSource } from '@podium/client-graph/preference-source'
 /** On-demand differential using the sidebar comparison contract. Reports expose
  * positions only: keys may contain paths, and values are never evidence. */
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { declarePreference } from '../../../packages/client-graph/src/preference-schema'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { declarePreference } from '@podium/client-graph/preference-schema'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type CheckRow, compareSidebarSnapshots } from './sidebar-check'
 
 export function checkPreferences(pool: MobxPool, ui: RoutedUiState, keys = (preferenceSource(pool)?.keys() ?? [])) {

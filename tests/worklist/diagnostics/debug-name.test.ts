@@ -6,7 +6,7 @@ async function names(options: { dev?: boolean; mode?: string; search?: string } 
   vi.stubEnv('MODE', options.mode ?? 'production')
   vi.stubEnv('NODE_ENV', 'production')
   vi.stubGlobal('location', { search: options.search ?? '' })
-  return import('../../../packages/client-graph/src/debug-name')
+  return import('@podium/client-graph/debug-name')
 }
 
 afterEach(() => {

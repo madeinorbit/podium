@@ -1,4 +1,4 @@
-import { isFinished } from '../../../packages/client-graph/src/shared/predicates'
+import { isFinished } from '@podium/client-graph/shared/predicates'
 import { referenceState } from './reference-state'
 /** Explicit diagnostic job only. Private values are compared in memory; the
  * report contains counts, opaque row IDs, positions and fixed field names. */
@@ -9,10 +9,10 @@ import { allIssueViewModels } from './reference/issue-view-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations } from '@podium/client-core/values'
 import { runInAction } from 'mobx'
-import { knownIds } from '../../../packages/client-graph/src/enumerate'
-import { issuePages } from '../../../packages/client-graph/src/issue-page'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import { knownIds } from '@podium/client-graph/enumerate'
+import { issuePages } from '@podium/client-graph/issue-page'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 export const ISSUE_PAGE_CHECK_FIELDS = [
   'id', 'seq', 'repoId', 'repoPath', 'prefix', 'displayRef', 'title', 'description',

@@ -1,8 +1,8 @@
 import { autorun, getDependencyTree, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { startCensus } from '../harness/src/mobx-census'
-import { cachedGroup } from '../../../packages/client-graph/src/cached'
-import { createObservableTables } from '../../../packages/client-graph/src/tables'
+import { cachedGroup } from '@podium/client-graph/cached'
+import { createObservableTables } from '@podium/client-graph/tables'
 
 // The census traps constructors: all imports must share one MobX instance.
 // Keep it separate from the build-mode tests that reset the module registry.

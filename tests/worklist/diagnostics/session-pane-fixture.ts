@@ -2,7 +2,7 @@ import { asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { SYNTHETIC_CODEX_KIND } from './fixture-kinds.fixtures'
 import type { SessionView } from '@podium/client-core/session-values'
 import { runInAction } from 'mobx'
-import type { PoolTransactions } from '../../../packages/client-graph/src/write/transactions'
+import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 
 /** Drive the transaction map directly when a UI fixture has no create transport. */
 export function setFixtureSpawnPrompt(transactions: PoolTransactions, id: string, text: string | null | undefined): void {

@@ -5,10 +5,10 @@ import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /** Synthetic rows only. The driver inspects actual MobX name_ edges in V8. */
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { enableDebugNames } from '../../../packages/client-graph/src/debug-name'
-import { MobxPool } from '../../../packages/client-graph/src/pool'
-import { sidebarIssueRow } from '../../../packages/client-graph/src/worklist/sidebar'
-import type { RowRecord } from '../../../packages/client-graph/src/shared/source'
+import { enableDebugNames } from '@podium/client-graph/debug-name'
+import { MobxPool } from '@podium/client-graph/pool'
+import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
+import type { RowRecord } from '@podium/client-graph/shared/source'
 
 if (new URLSearchParams(location.search).get('toolNames') === '1') enableDebugNames()
 

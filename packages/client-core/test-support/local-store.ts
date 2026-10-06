@@ -1,4 +1,4 @@
-import { shallowEqual } from '../src/store'
+import { shallowEqual } from '../src/shallow-equal'
 import { recordStorePublish, recordStoreSubscriber } from '../src/perf/store-stats'
 type StoreListener = () => void
 interface SubscriptionStore<T> { getSnapshot(): T; publish(next: T, changedKeys?: ReadonlySet<string>, nested?: boolean): void; subscribe(listener: StoreListener): () => void }

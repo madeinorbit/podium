@@ -7,7 +7,7 @@ import { type IssueNavigationModel, type UnifiedIssueRow, type UnifiedWorkRow } 
 import { sortUnifiedWorkRows } from '../legacy-values/index'
 import { worklistSlice, type WorklistSlice } from './reference/worklist'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { SliceLocals } from '../../../packages/client-graph/src/shared/slice-types'
+import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
 
 export interface LegacyDerivation {
   slice: WorklistSlice

@@ -7,8 +7,8 @@ import {
   noticeInteractions,
   noticeMessages,
   noticeRecovery,
-} from '../../../packages/client-graph/src/notice-views'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
+} from '@podium/client-graph/notice-views'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { type CheckSection, compareSidebarSnapshots } from './sidebar-check'
 
 export function checkNotices(

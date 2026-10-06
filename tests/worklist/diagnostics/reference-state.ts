@@ -1,7 +1,7 @@
 import type { IssueProjection } from '@podium/model'
 import type { ClientRuntime, Store, OverlayTarget } from '@podium/client-core/engine'
 import { dedupeSessionsByResume, type SessionMeta } from '@podium/model'
-import type { PendingRows } from '../../../packages/client-graph/src/shared/row-source'
+import type { PendingRows } from '@podium/client-graph/shared/row-source'
 import { foldRowOverlays } from '@podium/client-core/engine'
 import type { ReplicaRows } from '@podium/client-core/replica'
 import { sessionViews, type SessionView } from '@podium/client-core/session-values'

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { shallowEqual } from './store'
+import { shallowEqual } from './shallow-equal'
 
 describe('shallowEqual', () => {
   it('matches identical and shallow-equal objects', () => {

@@ -3,9 +3,9 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { operationalState, type TaskProgress } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '../../../packages/client-graph/src/issue-board-schema'
-import type { MobxPool } from '../../../packages/client-graph/src/pool'
-import { LOADING } from '../../../packages/client-graph/src/worklist/rollup'
+import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issuePageFirstDifference } from './issue-page-check'
 /** Observe the same computed demand as the screen, then release it. A batch
  * alone is untracked and would repeatedly expand dependency-free ID answers. */

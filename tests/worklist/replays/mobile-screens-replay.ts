@@ -24,9 +24,9 @@ import {
 } from '../harness/src/fixture/live-snapshot'
 import { sidebarReplayStore } from '../harness/src/oracle/sidebar-replay'
 import { ScenarioCache } from '../shared/src/scenarios'
-import { attachMobileScreens } from '../../../packages/client-graph/src/mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES } from '../../../packages/client-graph/src/mobile-screens-schema'
-import { createRuntimeWorklistPool } from '../../../packages/client-graph/src/runtime-pool'
+import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
+import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import type { MobileScreenInput } from '../diagnostics/mobile-screens-snapshot'
 
 const MAX_CHECKS_PER_POOL = 100

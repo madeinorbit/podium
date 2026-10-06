@@ -1,4 +1,4 @@
-import { isFinished } from '../../../../packages/client-graph/src/shared/predicates'
+import { isFinished } from '@podium/client-graph/shared/predicates'
 /** Independent, stateless fixture oracle for pool parity. */
 import {
   asIssueId,
