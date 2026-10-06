@@ -73,7 +73,10 @@ export function useHandoffTranscript(
 
   useEffect(() => {
     if (!active || !transcript || failedRef.current || flightRef.current) return
-    if (pair !== null || !hasMoreOlder || loadingOlder) return
+    // Wait for the first window: paging before it would spend the flight
+    // flag on a headless no-op and stall the post-refresh refire. A shared
+    // warm conversation already has it and pages immediately.
+    if (pair !== null || !initialLoaded || !hasMoreOlder || loadingOlder) return
     let cancelled = false
     flightRef.current = true
     // One page per effect run. Completion surfaces through the log's own
