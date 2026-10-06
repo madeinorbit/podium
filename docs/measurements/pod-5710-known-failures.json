@@ -3,7 +3,7 @@
   "discoveredFrom": "POD-5626",
   "candidate": "6e79296286",
   "pilotBase": "4fa154190e",
-  "reason": "Screen-layer narrowing resolves 28 of the original 31 counters. The three remaining counters are tracked under their current reader names; none are gate allowances.",
+  "reason": "Screen-layer fixes landed on integrate/4286-pilot and resolve 28 of the original 31 counters. The three remaining counters stay documented pending the entity-model decision in POD-5708; none are gate allowances.",
   "method": {
     "readers": 48,
     "actions": 9,
@@ -52,10 +52,62 @@
     }
   ],
   "latestMeasurement": {
-    "candidate": "27255d7898",
-    "pilotBase": "a6fe184e10",
+    "candidate": "c3a9e62d0484f37673e8b7c0e805a9e872a02e8f",
+    "pilotBase": "3fe531e44a881e8021f6cc2d296c27f443eb3a88",
+    "landedOn": "integrate/4286-pilot",
     "resolvedOriginalCounters": 28,
     "remainingOriginalCounters": 3,
-    "evidence": "POD-5710 artifact .artifacts/POD-5710/lane-candidate.json"
+    "allReaderCounters": 1407,
+    "expectedOtherIssueFailures": 70,
+    "unexpectedCounters": 8,
+    "evidence": "POD-5710 artifact .artifacts/POD-5710/post-landing-census.json"
+  },
+  "startedByAttribution": {
+    "archiveCorpus": {
+      "at1x": 32,
+      "at4x": 128
+    },
+    "method": "The current census reproduces the prior three values. Attribution combines the unchanged reader paths, focused first-demand tests that reject memberIds enumeration at 32/128 archived sessions, and the earlier callback-identity trace; no new index or counter rule was introduced.",
+    "remainingCounters": [
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+        "archivedSessionFallbackVisits": {
+          "at1x": 0,
+          "at4x": 0
+        },
+        "extraStartedByRelationLifecycleElements": 2,
+        "explanation": "The existing archived:false query excludes historical explicit members before iteration. The two extra elements were traced to observed/released callbacks on the empty startedIssues relation for live guard-seat; the domain IDs match."
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "archivedSessionFallbackVisits": {
+          "at1x": 0,
+          "at4x": 0
+        },
+        "extraStartedByRelationLifecycleElements": 0,
+        "extraNestingDerivations": 1,
+        "explanation": "nestingOf follows the parent/candidate chain and does not call nestedPartOf or enumerate memberIds."
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "archivedSessionFallbackVisits": {
+          "at1x": 0,
+          "at4x": 0
+        },
+        "extraStartedByRelationLifecycleElements": 0,
+        "extraNestingDerivations": 1,
+        "explanation": "nestingOf follows the parent/candidate chain and does not call nestedPartOf or enumerate memberIds."
+      }
+    ],
+    "callbackTrace": "POD-5710 artifact .artifacts/POD-5710/residual-trace.json",
+    "firstDemandTests": "packages/client-graph/src/sidebar-attention.test.ts",
+    "designOwner": "POD-5708",
+    "architectureInstruction": "POD-4286 requested no new owning-issue started-children relation or write-path-maintained question in this lane."
   }
 }
