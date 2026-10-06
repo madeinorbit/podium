@@ -48,7 +48,7 @@ const machine = (id: string) => ({
   id: asMachineId(id), name: id, hostname: id, online: true, lastSeenAt: stamp,
   serviceAssignment: { server: false, agentExecution: true },
   availability: { epoch: 'boot', server: false, daemon: true, supervisor: true },
-  inventory: { agents: [{ kind: 'codex' as const, installed: true, login: { state: 'in' as const } }] },
+  inventory: { os: 'linux' as const, arch: 'x64', tools: [], agents: [{ kind: 'codex' as const, installed: true, login: { state: 'in' as const } }] },
 })
 function fixture(scale: number) {
   const subject: SessionView = {
@@ -109,7 +109,7 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
         }, { pool })
         for (const [entity, id] of row.mock.calls) (reads[entity] ??= new Set()).add(id)
         row.mockRestore()
-        windows[name] = { ...work, payloads: Object.fromEntries(Object.entries(reads).map(([key, ids]) => [key, [...ids]])) }
+        windows[name] = { ...work, payloads: Object.fromEntries(Object.entries(reads).map(([key, ids]) => [key, { count: ids.size, sample: [...ids].slice(0, 5) }])) }
       }
       await probe('menu-open', () => {
         render(kind === 'session' ? <PoolSessionContextMenu sessionId={sessionId} anchor={anchor} onClose={noop} onRename={noop} />
@@ -126,8 +126,9 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       expect(within(targetMenu).getByRole('menuitem', { name: /target offline/ }).textContent).toContain('offline')
       await probe('heartbeat', () => headerEntities(pool).apply([{ kind: 'machine', id: targetId,
         value: { ...machine(targetId), online: false, lastSeenAt: '2026-10-06T12:01:00Z' } }]))
-      await probe('sender-heartbeat', () => pool.apply({ type: 'upsert', kind: 'session', id: sessionId,
-        value: { ...pool.row('session', sessionId) as SessionView, lastActiveAt: '2026-10-06T12:01:00Z' } }))
+      const before = pool.row('session', sessionId) as SessionView
+      await probe('sender-heartbeat', () => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessionId,
+        value: { ...before, lastActiveAt: '2026-10-06T12:01:00Z' } }] }))
       report.push({ kind, scale, shownCandidates: 2, windows })
       cleanup()
       f.pool = null
