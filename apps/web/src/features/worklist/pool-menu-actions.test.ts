@@ -27,6 +27,7 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
       cwd: '/synthetic',
       status: 'live',
       agentKind: 'codex',
+      harnessHandoff: true,
       createdAt: stamp,
       lastActiveAt: stamp,
     } satisfies SliceSession
@@ -74,12 +75,11 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
         rows.mockClear()
         sidebar.mockClear()
         const menu = actions.resolveMenuData(issue.id)
-        expect(sidebar.mock.calls).toEqual([['own']])
+        expect(sidebar).not.toHaveBeenCalled()
         expect(menu.single).toMatchObject([
           {
             id: 'own',
-            memberSessionIds: ['own-seat'],
-            childIds: ['child'],
+            sessionSummary: { total: 1 },
             childCount: 1,
             childDoneCount: 1,
           },
@@ -115,6 +115,7 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
     issueId: issue.id,
     cwd: '/synthetic',
     agentKind: 'codex',
+    harnessHandoff: true,
     status: 'live',
     createdAt: stamp,
     lastActiveAt: stamp,
@@ -136,7 +137,7 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
     const menu = createPoolWorkActions(pool, { access: {} } as never, () => {}).resolveMenuData(
       issue.id,
     )
-    expect(menu.single[0]?.memberSessionIds).toEqual(['own-seat'])
+    expect(menu.single).toEqual([])
     expect(menu.poolInputs).toBe(LOADING)
   } finally {
     pool.dispose()

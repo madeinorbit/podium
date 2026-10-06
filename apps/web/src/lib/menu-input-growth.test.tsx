@@ -89,7 +89,7 @@ function fixture(scale: number) {
   return { pool, issue }
 }
 const pools: Pool[] = []
-afterEach(() => { cleanup(); for (const pool of pools.splice(0)) pool.dispose(); f.pool = null; f.handoff.mockClear() })
+afterEach(() => { cleanup(); for (const pool of pools.splice(0)) pool.dispose(); f.pool = null; f.handoff.mockClear(); vi.restoreAllMocks() })
 
 function MissionIssueMenu({ issue }: { issue: ReturnType<typeof makeIssue> }) {
   const read = useCallback((pool: Pool) => readMissionActionInputs(missionView(pool), [issue.id]), [issue.id])
@@ -105,13 +105,18 @@ const SidebarIssueMenu = observer(function SidebarIssueMenu({ issue }: { issue: 
 })
 
 it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () => {
-  const report = []
+  type Window = Awaited<ReturnType<typeof measureWork>>['work'] & {
+    payloads: Record<string, { count: number; sample: string[] }>
+  }
+  const report: Array<{ kind: string; scale: number; shownCandidates: number; windows: Record<string, Window> }> = []
   for (const kind of ['issue', 'sidebar-issue', 'mission-issue', 'session'] as const) {
     for (const scale of [1, 4]) {
       const { pool, issue } = fixture(scale)
-      if (kind === 'sidebar-issue') vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue, deferred: false } as never)
+      if (kind === 'sidebar-issue') vi.spyOn(sidebarView(pool), 'row').mockImplementation(() => {
+        throw new Error('Menu borrowed the sidebar display roster')
+      })
       f.pool = pool
-      const windows: Record<string, unknown> = {}
+      const windows: Record<string, Window> = {}
       const probe = async (name: string, action: () => void) => {
         const reads: Record<string, Set<string>> = {}
         const row = vi.spyOn(pool, 'row')
@@ -130,6 +135,9 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       })
       const handoff = await screen.findByRole('menuitem', { name: /^Handoff/ })
       expect((handoff as HTMLButtonElement).disabled).toBe(false)
+      expect(windows['menu-open']!.payloads.machine).toBeUndefined()
+      expect(windows['menu-open']!.payloads.session).toMatchObject({ count: 1, sample: [sessionId] })
+      expect(windows['menu-open']!.payloads.repository).toMatchObject({ count: 1, sample: ['source-repo'] })
       await probe('targets-open', () => fireEvent.click(handoff))
       const targetMenu = screen.getByRole('menu', { name: 'Handoff targets' })
       expect(within(targetMenu).getAllByRole('menuitem').map(row => row.textContent)).toEqual(['target', 'other-target'])
@@ -141,9 +149,19 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       const before = pool.row('session', sessionId) as SessionView
       await probe('sender-heartbeat', () => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessionId,
         value: { ...before, lastActiveAt: '2026-10-06T12:01:00Z' } }] }))
+      fireEvent.click(within(targetMenu).getByRole('menuitem', { name: 'other-target' }))
+      expect(f.handoff).toHaveBeenLastCalledWith({ sessionId, machineId: asMachineId('other-target') })
       report.push({ kind, scale, shownCandidates: 2, windows })
       cleanup()
       f.pool = null
+    }
+  }
+  for (let index = 0; index < report.length; index += 2) {
+    const one = report[index]!, four = report[index + 1]!
+    for (const name of Object.keys(one.windows)) {
+      expect(four.windows[name]!.rows, `${one.kind}/${name} row growth`).toBe(one.windows[name]!.rows)
+      expect(four.windows[name]!.elements, `${one.kind}/${name} element growth`).toBe(one.windows[name]!.elements)
+      expect(four.windows[name]!.derivations, `${one.kind}/${name} derivation growth`).toBe(one.windows[name]!.derivations)
     }
   }
   console.info('POD5649 menu input probes ' + JSON.stringify(report))

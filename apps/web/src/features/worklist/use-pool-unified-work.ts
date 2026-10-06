@@ -7,6 +7,7 @@ import { pickPaneSession } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { missions } from '@podium/client-graph/mission'
+import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import {
   asIssueId,
@@ -17,9 +18,7 @@ import {
 } from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { readIssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inputs'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
-import { navigationIssue } from './pool-row-data'
 import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
 
 /** Addressed mission target seam shared with the explorer. It reads the raw
@@ -245,32 +244,15 @@ export function createPoolWorkActions(
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {
-      const value = sidebarView(pool).row(id)
-      if (!value || value === LOADING)
-        return { single: [], all: [], poolInputs: value === LOADING ? LOADING : readIssueMenuPoolInputs(pool, []) }
-      // The menu acts on this issue. Its membership and direct children are
-      // declared per-key relations; no other issue or session is a candidate.
-      const memberSessionIds = [...pool.graph.many('issue', id, 'sessions')].flatMap((key) => {
-        const session = pool.row('session', key) as SessionView | typeof LOADING | undefined
-        // R2 already declares this retained member. Preserve a pending ID so
-        // the menu inputs wait for its addressed payload rather than omit it.
-        if (session === LOADING) return [asSessionId(key)]
-        return session && session.issueId === id && session.agentKind !== 'shell'
-          ? [session.sessionId] : []
-      })
-      const childIds = [...pool.graph.many('issue', id, 'treeChildren')].map(asIssueId)
-      const single = [{
-        ...navigationIssue(value.issue),
-        memberSessionIds,
-        childIds,
-        ...pool.queries.issueChildCounts(id),
-        unread: value.issue.unread,
-        deferred: value.deferred,
-      }]
+      const inputs = readMissionActionInputs(missionView(pool), [id])
+      if (inputs === LOADING) return { single: [], all: [], poolInputs: LOADING }
+      // The menu displays child/cascade totals and one handoff sender, never
+      // the sidebar's hidden attachment roster or its child IDs.
+      const single = inputs.issues
       // Placement needs only the direct origin's label. Catalog choices are
       // requested by the menu after their submenu becomes visible.
       const all = readIssueMenuOrigins(pool, single)
-      return { single, all, poolInputs: readIssueMenuPoolInputs(pool, single) }
+      return { single, all, poolInputs: inputs }
     }),
   }
 }

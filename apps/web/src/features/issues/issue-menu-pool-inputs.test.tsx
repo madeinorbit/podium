@@ -33,6 +33,7 @@ vi.mock('@podium/client-core/react', () => ({
     },
   }),
 }))
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useMemo, useSyncExternalStore } = await import('react')
   const { createPoolProjection } = await import('@podium/client-graph/runtime-pool')
@@ -90,6 +91,7 @@ function open(scale: number) {
     title: 'Pool task member',
     cwd: '/synthetic/menu',
     agentKind: 'codex',
+    harnessHandoff: true,
     status: 'exited',
     archived: true,
     unread: false,
@@ -190,7 +192,7 @@ it('loads only the selected members in a batch and keeps task menu click work bo
         .every(([, id]) => id === 'chosen-session'),
     ).toBe(true)
     expect(f.menu?.poolInputs.repos.map((repo) => repo.path)).toEqual(['/synthetic/menu'])
-    expect(f.menu?.poolInputs.machines.map((machine) => machine.name)).toEqual(['Menu machine'])
+    expect(f.menu?.poolInputs.machines).toEqual([])
     work.push({ rows: read.mock.calls.length, derivations: f.derivations })
     cleanup()
   }
