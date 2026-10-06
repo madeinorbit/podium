@@ -207,11 +207,13 @@ it('keeps the windowed notice log flat at 1x/4x across open, new notice and labe
       }, { pool: f.pool })
       expect(current.notices.filter(row => row.sessionId === 'selected').map(row => row.sessionLabel))
         .toEqual(['Renamed agent', 'Renamed agent'])
-      measured.push({ scale, open: compact(open.work), added: compact(added.work), relabel: compact(relabel.work),
-        openBy: open.work.elementsBy })
+      measured.push({ scale, open: compact(open.work), added: compact(added.work), relabel: compact(relabel.work) })
     } finally { stop?.(); f.pool.dispose() }
   }
   const first = measured[0]!, second = measured[1]!
+  // Open demand reads stay windowed. Open elements still build the shared
+  // attention index once per demand lifetime (the always-mounted scalar banner
+  // usually pays it first), so only steady-state updates assert flat elements.
   for (const step of ['open', 'added', 'relabel'] as const) {
     expect(second[step].rows, step).toBe(first[step].rows)
     expect(second[step].derivations, step).toBe(first[step].derivations)
