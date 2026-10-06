@@ -215,7 +215,7 @@ export function createShellViews(pool: MobxPool) {
       // only its shown present sessions — never archived history.
       const rootId = missions(pool).rootFor(state.selectedIssueId)
       if (rootId === LOADING) return LOADING
-      let missionRoot: { id: string; title: string; type: string; childCount: number } | undefined
+      let missionRoot: { id: string; title: string; type: string; childCount: number } | undefined = undefined
       if (rootId) {
         const full = pool.row('issue', rootId) as Loaded<{
           id: string; title: string; type: string; archived?: boolean; deletedAt?: string | null;
