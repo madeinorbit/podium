@@ -78,8 +78,9 @@ function flushViewport(): void {
 }
 
 describe('bounded variable-height issue window', () => {
-  it('keeps selection redraw and scroll ID reads flat at 1x and 4x', () => {
+  it.each([0, 48])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', height => {
     vi.useFakeTimers()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, height } as DOMRect)
     const counts = [1, 4].map(scale => {
       let reads = 0
       const keys = new Proxy(Array.from({ length: 674 * scale }, (_, index) => `issue-${index}`), {
@@ -96,14 +97,16 @@ describe('bounded variable-height issue window', () => {
       view.rerender(<WindowHarness keys={keys} focusKey="issue-2" />)
       flushViewport()
       const selection = reads
+      view.rerender(<WindowHarness keys={keys} />)
+      flushViewport()
       reads = 0
-      scroll.scrollTop = 400
+      scroll.scrollTop = 800
       fireEvent.scroll(scroll)
       flushViewport()
       const scrolling = reads
       expect(view.getAllByTestId('row').length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS + 1)
       view.unmount()
-      console.info('board viewport ID reads', JSON.stringify({ scale, selection, scrolling }))
+      console.info('board viewport ID reads', JSON.stringify({ scale, height, selection, scrolling }))
       return { selection, scrolling }
     })
     expect(counts[0]!.selection).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS * 2)

@@ -23,8 +23,10 @@ export interface VirtualIssueItem {
 interface Layout {
   keys: readonly string[]
   indexes: ReadonlyMap<string, number>
-  offsets: number[]
-  sizes: number[]
+  sizes: ReadonlyMap<number, number>
+  corrections: readonly { index: number; delta: number }[]
+  estimateSize: number
+  gap: number
   totalSize: number
 }
 
@@ -49,13 +51,28 @@ interface BoundedVirtualList {
   offsetForIndex: (index: number) => number
 }
 
+/** Unmeasured rows use the estimate. Only the bounded height cache contributes
+ * corrections, so measuring a newly shown row never rebuilds every offset. */
+function offsetAt(layout: Layout, index: number): number {
+  let low = 0
+  let high = layout.corrections.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    if (layout.corrections[mid]!.index < index) low = mid + 1
+    else high = mid
+  }
+  return index * (layout.estimateSize + layout.gap) + (layout.corrections[low - 1]?.delta ?? 0)
+}
+
+const sizeAt = (layout: Layout, index: number): number => layout.sizes.get(index) ?? layout.estimateSize
+
 function itemAt(layout: Layout, offset: number): number {
   if (layout.keys.length === 0) return 0
   let low = 0
   let high = layout.keys.length - 1
   while (low < high) {
     const mid = Math.floor((low + high) / 2)
-    const end = (layout.offsets[mid] ?? 0) + (layout.sizes[mid] ?? 0)
+    const end = offsetAt(layout, mid) + sizeAt(layout, mid)
     if (end < offset) low = mid + 1
     else high = mid
   }
@@ -93,33 +110,44 @@ export function useBoundedVirtualList({
   const nodesRef = useRef(new Map<string, HTMLElement>())
   const callbacksRef = useRef(new Map<string, RefCallback<HTMLElement>>())
   const observerRef = useRef<ResizeObserver | null>(null)
-  const layoutRef = useRef<Layout>({ keys: [], indexes: new Map(), offsets: [], sizes: [], totalSize: 0 })
-  const priorLayoutRef = useRef<Layout>({ keys: [], indexes: new Map(), offsets: [], sizes: [], totalSize: 0 })
+  const emptyLayout: Layout = { keys: [], indexes: new Map(), sizes: new Map(), corrections: [], estimateSize, gap, totalSize: 0 }
+  const layoutRef = useRef<Layout>(emptyLayout)
+  const priorLayoutRef = useRef<Layout>(emptyLayout)
   const [revision, setRevision] = useState(0)
   const [viewport, setViewport] = useState({ top: 0, height: 0 })
   const viewportFrameRef = useRef<number | null>(null)
 
+  const keyIndexes = useMemo(() => {
+    const indexes = new Map<string, number>()
+    let index = 0
+    for (const key of keys) {
+      indexes.set(key, index++)
+    }
+    return indexes
+  }, [keys])
+
   const layout = useMemo<Layout>(() => {
     void revision
-    const offsets: number[] = []
-    const itemSizes: number[] = []
-    const indexes = new Map<string, number>()
-    let cursor = 0
-    for (const key of keys) {
-      indexes.set(key, offsets.length)
-      offsets.push(cursor)
-      const size = sizesRef.current.get(key) ?? estimateSize
-      itemSizes.push(size)
-      cursor += size + gap
+    const sizes = new Map<number, number>()
+    for (const [key, size] of sizesRef.current) {
+      const index = keyIndexes.get(key)
+      if (index !== undefined) sizes.set(index, size)
     }
+    let delta = 0
+    const corrections = [...sizes].sort(([a], [b]) => a - b).map(([index, size]) => {
+      delta += size - estimateSize
+      return { index, delta }
+    })
     return {
       keys,
-      indexes,
-      offsets,
-      sizes: itemSizes,
-      totalSize: Math.max(0, cursor - (keys.length > 0 ? gap : 0)),
+      indexes: keyIndexes,
+      sizes,
+      corrections,
+      estimateSize,
+      gap,
+      totalSize: Math.max(0, keys.length * (estimateSize + gap) + delta - (keys.length > 0 ? gap : 0)),
     }
-  }, [keys, estimateSize, gap, revision])
+  }, [keys, keyIndexes, estimateSize, gap, revision])
   layoutRef.current = layout
 
   const publishViewport = useCallback(() => {
@@ -167,7 +195,7 @@ export function useBoundedVirtualList({
 
       const currentLayout = layoutRef.current
       const index = currentLayout.indexes.get(key) ?? -1
-      const itemStart = index < 0 ? 0 : (currentLayout.offsets[index] ?? 0)
+      const itemStart = index < 0 ? 0 : offsetAt(currentLayout, index)
       const scroll = scrollRef.current
       const beforeTop = localScrollTop(scroll, containerRef?.current)
 
@@ -192,7 +220,7 @@ export function useBoundedVirtualList({
         const evictedSize = sizesRef.current.get(evicted) as number
         const evictedIndex = currentLayout.indexes.get(evicted) ?? -1
         const evictedStart =
-          evictedIndex < 0 ? Number.POSITIVE_INFINITY : (currentLayout.offsets[evictedIndex] ?? 0)
+          evictedIndex < 0 ? Number.POSITIVE_INFINITY : offsetAt(currentLayout, evictedIndex)
         if (evictedStart < beforeTop) anchorDelta += estimateSize - evictedSize
         sizesRef.current.delete(evicted)
       }
@@ -265,7 +293,7 @@ export function useBoundedVirtualList({
         const anchorKey = prior.keys[anchorIndex]
         const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
         if (currentIndex >= 0) {
-          const delta = (previous.offsets[currentIndex] ?? 0) - (prior.offsets[anchorIndex] ?? 0)
+          const delta = offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex)
           if (delta !== 0) scroll.scrollTop += delta
         }
       }
@@ -289,8 +317,8 @@ export function useBoundedVirtualList({
         : container.getBoundingClientRect().top -
           scroll.getBoundingClientRect().top +
           scroll.scrollTop
-    const start = containerStart + (layout.offsets[index] ?? 0)
-    const end = start + (layout.sizes[index] ?? estimateSize)
+    const start = containerStart + offsetAt(layout, index)
+    const end = start + sizeAt(layout, index)
     const viewStart = scroll.scrollTop
     const viewEnd = viewStart + scroll.clientHeight
     if (start < viewStart) scroll.scrollTop = start
@@ -325,15 +353,14 @@ export function useBoundedVirtualList({
     .map((index) => ({
       key: keys[index] as string,
       index,
-      start: layout.offsets[index] ?? 0,
-      size: layout.sizes[index] ?? estimateSize,
+      start: offsetAt(layout, index),
+      size: sizeAt(layout, index),
     }))
 
   return {
     items,
     totalSize: layout.totalSize,
     measureRef,
-    offsetForIndex: (index) =>
-      layout.offsets[Math.max(0, Math.min(index, keys.length))] ?? layout.totalSize,
+    offsetForIndex: (index) => index >= keys.length ? layout.totalSize : offsetAt(layout, Math.max(0, index)),
   }
 }
