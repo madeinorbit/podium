@@ -119,7 +119,7 @@ describe('replica ui-state collection', () => {
     expect(data.get('podium.theme.mode')).toBe('light')
   })
 
-  it('a per-file map entry already in the collection wins over a stale legacy key', async () => {
+  it('ignores resurrected per-file keys after the one-time side-cache migration', async () => {
     const { storage, data } = makeStorage()
     const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     a.set('podium.htmlmode', JSON.stringify({ 'file:a:/x.html': 'preview' }))
@@ -133,11 +133,11 @@ describe('replica ui-state collection', () => {
       enumerateKeys: () => [...data.keys()],
     }).uiState()
     expect(JSON.parse(b.get('podium.htmlmode') ?? '{}')).toEqual({
-      'file:a:/x.html': 'preview', // collection entry wins
-      'file:c:/z.html': 'source', // unseen entry folds in
+      'file:a:/x.html': 'preview',
     })
-    expect(data.has('podium.htmlmode:file:a:/x.html')).toBe(false)
-    expect(data.has('podium.htmlmode:file:c:/z.html')).toBe(false)
+    expect(data.get(`${prefix}.uistate.v1.migrated`)).toBe('1')
+    expect(data.get('podium.htmlmode:file:a:/x.html')).toBe('split')
+    expect(data.get('podium.htmlmode:file:c:/z.html')).toBe('source')
   })
 
   it('kv semantics: set/get/delete round-trip and persist across instances', async () => {
@@ -161,7 +161,7 @@ describe('replica ui-state collection', () => {
     expect(b.get('podium.split')).toBeNull()
   })
 
-  it('a collection row wins over a stale legacy key (migration never clobbers)', async () => {
+  it('does not reimport a stale key after the one-time side-cache migration', async () => {
     const { storage, data } = makeStorage()
     const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     a.set('podium.view', 'settings')
@@ -174,7 +174,8 @@ describe('replica ui-state collection', () => {
       enumerateKeys: () => [...data.keys()],
     }).uiState()
     expect(b.get('podium.view')).toBe('settings')
-    expect(data.has('podium.view')).toBe(false) // still retired
+    expect(data.get(`${prefix}.uistate.v1.migrated`)).toBe('1')
+    expect(data.get('podium.view')).toBe('home') // one-time migration stays complete
   })
 
   it('notifies subscribers on writes', () => {

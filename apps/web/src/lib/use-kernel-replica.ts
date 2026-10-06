@@ -46,16 +46,7 @@ export type KernelReplicaGate =
        *  "last user" key. */
       readonly principal: ClientPrincipal
       readonly assembly: KernelAssembly
-      /**
-       * One sentence the user is OWED, or nothing (POD-1232).
-       *
-       * Queued offline writes found on this device are moved into the kernel
-       * store at open, and some of them cannot be: work this account cannot be
-       * shown to have authored is parked, and work naming an action no contract
-       * resolves is kept on disk unsent. ADR 6 D4.4 does not allow either to be
-       * silent, and the gate is the only thing that sees it happen — the store
-       * has not mounted yet.
-       */
+      /** Notice when the privacy gate refreshes a cache it cannot adopt. */
       readonly notice?: string
     }
 
