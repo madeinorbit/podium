@@ -31,7 +31,10 @@
  */
 
 import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/engine'
+import { rowFingerprint } from '@podium/client-core/command-reducers'
 import type { OutboxEntry } from '@podium/client-core/outbox'
+import type { Replica } from '@podium/client-core/replica'
+import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import type {
   FieldValues,
   KernelCommand,
@@ -42,10 +45,13 @@ import type {
 } from './write-contract'
 
 /** What the stream needs from a `ClientRuntime`: its outcome seam, its
- *  queue and its own pending entries. */
+ *  queue and its own pending entries, plus replica truth for the
+ *  enqueue-time baseline `send` files on each entry. */
 export interface ReceiptsRuntime {
   subscribeOutboxOutcomes(listener: (outcome: OutboxOutcome) => void): () => void
   readonly outbox: Pick<EngineOutbox, 'enqueue' | 'pending' | 'awaiting'>
+  readonly replica: Pick<Replica, 'row'>
+  readonly principal: { readonly userId: string }
 }
 
 /**
@@ -188,6 +194,25 @@ function pendingWrite(entry: OutboxEntry, acked: boolean): OutboxPendingWrite {
   }
 }
 
+/**
+ * The enqueue-time baseline `send` files on the entry: the `rowFingerprint`
+ * of the same truth row the pool transaction log fingerprints for these two
+ * commands — the principal's marker for a mark-read, the projection for an
+ * update (mirrors the row-source `truth` reader). `undefined` when the row
+ * is not in the replica, exactly like an entry enqueued before its row was
+ * known.
+ */
+function sendBaseline(runtime: ReceiptsRuntime, command: KernelCommand): string | undefined {
+  const row =
+    command.kind === 'issueMarkRead'
+      ? runtime.replica.row?.(
+          'issueUserStates',
+          issueUserStateRowId(asUserId(runtime.principal.userId), asIssueId(command.input.id)),
+        )
+      : runtime.replica.row?.('issueProjections', command.input.id)
+  return row === undefined ? undefined : rowFingerprint(row)
+}
+
 /** A {@link WriteTransport} whose events carry the outbox kind and target id.
  *  Assignable to `WriteTransport`: every {@link ReceiptEvent} is a `WriteEvent`. */
 export interface ReceiptTransport extends Omit<WriteTransport, 'subscribe'> {
@@ -196,7 +221,8 @@ export interface ReceiptTransport extends Omit<WriteTransport, 'subscribe'> {
 
 /**
  * The {@link WriteTransport} a phase-c arm sends through (W2): `send` enqueues
- * under the arm's txId into the outbox; `subscribe`
+ * under the arm's txId into the outbox, filing the enqueue-time baseline
+ * (`sendBaseline`) the same way the writer-owned path does; `subscribe`
  * is {@link subscribeReceipts} plus a `rejected` for an enqueue that failed;
  * `pending` lists queued then awaiting-truth entries in queue order (W11).
  */
@@ -212,7 +238,8 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
 
   return {
     send(txId, command: KernelCommand) {
-      const opts = { mutationId: txId }
+      const baseline = sendBaseline(runtime, command)
+      const opts = { mutationId: txId, ...(baseline === undefined ? {} : { baseline }) }
       const enqueued =
         command.kind === 'issueUpdate'
           ? runtime.outbox.enqueue('issueUpdate', command.input, opts)

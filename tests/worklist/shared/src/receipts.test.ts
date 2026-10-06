@@ -9,6 +9,7 @@
  */
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
+import { createRowSource } from './row-source'
 import {
   createWriteTransport,
   type ReceiptEvent,
@@ -31,6 +32,14 @@ import {
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)
+
+/** Presses route through the pool transaction owner and applied entries are
+ *  held for their echo by its truth-bound log: attach the same feed the pool
+ *  host does (truth mode reads truth but never paints). The engine owns
+ *  teardown through `ctx.dispose()`; dispose the feed first. */
+function attachFeed(ctx: ScenarioEngine) {
+  return createRowSource(ctx.engine, ctx.engine.replica, { mode: 'truth' })
+}
 
 function issueRow(ctx: ScenarioEngine, id: string): Record<string, unknown> {
   const row = ctx.cache.read('issueProjection', id)?.value as Record<string, unknown> | undefined
@@ -62,6 +71,7 @@ describe.each([
 ] as const)('#9 optimisticEchoAndRejection steps on the %s queue', (outbox) => {
   it('press → one accepted; echo and a duplicate echo → nothing; refused press → one rejected', async () => {
     const ctx = await startScenarioEngine(1, { outbox })
+    const feed = attachFeed(ctx)
     const id = ctx.targets.markReadId
     const events: ReceiptEvent[] = []
     const off = subscribeReceipts(ctx.engine, (e) => events.push(e))
@@ -99,6 +109,7 @@ describe.each([
     expect(all.map((e) => e.mutationId)).not.toContain(events[1]!.txId)
     expect(ctx.engine.outbox.deadLetters()).toEqual([])
     off()
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 })
@@ -118,6 +129,7 @@ describe('write transport on the kernel queue', () => {
       },
     }
     ctx = await startScenarioEngine(1, { outbox: 'kernel', server })
+    const feed = attachFeed(ctx)
     const id = ctx.targets.visibleRootId
     const transport = createWriteTransport(ctx.engine)
     const events: ReceiptEvent[] = []
@@ -134,6 +146,7 @@ describe('write transport on the kernel queue', () => {
     // The arm's contract type accepts this transport as is.
     const asContract: WriteTransport = transport
     expect(typeof asContract.subscribe).toBe('function')
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 
@@ -144,6 +157,7 @@ describe('write transport on the kernel queue', () => {
       },
     }
     const ctx = await startScenarioEngine(1, { outbox: 'kernel', server })
+    const feed = attachFeed(ctx)
     const id = ctx.targets.visibleRootId
     const transport = createWriteTransport(ctx.engine)
     const events: ReceiptEvent[] = []
@@ -160,12 +174,14 @@ describe('write transport on the kernel queue', () => {
       },
     ])
     expect(ctx.engine.outbox.deadLetters().map((d) => d.entry.mutationId)).toEqual([tx('2')])
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 
   it('offline: a collapsed mark-read is superseded; pending() lists the survivor; online it is accepted, then acked', async () => {
     const network = switchableNetwork()
     const ctx = await startScenarioEngine(1, { outbox: 'kernel', network })
+    const feed = attachFeed(ctx)
     const id = ctx.targets.markReadId
     const marker = ctx.cache.read(
       'issueUserState',
@@ -200,12 +216,14 @@ describe('write transport on the kernel queue', () => {
     ])
     // Applied, and held by the kernel until its echo: awaiting truth.
     expect(transport.pending()).toEqual([{ ...queued[0], acked: true }])
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 
   it('pending() survives a reload under the same txIds, with no base (the kernel keeps it in memory)', async () => {
     const network = switchableNetwork()
     const ctx = await startScenarioEngine(1, { outbox: 'kernel', network })
+    const feed = attachFeed(ctx)
     const id = ctx.targets.visibleRootId
     const transport = createWriteTransport(ctx.engine)
     transport.send(tx('5'), { kind: 'issueUpdate', input: { id, patch: { title: 'Queued' } } })
@@ -224,6 +242,7 @@ describe('write transport on the kernel queue', () => {
         acked: false,
       },
     ])
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 
@@ -255,6 +274,7 @@ describe('write transport on the kernel queue', () => {
 
   it('a throwing outcome listener neither wedges the drain nor starves the stream', async () => {
     const ctx = await startScenarioEngine(1, { outbox: 'kernel' })
+    const feed = attachFeed(ctx)
     ctx.engine.subscribeOutboxOutcomes(() => {
       throw new Error('bad observer')
     })
@@ -264,6 +284,7 @@ describe('write transport on the kernel queue', () => {
     expect(events.map((e) => e.type)).toEqual(['accepted'])
     // The ledger still took the applied entry into awaiting truth.
     expect(ctx.engine.outbox.awaiting().map((e) => e.mutationId)).toEqual([events[0]!.txId])
+    feed.dispose()
     ctx.dispose()
   }, 60_000)
 })
@@ -283,6 +304,8 @@ describe('receipts over a stub runtime', () => {
         return () => listeners.delete(l)
       },
       outbox: { enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never, pending: () => (opts.queued ?? []).map(entry), awaiting: () => [] },
+      replica: { row: () => undefined },
+      principal: { userId: 'stub' },
     }
     const emit = (o: OutboxOutcome): void => {
       for (const l of [...listeners]) l(o)
