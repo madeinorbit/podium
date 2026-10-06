@@ -232,7 +232,7 @@ export const sidebarIssueProgress = cachedGroup('sidebarProgress', (model: Issue
   a.total === b.total && a.done === b.done && a.run === b.run && a.review === b.review &&
   a.stall === b.stall && a.block === b.block && a.wait === b.wait))
 
-function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<SidebarRowValues> {
+export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<SidebarRowValues> {
   const host = hostOf(model)
   const own = host.rollupInputs.loadedIssue(model.id)
   if (own === LOADING) return LOADING

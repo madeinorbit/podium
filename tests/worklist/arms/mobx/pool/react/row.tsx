@@ -8,33 +8,34 @@
  * `shared/src/row-view.ts`): its text, and its looks as data
  * attributes (what a stylesheet keys the selected, pinned, snoozed and
  * folded looks and the recency and working stamps on).
- * The screen's attention and progress facts are observed alongside these
- * fields, so descendant timer and progress-bucket changes redraw ancestors
- * even when their coarse RowView fields stay equal. Navigation snapshots
- * are not retained by this demo. The fields that only
+ * The real row's complete paint facts are observed alongside these fields,
+ * so descendant timer and progress-bucket changes redraw ancestors even
+ * when their coarse RowView fields stay equal. Navigation snapshots are
+ * not retained by this demo. The fields that only
  * place the row (its group, order keys and fold time) move it in the list and
  * are never read here (POD-4825). Declared once at module scope.
  */
 
 import { observer } from 'mobx-react-lite'
-import { computed, compareStructural } from 'mobx'
+import { computed } from 'mobx'
 import { type ReactElement, useMemo } from 'react'
 import { hostOf, IssueModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { sidebarAttention, sidebarIssueProgress, sidebarOwnAttention } from '@podium/client-graph/worklist/sidebar'
+import { sidebarValues } from '@podium/client-graph/worklist/sidebar'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { poolIssuePaint } from '../../../../../../apps/web/src/features/worklist/pool-row-data'
 import type { RowProps } from '../../../../shared/src/row-shell'
 
 export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElement {
   const sidebar = useMemo(() => {
     if (!(row instanceof IssueModel)) return undefined
     const pool = hostOf(row) as MobxPool
-    // One addressed projection, like the real row's paint computed. Value
-    // equality stops an unchanged ancestor without caching a navigation row.
-    return computed(() => ({
-      own: sidebarOwnAttention(row, pool),
-      attention: sidebarAttention(row, pool),
-      progress: sidebarIssueProgress(row),
-    }), { equals: compareStructural })
+    // Share the real row's reader and paint surface. Retain a scalar rather
+    // than its navigation snapshot; equal paint stops ancestor propagation.
+    return computed(() => {
+      const value = sidebarValues(row, pool)
+      return value === LOADING || value === undefined ? value : JSON.stringify(poolIssuePaint(value))
+    }, { name: `IssueModel@${row.id}.sidebarPaint` })
   }, [row])
   void sidebar?.get()
   return (
