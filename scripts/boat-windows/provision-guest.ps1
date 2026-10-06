@@ -73,6 +73,15 @@ if (-not (Have mise)) {
   Refresh-Path
 }
 
+Write-Host '== Node (Metro/Expo needs a real Node; POD-5732) and agent CLIs'
+cmd /c "mise use -g node@lts >NUL 2>&1"
+cmd /c "mise reshim >NUL 2>&1"
+Refresh-Path
+if (-not (Have codex)) { cmd /c "npm i -g @openai/codex >NUL 2>&1"; cmd /c "mise reshim >NUL 2>&1" }
+# Claude Code's native installer puts claude.exe in ~\.local\bin and leaves Path alone, like a
+# real user's machine; Podium's own fallbacks have to find it there.
+if (-not (Test-Path "$env:USERPROFILE\.local\bin\claude.exe")) { irm https://claude.ai/install.ps1 | iex }
+
 Write-Host '== WebView2 runtime'
 $wv = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
 if (-not (Test-Path $wv)) {
