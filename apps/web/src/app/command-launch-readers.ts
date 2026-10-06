@@ -8,7 +8,6 @@ import { agentCapabilityRejectionForSelection, onlineMachinesForRepoOrClone, typ
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 // Shared with the structural work harness: measure the app's actual consumers.
-export const readLaunch = (pool: MobxPool) => commandLaunchViews(pool).launch()
 export const readLaunchOrigin = (pool: MobxPool, path: string) => launchOptionViews(pool).origin(path)
 export const readLaunchCatalog = (pool: MobxPool) => launchOptionViews(pool).catalog()
 export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {

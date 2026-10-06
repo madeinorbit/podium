@@ -32,6 +32,8 @@ import {
 } from '../../../tests/worklist/diagnostics/command-launch-check'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
+import { attachHeaderSource } from './header-source'
+import { launchOptionViews } from './launch-option-views'
 import { commandLaunchViews } from './command-launch-views'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { LOADING } from './worklist/rollup'
@@ -57,6 +59,7 @@ async function fixture() {
     /* navigation wake */
   }
   const source = attachCommandLaunchSource(handle.pool, ctx.engine)
+  const detachHeader = attachHeaderSource(handle.pool, ctx.engine)
   function settle() {
     for (let turn = 0; turn < 32; turn++) {
       runInAction(() => poolCommandLaunchSnapshot(handle.pool))
@@ -83,6 +86,7 @@ async function fixture() {
     settle,
     parity,
     close() {
+      detachHeader()
       handle.dispose()
       ctx.dispose()
     },
@@ -101,11 +105,12 @@ describe('declared command and launch targets', () => {
     const runs = { ids: 0, launch: 0, target: 0, other: 0 }
     const stops = [
       autorun(() => { views.sessionIds(); runs.ids++ }),
-      autorun(() => { views.launch(); runs.launch++ }),
+      autorun(() => { launchOptionViews(f.pool).catalog(); runs.launch++ }),
       autorun(() => { views.session(target); runs.target++ }),
       autorun(() => { views.session(other); runs.other++ }),
     ]
     try {
+      expect(launchOptionViews(f.pool).catalog().repoPaths.length).toBeGreaterThan(0)
       const before = { ...runs }
       const beforeIds = views.sessionIds()
       const row = views.session(target)
@@ -319,7 +324,7 @@ describe('declared command and launch targets', () => {
     const fieldRuns = { open: 0, files: 0, sessions: 0 }
     const stops = [
       autorun(() => {
-        views.launch()
+        launchOptionViews(f.pool).catalog()
         views.palette()
       }),
       autorun(() => {
@@ -411,7 +416,7 @@ describe('declared command and launch targets', () => {
       f.parity()
       const state = referenceState(f.ctx.engine),
         views = commandLaunchViews(f.pool),
-        data = views.launch()
+        data = views.palette()
       expect(data && data !== LOADING).toBeTruthy()
       if (!data || data === LOADING) throw new Error('Launcher did not settle')
       const expected = Object.fromEntries(
@@ -427,7 +432,7 @@ describe('declared command and launch targets', () => {
       const fault = vi.spyOn(faulty.pool.queries, 'activity').mockReturnValue(0)
       try {
         faulty.settle()
-        const broken = commandLaunchViews(faulty.pool).launch()
+        const broken = commandLaunchViews(faulty.pool).palette()
         expect(broken && broken !== LOADING).toBeTruthy()
         expect(broken && broken !== LOADING ? broken.usage : undefined).not.toEqual(expected)
       } finally {

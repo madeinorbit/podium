@@ -264,7 +264,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function projection(palette: boolean): Loaded<CommandLaunchData> {
+  function projection(): Loaded<CommandLaunchData> {
     const data = common.get(),
       ids = sessionIds.get(),
       window = read('commandWindow', 'window'),
@@ -280,7 +280,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     const { issueIds: _issueIds, ...values } = data
     let pending = data.pending,
       issues: IssueViewModel[] = []
-    if (palette) {
+    {
       const list = browsing.get()
       if (list === LOADING || !list) return list
       issues = list.issues
@@ -340,10 +340,8 @@ function createCommandLaunchViews(pool: MobxPool) {
     }
     return { ...window, ...values, sessionIds: ids, issues, spawnTargets, pending }
   }
-  const launch = computed(() => projection(false), { equals: compareStructural }),
-    palette = computed(() => projection(true), { equals: compareStructural })
+  const palette = computed(() => projection(), { equals: compareStructural })
   return {
-    launch: () => launch.get(),
     palette: () => palette.get(),
     window: windowField,
     sessionIds: () => sessionIds.get(),

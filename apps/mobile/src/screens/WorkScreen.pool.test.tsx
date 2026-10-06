@@ -13,7 +13,6 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
-import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
 import {
@@ -66,13 +65,9 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
     },
     useMobilePoolProjection: (read: never, empty: never) =>
       state.host!.host.usePoolProjection(read, empty),
-    useMobileLaunchData: () => state.host!.host.usePoolProjection(readLaunch, null),
   }
 })
-function readLaunch(pool: Parameters<typeof commandLaunchViews>[0]) {
-  const data = commandLaunchViews(pool).launch()
-  return data && typeof data !== 'symbol' ? data : null
-}
+
 vi.mock('@podium/client-core/react', async (importOriginal) => {
   const real = await importOriginal<typeof import('@podium/client-core/react')>()
   return {

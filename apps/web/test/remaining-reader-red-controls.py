@@ -32,7 +32,7 @@ cases = [
     ('preferences', 'apps/web/src/lib/use-persisted-ui-state.ts', r'\?\s*row\.value\s*:\s*null', '? null : null', 'apps/web/src/lib/use-persisted-ui-state.test.tsx', 'adopts a replicated value'),
     ('automations', app + 'automation-readers.ts', r'useWorklistPoolProjection\(\s*poolList\s*,', 'useWorklistPoolProjection(() => ({ ...EMPTY_LIST, pending: 0 }),', automation_test, 'list, launch, run and specs readers'),
     ('specs', app + 'automation-readers.ts', r'useWorklistPoolProjection\(\s*poolRepos\s*,', 'useWorklistPoolProjection(() => ({ repos: [], pending: 0 }),', automation_test, 'list, launch, run and specs readers'),
-    ('launcher', app + 'command-launch-data.ts', r'useWorklistPoolProjection\(readLaunch, LOADING\)', 'LOADING', launch_test, 'declares launch and palette demand'),
+    ('launcher', app + 'command-launch-data.ts', r'useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchCatalog>>>\(readLaunchCatalog, LOADING\)', 'LOADING', launch_test, 'declares launch and palette demand'),
     ('palette', app + 'command-launch-data.ts', r'useWorklistPoolProjection\(readPalette, LOADING\)', 'LOADING', launch_test, 'declares launch and palette demand'),
     ('settings-preference', 'apps/web/src/features/settings/readers.ts', r'return loaded\(row\) \? row\.value : null', 'return loaded(row) ? null : null', app + 'preference-consumers.pool.test.tsx', 'hydrates draft, persisted value and form seed together'),
     ('settings-seed', 'apps/web/src/features/settings/readers.ts', r'raw:\s*row\.value,\s*loading:\s*false', 'raw: null, loading: false', app + 'preference-consumers.pool.test.tsx', 'hydrates draft, persisted value and form seed together'),

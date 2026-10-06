@@ -1,10 +1,6 @@
 /** The phone uses one shared pool over its existing runtime, replica and outbox.
  * Screens read only that pool; actions keep the existing store API and owner. */
 import { COMMAND_ENTITIES, COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
-import type {
-  CommandLaunchData,
-  commandLaunchViews,
-} from '@podium/client-graph/command-launch-views'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import {
   MOBILE_INBOX_ENTITIES,
@@ -58,7 +54,6 @@ export function createMobilePool(dev: boolean): MobilePool {
               import('@podium/client-graph/command-launch-source'),
               import('@podium/client-graph/command-launch-views'),
             ])
-            launchViews = commandLaunchViews
             commandLaunchViews(pool)
             await pool.sources.ensure(
               'commands',
@@ -140,12 +135,3 @@ export const useMobilePool = mobilePool.host.usePool
 export function useMobilePoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
   return mobilePool.host.usePoolProjection(read, empty, useProjectionFocus())
 }
-
-let launchViews: typeof commandLaunchViews | undefined
-const readLaunch = (pool: MobxPool): CommandLaunchData | null => {
-  const catalog = pool.row('commandCatalog', 'catalog')
-  if (!catalog || typeof catalog === 'symbol' || !launchViews) return null
-  const data = launchViews(pool).launch()
-  return data && typeof data !== 'symbol' ? data : null
-}
-export const useMobileLaunchData = () => useMobilePoolProjection(readLaunch, null)

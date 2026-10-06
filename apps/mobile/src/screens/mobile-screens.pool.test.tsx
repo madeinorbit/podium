@@ -110,16 +110,10 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
       state.pool = state.host!.host.usePool()
       return state.host!.host.usePoolProjection(read, empty)
     },
-    useMobileLaunchData: () => state.host!.host.usePoolProjection(readLaunch, null),
   }
 })
-function readLaunch(pool: Parameters<typeof commandLaunchViews>[0]) {
-  state.pool = pool
-  const value = commandLaunchViews(pool).launch()
-  return value && typeof value !== 'symbol' ? value : null
-}
 
-import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+
 
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({

@@ -11,7 +11,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../test/header-fixture'
 import {
   useCommandLaunchActions,
-  useCommandLaunchData,
+  useCommandLaunchCatalog,
   useCommandPaletteData,
   useCommandPaletteOpen,
   useCommandRecentFiles,
@@ -57,7 +57,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   const { result } = renderHook(
     () => ({
       owner: useStoreHandle<Trpc>(),
-      launch: useCommandLaunchData(),
+      launch: useCommandLaunchCatalog(),
       palette: useCommandPaletteData(),
       open: useCommandPaletteOpen(),
       files: useCommandRecentFiles(),
@@ -82,7 +82,7 @@ it('declares launch and palette demand after attachment, follows window updates 
   const { launch, palette, actions, owner } = result.current
   expect(launch).toMatchObject({
     initialRepoPath: '/synthetic/project',
-    repoChoices: [{ path: '/synthetic/project' }],
+    repoPaths: ['/synthetic/project'],
     machines: [{ id: 'host-one' }, { id: 'host-two' }, { id: 'host-three' }],
   })
   expect(palette).toMatchObject({ paletteOpen: false, selectedIssueId: null })

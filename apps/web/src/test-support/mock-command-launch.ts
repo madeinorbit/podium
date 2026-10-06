@@ -7,11 +7,14 @@ import type { ReferenceState as Store } from '../../../../tests/worklist/diagnos
 import { MobxPool } from '@podium/client-graph'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import type { HeaderRecord } from '@podium/client-graph/header-schema'
 import { useEffect, useMemo } from 'react'
 import { vi } from 'vitest'
 import {
   readFiles,
-  readLaunch,
+  readLaunchCatalog,
+  readLaunchOrigin,
   readOpen,
   readPalette,
   readSession,
@@ -58,6 +61,20 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
           paneA: input.paneA ?? null,
           paletteOpen: input.paletteOpen ?? false,
         } as Store
+        const headers = headerEntities(pool)
+        const repositoryIds = current.repos.map(repo => JSON.stringify([repo.machineId ?? '', repo.path]))
+        const machineIds = current.machines.map(machine => machine.id)
+        const records: HeaderRecord[] = [
+          ...current.repos.map((value, at) => ({ kind: 'repository' as const, id: repositoryIds[at]!, value })),
+          ...current.machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
+        ]
+        for (const id of headers.tables.repository.keys())
+          if (!repositoryIds.includes(id)) records.push({ kind: 'repository', id, value: undefined })
+        for (const id of headers.tables.machine.keys())
+          if (!machineIds.includes(id)) records.push({ kind: 'machine', id, value: undefined })
+        headers.apply(records)
+        headers.order('repository', repositoryIds)
+        headers.order('machine', machineIds)
         const rows = [
           ...issueRows.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
           ...current.sessions.map((value) => ({
@@ -93,22 +110,8 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
 
 vi.mock('@/app/command-launch-data', async (original) => ({
   ...(await original<typeof import('@/app/command-launch-data')>()),
-  useCommandLaunchData: () => useCommandFixture(readLaunch),
-  useCommandLaunchCatalog: () => useCommandFixture(pool => {
-    const value = readLaunch(pool)
-    return value && typeof value !== 'symbol' ? {
-      initialRepoPath: value.initialRepoPath,
-      repoPaths: value.repoChoices.map(repo => repo.path),
-      machines: value.machines,
-    } : value
-  }),
-  useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => {
-    const value = readLaunch(pool)
-    return value && typeof value !== 'symbol' ? {
-      repo: value.repoViews.find(repo => repo.path === path || repo.worktrees.some(tree => tree.path === path)),
-      machines: value.machines,
-    } : value
-  }),
+  useCommandLaunchCatalog: () => useCommandFixture(readLaunchCatalog),
+  useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => readLaunchOrigin(pool, path)),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
   useCommandRecentFiles: () => useCommandFixture(readFiles),

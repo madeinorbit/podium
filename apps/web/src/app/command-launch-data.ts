@@ -9,7 +9,6 @@ import { useMemo } from 'react'
 import {
   EMPTY_FILES,
   readFiles,
-  readLaunch,
   readLaunchOrigin,
   readLaunchCatalog,
   readTargetMachines,
@@ -61,22 +60,19 @@ export function useCommandLaunchActions(): CommandLaunchActions {
   const owner = useStoreHandle<Trpc>()
   return useMemo(() => statics(owner.access), [owner])
 }
-export function useCommandLaunchData(): Loaded<CommandLaunchData> {
-  return useWorklistPoolProjection(readLaunch, LOADING)
-}
 export function useCommandLaunchCatalog() {
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchCatalog>>>(readLaunchCatalog, LOADING)
 }
 /** A tab-strip menu draws one origin and the displayed machines. Recency is a
  * scalar per machine, so opening it never acquires session choice rows. */
 export function useCommandLaunchOrigin(path: string) {
-  const read = useMemo(() => (pool: Parameters<typeof readLaunch>[0]) =>
+  const read = useMemo(() => (pool: Parameters<typeof readLaunchOrigin>[0]) =>
     readLaunchOrigin(pool, path), [path])
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
 export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
   const kindsKey = JSON.stringify(kinds)
-  const read = useMemo(() => (pool: Parameters<typeof readLaunch>[0]) =>
+  const read = useMemo(() => (pool: Parameters<typeof readTargetMachines>[0]) =>
     readTargetMachines(pool, repo, machines, JSON.parse(kindsKey) as string[]), [repo, machines, kindsKey])
   return useWorklistPoolProjection(read, {} as Record<string, string | undefined>)
 }
