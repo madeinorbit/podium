@@ -34574,46 +34574,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/roots",
-      "rule": "spread",
-      "tokens": "3c785da47b21db703115016ee72ba965decdd6fd2a7a2e2eb771aa8f733d9e6e",
-      "gate": [
-        "then:4aace31fe8e9c149edca40c37c525db97c14203af5f8e43ccd46a489b5217ac5"
-      ],
-      "origin": [
-        "b8fbe7f52cd05c5782f7da081a98bfca12d9d4dc86faa7384fdf5faf60f0dc6f"
-      ],
-      "fingerprint": "73cc09c2b7956cd128d8aa932e7894e5885ff078f123353406a8f39e98b56e7b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5571",
-      "trigger": "Setup/automation choice derivation while mounted",
-      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
-      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "packages/client-graph/src/automation-views.ts",
-      "holder": "createAutomationViews/targets/memo:callback/roots",
-      "rule": "consume:map",
-      "tokens": "6cfd70bd12cf035257ec1fe67bf57b865739e1aa492be1254457d350434d9a62",
-      "gate": [
-        "then:4aace31fe8e9c149edca40c37c525db97c14203af5f8e43ccd46a489b5217ac5"
-      ],
-      "origin": [
-        "b8fbe7f52cd05c5782f7da081a98bfca12d9d4dc86faa7384fdf5faf60f0dc6f"
-      ],
-      "fingerprint": "a69ed1fbdf86236f752a9392aa55f4961939b8e632cde756871d50c39afad65c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5571",
-      "trigger": "Setup/automation choice derivation while mounted",
-      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
-      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "spread",
@@ -47186,6 +47146,122 @@
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
       "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-graph/src/automation-targets.ts",
+      "holder": "createAutomationTargets/cache/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "gate": [],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "eac348713f3ea8c7e81e694c62596ba167dcd6b5e98de51a32cb4949e67b9191",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/client-graph/src/automation-targets.ts",
+      "holder": "createAutomationTargets/memo/callback",
+      "rule": "reader-summary",
+      "tokens": "8c3fbe32500365c237ea6a5507e3c149695293bb7520544c29db768b4092cf1a",
+      "gate": [],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "6c044ccb56f043b935aa617472b27802fda34e7bc78a8d7c8f4f7eec2ce7bbec",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/client-graph/src/automation-targets.ts",
+      "holder": "createAutomationTargets/worktrees/callback",
+      "rule": "reader-summary",
+      "tokens": "3bbe530806e7cd18c7cd34f9885ed292df1b8f84d0d9f723f2b13eea82c5333f",
+      "gate": [],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "1bb47f7842df4370accd5a01e110c6c883630ff7ec0919658cce7131343e960d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "516d3db3eeab03f451d661e6bb84b713e6b7b8cdfb14833c6a632bd31ccf442c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "b4db9be7adfa31fc10749dcdbbda96045b3aa5b5f5fb9b0b21a501063348f370",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "b3228b7de31999c2464da2d5d6b817e162e8a3cd140ab1b60d70c7d168523927"
+      ],
+      "fingerprint": "2a8d4464fc16e2bda7e243b4046bcaa4c76b4f5654edec4e6cab2fef808aa39e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5571",
+      "trigger": "Setup/automation choice derivation while mounted",
+      "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
+      "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     }
   ]
 }

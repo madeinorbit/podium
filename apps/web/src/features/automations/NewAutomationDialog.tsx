@@ -1,6 +1,6 @@
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useAutomationTarget, useAutomationTargetMachine, useAutomationTargets } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -430,10 +430,10 @@ function AutomationField({
   )
 }
 
-function AutomationTargetOption({ id }: { id: string }): JSX.Element | null {
+const AutomationTargetOption = memo(function AutomationTargetOption({ id }: { id: string }): JSX.Element | null {
   const choice = useAutomationTarget(id)
   return choice ? <SelectItem value={choice.value} disabled={choice.opaque === true}>{choice.label}</SelectItem> : null
-}
+})
 
 function SelectField({
   field,

@@ -81,12 +81,6 @@
         }
       },
       {
-        "reader": "consumer:automations/automations.targets:",
-        "actions": {
-          "heartbeat": ["elements"]
-        }
-      },
-      {
         "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}",
         "actions": {
           "navigate-by-ref": ["elements"],

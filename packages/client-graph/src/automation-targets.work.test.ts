@@ -126,7 +126,6 @@ const targetWork = (work: WorkCounts, kind: 'rows' | 'derivations' | 'elements')
 it('measures real automation target open, catalog update and heartbeat at 1x/4x', async () => {
   const one = await measured(1), four = await measured(4)
   console.info('[automation target work]', JSON.stringify({ one, four }))
-  if (process.env.PODIUM_AUTOMATION_BASELINE === '1') return
   for (const action of ['reopen', 'catalog', 'heartbeat'] as const)
     for (const kind of ['rows', 'derivations', 'elements'] as const)
       expect(targetWork(four[action], kind), `${action} ${kind} grew with hidden worktrees`).toBeLessThanOrEqual(targetWork(one[action], kind))
