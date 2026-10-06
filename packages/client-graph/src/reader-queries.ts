@@ -16,11 +16,14 @@ import {
 } from './shared/reader-questions'
 import type { ModelSchema } from './shared/schema'
 import type { SessionActivityQuestion } from './shared/session-activity'
-import type { SessionQuestions } from './shared/session-questions'
+import type { SessionQuestionFacts, SessionQuestions } from './shared/session-questions'
 import { referenceKey } from './shared/session-reference'
 import type { RowSourceEvent } from './shared/source'
 import { createWorktreeQuestions } from './shared/worktree-questions'
 import { LOADING, type Loaded } from './worklist/rollup'
+
+type SessionAtomKind = 'collapsed' | 'order' | 'presence' | 'archived' |
+  `activity:${'all' | 'agents'}:${'within' | 'exact'}`
 
 interface IdentityResult {
   question: ReaderQuestion
@@ -634,9 +637,11 @@ export class ReaderQueries {
     const before = previous?.issueId,
       beforeRef = previous?.referenceKey
     const beforePresent = previous !== undefined
-    const beforeVisible = this.topologyListeners.size ? questions.present(id) : false
+    const beforeVisible = questions.present(id)
     change(questions)
     const next = questions.fact(id)
+    const afterVisible = questions.present(id)
+    this.publishSessionActivity(previous, beforeVisible, next, afterVisible)
     if (beforePresent !== (next !== undefined))
       this.sessionAtoms.get(`presence:${id}`)?.reportChanged()
     if (previous?.archived !== next?.archived)
@@ -658,7 +663,6 @@ export class ReaderQueries {
       for (const path of paths) this.publishSessionPath(path)
     }
     if (this.topologyListeners.size) {
-      const afterVisible = questions.present(id)
       if (
         beforeVisible !== afterVisible ||
         (beforeVisible &&
@@ -684,6 +688,32 @@ export class ReaderQueries {
           ],
         })
     }
+  }
+  /** Activity observers subscribe to declared path keys. A session write
+   * invalidates its old/new exact path and ancestors, using the same atom
+   * registry as presence/order; it never revisits a query's root catalog. */
+  private publishSessionActivity(
+    before: SessionQuestionFacts | undefined,
+    beforeVisible: boolean,
+    after: SessionQuestionFacts | undefined,
+    afterVisible: boolean,
+  ): void {
+    const at = (value: SessionQuestionFacts | undefined) => Date.parse(value?.activity ?? '') || 0
+    if (beforeVisible === afterVisible && before?.cwd === after?.cwd &&
+      at(before) === at(after) && (before?.agentKind === 'shell') === (after?.agentKind === 'shell')) return
+    const keys = new Set<string>()
+    const add = (value: SessionQuestionFacts | undefined, visible: boolean) => {
+      if (!value || !visible) return
+      for (const kind of value.agentKind === 'shell' ? ['all'] : ['all', 'agents']) {
+        keys.add(`activity:${kind}:exact:${value.cwd}`)
+        keys.add(`activity:${kind}:within:${value.cwd}`)
+        for (let at = value.cwd.indexOf('/'); at >= 0; at = value.cwd.indexOf('/', at + 1))
+          keys.add(`activity:${kind}:within:${value.cwd.slice(0, at)}`)
+      }
+    }
+    add(before, beforeVisible)
+    add(after, afterVisible)
+    for (const key of keys) this.sessionAtoms.get(key)?.reportChanged()
   }
   /** Raw parent edges count archived/deleted children, with only stage=done
    * contributing to the completed count, matching the issue close contract. */
@@ -1162,11 +1192,8 @@ export class ReaderQueries {
     return ids
   }
   activity(question: SessionActivityQuestion): number {
-    const key = JSON.stringify({
-      ...question,
-      ...(question.excluded ? { excluded: [...question.excluded] } : {}),
-    })
-    this.watch(`activity:${key}`, () => this.sessionQuestions().activityRevision(question))
+    for (const root of question.roots)
+      this.observeSession(`activity:${question.agentsOnly ? 'agents' : 'all'}:${question.match ?? 'within'}`, root)
     const questions = this.sessionQuestions(),
       before = questions.activityVisits
     const answer = questions.activity(question)
@@ -1228,7 +1255,7 @@ export class ReaderQueries {
     this.observeSession('order', id)
     return this.index().sessionOrderKey(id)
   }
-  private observeSession(kind: 'collapsed' | 'order' | 'presence' | 'archived', id: string): void {
+  private observeSession(kind: SessionAtomKind, id: string): void {
     const key = `${kind}:${id}`
     const atom = this.sessionAtoms.get(key)
     if (!atom) {

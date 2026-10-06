@@ -1,12 +1,14 @@
 import { asMachineId } from '@podium/model/browser'
 import { expect, it } from 'vitest'
-import { autorun } from 'mobx'
-import { insideArm, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { autorun, Reaction } from 'mobx'
+import { ARM_CODE, insideArm, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { enableDebugNames } from './debug-name'
 import { MobxPool } from './pool'
 import { SettingsSource, type SettingsOwner } from './settings-source'
 import { settingsRepositoryId, type SettingsRows } from './settings-schema'
 import type { RowRecord } from './shared/source'
+import { createColdIndex } from './shared/cold-index'
+import { SCHEMA } from './shared/schema'
 
 enableDebugNames()
 const old = '2020-01-01T00:00:00Z'
@@ -63,26 +65,105 @@ function fixture(scale: 1 | 4) {
   return { pool, repos, lists, ids, listeners, publish, session }
 }
 
-async function measured(scale: 1 | 4, demand = false) {
+async function measured(scale: 1 | 4, demand: boolean) {
   const f = fixture(scale)
-  const stop = demand ? autorun(() => {
-    for (const repo of f.repos.filter(repo => repo.kind === 'repository'))
-      f.pool.queries.activity({ kind: 'commandRootActivity', roots: [repo.path, ...repo.worktrees.map(tree => tree.path)] })
-  }, { name: 'probe:activity' }) : () => {}
+  // Retain scalar query demand without running a downstream reader on writes.
+  // The measured arm is only pool.apply, including its invalidation work.
+  let invalidations = 0
+  const observer = new Reaction('probe:activity', () => { invalidations++ })
+  const questions = f.repos.filter(repo => repo.kind === 'repository').map(repo => ({
+    kind: 'commandRootActivity' as const, roots: [repo.path, ...repo.worktrees.map(tree => tree.path)],
+  }))
+  if (demand) observer.track(() => {
+    for (const question of questions) f.pool.queries.activity(question)
+  })
   try {
     const heartbeat = await measureWork(async () => {
       insideArm(() => f.pool.apply({ type: 'update', rows: [
         f.session('visible', f.repos[0]!.worktrees[0]!.path, '2026-10-04T12:00:00Z'),
       ] }))
-    }, { pool: f.pool, trace: true })
+    }, { pool: f.pool })
     expect(f.pool.row('session', 'visible')).toMatchObject({ lastActiveAt: '2026-10-04T12:00:00Z' })
-    return { work: heartbeat.work, sites: [...heartbeat.sites!].sort((a, b) => b[1] - a[1]).slice(0, 20) }
-  } finally { stop(); f.pool.dispose() }
+    expect(f.pool.queries.activity(questions[0]!)).toBe(Date.parse('2026-10-04T12:00:00Z'))
+    expect(invalidations).toBe(demand ? 1 : 0)
+    return heartbeat.work
+  } finally { observer.dispose(); f.pool.dispose() }
 }
 
-it('measures pool apply alone for one heartbeat at 1x/4x', async () => {
-  const one = await measured(1), four = await measured(4)
-  console.info('[pool apply heartbeat work]', JSON.stringify({ one, four }))
-  const observedOne = await measured(1, true), observedFour = await measured(4, true)
-  console.info('[pool apply observed heartbeat work]', JSON.stringify({ one: observedOne, four: observedFour }))
+it.each([false, true])('keeps one apply heartbeat flat at 1x/4x (retained demand: %s)', async demand => {
+  const one = await measured(1, demand), four = await measured(4, demand)
+  console.info('[pool apply heartbeat work]', JSON.stringify({ demand, one, four }))
+  expect(four.elementsBy[ARM_CODE]).toBeLessThanOrEqual(one.elementsBy[ARM_CODE]!)
+  expect(four.rows).toBe(one.rows)
+  expect(four.visits).toBeLessThanOrEqual(one.visits)
+  expect(four.derivations).toBe(0)
 }, 120_000)
+
+const session = (id: string, cwd: string, patch: object = {}): RowRecord => ({
+  kind: 'session', id,
+  value: { sessionId: id, cwd, createdAt: old, lastActiveAt: stamp,
+    agentKind: 'codex', status: 'live', archived: false, ...patch },
+} as RowRecord)
+
+function suppliedPool(external: boolean, rows: RowRecord[]) {
+  const index = external ? createColdIndex(SCHEMA) : undefined
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
+    ...(index ? { cold: () => index } : {}), load: () => undefined, schedule: () => () => {},
+  })
+  const apply = (event: Parameters<MobxPool['apply']>[0]) => { index?.apply(event); pool.apply(event) }
+  apply({ type: 'replace', rows })
+  return { pool, apply }
+}
+
+it.each([false, true])('tracks only addressed activity paths, exact matches and agent membership (external source: %s)', external => {
+  const f = suppliedPool(external, [session('moving', '/target/child', { agentKind: 'shell' })])
+  const base = { kind: 'commandRootActivity' as const, roots: ['/target'] }
+  const values = { within: [] as number[], exact: [] as number[], agents: [] as number[], other: [] as number[] }
+  const stops = [
+    autorun(() => values.within.push(f.pool.queries.activity(base))),
+    autorun(() => values.exact.push(f.pool.queries.activity({ ...base, match: 'exact' }))),
+    autorun(() => values.agents.push(f.pool.queries.activity({ ...base, agentsOnly: true }))),
+    autorun(() => values.other.push(f.pool.queries.activity({ ...base, roots: ['/target2'] }))),
+  ]
+  const update = (row: RowRecord) => f.apply({ type: 'update', rows: [row] })
+  try {
+    expect(values.within).toEqual([Date.parse(stamp)])
+    expect(values.exact).toEqual([0])
+    expect(values.agents).toEqual([0])
+    update(session('moving', '/target/child', { agentKind: 'shell', title: 'Renamed' }))
+    expect(values.within).toHaveLength(1)
+    update(session('moving', '/target/child', { agentKind: 'shell', lastActiveAt: '2027-01-01T00:00:00Z' }))
+    expect(values.within.at(-1)).toBe(Date.parse('2027-01-01T00:00:00Z'))
+    expect(values.exact).toEqual([0])
+    expect(values.agents).toEqual([0])
+    update(session('moving', '/target/child'))
+    expect(values.agents.at(-1)).toBe(Date.parse(stamp))
+    update(session('moving', '/target'))
+    expect(values.exact.at(-1)).toBe(Date.parse(stamp))
+    update(session('moving', '/elsewhere'))
+    expect(values.within.at(-1)).toBe(0)
+    expect(values.exact.at(-1)).toBe(0)
+    expect(values.agents.at(-1)).toBe(0)
+    expect(values.other).toEqual([0])
+    f.apply({ type: 'replace', rows: [session('replacement', '/target')] })
+    expect(values.within.at(-1)).toBe(Date.parse(stamp))
+    update({ kind: 'session', id: 'replacement', value: undefined })
+    expect(values.within.at(-1)).toBe(0)
+  } finally { for (const stop of stops) stop(); f.pool.dispose() }
+})
+
+it.each([false, true])('restores activity subscriptions when a parked session becomes visible (external source: %s)', external => {
+  const resume = { kind: 'codex-thread', value: 'activity-twins' }
+  const parked = session('parked', '/target/child', { resume, issueId: 'selected' })
+  const winner = session('winner', '/other', { resume, issueId: 'selected', status: 'hibernated' })
+  const f = suppliedPool(external, [parked, winner])
+  const values: number[] = []
+  const stop = autorun(() => values.push(f.pool.queries.activity({ kind: 'commandRootActivity', roots: ['/target'] })))
+  try {
+    expect(values).toEqual([0])
+    f.apply({ type: 'update', rows: [{ kind: 'session', id: 'winner', value: undefined }] })
+    expect(values.at(-1)).toBe(Date.parse(stamp))
+    f.apply({ type: 'update', rows: [winner] })
+    expect(values.at(-1)).toBe(0)
+  } finally { stop(); f.pool.dispose() }
+})
