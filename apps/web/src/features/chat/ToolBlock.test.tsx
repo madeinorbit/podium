@@ -264,7 +264,7 @@ describe('retained Bash command disclosure', () => {
   })
 })
 
-it('measures folded edit-body work across streamed results and unfolds the latest edit', () => {
+it('defers folded edit-body work across streamed results and unfolds the latest edit', () => {
   const toolInputJson = JSON.stringify({ kind: 'file-edit', path: 'a.ts', mode: 'replace',
     hunks: [{ oldText: 'before', newText: 'after' }], added: 1, removed: 1 })
   editWork.resolve = 0
@@ -278,6 +278,7 @@ it('measures folded edit-body work across streamed results and unfolds the lates
     frames.push({ resolve: editWork.resolve - before.resolve, lines: editWork.lines - before.lines })
   }
   expect(host.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
+  expect(editWork).toEqual({ resolve: 0, lines: 0 })
   const folded = { ...editWork }
   unfold()
   expect(host.querySelector('[data-testid="tool-edit-diff"]')?.textContent).toContain('after')

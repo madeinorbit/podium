@@ -104,7 +104,9 @@ export function ToolBlock({
       effect.kind === 'termination' && (effect.interrupted || effect.timedOutAfterMs !== undefined),
   )
   const verdict = toolVerdict(result, item.toolEffects)
-  const edit = resolveToolEdit(item)
+  // The folded row uses only the call summary; its edit payload belongs to
+  // the disclosed body. The batch already supplies the sheet's open target.
+  const edit = useMemo(() => (open ? resolveToolEdit(item) : undefined), [open, item])
   // Orphan results render as a bare result row; calls render name + input.
   const label = toolCallLabel(item)
   // THE SHORT FORM, WHICH IS THE HOVER PANEL'S (POD-993 round 7). This row used

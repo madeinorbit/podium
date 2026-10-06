@@ -580,7 +580,7 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
   })
 })
 
-it('measures folded batch edit reads with retained and snapshot rows during streaming', () => {
+it('defers folded batch edit reads with retained and snapshot rows during streaming', () => {
   const samples = []
   for (const retained of [false, true]) {
     const edit = call({ id: 'edit', toolName: 'Edit', toolUseId: 'edit', toolInput: 'a.ts',
@@ -604,6 +604,7 @@ it('measures folded batch edit reads with retained and snapshot rows during stre
       }
       expect(host.querySelector('.work-line-list')).toBeNull()
       expect(diffBuilds.count).toBe(0)
+      expect(editReads.count).toBe(0)
       samples.push({ retained, mountReads, frames, diffs: diffBuilds.count })
       act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
       expect(host.querySelector('.work-line-list')?.textContent).toContain('a.ts')

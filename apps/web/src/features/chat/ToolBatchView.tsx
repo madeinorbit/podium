@@ -222,10 +222,10 @@ export const ToolBatchView = observer(function ToolBatchView({
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
   const expanded = open || forceOpen
-  const blocks = run ? expanded || diffPath !== null ? run.blocks : EMPTY_BLOCKS : row.blocks
-  // FOLDED METADATA IS CHEAP; DIFF TEXT IS NOT. `resolveToolEdit` parses the
-  // recorded payload and `toolEditHasDiff` only splits lines — neither walks
-  // the LCS table `toolEditUnifiedDiff` needs for a replacement hunk. A chat
+  const blocks = expanded || diffPath !== null ? (run?.blocks ?? row.blocks) : EMPTY_BLOCKS
+  // Edit metadata belongs to the disclosed rows and sheet, so even snapshot
+  // rows skip payload parsing while folded. `toolEditHasDiff` only splits
+  // lines; it never walks the LCS table for a replacement hunk. A chat
   // mount can hold dozens of near-cap hunks, so building every diff up front
   // costs up to 24k cells per hunk before the reader has opened anything. The
   // rail and the per-row open targets therefore come from this cheap pass, and

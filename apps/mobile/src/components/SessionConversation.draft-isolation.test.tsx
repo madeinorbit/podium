@@ -1,17 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
-/**
- * DRAFT EDITS STAY INSIDE THE COMPOSER (this issue).
- *
- * Typing in the phone composer used to re-render the whole conversation view:
- * SessionConversation subscribed to the full conversation controller, so every
- * key woke the screen and the unmemoized TranscriptList (with fresh inline
- * props) re-rendered too, plus a second wake via the stored-draft hook. The
- * screen now subscribes to the controller SURFACE only; a small composer leaf
- * owns the draft subscription, the stored-draft hook and the replaceDraft
- * effect; Stop reads the draft at press time. Typing N keys must render the
- * transcript 0 times and the screen 0 times, while the composer itself updates
- * and draft saving/Stop behaviour is unchanged (covered by existing tests).
- */
+/** The composer owns draft observation. Keys must leave the screen, transcript
+ * and composer-state derivation asleep; same-row streamed tokens must leave
+ * the composer asleep while the addressed transcript leaf updates. */
 
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
