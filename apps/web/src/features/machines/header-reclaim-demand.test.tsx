@@ -148,8 +148,10 @@ it.each([1, 4] as const)('matches the old header count and opened inventory at %
     expect(counts).toEqual([count - 1, count - 1, count - 2, count - 1])
     render(<HostInfoView initialTab="reclaim" machineId={MACHINE} onClose={() => {}} />)
     await screen.findByText(`${count - 1} candidates`)
-    const checkboxes = within(screen.getByRole('dialog')).getAllByRole('checkbox')
-    expect(checkboxes.map(element => element.id)).toEqual(inventory().candidates.map(candidate => `reclaim-${candidate.issueId}`))
+    const labels = screen.getByRole('dialog').querySelectorAll<HTMLLabelElement>('label[for^="reclaim-"]')
+    expect([...labels].map(element => [element.htmlFor, element.textContent])).toEqual(
+      inventory().candidates.map(candidate => [`reclaim-${candidate.issueId}`, candidate.title]),
+    )
     console.info('[reclaim pre-removal parity]', JSON.stringify({ scale, candidates: count, counts }))
   } finally { stop() }
 })
