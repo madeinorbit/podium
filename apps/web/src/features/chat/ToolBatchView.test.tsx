@@ -1,5 +1,6 @@
 import '@/test-support/mock-core-store-handle'
 import { asSessionId, type TranscriptItem } from '@podium/model'
+import { TranscriptGraph, type TranscriptToolRun } from '@podium/client-core/conversation'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { act } from 'react'
@@ -68,11 +69,13 @@ function mount(
   row: ToolBatchRow,
   live = false,
   waiting?: { label: string; detail?: string },
+  run?: TranscriptToolRun,
 ): void {
   act(() => {
     root.render(
       <ToolBatchView
         row={row}
+        run={run}
         index={0}
         highlighted={false}
         dimmed={false}
@@ -86,6 +89,22 @@ function mount(
     )
   })
 }
+
+it('observes retained failure and count facts while folded, then shows current children on unfold', () => {
+  const items = [call({ id: 'a', toolUseId: 'a' }), call({ id: 'b', toolUseId: 'b' })]
+  const graph = new TranscriptGraph(items)
+  const row = graph.structuralRow('a')!
+  if (row.kind !== 'tools') throw new Error('expected a tools row')
+  mount(row, false, undefined, graph.run('a'))
+  act(() => graph.apply({ changed: [call({ id: 'r', toolUseId: 'b', toolResult: 'error: failed' })], insertions: [{ id: 'r' }] }))
+  expect(host.querySelector('.work-line-fail')?.textContent).toContain('1 failed')
+  act(() => graph.apply({ changed: [call({ id: 'c', toolUseId: 'c' })], insertions: [{ id: 'c' }] }))
+  expect(host.querySelector('.work-line-count')?.textContent).toBe('3')
+  expect(host.querySelector('.work-line-list')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
+  expect(host.querySelector('.work-line-list')?.textContent).toContain('failed')
+  graph.dispose()
+})
 
 /**
  * The sheet is a lazy chunk (the chat must not pay for it on open). A 200ms

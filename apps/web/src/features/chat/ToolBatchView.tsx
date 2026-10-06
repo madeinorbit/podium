@@ -7,6 +7,8 @@ import {
   type ToolEditView,
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
+import type { TranscriptToolRun } from '@podium/client-core/conversation'
+import { observer } from 'mobx-react-lite'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
@@ -38,6 +40,7 @@ const DiffSheet = lazy(() =>
 
 const LIVE_TICK_MS = 1000
 const IDLE_TICK_MS = 600_000
+const EMPTY_BLOCKS: ChatBlock[] = []
 
 /** How much of a recorded edit goes to the SHEET. The inline row capped at 160
  *  lines because it was 280px wide; the sheet is a reading surface and matches
@@ -130,8 +133,9 @@ function usePushFlash(count: number): boolean {
  * against a feed it floated over. Its short-form text moved to the unfolded
  * rows, which is where it was wanted (see ToolBlock).
  */
-export function ToolBatchView({
+export const ToolBatchView = observer(function ToolBatchView({
   row,
+  run,
   index,
   highlighted,
   dimmed,
@@ -148,6 +152,7 @@ export function ToolBatchView({
   openFile,
 }: {
   row: ToolBatchRow
+  run?: TranscriptToolRun
   index: number
   highlighted: boolean
   dimmed: boolean
@@ -216,6 +221,8 @@ export function ToolBatchView({
    * row whose whole subject was a change.
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
+  const expanded = open || forceOpen
+  const blocks = run ? expanded || diffPath !== null ? run.blocks : EMPTY_BLOCKS : row.blocks
   // FOLDED METADATA IS CHEAP; DIFF TEXT IS NOT. `resolveToolEdit` parses the
   // recorded payload and `toolEditHasDiff` only splits lines — neither walks
   // the LCS table `toolEditUnifiedDiff` needs for a replacement hunk. A chat
@@ -238,7 +245,7 @@ export function ToolBatchView({
       const path = raw.replace(/^\.\//, '')
       return path.startsWith(prefix) ? path.slice(prefix.length) : path
     }
-    for (const b of row.blocks) {
+    for (const b of blocks) {
       // ONLY a recorded edit. `toolPaths` is every path the call reported —
       // reads included, and files outside the repo — and neither belongs in a
       // list of what this run changed. See the note above.
@@ -265,7 +272,7 @@ export function ToolBatchView({
       pathByBlock: byBlock,
       editRefs: refs,
     }
-  }, [row.blocks, cwd])
+  }, [blocks, cwd])
   // THE SHEET'S TEXT, BUILT ONCE PER EDIT AND KEPT ACROSS APPENDS. The first
   // open pays the LCS work; an unrelated transcript update afterwards reuses
   // every unchanged call's entry (keyed by diff content, not by array
@@ -299,7 +306,6 @@ export function ToolBatchView({
     for (const [path, parts] of patches) sources[path] = parts.join('\n')
     return sources
   }, [sheetOpen, editRefs])
-  const expanded = open || forceOpen
   const rowClass = cn(
     'transcript-row',
     turnClass(turn),
@@ -308,26 +314,27 @@ export function ToolBatchView({
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
-  const count = row.blocks.length
-  const failed = toolRunFailures(row.blocks)
+  const count = run?.count ?? row.blocks.length
+  const failed = run?.failures ?? toolRunFailures(row.blocks)
   // One interval per work line, and only a live one ticks — a settled
   // transcript full of them must not re-render every second.
   const activeWaiting = ownsTail ? waiting : undefined
   const active = live && ownsTail
   const computing = active && !activeWaiting
   const now = useNow(active ? LIVE_TICK_MS : IDLE_TICK_MS)
-  const elapsedMs = toolRunElapsedMs(row.blocks, active ? now : undefined)
+  const elapsedMs = run ? run.elapsed(active ? now : undefined) : toolRunElapsedMs(row.blocks, active ? now : undefined)
   const showElapsed =
     elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
   // A tools row always folds ≥1 block, so the last one exists.
-  const lastItem = row.blocks[count - 1]!.item
+  const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
+  const title = run?.title ?? row.title
   const settling = useSettleFlash(computing)
   const pushing = usePushFlash(count)
   const phrase = activeWaiting
     ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
     : live
       ? toolCallPhrase(lastItem)
-      : row.title
+      : title
   const accessibleSummary =
     `${phrase}. ${count} ${count === 1 ? 'call' : 'calls'}` +
     `${failed > 0 ? `. ${failed} failed` : ''}.`
@@ -359,8 +366,8 @@ export function ToolBatchView({
     <div
       className={rowClass}
       data-block={index}
-      data-row-key={row.blocks[0]!.item.id}
-      data-row-aliases={JSON.stringify(row.blocks.map((block) => block.item.id))}
+      data-row-key={run?.ids[0] ?? row.blocks[0]!.item.id}
+      data-row-aliases={run ? undefined : JSON.stringify(row.blocks.map((block) => block.item.id))}
     >
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
@@ -401,13 +408,13 @@ export function ToolBatchView({
             onClick={toggle}
             aria-expanded={expanded}
             aria-label={accessibleSummary}
-            title={row.title}
+            title={title}
           >
             {face}
           </button>
           {expanded && (
             <div className="work-line-list">
-              {row.blocks.map((b) => (
+              {blocks.map((b) => (
                 <ToolBlock
                   key={b.item.id}
                   block={b}
@@ -440,4 +447,4 @@ export function ToolBatchView({
       )}
     </div>
   )
-}
+})

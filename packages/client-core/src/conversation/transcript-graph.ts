@@ -1,9 +1,9 @@
 import type { TranscriptItem } from '@podium/model'
-import { action, computed, makeObservable, observable, type IComputedValue } from 'mobx'
+import { action, computed, makeObservable, observable, type IComputedValue, type IObservableArray } from 'mobx'
 import { LatestTranscriptId } from '../transcript/merge'
 import { isAskUserQuestion } from '../values/ask-question'
 import {
-  isBatchableTool, isUserMediaMarker, pairToolResults, toolBatchTitle,
+  isBatchableTool, isUserMediaMarker, pairToolResults,
   type ChatBlock, type ChatRow,
 } from '../values/chat'
 import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
@@ -11,6 +11,7 @@ import { isOperatorPrompt, type LastAnswer, type TranscriptSearchState } from '.
 import { parseEnvelopeBatch } from '../values/message-envelope'
 import { promptsBeforeTheirReplies, type TranscriptComputeResult } from '../values/transcript-compute'
 import { TranscriptSearchIndex } from './transcript-search-index'
+import { TranscriptToolRun } from './transcript-tool-run'
 
 export interface TranscriptGraphInsertion {
   readonly id: string
@@ -47,16 +48,18 @@ export class TranscriptGraph {
   readonly rowIds = observable.array<string>([], { deep: false })
   readonly summaryRowIds = observable.array<string>([], { deep: false })
   private readonly items = observable.map<string, TranscriptItem>(undefined, { deep: false })
-  private readonly children = observable.map<string, readonly string[]>(undefined, { deep: false })
-  private readonly rowMembers = observable.map<string, readonly string[]>(undefined, { deep: false })
+  private readonly children = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
+  private readonly effectChildren = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
+  private readonly rowMembers = observable.map<string, string[]>(undefined, { deep: false })
+  private readonly runs = observable.map<string, TranscriptToolRun>(undefined, { deep: false })
   private readonly skeletons = observable.map<string, ChatRow>(undefined, { deep: false })
   private readonly blockSkeletons = observable.map<string, ChatBlock>(undefined, { deep: false })
   private readonly shapes = new Map<string, string>()
-  private readonly rowShapes = new Map<string, readonly string[]>()
+  private readonly rowShapes = new Map<string, string[]>()
   private readonly failed = new Set<string>()
   private readonly failuresByRow = new Map<string, number>()
   private readonly owners = new Map<string, string>()
-  private readonly rowByBlock = new Map<string, string>()
+  private readonly rowByBlock = new Map<string, string | TranscriptToolRun>()
   private readonly toolMembers = new Map<string, ToolMembers>()
   private readonly blocks = new Map<string, IComputedValue<ChatBlock | undefined>>()
   private readonly rows = new Map<string, IComputedValue<ChatRow | undefined>>()
@@ -105,6 +108,7 @@ export class TranscriptGraph {
   get structuralBlocks(): ChatBlock[] { return this.blockIds.map(id => this.blockSkeletons.get(id)!) }
   get version(): number { return this.orderVersion }
   structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
+  run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
   get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
     const prose = this.latestProseId
@@ -124,7 +128,7 @@ export class TranscriptGraph {
   revealRow(key: string): number | undefined {
     this.orderVersion
     const block = this.cursorMembers.get(key)?.[0]
-    const row = block === undefined ? undefined : this.rowByBlock.get(block)
+    const row = block === undefined ? undefined : this.rowOwner(block)
     return row === undefined ? undefined : this.rowPosition(row)
   }
 
@@ -136,6 +140,12 @@ export class TranscriptGraph {
         if (!item) return undefined
         const children = this.children.get(id)
         if (!children?.length) return { item }
+        if (item.role === 'tool' && item.toolUseId) {
+          const result = this.items.get(children.at(-1)!)?.toolResult
+          const effectId = this.effectChildren.get(id)?.at(-1)
+          const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
+          return { item: effects ? { ...item, toolEffects: effects } : item, result }
+        }
         const related = [item]
         for (const child of children) {
           const item = this.items.get(child)
@@ -161,13 +171,12 @@ export class TranscriptGraph {
           kind: 'block', block: first,
           get blockIndex() { return graph.blockPosition(first.item.id) ?? -1 },
         }
-        const blocks: ChatBlock[] = []
-        for (const member of members) {
-          const block = this.block(member)
-          if (block) blocks.push(block)
-        }
+        const run = this.runs.get(id)
+        if (!run) return undefined
         return {
-          kind: 'tools', blocks, title: toolBatchTitle(blocks),
+          kind: 'tools',
+          get blocks() { return run.blocks },
+          get title() { return run.title },
           get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
         }
       })
@@ -191,7 +200,7 @@ export class TranscriptGraph {
 
   rowIdForBlock(id: string): string | undefined {
     this.orderVersion
-    return this.rowByBlock.get(id)
+    return this.rowOwner(id)
   }
 
   matches(query: string): readonly string[] {
@@ -240,7 +249,9 @@ export class TranscriptGraph {
   reset(items: readonly TranscriptItem[]): void {
     this.items.clear()
     this.children.clear()
+    this.effectChildren.clear()
     this.rowMembers.clear()
+    this.runs.clear()
     this.skeletons.clear()
     this.blockSkeletons.clear()
     this.shapes.clear()
@@ -304,6 +315,7 @@ export class TranscriptGraph {
     for (const item of change.changed) {
       const owner = this.owners.get(item.id) ?? item.id
       this.items.set(item.id, item)
+      if (this.owners.has(item.id)) this.indexChildEffects(item.id, this.owners.get(item.id)!)
       dirty.add(owner)
     }
     if (insertions.length) {
@@ -364,7 +376,7 @@ export class TranscriptGraph {
     if (rowsToRepair.size) this.repairRows(rowsToRepair)
     const changedRows = new Set<string>()
     for (const id of dirty) {
-      const row = this.rowByBlock.get(id)
+      const row = this.rowOwner(id)
       if (row) changedRows.add(row)
     }
     for (const id of changedRows) this.updateSummary(id)
@@ -395,9 +407,11 @@ export class TranscriptGraph {
     if (held === emitted) return
     if (emitted) this.blockIds.splice(at, 0, id)
     else {
-      const rowId = this.rowByBlock.get(id)
+      const rowId = this.rowOwner(id)
       if (rowId) dirty.add(rowId)
       this.blockIds.splice(at, 1)
+      const run = this.rowByBlock.get(id)
+      if (run && typeof run !== 'string') run.remove(id)
       this.searchIndex.remove(id)
       this.shapes.delete(id)
       this.blockSkeletons.delete(id)
@@ -417,17 +431,31 @@ export class TranscriptGraph {
     const previous = this.owners.get(child)
     if (previous === owner) return
     if (previous) {
-      this.children.set(previous, (this.children.get(previous) ?? []).filter(id => id !== child))
+      const ids = this.children.get(previous)!
+      const at = this.insertionPoint(ids, child)
+      if (ids[at] === child) ids.splice(at, 1)
+      this.indexChildEffects(child, previous, false)
       dirty.add(previous)
     }
     if (owner) {
-      const ids = [...(this.children.get(owner) ?? [])]
+      let ids = this.children.get(owner)
+      if (!ids) { ids = observable.array<string>([], { deep: false }); this.children.set(owner, ids) }
       ids.splice(this.insertionPoint(ids, child), 0, child)
-      this.children.set(owner, ids)
+      this.indexChildEffects(child, owner)
       this.owners.set(child, owner)
       dirty.add(owner)
     } else this.owners.delete(child)
     this.emit(child, owner === undefined, dirty)
+  }
+
+  private indexChildEffects(child: string, owner: string, enabled = !!this.items.get(child)?.toolEffects): void {
+    let ids = this.effectChildren.get(owner)
+    if (!ids && !enabled) return
+    if (!ids) { ids = observable.array<string>([], { deep: false }); this.effectChildren.set(owner, ids) }
+    const at = this.insertionPoint(ids, child)
+    const held = ids[at] === child
+    if (held && !enabled) ids.splice(at, 1)
+    else if (!held && enabled) ids.splice(at, 0, child)
   }
 
   private ingestIdentity(id: string, dirty = new Set<string>()): void {
@@ -498,6 +526,7 @@ export class TranscriptGraph {
   private repairRows(dirty: ReadonlySet<string>): void {
     const visited = new Set<string>()
     for (const id of dirty) {
+      if (this.repairToolRow(id)) continue
       const point = this.insertionPoint(this.blockIds, id)
       let start = Math.max(0, Math.min(point, this.blockIds.length - 1))
       if (this.blockIds.length === 0) continue
@@ -511,10 +540,10 @@ export class TranscriptGraph {
       visited.add(first)
       const members = this.blockIds.slice(start, end)
       const oldRows = new Set<string>()
-      const removedRow = this.rowByBlock.get(id)
+      const removedRow = this.rowOwner(id)
       if (removedRow) oldRows.add(removedRow)
       for (const member of members) {
-        const row = this.rowByBlock.get(member)
+        const row = this.rowOwner(member)
         if (row) oldRows.add(row)
       }
       const previous = this.rowMembers.get(first)
@@ -529,18 +558,22 @@ export class TranscriptGraph {
         if (this.summaryRowIds[summary] === old) this.summaryRowIds.splice(summary, 1)
         for (const member of this.rowMembers.get(old) ?? []) this.rowByBlock.delete(member)
         this.rowMembers.delete(old)
+        this.runs.delete(old)
         this.skeletons.delete(old)
         this.rowShapes.delete(old)
         this.failuresByRow.delete(old)
       }
-      this.rowMembers.set(first, members)
+      const ownedMembers = observable.array<string>(members, { deep: false })
+      this.rowMembers.set(first, ownedMembers)
       this.rowShapes.set(first, members.map(member => this.shapes.get(member)!))
       let failures = 0
       for (const member of members) if (this.failed.has(member)) failures++
       this.failuresByRow.set(first, failures)
-      for (const member of members) this.rowByBlock.set(member, first)
-      const row = this.row(first)!
-      this.skeletons.set(first, row)
+      const tools = isBatchableTool(this.items.get(first)!)
+      const run = tools ? new TranscriptToolRun(ownedMembers, id => this.block(id), id => this.rank(id)) : undefined
+      if (run) this.runs.set(first, run)
+      for (const member of members) this.rowByBlock.set(member, run ?? first)
+      this.skeletons.set(first, run ? this.toolSkeleton(run) : this.row(first)!)
       this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
       this.orderVersion++
       this.updateSummary(first)
@@ -573,6 +606,8 @@ export class TranscriptGraph {
     this.questions.set(id, isAskUserQuestion(block.item) && !block.item.toolResult && block.result === undefined)
     this.indexOperators(id, block.item)
     this.indexAlias(id, block.item.cursor ?? id)
+    const run = this.rowByBlock.get(id)
+    if (run && typeof run !== 'string') run.update(id, block)
   }
 
   private publishFacts(): void {
@@ -620,8 +655,82 @@ export class TranscriptGraph {
     if (previous === failed) return
     if (failed) this.failed.add(id)
     else this.failed.delete(id)
-    const row = this.rowByBlock.get(id)
+    const row = this.rowOwner(id)
     if (row) this.failuresByRow.set(row, (this.failuresByRow.get(row) ?? 0) + (failed ? 1 : -1))
+  }
+
+  private rowOwner(id: string): string | undefined {
+    const owner = this.rowByBlock.get(id)
+    return typeof owner === 'string' ? owner : owner?.ids[0]
+  }
+
+  private toolSkeleton(run: TranscriptToolRun, blocks = observable.array<ChatBlock>(
+    run.ids.map(id => this.blockSkeletons.get(id)!), { deep: false },
+  )): ChatRow {
+    const graph = this
+    return { kind: 'tools', blocks,
+      get title() { return run.title },
+      get blockIndices() { return run.ids.map(id => graph.blockPosition(id) ?? -1) },
+    }
+  }
+
+  /** Add/change one child of an existing quiet run without walking its members. */
+  private repairToolRow(id: string): boolean {
+    const item = this.items.get(id)
+    if (!item || !isBatchableTool(item) || !this.isEmitted(id)) return false
+    const own = this.rowByBlock.get(id)
+    if (typeof own === 'string') return false
+    const point = this.insertionPoint(this.blockIds, id)
+    const groups = new Set<TranscriptToolRun>()
+    for (const neighbor of [this.blockIds[point - 1], id, this.blockIds[point + 1]]) {
+      if (!neighbor || !isBatchableTool(this.items.get(neighbor)!)) continue
+      const group = this.rowByBlock.get(neighbor)
+      if (group && typeof group !== 'string') groups.add(group)
+    }
+    if (groups.size !== 1) return false
+    const run = groups.values().next().value!
+    const before = run.ids[0]!
+    const members = this.rowMembers.get(before)!
+    const at = this.insertionPoint(members, id)
+    const inserted = members[at] !== id
+    const signatures = this.rowShapes.get(before)!
+    if (!inserted && signatures[at] === this.shapes.get(id)) return true
+    const skeleton = this.skeletons.get(before)!
+    if (skeleton.kind !== 'tools') return false
+    const blocks = skeleton.blocks as IObservableArray<ChatBlock>
+    if (inserted) {
+      members.splice(at, 0, id)
+      blocks.splice(at, 0, this.blockSkeletons.get(id)!)
+      signatures.splice(at, 0, this.shapes.get(id)!)
+      this.rowByBlock.set(id, run)
+      run.update(id, this.block(id)!)
+      if (this.failed.has(id)) this.failuresByRow.set(before, (this.failuresByRow.get(before) ?? 0) + 1)
+    } else {
+      blocks[at] = this.blockSkeletons.get(id)!
+      signatures[at] = this.shapes.get(id)!
+    }
+    const first = members[0]!
+    if (before !== first) {
+      const rowAt = this.insertionPoint(this.rowIds, before)
+      if (this.rowIds[rowAt] === before) this.rowIds.splice(rowAt, 1)
+      const summaryAt = this.insertionPoint(this.summaryRowIds, before)
+      if (this.summaryRowIds[summaryAt] === before) this.summaryRowIds.splice(summaryAt, 1)
+      this.rowMembers.delete(before)
+      this.rowShapes.delete(before)
+      this.runs.delete(before)
+      this.skeletons.delete(before)
+      const failures = this.failuresByRow.get(before) ?? 0
+      this.failuresByRow.delete(before)
+      this.failuresByRow.set(first, failures)
+      this.rowMembers.set(first, members)
+      this.rowShapes.set(first, signatures)
+      this.runs.set(first, run)
+      this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
+    }
+    this.skeletons.set(first, this.toolSkeleton(run, blocks))
+    this.updateSummary(first)
+    this.orderVersion++
+    return true
   }
 
   dispose(): void {

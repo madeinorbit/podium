@@ -1,8 +1,10 @@
 import { computeTranscript } from '@podium/client-core/values'
+import { TranscriptGraph } from '@podium/client-core/conversation'
 import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TranscriptComputeWorkerRequest } from './transcript-compute.worker'
 import { TranscriptComputeClient } from './transcript-compute-client'
+import type { TranscriptGraphSource } from './transcript-compute-client'
 
 class ControlledWorker {
   static latest: ControlledWorker
@@ -28,6 +30,12 @@ class ControlledWorker {
       },
     } as MessageEvent)
   }
+  replyModel(ok = true) {
+    const request = this.messages.at(-1)!
+    this.onmessage?.({ data: ok ? { id: request.id, kind: 'model', ok: true,
+      search: computeTranscript({ items: [], verbosity: 'normal', query: '', cursor: 0 }).search, markdown: [] }
+      : { id: request.id, kind: 'model', ok: false, error: 'missing base' } } as MessageEvent)
+  }
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -40,6 +48,37 @@ const item = (
 })
 
 describe('TranscriptComputeClient', () => {
+  it('keeps cancelled model credit and recovers its base after an unobserved failed flight', async () => {
+    vi.stubGlobal('Worker', ControlledWorker)
+    const client = new TranscriptComputeClient()
+    const items = [item({ id: 'a', role: 'assistant', text: 'initial' })]
+    let reset = true
+    const snapshot = vi.fn(() => items)
+    const source: TranscriptGraphSource = { graph: new TranscriptGraph(items), version: 0,
+      get needsReset() { return reset }, snapshot, pending: () => ({ changed: [] }), sent: () => { reset = false } }
+    const abort = new AbortController()
+    const hidden = client.computeGraph(source, '', 0, { signal: abort.signal }).catch(error => error.name)
+    abort.abort()
+    expect(await hidden).toBe('AbortError')
+    const queued = client.computeGraph(source, 'needle', 0)
+    const worker = ControlledWorker.latest
+    expect(worker.messages).toHaveLength(1)
+    worker.replyModel(false)
+    expect(worker.messages).toHaveLength(2)
+    expect(worker.messages[1]).toMatchObject({ kind: 'model', items })
+    expect(snapshot).toHaveBeenCalledTimes(2)
+    worker.replyModel()
+    await queued
+    const search = client.computeGraph(source, 'needle', 1, { verbosity: 'summary' })
+    expect(worker.messages.at(-1)).toMatchObject({ kind: 'model', verbosity: 'summary' })
+    expect(worker.messages.at(-1)).not.toHaveProperty('items')
+    expect(worker.messages.at(-1)).not.toHaveProperty('change')
+    worker.replyModel()
+    await search
+    client.forgetGraph(source)
+    expect(worker.messages.at(-1)).toMatchObject({ kind: 'forget-model' })
+    client.dispose()
+  })
   it('posts one in-flight job and only the latest queued frame instead of cloning a backlog', async () => {
     vi.stubGlobal('Worker', ControlledWorker)
     const client = new TranscriptComputeClient()

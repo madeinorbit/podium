@@ -21,7 +21,6 @@ import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { observer, Observer } from 'mobx-react-lite'
 import type { ChatSurface } from './use-chat-layout'
-import { toolBatchTitle } from '@podium/client-core/values'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
@@ -681,7 +680,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           const turnPreview = props.chat?.conversation.preview ?? props.turnPreview
           const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
           const previewHasText = turnPreview?.items.some(item => item.kind === 'text') === true
-          const lastRow = rows[rows.length - 1]?.row
+          const lastRow = props.chat?.conversation.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           return <>
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
@@ -790,7 +789,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
           const tailActivity = overlay?.status ? { tone: 'working' as const, label: overlay.status } : activity ?? null
           const session = props.chat?.session ?? props.session
-          const lastRow = rows[rows.length - 1]?.row
+          const lastRow = props.chat?.conversation.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
           return (
         <div className="feed-tail-slot" data-testid="feed-tail-slot">
@@ -821,8 +820,8 @@ const TranscriptRow = observer(function TranscriptRow({ props, template, index: 
   const presentation = props.chat?.conversation.presentation
   const row: ChatRow = !presentation ? template : template.kind === 'block'
     ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
-    : { ...template, blocks: template.blocks.map(block => presentation.block(block.item.id) ?? block) }
-  if (row.kind === 'tools' && presentation) row.title = toolBatchTitle(row.blocks)
+    : template
+  const run = row.kind === 'tools' ? presentation?.run(row.blocks[0]!.item.id) : undefined
 
           // An operator prompt opens an exchange — except at the very top of the
           // mounted window, where the air would only pad the scrollport (and
@@ -845,16 +844,19 @@ const TranscriptRow = observer(function TranscriptRow({ props, template, index: 
                 // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
                 key={identity}
                 row={row}
+                run={run}
                 index={idx}
                 highlighted={idx === search.activeRow || idx === revealedRow}
                 forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
-                dimmed={search.filtering && !row.blockIndices.some((bi) => searchMatches.has(bi))}
+                dimmed={search.filtering && !(presentation ? presentation.rowMatches(identity)
+                  : row.blockIndices.some((bi) => searchMatches.has(bi)))}
                 // The work line names an in-flight call only when it is the
                 // trailing row. The permanent tail below remains the one owner of
                 // live motion, so a tool-result commit cannot remove the working
                 // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
                 // trailing window while `idx` is the absolute index.
-                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.activity ?? props.activity ?? null, row)}
+                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.activity ?? props.activity ?? null,
+                  presentation?.tailRow(row) ?? row)}
                 ownsTail={false}
                 arrived={arrived}
                 turn={turn}

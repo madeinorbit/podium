@@ -244,7 +244,7 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
 
 // Tool → the verb/noun the summary counts it under. Past tense to read as a log
 // of what happened ("Read 3 files", "Created 4 files", "Ran 5 commands").
-function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
+export function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
   switch (item.toolName) {
     case 'Read':
     case 'NotebookRead':
@@ -417,23 +417,37 @@ export function toolBatchTitle(blocks: ChatBlock[]): string {
 
   const clauses = order.map((key) => {
     const { verb, noun, subjects, count } = tally.get(key)!
-    // Nothing nameable in this whole clause — count it the old way.
-    if (subjects.length === 0) return clauseFor(verb, noun, count)
     // DEDUPE FIRST. An agent re-reading one file four times produced "Read
     // AgentPanel.tsx, AgentPanel.tsx +2", which spends the line's whole budget
     // saying one name twice. Distinct names are the information; the count
     // already carries how much happened.
     const distinct = [...new Set(subjects)]
-    const shown = distinct.slice(0, SUBJECTS_PER_CLAUSE)
+    return { verb, noun, subjects: distinct.slice(0, SUBJECTS_PER_CLAUSE), count }
+  })
+  return toolBatchTitleFromClauses(clauses)
+}
+
+export interface ToolTitleClause {
+  verb: string
+  noun: string
+  subjects: readonly string[]
+  count: number
+}
+
+/** Clauses may be demanded from a retained tally. Stop at the display budget. */
+export function toolBatchTitleFromClauses(clauses: Iterable<ToolTitleClause>): string {
+  let phrase = ''
+  for (const { verb, noun, subjects: shown, count } of clauses) {
     // The tail counts every CALL the clause covers, not the names dropped from
     // it, so "+2" never under-reports a run that mixed named and unnamed calls
     // — and repeated work on one file still shows up in the total.
     const rest = count - shown.length
-    return `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
-  })
-
-  const phrase = clauses.map((c, i) => (i === 0 ? c : lowerFirst(c))).join(', ')
-  return phrase.length <= PHRASE_MAX ? phrase : shorten(phrase, PHRASE_MAX)
+    const clause = shown.length === 0 ? clauseFor(verb, noun, count)
+      : `${verb} ${shown.join(', ')}${rest > 0 ? ` +${rest}` : ''}`
+    phrase += phrase ? `, ${lowerFirst(clause)}` : clause
+    if (phrase.length > PHRASE_MAX) return shorten(phrase, PHRASE_MAX)
+  }
+  return phrase
 }
 
 // Tool → the present-participle phrase shown on a LIVE work line, which names

@@ -111,3 +111,30 @@ it('discards removed search postings and honours an empty authoritative replacem
     matches: [], activeMatch: undefined, activeRow: undefined, position: 0, total: 0, filtering: false,
   } })
 })
+
+it('retains a quiet run across appends, prefix rekeys and changed title subjects', () => {
+  const read = (id: string, path: string) => ({ ...call(id, id), toolInput: JSON.stringify({ file_path: path }) })
+  const f = fixture([read('a', '/a'), read('b', '/b'), read('c', '/a')])
+  const run = f.graph.run('a')!
+  f.append(read('d', '/d'))
+  expect(f.graph.run('a')).toBe(run)
+  f.prepend(read('prefix', '/prefix'))
+  expect(f.graph.run('prefix')).toBe(run)
+  expect(f.graph.rowIdForBlock('c')).toBe('prefix')
+  f.apply({ changed: [read('b', '/replacement')] })
+  f.append(result('done', 'd', 'error: failed'))
+  expect(run.failures).toBe(1)
+  expect(run.lastBlock?.result).toBe('error: failed')
+  f.apply({ changed: [result('done', 'd', 'ok')] })
+  expect(run.failures).toBe(0)
+})
+
+it('selects the last result and last supplied effects without demanding all progress results', () => {
+  const f = fixture([call('call')])
+  f.append({ ...result('first', 'same', 'first'), toolEffects: [{ kind: 'unknown', key: 'first' }] }, result('last'))
+  f.apply({ changed: [{ ...result('first', 'same', 'updated'), toolEffects: [{ kind: 'unknown', key: 'updated' }] }] })
+  expect(f.graph.block('call')?.result).toBe('last')
+  expect(f.graph.block('call')?.item.toolEffects?.[0]?.key).toBe('updated')
+  f.apply({ changed: [result('first')] })
+  expect(f.graph.block('call')?.item.toolEffects).toBeUndefined()
+})

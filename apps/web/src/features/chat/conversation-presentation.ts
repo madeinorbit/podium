@@ -50,7 +50,6 @@ export class ConversationPresentation {
   private graph: TranscriptGraph | undefined
   private ownsGraph = false
   private source: PresentationSource | undefined
-  private readonly client = transcriptComputeClient()
   private readonly emptyMarkdown = new Map<string, string>()
   private request: AbortController | undefined
   private disposed = false
@@ -58,7 +57,7 @@ export class ConversationPresentation {
   private heldHead: string | null = null
   private readonly rendered = new Map<string, IComputedValue<RenderableRow[]>>()
 
-  constructor() {
+  constructor(private readonly client = transcriptComputeClient()) {
     makeObservable<this, 'heldHead'>(this, {
       result: observableRef, query: observable, cursor: observable,
       renderCount: observable, followTail: observable, heldHead: observable,
@@ -66,6 +65,7 @@ export class ConversationPresentation {
       changed: action,
       blocks: computed, rows: computed, computeReady: computed,
       markdownHtml: computed, search: computed, renderStart: computed, visibleRows: computed,
+      matchingRows: computed,
       setQuery: actionBound, moveCursor: actionBound,
       setRenderCount: actionBound, setFollowTail: actionBound,
     })
@@ -84,12 +84,13 @@ export class ConversationPresentation {
   get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
   get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
   get rowVersion(): number { return this.graph?.version ?? 0 }
-  get lastAnswer() { return this.graph?.lastAnswer ?? { blockIndex: -1, text: '' } }
+  get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1, text: '' } }
   get headKey(): string {
     const id = this.log?.ids[0]
     return id === undefined ? '' : this.log?.byId.get(id)?.cursor ?? id
   }
   get pendingAskIndex(): number {
+    if (!this.computeReady) return -1
     const id = this.graph?.pendingQuestionId
     return id === undefined ? -1 : this.graph!.blockPosition(id) ?? -1
   }
@@ -108,7 +109,23 @@ export class ConversationPresentation {
   get markdownHtml(): ReadonlyMap<string, string> { return this.result?.markdownHtml ?? this.emptyMarkdown }
 
   block(id: string): ChatBlock | undefined { return this.computeReady ? this.graph?.block(id) : undefined }
+  run(id: string) { return this.computeReady ? this.graph?.run(id) : undefined }
+  get matchingRows(): ReadonlySet<string> {
+    return new Set(this.computeReady ? this.graph!.matches(this.query)
+      .map(id => this.graph!.rowIdForBlock(id)!).filter(Boolean) : [])
+  }
+  rowMatches(id: string): boolean { return this.matchingRows.has(id) }
   revealRow = (key: string): number | undefined => this.computeReady ? this.graph?.revealRow(key) : undefined
+  anchorRow = (key: string): number | undefined => {
+    const id = this.graph?.rowIdForBlock(key)
+    return id === undefined ? this.revealRow(key) : this.graph?.rowPosition(id)
+  }
+  tailRow(row: ChatRow | undefined): ChatRow | undefined {
+    if (row?.kind !== 'tools') return row
+    const run = this.run(row.blocks[0]!.item.id)
+    const last = run?.lastBlock
+    return last ? { kind: 'tools', blocks: [last], blockIndices: [], title: run.title } : row
+  }
 
   renderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
     const key = String(sticky) + ':' + String(collapseContext)

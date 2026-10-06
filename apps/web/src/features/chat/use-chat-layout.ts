@@ -288,6 +288,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     loadOlder,
     rowsToRender,
     onFollowChange: setFollowTail,
+    lookupAnchorRow: view.anchorRow,
   })
   const revealLoadOlder = scroll.loadOlder
   const revealScrollToBlock = scroll.scrollToBlock

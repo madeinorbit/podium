@@ -13,6 +13,8 @@ export interface UseDomTranscriptScrollOptions {
   rowsToRender: unknown
   onFollowChange?: (following: boolean) => void
   onPositionChange?: () => void
+  /** A retained row model resolves an old row key after a tool-run merge. */
+  lookupAnchorRow?: (key: string) => number | undefined
 }
 
 export interface UseDomTranscriptScrollResult {
@@ -62,6 +64,7 @@ export function useDomTranscriptScroll(
     rowsToRender,
     onFollowChange,
     onPositionChange,
+    lookupAnchorRow,
   } = opts
 
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
@@ -177,7 +180,9 @@ export function useDomTranscriptScroll(
       const anchor = readingAnchor.current
       let element = anchor?.element
       if (anchor && !element?.isConnected && anchor.key !== undefined) {
-        element = [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
+        const index = lookupAnchorRow?.(anchor.key)
+        element = index === undefined ? undefined : scroller.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? undefined
+        element ??= [...scroller.querySelectorAll<HTMLElement>('[data-row-key]')].find(
           (row) =>
             row.dataset.rowKey === anchor.key ||
             (row.dataset.rowAliases !== undefined &&
@@ -198,7 +203,7 @@ export function useDomTranscriptScroll(
     }
     geometry.current = { height: scroller.scrollHeight, viewport: scroller.clientHeight }
     onPositionChange?.()
-  }, [active, captureReadingAnchor, scrollerRef, onPositionChange, writeOffset])
+  }, [active, captureReadingAnchor, scrollerRef, onPositionChange, lookupAnchorRow, writeOffset])
 
   const loadOlderAnchored = useCallback(() => {
     if (!moreAbove || loadingOlder) return
