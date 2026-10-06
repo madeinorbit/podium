@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model/browser'
 /**
  * THE COLLAPSED SIDEBAR RAIL (#41, redrawn to design 3b — POD-1178).
  *
