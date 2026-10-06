@@ -6,7 +6,8 @@ import { MobxPool } from './pool'
 it('reads folded progress without the sidebar presentation and updates its formal units', () => {
   const stamp = '2026-10-01T12:00:00Z'
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) })
-  const root = { id: 'root', seq: 1, title: 'Mission', stage: 'in_progress', parentId: null, deps: [], archived: false }
+  const root = { id: 'root', seq: 1, title: 'Mission', stage: 'in_progress', parentId: null, deps: [], archived: false,
+    repoPath: '/mission', createdAt: stamp, updatedAt: stamp }
   const child = { ...root, id: 'child', seq: 2, parentId: 'root', stage: 'review' }
   const seat = { sessionId: 'seat', issueId: 'root', cwd: '/mission', title: 'Crew', agentKind: 'codex',
     status: 'live', archived: false, lastActiveAt: stamp }
@@ -29,7 +30,8 @@ it('reads folded progress without the sidebar presentation and updates its forma
 })
 
 it('keeps folded progress pending until a cold formal child is loaded', () => {
-  const root = { id: 'root', seq: 1, title: 'Mission', stage: 'in_progress', parentId: null, deps: [], archived: false }
+  const root = { id: 'root', seq: 1, title: 'Mission', stage: 'in_progress', parentId: null, deps: [], archived: false,
+    repoPath: '/mission', createdAt: '2026-10-01T12:00:00Z', updatedAt: '2026-10-01T12:00:00Z' }
   const child = { ...root, id: 'child', seq: 2, parentId: 'root', stage: 'done',
     closedAt: '2026-09-01T12:00:00Z', updatedAt: '2026-09-01T12:00:00Z' }
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse('2026-10-01T12:00:00Z') }, undefined,
