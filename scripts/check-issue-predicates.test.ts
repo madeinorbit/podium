@@ -54,7 +54,7 @@ describe('shared issue lifecycle predicates', () => {
   it('has no duplicated closure checks in the real frontend source', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const findings = []
-    for (const directory of ['packages/client-graph/src', 'packages/client-graph/diagnostics',
+    for (const directory of ['packages/client-graph/src', 'tests/worklist/diagnostics',
       'packages/client-core/src/values', 'apps/web/src', 'apps/mobile/src']) {
       for (const entry of readdirSync(join(root, directory), { recursive: true, encoding: 'utf8' })) {
         if (!/\.tsx?$/.test(entry)) continue

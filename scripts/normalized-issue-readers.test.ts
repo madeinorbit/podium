@@ -31,7 +31,7 @@ describe('normalized issue reader boundary', () => {
   it('allows logical pool issue rows', () =>
     expect(oldIssueReads("pool.row('issue', id); source.row('issue', id)")).toEqual([]))
   it('has no old record reader in production web or client graph', () => {
-    const hits = ['apps/web/src', 'packages/client-graph/src', 'packages/client-graph/diagnostics']
+    const hits = ['apps/web/src', 'packages/client-graph/src', 'tests/worklist/diagnostics']
       .flatMap((root) => files(root))
       .flatMap((path) => oldIssueReads(readFileSync(path, 'utf8')).map((hit) => `${path}: ${hit}`))
     expect(hits).toEqual([])

@@ -8,7 +8,7 @@ const ROOTS = [
   'apps/web/src',
   'packages/client-core/src',
   'packages/client-graph/src',
-  'packages/client-graph/diagnostics',
+  'tests/worklist/diagnostics',
 ]
 const CORE_READERS =
   /packages\/client-core\/src\/(?:viewmodels\/|react\/|focus\.ts|session-index\.ts|engine\/(?:actions|state|types|reactions)\.ts)/
