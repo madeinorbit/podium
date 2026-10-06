@@ -7,7 +7,7 @@ import {
   selectLatestPromptSession,
   type HandoffTranscriptPair,
 } from '@podium/client-core/values'
-import { useObserver } from 'mobx-react-lite'
+import { reaction } from 'mobx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import {
@@ -51,12 +51,32 @@ export function useHandoffTranscript(
     { enabled },
   )
   const transcript = conversation?.transcript
-  const snapshot = useObserver(() => ({
+  const [snapshot, setSnapshot] = useState(() => ({
     pair: transcript?.latestHandoffPair ?? null,
     initialLoaded: transcript?.initialLoaded ?? false,
     hasMoreOlder: transcript?.hasMoreOlder ?? false,
     loadingOlder: transcript?.loadingOlder ?? false,
   }))
+  // Bridge the shared log's observables into React state. The reaction wakes
+  // only when a field it read moves; setting state from it cannot loop.
+  useEffect(() => {
+    setSnapshot({
+      pair: transcript?.latestHandoffPair ?? null,
+      initialLoaded: transcript?.initialLoaded ?? false,
+      hasMoreOlder: transcript?.hasMoreOlder ?? false,
+      loadingOlder: transcript?.loadingOlder ?? false,
+    })
+    if (!transcript) return
+    return reaction(
+      () => ({
+        pair: transcript.latestHandoffPair ?? null,
+        initialLoaded: transcript.initialLoaded,
+        hasMoreOlder: transcript.hasMoreOlder,
+        loadingOlder: transcript.loadingOlder,
+      }),
+      (next) => setSnapshot(next),
+    )
+  }, [transcript])
   const [pageFailed, setPageFailed] = useState(false)
   const failedRef = useRef(false)
   useEffect(() => {
