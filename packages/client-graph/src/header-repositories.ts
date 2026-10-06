@@ -14,6 +14,7 @@ type Identity = {
 type Scope = {
   order: number
   memberOrder: number
+  repositoryId: string
   repoId: string | null
   repoPath: string
 }
@@ -87,6 +88,7 @@ export function createHeaderRepositoryRelations() {
         const value = {
           order,
           memberOrder: rank(id),
+          repositoryId: id,
           repoId: repoId ?? fact.repoId ?? null,
           repoPath: fact.path,
         }
@@ -185,7 +187,7 @@ export function createHeaderRepositoryRelations() {
     shippingScope(
       cwd: string,
       machineId?: string,
-    ): { order: number; repoId: string | null; repoPath: string; handoff: { repoPath: string; worktreePath: string } | undefined } | undefined {
+    ): { order: number; repoId: string | null; repoPath: string; handoff: { repositoryId: string; repoPath: string; worktreePath: string } | undefined } | undefined {
       let first: Scope | undefined,
         matchedLength = -1,
         handoff: Scope | undefined,
@@ -224,7 +226,7 @@ export function createHeaderRepositoryRelations() {
         take(cwd.slice(0, at + 1))
       }
       return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath,
-        handoff: handoff ? { repoPath: handoff.repoPath, worktreePath: handoffPath } : undefined }
+        handoff: handoff ? { repositoryId: handoff.repositoryId, repoPath: handoff.repoPath, worktreePath: handoffPath } : undefined }
     },
     clear() {
       facts.clear()

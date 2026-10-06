@@ -6,7 +6,7 @@ import { reposToViews } from '@podium/client-core/values'
 import { asMachineId, asRepoId, handoffAvailability, handoffSource } from '@podium/model/browser'
 import type { HeaderRows } from './header-schema'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
-import { autorun } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
@@ -143,7 +143,7 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
     const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(headerView(pool), 'row'), ids = vi.spyOn(headerView(pool), 'ids')
     let menu!: ReturnType<typeof observe<ReturnType<typeof readMissionActionInputs>>>
     const measured = await measureWork(async () => insideReader('menu', () => {
-      menu = observe(() => readMissionActionInputs(view, [], 'picked'))
+      menu = observe(() => readMissionActionInputs(view, [], 'picked', true, true))
       pool.hydrate()
     }), { pool })
     try {
@@ -159,7 +159,7 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
       work.push({ rows: measured.work.rows ?? 0, elements: measured.work.elements })
       let publications = 0
-      const displayed = observe(() => { publications++; return JSON.stringify(readMissionActionInputs(view, [], 'picked')) })
+      const displayed = observe(() => { publications++; return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, true)) })
       try {
         const before = publications
         row.mockClear(); repoRow.mockClear()
@@ -225,7 +225,7 @@ it('distinguishes same-path peers and picks the longest containing source while 
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: deeper }] })
     expect(headerEntities(pool).shippingScope(deeper.cwd, sourceId)?.repoPath).toBe('/repo')
     expect(headerEntities(pool).shippingScope(deeper.cwd, sourceId)?.handoff)
-      .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
+      .toEqual({ repositoryId: 'nested', repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
     expect(availability([owned, peer, nested]).blocker).toBeUndefined()
     const wildcard: HeaderRows['repository'] = { ...source, machineId: undefined,
       worktrees: [{ path: `${nestedPath}/feature/unknown` }] }
@@ -234,7 +234,63 @@ it('distinguishes same-path peers and picks the longest containing source while 
     input.set('session:picked', underUnknown)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: underUnknown }] })
     expect(headerEntities(pool).shippingScope(underUnknown.cwd, sourceId)?.handoff)
-      .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
+      .toEqual({ repositoryId: 'nested', repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
     expect(availability([owned, peer, nested, wildcard]).blocker).toBeUndefined()
   } finally { menu.stop() }
+})
+
+it('observes the source alone until Handoff opens, then releases the destination catalog when it closes at 1x/4x', () => {
+  const work: number[] = []
+  for (const scale of [1, 4]) {
+    const { pool, view, input } = fixture(scale)
+    const repoId = asRepoId('deferred-repo')
+    const source: HeaderRows['repository'] = { kind: 'repository', path: '/source', repoId,
+      machineId: asMachineId('sender'), worktrees: [{ path: '/menu' }] }
+    const clone: HeaderRows['repository'] = { kind: 'repository', path: '/clone', repoId,
+      machineId: asMachineId('target'), worktrees: Array.from({ length: 128 * scale }, (_, i) => ({ path: `/clone/old-${i}` })) }
+    const machine: HeaderRows['machine'] = { id: asMachineId('target'), name: 'Target', hostname: 'target', lastSeenAt: stamp, online: true }
+    const picked = { ...input.get('session:picked'), machineId: asMachineId('sender') } as SessionView
+    input.set('session:picked', picked)
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: picked }] })
+    headerEntities(pool).apply([
+      { kind: 'repository', id: 'source-repo', value: source },
+      { kind: 'repository', id: 'clone-repo', value: clone },
+      { kind: 'machine', id: 'target', value: machine },
+      ...Array.from({ length: 32 * scale }, (_, i) => ({ kind: 'machine' as const, id: `other-${i}`,
+        value: { ...machine, id: asMachineId(`other-${i}`), name: `Other ${i}` } })),
+    ])
+    const opened = observable.box(false)
+    const row = vi.spyOn(pool, 'row'), catalog = vi.spyOn(headerView(pool), 'ids')
+    let publications = 0
+    const menu = observe(() => {
+      publications++
+      return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, opened.get()))
+    })
+    try {
+      pool.hydrate()
+      const top = JSON.parse(menu.value) as import('./mission-view').MissionActionInputs
+      expect(top.repos.map(repo => repo.path)).toEqual(['/source'])
+      expect(top.machines).toEqual([])
+      expect(catalog).not.toHaveBeenCalled()
+      expect(row.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'source-repo')).toBe(true)
+      work.push(row.mock.calls.length)
+      const before = publications
+      headerEntities(pool).apply([{ kind: 'repository', id: 'clone-repo', value: { ...clone, branch: 'changed' } },
+        { kind: 'machine', id: 'target', value: { ...machine, online: false } }])
+      expect(publications).toBe(before)
+      runInAction(() => opened.set(true))
+      const targets = JSON.parse(menu.value) as import('./mission-view').MissionActionInputs
+      expect(targets.repos.map(repo => repo.path)).toEqual(['/source', '/clone'])
+      expect(targets.repos[1]!.worktrees).toEqual([])
+      expect(targets.machines).toHaveLength(32 * scale + 1)
+      expect(catalog).toHaveBeenCalledWith('machine')
+      expect(handoffAvailability(targets.session!, reposToViews(targets.repos), targets.machines, targets.issue))
+        .toEqual(handoffAvailability(targets.session!, reposToViews([source, clone]), targets.machines, targets.issue))
+      runInAction(() => opened.set(false))
+      const closed = publications
+      headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: machine }])
+      expect(publications).toBe(closed)
+    } finally { menu.stop() }
+  }
+  expect(work[1]).toBe(work[0])
 })

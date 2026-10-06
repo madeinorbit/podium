@@ -1,7 +1,8 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
-import type { MissionActionInputs } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph'
+import { type MissionActionInputs, missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import {
   handoffAvailability,
   isSnoozed,
@@ -24,10 +25,11 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import { type JSX, useState } from 'react'
+import { type JSX, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { useFeature } from '@/lib/use-feature'
 import {
@@ -99,11 +101,18 @@ export function SessionContextMenu({
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
-  const { blocker, candidates } = handoffAvailability(session, reposToViews(repos), machines, issue)
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
   // other cursor-anchored panels (`use-cursor-menu.ts`).
   const { ref, pos } = useCursorMenu(anchor, onClose)
   const [handoffTop, setHandoffTop] = useState<number | null>(null)
+  const targetsOpen = handoffEnabled && handoffTop !== null
+  const readTargets = useCallback((pool: import('@podium/client-graph').MobxPool) =>
+    targetsOpen ? readMissionHandoffTargets(missionView(pool), session.sessionId) : undefined,
+  [targetsOpen, session.sessionId])
+  const targets = useWorklistPoolProjection(readTargets, undefined)
+  const { blocker, candidates } = handoffAvailability(session,
+    reposToViews(targets && targets !== LOADING ? targets.repos : repos),
+    targets && targets !== LOADING ? targets.machines : machines, issue)
 
   const id = session.sessionId
   const snoozed = isSnoozed(session, now)

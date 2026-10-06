@@ -1,6 +1,6 @@
-import { settingsHasFirstTask } from './settings-views'
-import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
+import { headerEntities } from './header-entities'
+import { settingsHasFirstTask } from './settings-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1578,7 +1578,7 @@ export interface MissionActionInputs {
 }
 /** Called by mounted menus. Global choices belong to the label/duplicate
  * flyout; a session menu never asks for its issue's other senders. */
-export function readMissionActionInputs(view: MissionViewReader, issueIds: readonly string[], sessionId?: string, handoffEnabled = true): MissionActionInputs | typeof LOADING {
+export function readMissionActionInputs(view: MissionViewReader, issueIds: readonly string[], sessionId?: string, handoffEnabled = true, targetsOpen = false): MissionActionInputs | typeof LOADING {
   const selected: IssueNavigationModel[] = []
   const session = sessionId ? view.menuSession(sessionId) : undefined
   if (session === LOADING) return LOADING
@@ -1597,26 +1597,38 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const anchorPath = source && source.worktreePath === source.repoPath && selected[0]?.worktreePath
   const anchorScope = anchorPath ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
   const anchor = anchorScope?.worktreePath === anchorPath && anchorScope?.worktreePath !== source?.worktreePath ? anchorScope : undefined
-  const repos = source ? headerEntities(view.pool).repositoryGroup(source.repoPath).flatMap(id => {
+  // The parent menu displays only source eligibility. Clone checkouts and
+  // destination capabilities belong to the opened target submenu.
+  const group = source && targetsOpen ? headerEntities(view.pool).repositoryGroup(source.repoPath) : []
+  // A non-primary clone has its own source address, while group(path) names
+  // the primary checkout. The opened picker can consult the existing root
+  // catalog in that case; standalone history worktrees remain excluded.
+  const repositoryIds = source ? targetsOpen ? group.length ? group : headerEntities(view.pool).repositoryRootIds() : [source.repositoryId] : []
+  const repos = repositoryIds.flatMap(id => {
     const repo = headerView(view.pool).row('repository', id)
     if (!repo) return []
     const worktrees = [source, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.worktreePath !== repo.path &&
       (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
     return [{ ...repo, worktrees }]
-  }) : []
+  })
   // The full target picker stays inside the deferred menu component. Here
   // only source eligibility decides whether any machine choices are shown.
   const needsTargets = subject && (HANDOFF_HARNESS_KINDS as readonly string[]).includes(subject.agentKind) &&
     repos.some(repo => repo.repoId) && repos.some(repo => repo.worktrees.length > 0)
   // The sender is never a target. Exclude its address before observing any
   // payload so its login/capability changes cannot wake this menu.
-  const machines = needsTargets ? headerView(view.pool).ids('machine').flatMap(id => {
+  const machines = targetsOpen && needsTargets ? headerView(view.pool).ids('machine').flatMap(id => {
     if (id === subject?.machineId) return []
     const machine = headerView(view.pool).row('machine', id)
     return machine ? [machine] : []
   }) : []
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
     machines, session, issue: selected[0], handoff }
+}
+/** Called only by a mounted Handoff target submenu. */
+export function readMissionHandoffTargets(view: MissionViewReader, sessionId: string): Pick<MissionActionInputs, 'repos' | 'machines'> | typeof LOADING {
+  const inputs = readMissionActionInputs(view, [], sessionId, true, true)
+  return inputs === LOADING ? LOADING : { repos: inputs.repos, machines: inputs.machines }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
   return view.handoff(rootId)

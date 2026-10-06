@@ -160,6 +160,12 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
     string,
     unknown
   >
+  // The picked phase seat can belong to a different checkout at each scale.
+  // Keep the displayed handoff source identical: otherwise the 1x menu can
+  // be blocked while the 4x menu has destinations, despite a fixed neighbourhood.
+  const guardSource = ctx.corpus.repos.find(repo =>
+    repo.machineId === ctx.corpus.machines[0]!.id && repo.worktrees.length > 0,
+  )!.worktrees[0]!.path
   for (const [id, owner] of [
     [SESSION, ROOT],
     [OTHER_SESSION, CHILD],
@@ -170,6 +176,7 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       sessionId: id,
       resume: undefined,
       issueId: owner,
+      cwd: guardSource,
       machineId: ctx.corpus.machines[0]!.id,
       archived: false,
       headless: false,

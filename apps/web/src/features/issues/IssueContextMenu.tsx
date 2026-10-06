@@ -20,6 +20,8 @@ import {
   snoozeUntil1h,
 } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
+import { LOADING, type MobxPool } from '@podium/client-graph'
+import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import { Check, ChevronRight } from 'lucide-react'
 import { Fragment, type JSX, type ReactNode, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -152,6 +154,12 @@ export function IssueContextMenu({
   // renderer, so the menu it was launched from stayed painted underneath it.
   const confirm = useConfirm()
   const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
+  const handoffId = poolInputs.handoff && 'session' in poolInputs.handoff ? poolInputs.handoff.session.sessionId : undefined
+  const targetsOpen = handoffEnabled && sub?.kind === 'handoff'
+  const readTargets = useCallback((pool: MobxPool) =>
+    targetsOpen && handoffId ? readMissionHandoffTargets(missionView(pool), handoffId) : undefined,
+  [targetsOpen, handoffId])
+  const targets = useWorklistPoolProjection(readTargets, undefined)
   // The close guard the menu mounts for itself when the host has no dialog of
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
@@ -203,7 +211,9 @@ export function IssueContextMenu({
   const ids = issues.map((issue) => issue.id)
   const handoff =
     handoffEnabled && issues.length === 1
-      ? issueHandoffAvailability(first, sessions, reposToViews(repos), machines, poolInputs.handoff)
+      ? issueHandoffAvailability(first, sessions,
+        reposToViews(targets && targets !== LOADING ? targets.repos : repos),
+        targets && targets !== LOADING ? targets.machines : machines, poolInputs.handoff)
       : null
   const handoffSession = handoff && 'session' in handoff ? handoff.session : null
   const handoffCandidates =
