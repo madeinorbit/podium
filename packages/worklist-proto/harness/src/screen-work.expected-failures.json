@@ -15,18 +15,8 @@
   },
   {
     "issue": "POD-5421",
-    "reason": "Remaining measured mission session-menu handoff inputs are owned by the active menu repair in POD-5672. Twenty-two menu counts passed and their allowances were removed; source worktree precision and the remaining ten counts still require final proof. The navigation navigate-by-ref allowance is separate engine republication work.",
+    "reason": "The separate navigation navigate-by-ref allowance remains engine republication work. All 32 mission/task and session-menu allowances were retired by POD-5672 after the complete fixed-source 1x/4x census; no menu allowance remains in this group.",
     "readers": [
-      {
-        "reader": "consumer:mission.session-menu",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
       {
         "reader": "consumer:navigation.navigate-by-ref",
         "actions": {
