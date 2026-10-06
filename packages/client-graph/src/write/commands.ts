@@ -75,4 +75,3 @@ export function commandFor<K extends WritableKind>(kind: K, id: string, patch: E
   if (p.stage !== undefined) out.stage = p.stage
   return { kind: 'issueUpdate', input: { id, patch: out } }
 }
-

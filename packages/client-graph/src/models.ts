@@ -1103,4 +1103,3 @@ for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
   installFields(MODEL_CLASSES[entity].prototype, entity, MODEL_CLASSES[entity].answers)
   installRelations(MODEL_CLASSES[entity].prototype, entity)
 }
-
