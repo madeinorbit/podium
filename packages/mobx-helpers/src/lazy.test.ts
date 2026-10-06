@@ -124,6 +124,35 @@ describe('lazy', () => {
     expect(lazyKeptCount(order)).toBe(0)
   })
 
+  it('reuses a slot re-observed in one action, then drops and re-creates it independently', () => {
+    const price = observable.box(3)
+    const watching = watchers(price)
+    const order = new Order(price)
+    const other = new Order(price, 3)
+    let stop = autorun(() => order.total)
+    const stopOther = autorun(() => other.total)
+    try {
+      runInAction(() => {
+        stop()
+        stop = autorun(() => order.total)
+        expect(lazyKeptCount(order)).toBe(1)
+        expect(order.runs).toBe(1)
+      })
+      expect(watching()).toBe(1)
+      stop()
+      expect(lazyKeptCount(order)).toBe(0)
+      expect(lazyKeptCount(other)).toBe(1)
+      stop = autorun(() => order.total)
+      expect(order.runs).toBe(2)
+      expect(lazyKeptCount(order)).toBe(1)
+      stop()
+      expect(lazyKeptCount(order)).toBe(0)
+      expect(lazyKeptCount(other)).toBe(1)
+    } finally { stop(); stopOther() }
+    expect(lazyKeptCount(other)).toBe(0)
+    expect(watching()).toBe(0)
+  })
+
   it('keeps the slot until the end of the action in which the last reaction left', () => {
     const order = new Order(observable.box(3))
     const stop = autorun(() => order.total)

@@ -53,17 +53,28 @@ function decorate<T extends object, V>(
     // Public MobX only: a read inside a reaction makes the new computed observed
     // during get(); outside one it never does, and the computed is garbage.
     let watched = false
-    const stop = onBecomeObserved(value, () => { watched = true })
+    // The observed hook is removed after get(), so this callback's first
+    // call marks observation and every later call releases this same slot.
+    // Reuse it for both hooks: one field needs one lifecycle callback.
+    const lifecycle = () => {
+      if (!watched) {
+        watched = true
+        return
+      }
+      const slots = (this as Holder)[SLOTS]
+      if (slots?.get(field) === value) slots.delete(field)
+    }
+    const stop = onBecomeObserved(value, lifecycle)
     try {
       return value.get()
     } finally {
       stop()
-      if (watched) keep(this, field, value)
+      if (watched) keep(this, field, value, lifecycle)
     }
   }
 }
 
-function keep(target: object, field: symbol, value: IComputedValue<unknown>): void {
+function keep(target: object, field: symbol, value: IComputedValue<unknown>, lifecycle: () => void): void {
   let slots = (target as Holder)[SLOTS]
   if (slots === undefined) {
     slots = new Map()
@@ -72,9 +83,7 @@ function keep(target: object, field: symbol, value: IComputedValue<unknown>): vo
   slots.set(field, value)
   // MobX reports this when the batch in which the last reader left ends; until
   // then a read in that batch still finds the slot.
-  onBecomeUnobserved(value, () => {
-    if (slots.get(field) === value) slots.delete(field)
-  })
+  onBecomeUnobserved(value, lifecycle)
 }
 
 /** Diagnostics and tests: how many lazy fields this object currently keeps. */
