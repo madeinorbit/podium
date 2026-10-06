@@ -21,7 +21,7 @@ import {
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { type Dispatch, type SetStateAction, useMemo, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
@@ -62,8 +62,8 @@ const EMPTY_INPUTS = {
   lastUsedByRepo: new Map<string, number>(),
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
-const readLaunchInputs = (pool: MobxPool) => launchOptionViews(pool).newWork()
-function usePoolLaunchInputs() {
+function usePoolLaunchInputs(displayUsage: boolean) {
+  const readLaunchInputs = useCallback((pool: MobxPool) => launchOptionViews(pool).newWork(displayUsage), [displayUsage])
   return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
 }
 
@@ -135,7 +135,7 @@ function NewWorkLauncher({
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
-  const { machines, repos, lastUsedByRepo, recentMachine } = usePoolLaunchInputs()
+  const { machines, repos, lastUsedByRepo, recentMachine } = usePoolLaunchInputs(step === 'repo')
   const [query, setQuery] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,

@@ -231,11 +231,11 @@ function createCommandLaunchViews(pool: MobxPool) {
   })
   const optionRoots = keyedComputed('commands.optionRoots', (id: string) => {
     const row = optionScan(id)
-    return row && row !== LOADING ? [row.path, ...row.worktrees.map(tree => tree.path)] : []
-  }, { equals: compareStructural })
+    return JSON.stringify(row && row !== LOADING ? [row.path, ...row.worktrees.map(tree => tree.path)] : [])
+  })
   const optionUsage = keyedComputed('commands.optionUsage', (id: string) => {
     counts.optionUsageQueries++
-    return pool.queries.activity({ kind: 'commandRootActivity', roots: optionRoots(id) })
+    return pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(optionRoots(id)) as string[] })
   })
   const launchCommon = computed((): Loaded<Common> => {
     const data = optionRepos.get(), hosts = optionMachines.get()
@@ -383,10 +383,10 @@ function createCommandLaunchViews(pool: MobxPool) {
   })
   const placementRoots = keyedComputed('commands.placementRoots', (path: string) => {
     const topology = launchTopology.get()
-    return topology && topology !== LOADING ? topology.roots.get(path) ?? [] : []
-  }, { equals: compareStructural })
+    return JSON.stringify(topology && topology !== LOADING ? topology.roots.get(path) ?? [] : [])
+  })
   const placementUsage = keyedComputed('commands.placementUsage', (path: string) =>
-    pool.queries.activity({ kind: 'commandRootActivity', roots: placementRoots(path), match: 'exact' }))
+    pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(placementRoots(path)) as string[], match: 'exact' }))
   const launchPlacement = computed((): Loaded<SpawnTarget[]> => {
     const topology = launchTopology.get(), selected = windowField('selectedWorktree')
     if (topology === LOADING || selected === LOADING) return LOADING
@@ -403,7 +403,7 @@ function createCommandLaunchViews(pool: MobxPool) {
       { path: best.path, repoPath: best.path, isMain: true, ...(best.repoId ? { repoId: best.repoId } : {}) }
       : undefined
     return [...(current ? [current] : []), ...(primary && primary.path !== current?.path ? [primary] : [])]
-  }, { equals: compareStructural })
+  })
   function projection(palette: boolean): Loaded<CommandLaunchData> {
     const data = palette ? common.get() : launchCommon.get(),
       ids = sessionIds.get(),

@@ -56,9 +56,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
   ) {
     // Stable facade: reading one catalog field never subscribes to session or
     // issue membership, nor compares the other catalog arrays.
-    const issues = computed(() => pool.queries.ids({ kind: 'commandIssues' }).sort(),
-      { equals: compareStructural })
-    const sessions = computed(() => this.sessionOrder(), { equals: compareStructural })
+    const issueKey = computed(() => JSON.stringify(pool.queries.ids({ kind: 'commandIssues' }).sort()))
+    const sessionKey = computed(() => JSON.stringify(this.sessionOrder()))
+    const issues = computed(() => JSON.parse(issueKey.get()) as string[])
+    const sessions = computed(() => JSON.parse(sessionKey.get()) as string[])
     const order = (entity: CommandEntity) => this.orders.get(entity) ?? []
     this.catalog = {
       get repositories() { return order('commandRepository') },

@@ -87,11 +87,11 @@ vi.mock('@/lib/use-feature', () => ({
 // projections have their own pool tests; the retired store fixture is no longer
 // a provider for those projections after POD-5497.
 vi.mock('./command-launch-data', () => ({
-  useCommandLaunchData: vi.fn(() => ({
-    sessions: [],
+  useCommandLaunchOrigin: vi.fn(() => ({
     machines: [machine],
-    repoViews: [],
+    repo: undefined,
   })),
+  useCommandTargetMachines: () => ({}),
   useCommandLaunchActions: () => ({
     trpc: { sessions: { create: { mutate: createSession } } },
     setPanelMode,
@@ -114,7 +114,7 @@ afterEach(() => {
   feature.enabled = false
   opened.mockClear()
   setPanelMode.mockClear()
-  vi.mocked(launchData.useCommandLaunchData).mockClear()
+  vi.mocked(launchData.useCommandLaunchOrigin).mockClear()
 })
 
 function open() {
@@ -131,7 +131,7 @@ function open() {
 
 describe('the new-panel menu', () => {
   it('does not acquire launch choices while closed, including after its first open', async () => {
-    const reads = vi.spyOn(launchData, 'useCommandLaunchData')
+    const reads = vi.spyOn(launchData, 'useCommandLaunchOrigin')
     try {
       const props = { worktree: worktree as never, onOpened: opened, onOpenChange: vi.fn() }
       const view = render(<NewPanelMenu {...props} open={false} />)
@@ -156,7 +156,7 @@ describe('the new-panel menu', () => {
   })
 
   it('opens an uncontrolled trigger before acquiring its choices', async () => {
-    const reads = vi.spyOn(launchData, 'useCommandLaunchData')
+    const reads = vi.spyOn(launchData, 'useCommandLaunchOrigin')
     try {
       render(<NewPanelMenu worktree={worktree as never} onOpened={opened} />)
       expect(reads).not.toHaveBeenCalled()

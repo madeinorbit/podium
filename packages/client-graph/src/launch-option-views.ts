@@ -6,7 +6,7 @@ import {
   type RepoNavView,
 } from '@podium/client-core/values'
 import type { GitRepositoryWire } from '@podium/model'
-import { computed, compareStructural } from 'mobx'
+import { computed } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { MobxPool } from './pool'
@@ -33,21 +33,20 @@ export function launchOptionViews(pool: MobxPool) {
         .flatMap((id) => repository(id) ?? []),
     )
     const machines = computed(() => headerView(pool).machines())
-    const roots = keyedComputed(
+    const rootKey = keyedComputed(
       'launch.roots',
       (id: string) => {
         const repo = repository(id)
-        return repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : []
+        return JSON.stringify(repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : [])
       },
-      { equals: compareStructural },
     )
     const usage = keyedComputed('launch.usage', (key: string) => {
       const [id, match] = JSON.parse(key) as [string, 'exact' | 'within']
       counts.usageQueries++
-      return pool.queries.activity({ kind: 'commandRootActivity', roots: roots(id), match })
+      return pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(rootKey(id)) as string[], match })
     })
-    const paths = computed(
-      () =>
+    const pathOrderKey = computed(
+      () => JSON.stringify(
         headerEntities(pool)
           .repositoryGroupIds()
           .flatMap((id) => {
@@ -58,9 +57,9 @@ export function launchOptionViews(pool: MobxPool) {
             (a, b) =>
               b.at - a.at || a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
           )
-          .map(({ path }) => path),
-      { equals: compareStructural },
+          .map(({ path }) => path)),
     )
+    const paths = computed(() => JSON.parse(pathOrderKey.get()) as string[])
     const pins = computed(() => {
       const row = pool.row('commandWindow', 'window')
       return row && row !== LOADING ? row.pins : EMPTY_PINS
@@ -78,14 +77,14 @@ export function launchOptionViews(pool: MobxPool) {
         ),
       }
     })
-    const projects = computed(() => {
+    const projectOrderKey = computed(() => {
       const pinned = pins.get().repos
       const values = headerEntities(pool)
         .repositoryGroupIds()
         .flatMap((id) => {
           const repo = project(id)
           return repo && (pinned.includes(repo.path) || repo.worktrees.length)
-            ? [{ repo, at: usage(JSON.stringify([id, 'exact'])) }]
+            ? [{ id, repo, at: usage(JSON.stringify([id, 'exact'])) }]
             : []
         })
       // Pinned order breaks otherwise equal choices, as in the existing menu.
@@ -97,38 +96,56 @@ export function launchOptionViews(pool: MobxPool) {
           (pinOrder.get(a.repo.path) ?? pinned.length) -
             (pinOrder.get(b.repo.path) ?? pinned.length),
       )
-      return values
+      return JSON.stringify(values.map(value => value.id))
     })
-    const eligibleMachineIds = computed(
-      () => usableMachines(machineViewsFromWire(machines.get())).map((machine) => machine.id),
-      { equals: compareStructural },
+    const projects = computed(() => (JSON.parse(projectOrderKey.get()) as string[])
+      .flatMap(id => project(id) ?? []))
+    const projectUsage = computed(() => new Map((JSON.parse(projectOrderKey.get()) as string[])
+      .flatMap(id => {
+        const repo = project(id)
+        return repo ? [[repo.path, usage(JSON.stringify([id, 'exact']))] as const] : []
+      })))
+    const eligibleMachineKey = computed(
+      () => JSON.stringify(usableMachines(machineViewsFromWire(machines.get())).map((machine) => machine.id)),
     )
-    const recentMachine = computed(
-      () => pool.queries.latestMachineSession(eligibleMachineIds.get()),
-      { equals: compareStructural },
-    )
-    const work = computed(() => {
+    const recentMachineKey = computed(() => JSON.stringify(pool.queries.latestMachineSession(JSON.parse(eligibleMachineKey.get()) as string[]) ?? null))
+    const recentMachine = computed(() => JSON.parse(recentMachineKey.get()) as { machineId: string; createdAt: string } | null)
+    const repositoryAt = keyedComputed('launch.repositoryAt', (path: string) =>
+      reposToViews(headerEntities(pool).repositoryGroup(path).flatMap(id => {
+        const row = pool.row('repository', id) as GitRepositoryWire | undefined
+        return row && typeof row !== 'symbol' ? [row] : []
+      }))[0])
+    const origin = keyedComputed('launch.origin', (path: string) => {
+      const hosts = machines.get()
+      return { repo: repositoryAt(path), machines: hosts }
+    })
+    const work = keyedComputed('launch.newWork', (displayUsage: boolean) => {
       const choices = projects.get()
       return {
         machines: machines.get(),
-        repos: choices.map(({ repo }) => repo),
-        lastUsedByRepo: new Map(choices.map(({ repo, at }) => [repo.path, at])),
-        recentMachine: recentMachine.get(),
+        repos: choices,
+        lastUsedByRepo: displayUsage ? projectUsage.get() : EMPTY_USAGE,
+        recentMachine: recentMachine.get() ?? undefined,
       }
     })
     return {
       repositories: () => repositories.get(),
       repositoryPaths: () => paths.get(),
-      newWork: () => work.get(),
+      newWork: (displayUsage = true) => work(displayUsage),
+      origin: (path: string) => origin(path),
       counts,
       dispose() {
         repository.clear()
-        roots.clear()
+        rootKey.clear()
         usage.clear()
         project.clear()
+        repositoryAt.clear()
+        origin.clear()
+        work.clear()
       },
     }
   })
 }
 
 const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly string[] }
+const EMPTY_USAGE = new Map<string, number>()

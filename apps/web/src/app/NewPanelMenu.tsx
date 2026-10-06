@@ -12,7 +12,6 @@ import {
   type MachineWire,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
-  resolveTargetMachineForAgent,
   type SessionId,
 } from '@podium/model/browser'
 import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
@@ -45,9 +44,9 @@ import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver
 import { useFeature } from '@/lib/use-feature'
 import {
   useCommandLaunchActions,
-  useCommandLaunchData,
+  useCommandLaunchOrigin,
   useCommandRecentFiles,
-  useCommandSessions,
+  useCommandTargetMachines,
 } from './command-launch-data'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
@@ -151,7 +150,7 @@ export function NewPanelMenu(
 /** Closed tab-strip menus own only a trigger. Acquiring their launch projection
  * would build repository usage and session choices on every issue selection. */
 function NewPanelChoices(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>): JSX.Element {
-  const data = useCommandLaunchData()
+  const data = useCommandLaunchOrigin(props.worktree.path)
   if (!data || data === LOADING)
     return (
       <DropdownMenuContent align="end">
@@ -167,7 +166,7 @@ function NewPanelMenuBody({
   onOpened,
   issueId,
 }: {
-  data: Exclude<ReturnType<typeof useCommandLaunchData>, typeof LOADING | undefined>
+  data: Exclude<ReturnType<typeof useCommandLaunchOrigin>, typeof LOADING | undefined>
   worktree: WorktreeView
   onOpened: (sessionId: SessionId) => void
   /** Attach every session spawned from this menu to an issue (issue-as-workspace:
@@ -180,15 +179,12 @@ function NewPanelMenuBody({
   trigger?: React.ReactElement
 }): JSX.Element {
   const { machines } = data
-  const choices = useCommandSessions()
-  const sessions = choices && choices !== LOADING ? choices : []
   const { trpc, setPanelMode } = useCommandLaunchActions()
-  const repoViews = data.repoViews
   const runtimeDriversEnabled = useFeature('runtime-drivers')
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
   const repoView = useMemo((): RepoView => {
-    const found = repoViews.find((r) => r.worktrees.some((w) => w.path === worktree.path))
+    const found = data.repo
     if (found) return found
     // Fallback: synthesize a minimal single-machine RepoView so the logic below
     // never has to branch on undefined.
@@ -198,12 +194,12 @@ function NewPanelMenuBody({
       worktrees: [worktree],
       machines: worktree.machineId ? [{ machineId: worktree.machineId, path: worktree.path }] : [],
     }
-  }, [repoViews, worktree])
+  }, [data.repo, worktree])
 
   // The recommended machine is agent-specific: a host with the repo but without
   // this harness (or its login) must never receive an optimistic spawn.
   function targetFor(agentKind: AgentKind): string | undefined {
-    return resolveTargetMachineForAgent(repoView, sessions, machines, agentKind)
+    return targetMachines[agentKind]
   }
 
   /** Local path to use when opening an agent on machine M. */
@@ -261,6 +257,7 @@ function NewPanelMenuBody({
   )
 
   const menuAgents = useMemo(() => menuAgentsFor(descriptors), [descriptors])
+  const targetMachines = useCommandTargetMachines(repoView, machines, menuAgents.map(agent => agent.kind))
 
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
