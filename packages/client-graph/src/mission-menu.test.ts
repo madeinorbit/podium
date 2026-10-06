@@ -130,7 +130,8 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       { kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId, repoName: 'Menu' } },
       { kind: 'worktree', id: '/target', value: { path: '/target', repoPath: '/target', repoId, repoName: 'Menu', isMain: true } },
     ] })
-    const sender: HeaderRows['machine'] = { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] }
+    // Raw companion login fields are intentionally absent from MachineWire.
+    const sender: HeaderRows['machine'] & { loggedOutHarnesses: string[] } = { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] }
     pool.header.apply([
       { kind: 'machine', id: 'source', value: sender },
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
@@ -160,7 +161,8 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       try {
         const before = publications
         row.mockClear(); repoRow.mockClear()
-        pool.header.apply([{ kind: 'machine', id: 'source', value: { ...sender, loggedOutHarnesses: ['codex'] } }])
+        const loggedOutSender = { ...sender, loggedOutHarnesses: ['codex'] }
+        pool.header.apply([{ kind: 'machine', id: 'source', value: loggedOutSender }])
         expect(publications).toBe(before)
         expect(row).not.toHaveBeenCalled(); expect(repoRow).not.toHaveBeenCalled()
         expect(value.session).not.toHaveProperty('condition')
