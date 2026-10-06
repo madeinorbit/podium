@@ -787,19 +787,19 @@ export function createIssueBoardSource(
     }
   }
   function release(): void {
-  stopOwner()
-  layout.dispose()
-  releaseIndex()
-  tabCounts.dispose()
-  for (const projection of projections.values()) projection.dispose()
-  for (const stop of stops.values()) stop()
-  for (const result of [...rosters.values()]) result.dispose()
-  rosters.clear()
-  stops.clear()
-  cache.clear()
-  placements.clear()
-  catalogEntry.clear()
-  runInAction(() => buckets.clear())
+    stopOwner()
+    layout.dispose()
+    releaseIndex()
+    tabCounts.dispose()
+    for (const projection of projections.values()) projection.dispose()
+    for (const stop of stops.values()) stop()
+    for (const result of [...rosters.values()]) result.dispose()
+    rosters.clear()
+    stops.clear()
+    cache.clear()
+    placements.clear()
+    catalogEntry.clear()
+    runInAction(() => buckets.clear())
   }
   return Object.assign(frame, {
     board,

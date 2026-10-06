@@ -414,7 +414,6 @@ it('follows the open issue through the keyed locals (POD-5433)', () => {
   }
 })
 
-
 it('releases the board owner once and refuses reads after disposal', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
   const stop = vi.fn()
