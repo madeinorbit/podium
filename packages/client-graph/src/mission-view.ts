@@ -1,3 +1,4 @@
+import { machinePathsEqual } from '@podium/model'
 import { headerView } from './header-views'
 import { headerEntities } from './header-entities'
 import { settingsHasFirstTask } from './settings-views'
@@ -1595,9 +1596,9 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   // Handoff needs its containing lane and the issue's drift fallback. Other
   // worktrees in the same repository are hidden and remain unread.
   const source = subject ? headerEntities(view.pool).shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
-  const anchorPath = source && source.worktreePath === source.repoPath && selected[0]?.worktreePath
+  const anchorPath = source && machinePathsEqual(source.worktreePath, source.repoPath) && selected[0]?.worktreePath
   const anchorScope = anchorPath ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
-  const anchor = anchorScope?.worktreePath === anchorPath && anchorScope?.worktreePath !== source?.worktreePath ? anchorScope : undefined
+  const anchor = anchorScope && anchorPath && machinePathsEqual(anchorScope.worktreePath, anchorPath) && (!source || !machinePathsEqual(anchorScope.worktreePath, source.worktreePath)) ? anchorScope : undefined
   // The parent menu displays only source eligibility. Clone checkouts and
   // destination capabilities belong to the opened target submenu.
   const group = source && targetsOpen ? headerEntities(view.pool).repositoryGroup(source.repoPath) : []
@@ -1608,7 +1609,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const repos = repositoryIds.flatMap(id => {
     const repo = headerView(view.pool).row('repository', id)
     if (!repo) return []
-    const worktrees = [source, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.worktreePath !== repo.path &&
+    const worktrees = [source, anchor].flatMap(tree => tree && machinePathsEqual(tree.repoPath, repo.path) && !machinePathsEqual(tree.worktreePath, repo.path) &&
       (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
     return [{ ...repo, worktrees }]
   })

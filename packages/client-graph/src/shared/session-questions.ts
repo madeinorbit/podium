@@ -1,3 +1,4 @@
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { sessionReferenceKey } from './session-reference'
 import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -97,6 +98,7 @@ const compareReference = (a: ReferenceSession, b: ReferenceSession) =>
 const compareSetupAgent = (a: SetupAgent, b: SetupAgent) =>
   a.at > b.at ? -1 : a.at < b.at ? 1 : a.setupOrder - b.setupOrder || a.id.localeCompare(b.id)
 function paths(cwd: string): string[] {
+  if (machinePathSeparator(cwd) === '\\') return [`exact:${machinePathKey(cwd)}`, ...machinePathAncestors(machinePathKey(cwd)).map(path => `within:${path}`)]
   const out = new Set([`exact:${cwd}`, `within:${cwd}`])
   for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) out.add(`within:${cwd.slice(0, at)}`)
   return [...out]
@@ -250,7 +252,7 @@ export function createSessionQuestions(
     file(next)
   }
   const api: SessionQuestions = {
-    hasWithin: path => activities.get(`activity:within:${path}`)?.answer.first() !== undefined,
+    hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
     present(id) {
       return setupMembers.has(id)
     },
@@ -386,7 +388,7 @@ export function createSessionQuestions(
       const excluded = question.excluded && 'has' in question.excluded ? question.excluded : new Set(question.excluded)
       let maximum = 0
       for (const root of question.roots) {
-        const answer = activities.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${root}`)?.answer
+        const answer = activities.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${machinePathKey(root)}`)?.answer
         let value = answer?.first()
         while (value && excluded.has(value.id)) { activityVisits++; value = answer?.after(value, value.id) }
         if (value) { activityVisits++; maximum = Math.max(maximum, value.at) }
@@ -394,7 +396,7 @@ export function createSessionQuestions(
       return maximum
     },
     activityRevision: question => Math.max(replacement,
-      ...question.roots.map(root => revisions.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${root}`) ?? 0)),
+      ...question.roots.map(root => revisions.get(`${question.agentsOnly ? 'agentActivity' : 'activity'}:${question.match ?? 'within'}:${machinePathKey(root)}`) ?? 0)),
   }
   return api
 }

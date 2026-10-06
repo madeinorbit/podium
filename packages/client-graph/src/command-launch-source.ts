@@ -1,3 +1,4 @@
+import { machinePathKey } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { normalizeOriginUrl } from '@podium/model/browser'
@@ -168,7 +169,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
    *  moved row is written). Sessions are re-linked only under the paths whose
    *  worktree or repository targets moved. */
   private repositories(repos: readonly Store['repos'][number][]): void {
-    const linked = new Set(repos.flatMap((repo) => repo.worktrees.map((tree) => tree.path)))
+    const linked = new Set(repos.flatMap((repo) => repo.worktrees.map((tree) => machinePathKey(tree.path))))
     const scans: [string, object][] = [],
       groups: [string, object][] = [],
       trees: [string, object][] = []
@@ -178,15 +179,15 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     const add = (index: Map<string, string[]>, key: string, value: string) =>
       index.set(key, [...(index.get(key) ?? []), value])
     for (const discovery of repos) {
-      const id = JSON.stringify([discovery.machineId ?? '', discovery.path])
+      const id = JSON.stringify([discovery.machineId ?? '', machinePathKey(discovery.path)])
       const origin = normalizeOriginUrl(discovery.originUrl)
       const groupId =
         discovery.repoId ??
-        (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
-      scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path) }])
+        (origin || `__no_remote__:${discovery.machineId ?? ''}:${machinePathKey(discovery.path)}`)
+      scans.push([id, { ...discovery, groupId, linked: linked.has(machinePathKey(discovery.path)) }])
       for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])
         add(repositoriesByRoot, root, id)
-      if (linked.has(discovery.path)) continue
+      if (linked.has(machinePathKey(discovery.path))) continue
       if (!groupIds.has(groupId)) {
         groupIds.add(groupId)
         groups.push([groupId, { id: groupId }])
@@ -195,7 +196,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
         { path: discovery.path, branch: discovery.branch, isMain: true },
         ...discovery.worktrees.map((tree) => ({ ...tree, isMain: false })),
       ]) {
-        const treeId = JSON.stringify([id, tree.path])
+        const treeId = JSON.stringify([id, machinePathKey(tree.path)])
         trees.push([
           treeId,
           {

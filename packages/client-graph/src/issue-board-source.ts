@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model/browser'
 import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
@@ -282,7 +283,7 @@ export function createIssueBoardSource(
             assignees: [...assignees].sort(),
             labels: [...labels].sort(),
             projectPaths: [...paths].sort((a, b) =>
-              (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+              (machinePathBasename(a) || a).localeCompare(machinePathBasename(b) || b),
             ),
           }
     })

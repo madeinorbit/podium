@@ -6383,3 +6383,12 @@ describe('terminal receipts from the history (POD-4905)', () => {
     })
   })
 })
+
+it.each(['/tmp/session.jsonl', 'C:\\tmp\\session.jsonl'])('machine paths: terminal export from %s uses a portable filename', async path => {
+  const world = makeWorld()
+  world.host.archiveTranscript = async () => ({ path, relativeDir: 'sessions' })
+  world.registerDuringLaunch()
+  const session = await world.runtime.driverFor('claude-code', CLAUDE).resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
+  const archive = await session.export()
+  expect(archive.files[0]?.path).toBe('sessions/session.jsonl')
+})

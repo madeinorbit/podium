@@ -1,3 +1,4 @@
+import { machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, type MachineWire } from '@podium/model/browser'
 import type { MobxPool } from './pool'
@@ -56,8 +57,8 @@ export function paneStampIssue(pool: MobxPool, session: SessionView | undefined)
     if (attached === LOADING) return LOADING
     if (attached) return pool.row('issue', session.issueId) as Loaded<PaneIssue>
   }
-  const paths = [session.cwd]
-  for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
+  const paths = machinePathSeparator(session.cwd) === '\\' ? machinePathAncestors(session.cwd) : [session.cwd]
+  if (machinePathSeparator(session.cwd) === '/') for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
     paths.push(session.cwd.slice(0, at))
     if (at === 0) break
   }

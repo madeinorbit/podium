@@ -1,3 +1,5 @@
+import { machinePathAncestors } from '@podium/model/browser'
+import { machinePathSeparator } from '@podium/model/browser'
 import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/navigation-provider'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId } from '@podium/model/browser'
@@ -68,9 +70,17 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
     },
     registeredWorktree(path) {
-      return (pool.row('worktree', path) as { path?: string } | undefined)?.path === path
+      const registered = pool.queries.registeredWorktreePath(path)
+      return registered !== undefined && (pool.row('worktree', registered) as { path?: string } | undefined)?.path === registered
     },
     worktreeForCwd(cwd) {
+      if (machinePathSeparator(cwd) === '\\') {
+        for (const ancestor of machinePathAncestors(cwd)) {
+          const registered = pool.queries.registeredWorktreePath(ancestor)
+          if (registered && provider.registeredWorktree!(registered)) return registered
+        }
+        return null
+      }
       // Probe directory ancestors, preserving plain and trailing-slash roots.
       // The source's session relation also accepts issue-only roots; navigation
       // deliberately follows only lanes registered by the machine scan.

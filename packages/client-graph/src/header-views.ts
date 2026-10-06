@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot } from '@podium/model/browser'
 import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { measureHeader } from '@podium/client-core/perf'
@@ -41,7 +42,7 @@ const FOLDED_NONE = {
   loading: false,
 }
 const contains = (cwd: string, root: string) =>
-  cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
+  isMachinePathWithinRoot(root, cwd)
 
 /** Views over one pool. Memos exist only while observed, and are released when
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */

@@ -1,3 +1,5 @@
+import { machinePathAncestors } from '@podium/model/browser'
+import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { isFinished, isClosed, isExcluded, issueAbandoned } from './predicates'
 import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
 
@@ -1626,7 +1628,7 @@ function laneKeepsOver(
     if (keep === null) continue
     const path = fields[lane.prefix.sourceField]
     if (typeof path !== 'string') continue
-    let at: string | null = null
+    let at: string | null = machinePathSeparator(path) === '\\' ? longestPrefixPath(path, roots) : null
     for (const candidate of prefixCandidates(normalizeRootPath(path))) {
       if (roots.has(candidate)) {
         at = candidate
@@ -1731,6 +1733,7 @@ export function allRelations(
  * (`model/src/identity/worktree.ts:30-47`).
  */
 export function normalizeRootPath(path: string): string {
+  if (machinePathSeparator(path) === '\\') return machinePathKey(path)
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
@@ -1739,7 +1742,7 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
   let best: string | null = null
   for (const raw of roots) {
     const root = normalizeRootPath(raw)
-    if (probe !== root && !probe.startsWith(`${root}/`)) continue
+    if (!isMachinePathWithinRoot(root, probe)) continue
     if (best === null || root.length > best.length) best = raw
   }
   return best
@@ -1753,6 +1756,10 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
  * contains (POD-4579; the same walk as the MobX engine's `ancestorPaths`).
  */
 export function* prefixAncestors(normalized: string): Generator<string> {
+  if (machinePathSeparator(normalized) === '\\') {
+    yield* machinePathAncestors(normalized)
+    return
+  }
   yield normalized
   for (let i = normalized.length - 1; i >= 0; i -= 1) {
     if (normalized[i] === '/') yield normalized.slice(0, i)

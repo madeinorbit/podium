@@ -4,6 +4,7 @@ import {
   isMachinePathWithinRoot,
   isValidMachinePath,
   joinMachinePath,
+  machinePathAncestors,
   machinePathBasename,
   machinePathDirname,
   machinePathHasSuffix,
@@ -165,4 +166,12 @@ describe('machine paths: review namespace and segment guards', () => {
     expect(resolveMachinePath(String.raw`C:\repo`, 'D:/shot.png')).toBe(String.raw`D:\shot.png`)
     expect(isValidMachinePath(String.raw`\\server.\share\file`)).toBe(false)
   })
+})
+
+it.each([
+  ['/repo/src', ['/repo/src', '/repo', '/']],
+  [String.raw`C:\Repo\src`, [String.raw`C:\Repo\src`, String.raw`C:\Repo`, 'C:\\']],
+  [String.raw`\\nas\share\repo`, [String.raw`\\nas\share\repo`, '\\\\nas\\share\\']],
+])('machine paths: ancestor roots for %s', (path, ancestors) => {
+  expect(machinePathAncestors(path)).toEqual(ancestors)
 })

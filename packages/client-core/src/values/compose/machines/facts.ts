@@ -1,3 +1,4 @@
+import { machinePathsEqual } from '@podium/model'
 import { isMachinePathWithinRoot, machinePathBasename } from '@podium/model'
 import type { SessionView } from '../../../session-values'
 /**
@@ -132,7 +133,7 @@ export function repoBranchForCwd(
 ): { repo: string; branch?: string } | null {
   for (const repo of reposToViews(repos)) {
     for (const worktree of repo.worktrees) {
-      if (worktree.path === cwd) {
+      if (machinePathsEqual(worktree.path, cwd)) {
         return {
           repo: repo.name,
           ...(worktree.branch !== undefined ? { branch: worktree.branch } : {}),

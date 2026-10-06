@@ -37,3 +37,5 @@ export * from './settings/path-tiers'
 export * from './settings/secrets'
 export * from './user-state/layout-state'
 export * from './user-state/issue-state'
+
+export * from './machine-path'

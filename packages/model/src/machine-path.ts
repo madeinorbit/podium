@@ -144,3 +144,23 @@ export function machinePathKey(path: string): string {
 export function machinePathsEqual(a: string, b: string): boolean {
   return machinePathKey(a) === machinePathKey(b)
 }
+
+/** Directory ancestors, nearest first, without normalizing literal POSIX spelling. */
+export function machinePathAncestors(path: string): string[] {
+  if (machinePathSeparator(path) === '\\') {
+    const ancestors: string[] = []
+    let current = normalizeMachinePath(path)
+    for (;;) {
+      ancestors.push(current)
+      const parent = machinePathDirname(current)
+      if (parent === current || parent === '.') return ancestors
+      current = parent
+    }
+  }
+  const ancestors = [path]
+  for (let at = path.lastIndexOf('/'); at >= 0; at = path.lastIndexOf('/', at - 1)) {
+    ancestors.push(at === 0 ? '/' : path.slice(0, at))
+    if (at === 0) break
+  }
+  return [...new Set(ancestors)]
+}

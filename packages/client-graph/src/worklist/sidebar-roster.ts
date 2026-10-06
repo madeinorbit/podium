@@ -1,3 +1,4 @@
+import { machinePathsEqual } from '@podium/model'
 import { keyedComputed } from '@podium/mobx-helpers'
 /** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
@@ -139,7 +140,7 @@ export class SidebarRosterIndex {
     }
     if (lane === undefined) this.worktrees.delete(path)
     else this.worktrees.set(path, { group: lane.repoId ?? lane.repoPath, project })
-    if (lane && lane.path === lane.repoPath && lane.projectRoot !== false) this.projects.add(path)
+    if (lane && machinePathsEqual(lane.path, lane.repoPath) && lane.projectRoot !== false) this.projects.add(path)
     else this.projects.delete(path)
     this.filePath(path)
   }

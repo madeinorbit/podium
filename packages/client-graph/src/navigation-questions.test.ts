@@ -197,3 +197,21 @@ it('reads the first-worktree fallback imperatively under development diagnostics
       reactionRequiresObservable: false, observableRequiresReaction: false })
   }
 })
+
+it.each([
+  ['/Repo', '/Repo', '/Repo/sub'],
+  [String.raw`C:\Src\Podium`, 'c:/src/podium', String.raw`c:\SRC\podium\sub`],
+])('machine paths: navigation and activity preserve registered %s', (root, alias, cwd) => {
+  const f = fixture([lane(root), session('anchor', cwd)])
+  const seen: boolean[] = []
+  const stop = autorun(() => seen.push(f.provider.hasWorktreeSession!(alias) === true))
+  try {
+    expect(f.provider.registeredWorktree!(alias)).toBe(true)
+    expect(f.provider.worktreeForCwd!(cwd)).toBe(root)
+    expect(seen).toEqual([true])
+    f.publish({ type: 'update', rows: [session('anchor', '/outside')] })
+    expect(seen).toEqual([true, false])
+    f.publish({ type: 'update', rows: [session('anchor', cwd)] })
+    expect(seen).toEqual([true, false, true])
+  } finally { stop(); f.pool.dispose() }
+})

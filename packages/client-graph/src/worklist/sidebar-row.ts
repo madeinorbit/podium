@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model/browser'
 /** Sidebar facts, carried by the existing issue object and cached groups.
  * No colour tokens, timer formatting, status copy, or glyphs live here.
  * The compatibility payload lets the current row keep its presentation.
@@ -295,7 +296,7 @@ export function unstarted(s: SliceSession): boolean {
   const title = (s.title ?? '').replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim().toLowerCase()
   const kind = s.agentKind ?? ''
   const label = Object.hasOwn(labels, kind) ? labels[kind] : undefined
-  return !title || [label?.toLowerCase(), s.agentKind, 'claude code', s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()].includes(title)
+  return !title || [label?.toLowerCase(), s.agentKind, 'claude code', machinePathBasename(s.cwd).toLowerCase()].includes(title)
 }
 
 export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean) {

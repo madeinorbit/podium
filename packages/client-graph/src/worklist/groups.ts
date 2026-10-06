@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model/browser'
 import type { MobxPool } from '../pool'
 import { debugName } from '../debug-name'
 /**
@@ -73,7 +74,7 @@ export interface Placement {
 
 /** The group label of a repo path: its last segment (`folds.ts:203`). */
 export function repoLabelOf(repoPath: string): string {
-  return repoPath.split('/').pop() || repoPath
+  return machinePathBasename(repoPath) || repoPath
 }
 
 /**

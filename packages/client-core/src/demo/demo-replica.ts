@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 /**
  * Demo mode over the kernel facade (POD-5277) — the SAME data path as real use.
  *
@@ -89,7 +90,7 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
       id: repoId,
       repoPath: issue.repoPath,
       ...(prefix === undefined ? {} : { prefix }),
-      name: issue.repoPath.split('/').at(-1) ?? issue.repoPath,
+      name: machinePathBasename(issue.repoPath) ?? issue.repoPath,
     })
     for (const dep of issue.deps ?? []) {
       const id = issueDepId(issue.id, dep.id, dep.type)
