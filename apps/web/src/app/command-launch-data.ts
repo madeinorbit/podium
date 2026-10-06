@@ -1,16 +1,17 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
-import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { CommandLaunchData } from '@podium/client-graph/command-launch-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import { agentCapabilityRejectionForSelection, onlineMachinesForRepoOrClone, type MachineWire } from '@podium/model/browser'
+import type { MachineWire } from '@podium/model/browser'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import {
   EMPTY_FILES,
   readFiles,
   readLaunch,
+  readLaunchOrigin,
+  readTargetMachines,
   readOpen,
   readPalette,
   readSession,
@@ -66,17 +67,13 @@ export function useCommandLaunchData(): Loaded<CommandLaunchData> {
  * scalar per machine, so opening it never acquires session choice rows. */
 export function useCommandLaunchOrigin(path: string) {
   const read = useMemo(() => (pool: Parameters<typeof readLaunch>[0]) =>
-    launchOptionViews(pool).origin(path), [path])
+    readLaunchOrigin(pool, path), [path])
   return useWorklistPoolProjection(read, LOADING)
 }
 export function useCommandTargetMachines(repo: RepoView, machines: MachineWire[], kinds: readonly string[]) {
   const kindsKey = JSON.stringify(kinds)
   const read = useMemo(() => (pool: Parameters<typeof readLaunch>[0]) =>
-    Object.fromEntries((JSON.parse(kindsKey) as string[]).map(kind => {
-      const eligible = onlineMachinesForRepoOrClone(repo, machines)
-        .filter(machine => agentCapabilityRejectionForSelection(machine, kind) === undefined)
-      return [kind, pool.queries.latestMachineSession(eligible.map(machine => machine.id))?.machineId ?? eligible[0]?.id]
-    })), [repo, machines, kindsKey])
+    readTargetMachines(pool, repo, machines, JSON.parse(kindsKey) as string[]), [repo, machines, kindsKey])
   return useWorklistPoolProjection(read, {} as Record<string, string | undefined>)
 }
 export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {

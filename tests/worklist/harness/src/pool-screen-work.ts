@@ -1,6 +1,7 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
+import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceView } from '@podium/client-graph/issue-reference'
@@ -90,6 +91,8 @@ import {
 import {
   readFiles,
   readLaunch,
+  readLaunchOrigin,
+  readTargetMachines,
   readOpen,
   readPalette,
 } from '../../../../apps/web/src/app/command-launch-readers'
@@ -432,10 +435,22 @@ async function measureScreenCells(
       lanes: shell.lanes(),
       shipping: shell.shipping(),
     }))
-    add('launcher.launch', ['NewPanelMenu', 'NewWorkButton', 'useMobileLaunchData'], () =>
-      // NewPanelChoices and NewIssueDialog mount only when opened. The fresh
+    add('launcher.launch', ['NewIssueDialog'], () =>
+      // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
       scene === 'background-terminal' ? undefined : readLaunch(pool),
+    )
+    add('launcher.panel', ['NewPanelMenu'], () => {
+      if (scene === 'background-terminal') return undefined
+      const origin = readLaunchOrigin(pool, window.get().selectedWorktree ?? '/repo-000')
+      return { ...origin, targets: origin.repo
+        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex']) : {} }
+    })
+    add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
+      scene === 'background-terminal' ? undefined : {
+        work: launchOptionViews(pool).newWork(false),
+        paths: launchOptionViews(pool).repositoryPaths(),
+      },
     )
     add('launcher.palette', ['CommandPalette'], () => readPalette(pool))
     // Close facts are asked for the action's issue at press time. Closed

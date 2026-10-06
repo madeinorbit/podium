@@ -46,8 +46,6 @@ function createCommandLaunchViews(pool: MobxPool) {
     coldSessionVisits: 0,
     usageQueries: 0,
     addressedSessionReads: 0,
-    repositoryBuilds: 0,
-    optionUsageQueries: 0,
   }
   type Window = CommandLaunchRows['commandWindow']
   function windowField<K extends keyof Window>(key: K): Loaded<Window[K]> {
@@ -118,7 +116,7 @@ function createCommandLaunchViews(pool: MobxPool) {
         const worktrees = rows(
           'commandWorktree',
           catalog.worktrees.filter((key) => treeIds.includes(key)),
-        ).map(({ repositoryId: _scan, groupId: _group, order: _order, ...tree }) => tree)
+        ).map(({ repositoryId: _scan, groupId: _group, ...tree }) => tree)
         const originUrl = scans.map((scan) => normalizeOriginUrl(scan.originUrl)).find(Boolean)
         const repoId = scans.find((scan) => scan.repoId !== undefined)?.repoId
         repoViews.push({
@@ -167,96 +165,6 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  // Supported launch option lists. Each displayed repository owns its group
-  // payload and scalar usage, independently of machine and session catalogs.
-  const optionRepository = keyedComputed('commands.optionRepository', (id: string) => {
-    counts.repositoryBuilds++
-    let pending = 0
-    const members = pool.sources.related('commandRepo', id, 'repositories')
-      .flatMap(key => {
-        const row = read('commandRepository', key)
-        if (row === LOADING) pending++
-        return row && row !== LOADING && !row.linked ? [row] : []
-      }).sort((a, b) => a.order - b.order)
-    const first = members[0]
-    if (!first) return { repo: undefined, pending }
-    const worktrees = pool.sources.related('commandRepo', id, 'worktrees')
-      .flatMap(key => {
-        const row = read('commandWorktree', key)
-        if (row === LOADING) pending++
-        return row && row !== LOADING ? [row] : []
-      }).sort((a, b) => a.order - b.order)
-      .map(({ repositoryId: _scan, groupId: _group, order: _order, ...tree }) => tree)
-    const originUrl = members.map(scan => normalizeOriginUrl(scan.originUrl)).find(Boolean)
-    const repoId = members.find(scan => scan.repoId !== undefined)?.repoId
-    const repo: RepoView = {
-      path: first.path,
-      name: repoNameFromOrigin(originUrl) ?? (first.path.split('/').pop() || first.path),
-      worktrees,
-      machines: members.flatMap(scan => scan.machineId
-        ? [{ machineId: scan.machineId, path: scan.path }] : []),
-      ...(originUrl !== undefined ? { originUrl } : {}),
-      ...(repoId !== undefined ? { repoId } : {}),
-    }
-    return { repo, pending }
-  })
-  const optionScan = keyedComputed('commands.optionScan', (id: string) => read('commandRepository', id))
-  const optionMachine = keyedComputed('commands.optionMachine', (id: string) => read('commandMachine', id))
-  const optionRepos = computed(() => {
-    const catalog = read('commandCatalog', 'catalog')
-    if (!catalog || catalog === LOADING) return catalog
-    let pending = 0
-    const repos = catalog.repositories.flatMap(id => {
-      const row = optionScan(id)
-      if (row === LOADING) pending++
-      return row && row !== LOADING ? [row] : []
-    })
-    const repoViews = catalog.repos.flatMap(id => {
-      const value = optionRepository(id)
-      pending += value.pending
-      return value.repo ? [value.repo] : []
-    })
-    return { repos, repoViews, pending }
-  })
-  const optionMachines = computed(() => {
-    const catalog = read('commandCatalog', 'catalog')
-    if (!catalog || catalog === LOADING) return catalog
-    let pending = 0
-    const machines = catalog.machines.flatMap(id => {
-      const row = optionMachine(id)
-      if (row === LOADING) pending++
-      return row && row !== LOADING ? [row] : []
-    })
-    return { machines, pending }
-  })
-  const optionRoots = keyedComputed('commands.optionRoots', (id: string) => {
-    const row = optionScan(id)
-    return JSON.stringify(row && row !== LOADING ? [row.path, ...row.worktrees.map(tree => tree.path)] : [])
-  })
-  const optionUsage = keyedComputed('commands.optionUsage', (id: string) => {
-    counts.optionUsageQueries++
-    return pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(optionRoots(id)) as string[] })
-  })
-  const launchCommon = computed((): Loaded<Common> => {
-    const data = optionRepos.get(), hosts = optionMachines.get()
-    if (data === LOADING || hosts === LOADING) return LOADING
-    if (!data || !hosts) return undefined
-    const usage: Record<string, number> = {}
-    for (const repo of data.repos) {
-      const id = JSON.stringify([repo.machineId ?? '', repo.path])
-      usage[id] = optionUsage(id)
-    }
-    const time = (repo: Store['repos'][number]) => usage[JSON.stringify([repo.machineId ?? '', repo.path])] ?? 0
-    const choices = data.repos.filter(repo => repo.kind !== 'worktree')
-    // The initial choice retains discovery order for equal usage; the displayed
-    // list additionally breaks ties by its existing path label.
-    const initialRepoPath = [...choices].sort((a, b) => time(b) - time(a))[0]?.path ?? data.repos[0]?.path ?? ''
-    const repoChoices = choices.sort((a, b) => time(b) - time(a) ||
-      (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
-        b.path.split('/').filter(Boolean).pop() ?? b.path, undefined, { sensitivity: 'base' }))
-    return { ...data, machines: hosts.machines, usage, repoChoices, initialRepoPath,
-      pending: data.pending + hosts.pending, issueIds: [] }
-  })
   // Addressed summary objects are fresh; compare their values explicitly.
   const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
           const value = pool.row('commandIssue', id)
@@ -297,8 +205,10 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function placementFor(data: Loaded<Pick<Common, 'repoViews'>>): Loaded<SpawnTarget[]> {
-      const pins = windowField('pins'),
+  const placement = computed(
+    (): Loaded<SpawnTarget[]> => {
+      const data = common.get(),
+        pins = windowField('pins'),
         selectedWorktree = windowField('selectedWorktree')
       if (data === LOADING || pins === LOADING || selectedWorktree === LOADING) return LOADING
       if (!data || !pins) return undefined
@@ -351,64 +261,14 @@ function createCommandLaunchViews(pool: MobxPool) {
         ...(current ? [current] : []),
         ...(primary && primary.path !== current?.path ? [primary] : []),
       ]
-  }
-  const placement = computed(() => placementFor(common.get()), { equals: compareStructural })
-  const launchTopology = computed(() => {
-    const data = optionRepos.get(), pins = windowField('pins')
-    if (data === LOADING || pins === LOADING) return LOADING
-    if (!data || !pins) return undefined
-    const trees = data.repoViews.flatMap(repo => repo.worktrees)
-    const pathToRepo = new Map(trees.map(tree => [tree.path, tree.repoPath]))
-    for (const repo of data.repoViews) for (const tree of repo.worktrees)
-      if (!pins.worktrees.includes(tree.path)) pathToRepo.set(tree.path, repo.path)
-    const roots = new Map<string, string[]>()
-    for (const [path, repo] of pathToRepo) {
-      const members = roots.get(repo) ?? []
-      members.push(path)
-      roots.set(repo, members)
-    }
-    const navRepos = [
-      ...pins.repos.flatMap(path => data.repoViews.filter(repo => repo.path === path)),
-      ...data.repoViews.filter(repo => !pins.repos.includes(repo.path) &&
-        repo.worktrees.some(tree => !pins.worktrees.includes(tree.path))),
-    ]
-    for (const repo of navRepos) if (!pathToRepo.has(repo.path)) {
-      const members = roots.get(repo.path) ?? []
-      members.push(repo.path)
-      roots.set(repo.path, members)
-    }
-    const treesByPath = new Map<string, (typeof trees)[number]>()
-    for (const tree of trees) if (!treesByPath.has(tree.path)) treesByPath.set(tree.path, tree)
-    return { navRepos, roots, treesByPath, pins }
-  })
-  const placementRoots = keyedComputed('commands.placementRoots', (path: string) => {
-    const topology = launchTopology.get()
-    return JSON.stringify(topology && topology !== LOADING ? topology.roots.get(path) ?? [] : [])
-  })
-  const placementUsage = keyedComputed('commands.placementUsage', (path: string) =>
-    pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(placementRoots(path)) as string[], match: 'exact' }))
-  const launchPlacement = computed((): Loaded<SpawnTarget[]> => {
-    const topology = launchTopology.get(), selected = windowField('selectedWorktree')
-    if (topology === LOADING || selected === LOADING) return LOADING
-    if (!topology) return undefined
-    const current = selected ? topology.treesByPath.get(selected) : undefined
-    let best: RepoView | undefined, bestTime = 0
-    for (const repo of topology.navRepos) {
-      const time = placementUsage(repo.path)
-      if (!best || time > bestTime) { best = repo; bestTime = time }
-    }
-    const primary = best ? best.worktrees.find(tree =>
-      !topology.pins.worktrees.includes(tree.path) && tree.isMain && tree.path === best.path) ??
-      best.worktrees.find(tree => !topology.pins.worktrees.includes(tree.path) && tree.path === best.path) ??
-      { path: best.path, repoPath: best.path, isMain: true, ...(best.repoId ? { repoId: best.repoId } : {}) }
-      : undefined
-    return [...(current ? [current] : []), ...(primary && primary.path !== current?.path ? [primary] : [])]
-  })
+    },
+    { equals: compareStructural },
+  )
   function projection(palette: boolean): Loaded<CommandLaunchData> {
-    const data = palette ? common.get() : launchCommon.get(),
+    const data = common.get(),
       ids = sessionIds.get(),
       window = read('commandWindow', 'window'),
-      spawnTargets = palette ? placement.get() : launchPlacement.get()
+      spawnTargets = placement.get()
     if (
       data === LOADING ||
       ids === LOADING ||
@@ -478,7 +338,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     }
     return { ...window, ...values, sessionIds: ids, issues, spawnTargets, pending }
   }
-  const launch = computed(() => projection(false)),
+  const launch = computed(() => projection(false), { equals: compareStructural }),
     palette = computed(() => projection(true), { equals: compareStructural })
   return {
     launch: () => launch.get(),
@@ -488,7 +348,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     session,
     sessions: () => sessions.get(),
     counts,
-    dispose() { session.clear(); issueSummary.clear(); optionRepository.clear(); optionRoots.clear(); optionUsage.clear(); optionScan.clear(); optionMachine.clear(); placementRoots.clear(); placementUsage.clear() },
+    dispose() { session.clear(); issueSummary.clear() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {

@@ -14,7 +14,7 @@ it('keeps selected-child palette metadata within one addressed neighbourhood', a
         .reduce((sum, [, value]) => sum + value, 0)
     return { scale: run.scale, corpus: run.corpus,
       loaded: { rows: count(work.rowsBy, 'loaded'), derivations: count(work.derivationsBy, 'loaded'), elements: count(work.elementsBy, 'loaded') },
-      displayRef: { elements: count(work.elementsBy, 'displayRef') },
+      displayRef: { derivations: count(work.derivationsBy, 'displayRef'), elements: count(work.elementsBy, 'displayRef') },
     }
   })
   mkdirSync('.artifacts/launcher-selection', { recursive: true })
@@ -24,6 +24,7 @@ it('keeps selected-child palette metadata within one addressed neighbourhood', a
     expect(sample.loaded.rows).toBeLessThanOrEqual(2)
     expect(sample.loaded.derivations).toBeLessThanOrEqual(1)
     expect(sample.loaded.elements).toBeLessThanOrEqual(2)
+    expect(sample.displayRef.derivations).toBe(1)
     expect(sample.displayRef.elements).toBeLessThanOrEqual(1)
   }
 }, 1_800_000)
