@@ -23,6 +23,9 @@ import { LOADING, type Loaded } from './worklist/rollup'
 const issueRefOverlay = createRowOverlay()
 const issueNavigationOverlay = createRowOverlay()
 const menuIssueOverlay = createRowOverlay()
+const menuSessionOverlay = createRowOverlay()
+const MENU_SESSION_OVERRIDES = Object.freeze({})
+const MENU_SESSION_OMISSIONS = new Set<PropertyKey>(['machineName', 'condition', 'handoffTarget', 'displayRef'])
 const MENU_OMISSIONS = new Set<PropertyKey>(['memberSessionIds', 'childIds', 'dependents'])
 
 export interface MissionRowPresentation {
@@ -679,7 +682,7 @@ export class MissionViewReader {
     if (count === 0) return { blocker: 'no-agent-session' }
     if (count > 1) return { blocker: 'multiple-sessions' }
     const sessionId = this.pool.graph.many('issue', id, 'handoffSessions')[Symbol.iterator]().next().value!
-    const session = this.session(sessionId)
+    const session = this.menuSession(sessionId)
     return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
   })
   /** Menu metadata is already declared in the cold summary. Reading it does
@@ -777,6 +780,12 @@ export class MissionViewReader {
     this.stats.sessionReads++
     const row = this.rawSession(id)
     return row as Loaded<SessionView>
+  }
+  /** Menu labels and guards use the addressed session's own fields. The
+   * machine/login/reference joins belong to its drawn row, not this menu. */
+  menuSession(id: string): Loaded<SessionView> {
+    const row = this.session(id)
+    return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
   private sessionScalar<T>(name: string, read: (session: SessionView) => T) {
     return keyedComputed(`MissionSession.${name}`, (id: string): Loaded<T> => {
@@ -1568,7 +1577,7 @@ export interface MissionActionInputs {
  * flyout; a session menu never asks for its issue's other senders. */
 export function readMissionActionInputs(view: MissionViewReader, issueIds: readonly string[], sessionId?: string, handoffEnabled = true): MissionActionInputs | typeof LOADING {
   const selected: IssueNavigationModel[] = []
-  const session = sessionId ? view.session(sessionId) : undefined
+  const session = sessionId ? view.menuSession(sessionId) : undefined
   if (session === LOADING) return LOADING
   const requested = sessionId ? (handoffEnabled && session?.issueId ? [session.issueId] : []) : issueIds
   for (const id of requested) {
@@ -1596,8 +1605,15 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   // only source eligibility decides whether any machine choices are shown.
   const needsTargets = subject && (HANDOFF_HARNESS_KINDS as readonly string[]).includes(subject.agentKind) &&
     repos.some(repo => repo.repoId) && repos.some(repo => repo.worktrees.length > 0)
+  // The sender is never a target. Exclude its address before observing any
+  // payload so its login/capability changes cannot wake this menu.
+  const machines = needsTargets ? view.pool.headerViews.ids('machine').flatMap(id => {
+    if (id === subject?.machineId) return []
+    const machine = view.pool.headerViews.row('machine', id)
+    return machine ? [machine] : []
+  }) : []
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,
-    machines: needsTargets ? view.pool.headerViews.machines() : [], session, issue: selected[0], handoff }
+    machines, session, issue: selected[0], handoff }
 }
 export function readMissionHandoff(view: MissionViewReader, rootId: string): MissionHandoffValues | typeof LOADING {
   return view.handoff(rootId)

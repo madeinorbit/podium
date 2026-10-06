@@ -130,7 +130,9 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       { kind: 'worktree', id: '/menu', value: { path: '/menu', repoPath: '/target', repoId, repoName: 'Menu' } },
       { kind: 'worktree', id: '/target', value: { path: '/target', repoPath: '/target', repoId, repoName: 'Menu', isMain: true } },
     ] })
+    const sender: HeaderRows['machine'] = { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] }
     pool.header.apply([
+      { kind: 'machine', id: 'source', value: sender },
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
       { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
@@ -150,9 +152,20 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       expect(handoffAvailability(value.session, reposToViews(value.repos), value.machines, value.issue))
         .toEqual(handoffAvailability(value.session, reposToViews([target, clone, ...others]), value.machines, value.issue))
       expect(value.machines).toHaveLength(1)
-      expect(ids).not.toHaveBeenCalled()
+      expect(ids.mock.calls.every(([entity]) => entity === 'machine')).toBe(true)
       expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
       work.push({ rows: measured.work.rows ?? 0, elements: measured.work.elements })
+      let publications = 0
+      const displayed = observe(() => { publications++; return JSON.stringify(readMissionActionInputs(view, [], 'picked')) })
+      try {
+        const before = publications
+        row.mockClear(); repoRow.mockClear()
+        pool.header.apply([{ kind: 'machine', id: 'source', value: { ...sender, loggedOutHarnesses: ['codex'] } }])
+        expect(publications).toBe(before)
+        expect(row).not.toHaveBeenCalled(); expect(repoRow).not.toHaveBeenCalled()
+        expect(value.session).not.toHaveProperty('condition')
+        expect(value.session).not.toHaveProperty('machineName')
+      } finally { displayed.stop() }
       row.mockClear()
       pool.header.apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
       expect(row).not.toHaveBeenCalled()
