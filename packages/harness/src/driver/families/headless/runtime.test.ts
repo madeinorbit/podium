@@ -16,25 +16,26 @@ import { rmSync } from 'node:fs'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
+import { supported } from '../../../manifest.js'
 import {
-  canonicalHeadlessContractFacts,
-  resolveProcedures,
   type AgentSessionHandle,
+  canonicalHeadlessContractFacts,
   type RuntimeEvent,
+  resolveProcedures,
   type SessionSpec,
   type TurnInput,
 } from '../../contract.js'
-import { supported } from '../../../manifest.js'
-import type { EngineProcessOwner } from '../engine-supervision.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import type { EngineProcessOwner } from '../engine-supervision.js'
 import {
   assertNativeHeadlessAccount,
   createHeadlessRuntime,
-  headlessCapabilities,
   type HeadlessDriverHost,
   type HeadlessDriverRunners,
   type HeadlessRuntime,
+  headlessCapabilities,
 } from './runtime.js'
+import { testHarnessSnapshot } from './test-support.js'
 import type { HostedTurnDeps } from './turn.js'
 import type {
   HeadlessEmit,
@@ -42,7 +43,6 @@ import type {
   HeadlessTurnSpec,
   HostedTurnIdentity,
 } from './types.js'
-import { testHarnessSnapshot } from './test-support.js'
 
 /** The session entries the driver binds its handles onto (POD-4512/4610):
  *  the harness's stand-in slots, same compare-and-release rule as the daemon's. */
@@ -1152,8 +1152,9 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it('exports the harness-native transcript once a resume ref exists', async () => {
-    const { runtime, runners } = makeRuntime()
+  it.each(['/tmp/claude-session.jsonl', 'C:\\tmp\\claude-session.jsonl'])('machine paths: exports the harness-native transcript from %s', async path => {
+    const { runtime, runners, host } = makeRuntime()
+    host.archiveTranscript = async () => ({ path })
     try {
       const { handle, sessionId } = await createHandle(runtime)
       // No conversation yet: the harness has minted nothing to archive.
@@ -1168,7 +1169,7 @@ describe('headless history and rebind', () => {
         resume: { value: 'h-export-1' },
       })
       expect(archive.files).toHaveLength(1)
-      expect(archive.files[0]?.path).not.toMatch(/^\//)
+      expect(archive.files[0]?.path).toBe('claude-session.jsonl')
       expect(archive.binding).toMatchObject({
         sessionId,
         driver: 'headless',

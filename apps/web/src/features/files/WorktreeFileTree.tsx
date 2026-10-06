@@ -1,3 +1,4 @@
+import { machinePathBasename, machinePathDirname, machinePathRelativeToRoot, joinMachinePath, resolveMachinePath } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
@@ -14,21 +15,8 @@ import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
 
-function joinPath(dir: string, name: string): string {
-  return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`
-}
-
 function sortEntries(entries: Entry[]): Entry[] {
   return [...entries].sort(compareEntries)
-}
-
-function relativeToRoot(root: string, path: string): string {
-  if (!path.startsWith('/')) return path
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
-}
-
-function absoluteInRoot(root: string, path: string): string {
-  return path.startsWith('/') ? path : joinPath(root, path)
 }
 
 /**
@@ -128,10 +116,10 @@ function SearchResultRow({
   onOpen: (permanent: boolean) => void
 }): JSX.Element {
   const intent = useClickIntent()
-  const relative = relativeToRoot(root, path)
-  const slash = relative.lastIndexOf('/')
-  const name = slash === -1 ? relative : relative.slice(slash + 1)
-  const dir = slash === -1 ? '' : relative.slice(0, slash)
+  const relative = machinePathRelativeToRoot(root, path) ?? path
+  const name = machinePathBasename(relative, root)
+  const parent = machinePathDirname(relative, root)
+  const dir = parent === '.' ? '' : parent
   return (
     <Button
       id={id}
@@ -287,7 +275,7 @@ export function WorktreeFileTree({
     openFileInWorktree({
       machineId,
       root,
-      path: absoluteInRoot(root, path),
+      path: resolveMachinePath(root, path),
       permanent,
     })
   }
@@ -317,7 +305,7 @@ export function WorktreeFileTree({
       ]
     }
     return entries.map((entry) => {
-      const abs = joinPath(dir, entry.name)
+      const abs = joinMachinePath(dir, entry.name)
       const open = expanded.has(abs)
       return (
         <div key={abs}>
@@ -440,7 +428,7 @@ export function WorktreeFileTree({
                 ? 'File search is unavailable'
                 : `${searchPaths.length} matching files${
                     searchPaths[activeSearchIndex]
-                      ? `. ${relativeToRoot(root, searchPaths[activeSearchIndex])} selected`
+                      ? `. ${machinePathRelativeToRoot(root, searchPaths[activeSearchIndex]) ?? searchPaths[activeSearchIndex]} selected`
                       : ''
                   }`
             : ''}

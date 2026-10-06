@@ -1,3 +1,4 @@
+import { joinMachinePath } from '@podium/model'
 import { describeError } from '@podium/logger'
 import {
   type DescendantTip,
@@ -127,7 +128,7 @@ export class IssueEpicIntegrationModule {
     // Branch/worktree names share the `<seq>-<slug>` stem with issue branches.
     const stem = this.store.slug(row.seq, row.title).replace(/^issue\//, '')
     const intBranch = `integrate/${stem}`
-    const worktree = `${row.repoPath}/.worktrees/integrate-${stem}`
+    const worktree = joinMachinePath(row.repoPath, '.worktrees', `integrate-${stem}`)
     // Freeze every mutable source ref before the first integration effect. Git
     // consumes these exact object ids below, and the receipt is minted from the
     // same snapshot, so a branch advancing during the rebuild cannot be falsely

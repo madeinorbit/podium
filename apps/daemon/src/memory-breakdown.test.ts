@@ -145,3 +145,14 @@ describe('snapshotProcesses', () => {
     expect(self?.ppid).toBe(process.ppid)
   })
 })
+
+
+it.each([
+  ['/repo', '/repo/src', '/repository'],
+  ['C:\\repo', 'c:/REPO/src', 'C:\\repository'],
+])('machine paths: process memory belongs to the containing project %s', (root, child, sibling) => {
+  const { projects } = attributeMemory([proc({ pid: 10, cwd: child }), proc({ pid: 11, cwd: sibling })], [], [root])
+  expect(projects).toHaveLength(1)
+  expect(projects[0]?.root).toBe(root)
+  expect(projects[0]?.bytes).toBe(MB)
+})

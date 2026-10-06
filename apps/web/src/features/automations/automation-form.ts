@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 /**
  * THE AUTOMATION COMPOSER, AS DATA (POD-409) [spec:SP-17db].
  *
@@ -402,8 +403,6 @@ export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
   degraded: 0,
 }
 
-const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
-
 /**
  * The repos this automation may target, most-recently-used first, plus the count
  * of those withheld and why.
@@ -435,7 +434,7 @@ export function automationTargetChoices(
       repo.machineId === undefined
         ? 'available'
         : (availabilityOf.get(repo.machineId) ?? 'unauthorized')
-    const choice = { value: repo.path, label: repoLabel(repo.path), availability }
+    const choice = { value: repo.path, label: machinePathBasename(repo.path), availability }
     if (availability === 'available') {
       choices.push(choice)
       continue
@@ -461,7 +460,7 @@ export function automationTargetChoices(
     const known = withheld.find((c) => c.value === currentPath)
     choices.push({
       value: currentPath,
-      label: `${repoLabel(currentPath)} — ${
+      label: `${machinePathBasename(currentPath)} — ${
         known?.availability === 'unreachable'
           ? 'machine offline'
           : known?.availability === 'incapable'

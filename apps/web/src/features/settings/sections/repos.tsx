@@ -6,6 +6,7 @@
  * existing prefix warns that previously written refs stop resolving.
  */
 import type { MachineId, RepoId } from '@podium/model'
+import { machinePathBasename } from '@podium/model/browser'
 import { isValidPrefix } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -22,10 +23,6 @@ export interface RepoDetailRow {
   originUrl?: string
   repoId?: RepoId
   prefix: string | null
-}
-
-function repoName(path: string): string {
-  return path.split('/').pop() ?? path
 }
 
 export function ReposSection(): JSX.Element {
@@ -124,7 +121,7 @@ function RepoPrefixRow({
     <div className="border-border/60 border-b py-1.5 last:border-b-0">
       <div className="flex items-center gap-2.5 text-[13.5px]">
         <span className="min-w-0 flex-1 truncate" title={row.path}>
-          <span className="text-foreground">{repoName(row.path)}</span>
+          <span className="text-foreground">{machinePathBasename(row.path)}</span>
           <span className="settings-micro ml-2">{row.path}</span>
         </span>
         {editing ? (
@@ -134,7 +131,7 @@ function RepoPrefixRow({
               value={draft}
               autoFocus
               maxLength={5}
-              aria-label={`Prefix for ${repoName(row.path)}`}
+              aria-label={`Prefix for ${machinePathBasename(row.path)}`}
               onChange={(e) => setDraft(e.target.value.toUpperCase())}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void submit()

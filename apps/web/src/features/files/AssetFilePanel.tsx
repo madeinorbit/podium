@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { FileScope } from '@podium/client-core/values'
 import { Maximize2, Minus, Plus, X } from 'lucide-react'
@@ -13,10 +14,6 @@ type AssetKind = Extract<FileKind, 'image' | 'pdf' | 'video' | 'audio'>
 const MIN_ZOOM = 25
 const MAX_ZOOM = 400
 const ZOOM_STEP = 25
-
-function fileName(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1) || path
-}
 
 /** Browser-native viewers for repository files whose bytes should never pass
  * through the text editor. The raw-file route keeps remote and artifact scopes
@@ -143,7 +140,7 @@ export function AssetFilePanel({
           )}
           <img
             src={url}
-            alt={fileName(path)}
+            alt={machinePathBasename(path)}
             draggable={false}
             onLoad={(event) => {
               const image = event.currentTarget
@@ -170,7 +167,7 @@ export function AssetFilePanel({
       ) : kind === 'pdf' ? (
         <iframe
           src={url}
-          title={`PDF preview: ${fileName(path)}`}
+          title={`PDF preview: ${machinePathBasename(path)}`}
           className="min-h-0 flex-1 border-0"
         />
       ) : kind === 'video' ? (
@@ -180,7 +177,7 @@ export function AssetFilePanel({
             controls
             preload="metadata"
             className="max-h-full max-w-full"
-            aria-label={fileName(path)}
+            aria-label={machinePathBasename(path)}
             onError={() => setFailed(true)}
           >
             <source src={url} />
@@ -190,14 +187,14 @@ export function AssetFilePanel({
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 p-6">
           <div className="max-w-full truncate font-mono text-xs text-muted-foreground">
-            {fileName(path)}
+            {machinePathBasename(path)}
           </div>
           {/* biome-ignore lint/a11y/useMediaCaption: Repository media has no guaranteed transcript sidecar. */}
           <audio
             controls
             preload="metadata"
             className="w-full max-w-xl"
-            aria-label={fileName(path)}
+            aria-label={machinePathBasename(path)}
             onError={() => setFailed(true)}
           >
             <source src={url} />

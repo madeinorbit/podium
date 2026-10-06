@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import {
   type AgentKind,
   actorUser,
@@ -30,12 +31,6 @@ import type { SessionValues, SessionView } from '../session-values'
  * protocol zod schemas so a new required field fails the test, not the UI.
  */
 
-/** Browser-safe basename — the server titles a fresh session `basename(cwd)`. */
-function basename(path: string): string {
-  const parts = path.split('/').filter(Boolean)
-  return parts[parts.length - 1] ?? path
-}
-
 export interface OptimisticSpawnArgs {
   sessionId: SessionId
   issueId: IssueId
@@ -56,7 +51,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSe
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,
-    title: basename(args.cwd) || args.cwd,
+    title: machinePathBasename(args.cwd) || args.cwd,
     cwd: args.cwd,
     ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
     status: 'starting',

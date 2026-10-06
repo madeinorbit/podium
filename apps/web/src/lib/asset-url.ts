@@ -1,3 +1,4 @@
+import { resolveMachinePath } from '@podium/model'
 import type { FileScope } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { resolveAgainstCwd } from './file-path'
@@ -18,7 +19,7 @@ export function assetUrl(args: {
   const { httpOrigin, sessionId, fileDir, src } = args
   const workspace = args.workspace ?? currentWorkspaceSlug()
   if (/^(https?:|data:|blob:|\/\/)/i.test(src)) return null
-  const abs = src.startsWith('/') ? src : resolveAgainstCwd(fileDir, src)
+  const abs = resolveMachinePath(fileDir, src)
   const qs = new URLSearchParams({ sessionId, path: abs })
   if (workspace) qs.set('workspace', workspace)
   return `${httpOrigin.replace(/\/+$/, '')}/files/asset?${qs.toString()}`
@@ -48,7 +49,7 @@ export function scopedAssetUrl(args: {
     return `${origin}/files/artifact${workspacePath}/${encodeURIComponent(scope.issueId)}/${encodeURIComponent(scope.artifactId)}/${relEnc}`
   }
 
-  const abs = src.startsWith('/') ? src : resolveAgainstCwd(fileDir, src)
+  const abs = resolveMachinePath(fileDir, src)
   const qs = new URLSearchParams({ root: scope.root, path: abs })
   if (scope.machineId) qs.set('machineId', scope.machineId)
   if (workspace) qs.set('workspace', workspace)

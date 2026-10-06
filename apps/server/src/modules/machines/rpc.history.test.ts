@@ -140,3 +140,17 @@ describe('single Store transcript read path', () => {
     expect(anchored.items).toEqual([daemonRow])
   })
 })
+
+
+it.each([
+  ['/repo', 'shots/a.png', '/repo/shots/a.png'],
+  [String.raw`C:\repo`, 'shots/a.png', String.raw`C:\repo\shots\a.png`],
+  [String.raw`C:\repo`, 'D:/shots/a.png', String.raw`D:\shots\a.png`],
+])('machine paths: remote asset request resolves against %s', async (root, path, expected) => {
+  const { rpc, toMachine } = setup()
+  toMachine.mockImplementation((machine, message) => {
+    expect(message).toMatchObject({ type: 'fileAssetRequest', cwd: root, path: expected })
+    rpc.settleDaemonReply(machine, { type: 'fileAssetResult', requestId: message.requestId, path: expected, ok: false, error: 'fixture' })
+  })
+  expect(await rpc.readAsset({ machineId, root, path })).toMatchObject({ path: expected, ok: false })
+})

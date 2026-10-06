@@ -1,6 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import { basename, join } from 'node:path'
-import { AgentKind, repoNameFromOrigin, type SessionId, type UserId, type MachineId, type RepoId } from '@podium/model'
+import {
+  AgentKind,
+  isMachinePathWithinRoot,
+  joinMachinePath,
+  type MachineId,
+  machinePathBasename,
+  machinePathRelativeToRoot,
+  machinePathSegments,
+  machinePathsEqual,
+  type RepoId,
+  repoNameFromOrigin,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
@@ -11,8 +23,8 @@ import {
   verifiedBundleBases,
   verifiedCommonBundleBases,
 } from './handoff-transfer'
-import type { Session } from './session'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { Session } from './session'
 
 type SessionLookup = (sessionId: SessionId) => Session | undefined
 
@@ -50,15 +62,15 @@ export class SessionWorkspace {
     await this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
     const sourceRepo = (await this.ports.store.repos
       .listRepos())
-      .filter((repo) => input.cwd === repo.path || input.cwd.startsWith(`${repo.path}/`))
+      .filter((repo) => isMachinePathWithinRoot(repo.path, input.cwd))
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo || sourceRepo.machineId === input.machineId) {
       return { cwd: input.cwd, machineId: input.machineId }
     }
     const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
-    const suffix = input.cwd.slice(sourceRepo.path.length).replace(/^\/+/, '')
+    const suffix = machinePathRelativeToRoot(sourceRepo.path, input.cwd)
     return {
-      cwd: suffix ? join(targetRepo.path, suffix) : targetRepo.path,
+      cwd: suffix ? joinMachinePath(targetRepo.path, ...machinePathSegments(suffix, sourceRepo.path)) : targetRepo.path,
       machineId: input.machineId,
     }
   }
@@ -81,7 +93,7 @@ export class SessionWorkspace {
   async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string> {
     const sourceRepo = (await this.ports.store.repos
       .listRepos())
-      .filter((repo) => sourceRepoPath === repo.path || sourceRepoPath.startsWith(`${repo.path}/`))
+      .filter((repo) => isMachinePathWithinRoot(repo.path, sourceRepoPath))
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo) throw new Error(`no registered repository contains ${sourceRepoPath}`)
     if (sourceRepo.machineId === targetMachineId) return sourceRepo.path
@@ -134,7 +146,7 @@ export class SessionWorkspace {
     const { rpc } = this.ports
     const source = (await this.ports.store.repos
       .listRepos())
-      .find((repo) => repo.path === input.sourceRepoPath)
+      .find((repo) => machinePathsEqual(repo.path, input.sourceRepoPath))
     if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
     const sourceRepoPath = source.path
     const sourceMachineId = source.machineId
@@ -320,7 +332,7 @@ export class SessionWorkspace {
   async findRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string | null> {
     const source = (await this.ports.store.repos
       .listRepos())
-      .find((repo) => repo.path === sourceRepoPath)
+      .find((repo) => machinePathsEqual(repo.path, sourceRepoPath))
     if (!source) return null
     if (source.machineId === targetMachineId) return source.path
     return (await this.repoOnMachineByIdentity(source, targetMachineId))?.path ?? null
@@ -357,7 +369,7 @@ export class SessionWorkspace {
     const repoName =
       repoNameFromOrigin(sourceRepo.originUrl)?.replace(/[^a-zA-Z0-9._-]+/gu, '-') || 'repository'
     const suffix = sourceRepo.repoId.replace(/[^a-zA-Z0-9]+/gu, '').slice(-8) || 'checkout'
-    const targetPath = join(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
+    const targetPath = joinMachinePath(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
     const cloned = await this.ports.rpc.repoOp(
       'clone',
       home.listing.homePath,
@@ -373,7 +385,7 @@ export class SessionWorkspace {
     )
     const registered = (await this.ports.store.repos
       .listRepos(targetMachineId))
-      .find((repo) => repo.path === targetPath)
+      .find((repo) => machinePathsEqual(repo.path, targetPath))
     if (!registered || registered.repoId !== sourceRepo.repoId) {
       throw new Error('cloned repository identity does not match the handoff source')
     }
@@ -413,7 +425,7 @@ export class SessionWorkspace {
       .filter(
         (repo) =>
           repo.machineId === source.machineId &&
-          (source.cwd === repo.path || source.cwd.startsWith(`${repo.path}/`)),
+          (isMachinePathWithinRoot(repo.path, source.cwd)),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
@@ -423,7 +435,7 @@ export class SessionWorkspace {
     if (!fetcherRepo) throw new Error('this machine does not have the source repository')
 
     const issue = source.issueId ? await this.ports.issueAccess.getMeta(source.issueId) : undefined
-    const branch = issue?.branch ?? basename(source.cwd)
+    const branch = issue?.branch ?? machinePathBasename(source.cwd)
     const candidates = [
       ...new Set(
         [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
@@ -504,7 +516,7 @@ export class SessionWorkspace {
       .filter(
         (candidate) =>
           candidate.machineId === caller.machineId &&
-          (caller.cwd === candidate.path || caller.cwd.startsWith(`${candidate.path}/`)),
+          (isMachinePathWithinRoot(candidate.path, caller.cwd)),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!repo) throw new Error('calling session is not inside a registered repository')

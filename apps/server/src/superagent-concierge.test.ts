@@ -10,7 +10,6 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import {
@@ -21,6 +20,7 @@ import {
   NOT_CONFIRMED_MSG,
   SuperagentService,
 } from './modules/superagent'
+import { buildGlobalSeed } from './modules/superagent/global'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { OPERATOR } from './test-support/capabilities'
@@ -699,4 +699,34 @@ describe('thread ownership after administrator removal', () => {
     ).toBe(replacement)
     sa.dispose()
   })
+})
+
+
+it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: global digest and concierge titles for %s', async repoPath => {
+  const text = buildGlobalSeed({ repos: [{ repoPath, worktrees: 1, issues: 1, ready: 1, inProgress: 0, needsHuman: 1 }], sessions: [], questions: [{ repoPath, seq: 1 }], events: [], maxEventId: 0 })
+  expect(text).toContain('- podium (')
+  expect(text).toContain('- podium #1')
+  const { registry, sa } = await harness()
+  await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId)
+  const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
+  expect((await sa.listThreads(firstAdminMemberId())).find(t => t.id === thread.threadId)?.title).toBe('concierge · podium')
+})
+
+it('machine paths: Windows concierge identity folds separators and drive case', () => {
+  expect(conciergeThreadId('C:\\src\\podium')).toBe(conciergeThreadId('c:/src/podium'))
+  expect(conciergeRepoPath(conciergeThreadId('C:\\src\\podium'))).toBe('c:\\src\\podium')
+})
+
+it.each(['/src/podium', String.raw`C:\Src\Podium`])('machine paths: session title and concierge repo usage under %s', async cwd => {
+  const { registry, sa, turnReqs, settle } = await harness()
+  await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId)
+  expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
+  const created = await registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: cwd + '/src' })
+  const session = await registry.modules.sessions.sessionById(created.sessionId)
+  expect(session?.title).toBe('src')
+  expect(session?.cwd).toBe(cwd + '/src')
+  await registry.modules.sessions.renameSession({ sessionId: created.sessionId, name: 'path regression worker' })
+  await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: cwd, text: 'status?' })
+  await settle()
+  expect(turnReqs.at(-1)?.contextPrompt).toContain('path regression worker · claude-code')
 })

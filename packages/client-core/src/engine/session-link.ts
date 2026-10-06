@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot } from '@podium/model'
 /**
  * What a desktop session link says when the server cannot open it (POD-4637).
  * One sentence shape for the `?pane=` link and the jump-to-session action, so
@@ -34,7 +35,7 @@ export function sessionLinkSelection(
   linkedWorktree?: string | null,
 ): { selectedIssueId?: IssueId; selectedWorktree?: string } {
   const holds = (path: string | null | undefined): path is string =>
-    !!path && (session.cwd === path || session.cwd.startsWith(`${path}/`))
+    !!path && isMachinePathWithinRoot(path, session.cwd)
   const registered = reposToViews(st.repos)
     .flatMap((repo) => repo.worktrees)
     .map((candidate) => candidate.path)

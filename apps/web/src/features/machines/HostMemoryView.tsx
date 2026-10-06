@@ -15,6 +15,7 @@ import type {
   ProjectMemoryWire,
   SessionId,
 } from '@podium/model/browser'
+import { machinePathBasename } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -378,7 +379,7 @@ function BreakdownBody({
         {data.projects.map((project) => (
           <Row
             key={project.root}
-            name={project.root.split('/').pop() ?? project.root}
+            name={machinePathBasename(project.root)}
             title={project.root}
             detail={project.topProcesses.map((p) => p.name).join(', ')}
             bytes={project.bytes}
@@ -667,7 +668,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
             <div key={orphan.path} className="text-xs text-foreground">
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {orphan.path.split('/').pop() ?? orphan.path}
+                  {machinePathBasename(orphan.path)}
                 </span>
                 <span className="text-[11px] text-muted-foreground/70">
                   {orphan.branch ?? 'detached'}

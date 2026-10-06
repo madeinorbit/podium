@@ -1,3 +1,4 @@
+import { machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
 import {
   formatClock,
   resolveToolEdit,
@@ -233,11 +234,8 @@ export function ToolBatchView({
     // form, and the rail's dir/name split is meaningless on a full absolute
     // path, so everything inside the cwd is shown relative to it. A file outside
     // it keeps its absolute name, which is the only honest thing to call it.
-    const prefix = cwd.endsWith('/') ? cwd : `${cwd}/`
-    const normalise = (raw: string): string => {
-      const path = raw.replace(/^\.\//, '')
-      return path.startsWith(prefix) ? path.slice(prefix.length) : path
-    }
+    const normalise = (raw: string): string =>
+      machinePathRelativeToRoot(cwd, raw) ?? resolveMachinePath(cwd, raw)
     for (const b of row.blocks) {
       // ONLY a recorded edit. `toolPaths` is every path the call reported —
       // reads included, and files outside the repo — and neither belongs in a

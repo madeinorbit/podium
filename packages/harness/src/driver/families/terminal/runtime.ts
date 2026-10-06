@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { respondToMailBoundary } from './mail-boundary.js'
 import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '../../host.js'
 import type { SessionDriverSlots } from '../session-slots.js'
@@ -2428,7 +2429,7 @@ export function createTerminalRuntime(
           resumeValue: session.resume.value,
         })
         const bytes = await host.readArchiveBytes(located.path)
-        const name = located.path.split('/').pop() ?? `${session.sessionId}.jsonl`
+        const name = machinePathBasename(located.path) ?? `${session.sessionId}.jsonl`
         return {
           harness: session.agentKind,
           formatVersion: 1,

@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
@@ -277,7 +278,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     run,
     prev,
     next,
-    repoName: issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath,
+    repoName: machinePathBasename(issue.repoPath),
     feed: buildActivityFeed(comments, events),
     mail,
     sessions,

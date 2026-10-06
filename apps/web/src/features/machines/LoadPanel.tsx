@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import {
   DEFAULT_LOAD_PER_CORE,
   formatMemBytes,
@@ -311,7 +312,7 @@ export function LoadPanel({
                 data.projects.map((project) => (
                   <ProcessRow
                     key={project.root}
-                    name={project.root.split('/').pop() ?? project.root}
+                    name={machinePathBasename(project.root)}
                     title={project.root}
                     detail={project.topProcesses.map((p) => p.name).join(', ')}
                     bytes={project.bytes}

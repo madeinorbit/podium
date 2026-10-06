@@ -1,10 +1,11 @@
 import {
   ISSUE_BOARD_STAGES,
-  type IssueStage,
+  type IssueId,
   type IssueSessionSummary,
+  type IssueStage,
+  isMachinePathWithinRoot,
   type SessionId,
   type SessionMeta,
-  type IssueId,
 } from '@podium/model'
 
 export function slugifyBranch(seq: number, title: string): string {
@@ -19,7 +20,7 @@ export function slugifyBranch(seq: number, title: string): string {
 
 export function isMemberCwd(issueWorktree: string | null, cwd: string): boolean {
   if (!issueWorktree) return false
-  return cwd === issueWorktree || cwd.startsWith(`${issueWorktree}/`)
+  return isMachinePathWithinRoot(issueWorktree, cwd)
 }
 
 /** Sessions belonging to an issue. Precedence (issue-as-workspace): a session

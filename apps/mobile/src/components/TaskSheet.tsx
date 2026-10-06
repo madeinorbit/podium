@@ -1,3 +1,4 @@
+import { machinePathSeparator } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -479,7 +480,7 @@ function SheetBody({
             {git?.ahead ? `↑${git.ahead} · ` : ''}
             {git?.dirtyFiles ? `${git.dirtyFiles} dirty` : 'clean'}
             {issue.worktreePath
-              ? ` · ${issue.worktreePath.replace(/^.*\/\.worktrees\//, '…/')}`
+              ? ` · ${issue.worktreePath.replace(/^.*[\\/]\.worktrees[\\/]/, `…${machinePathSeparator(issue.worktreePath)}`)}`
               : ''}
           </Text>
         </Part>

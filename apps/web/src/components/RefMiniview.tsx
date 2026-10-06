@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import { issueReferenceModel } from '@podium/client-core/values'
@@ -853,10 +854,6 @@ function IssueDetailsStrip({
   )
 }
 
-function repoName(cwd: string): string {
-  return cwd.split('/').pop() ?? cwd
-}
-
 function SessionSummary({
   session,
   issues,
@@ -879,7 +876,9 @@ function SessionSummary({
         )}
       </div>
       <div className="text-[13px] font-medium leading-snug">{label}</div>
-      <div className="truncate text-[11px] text-muted-foreground/80">{repoName(session.cwd)}</div>
+      <div className="truncate text-[11px] text-muted-foreground/80">
+        {machinePathBasename(session.cwd)}
+      </div>
     </div>
   )
 }

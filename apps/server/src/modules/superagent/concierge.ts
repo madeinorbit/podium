@@ -1,3 +1,4 @@
+import { machinePathKey } from '@podium/model'
 /**
  * Concierge intake threads (modules/superagent, issue #64): per-repo thread
  * identity, the repo-scoped system prompt, and the deterministic tracker
@@ -8,7 +9,7 @@ import { asThreadId, type IssueReport, type SessionId, type ThreadId } from '@po
 /** Per-repo concierge intake thread (issue #64). One thread per repo path, id
  *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */
 export function conciergeThreadId(repoPath: string): ThreadId {
-  return asThreadId(`concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`)
+  return asThreadId(`concierge_${Buffer.from(machinePathKey(repoPath), 'utf8').toString('base64url')}`)
 }
 
 export function conciergeRepoPath(threadId: ThreadId): string | undefined {

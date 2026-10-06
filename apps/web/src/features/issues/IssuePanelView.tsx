@@ -1,3 +1,4 @@
+import { resolveMachinePath } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
@@ -750,7 +751,7 @@ function ProducedAndDeferred({
                       openFileInWorktree({
                         machineId,
                         root,
-                        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        path: resolveMachinePath(root, a.path),
                         issueId: issue.id,
                       })
                     }

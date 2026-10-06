@@ -1,3 +1,5 @@
+import { machinePathDirname } from '@podium/model'
+import { resolveMachinePath } from '@podium/model'
 // apps/web/src/MarkdownPreview.tsx
 
 import { useStoreHandle } from '@podium/client-core/react'
@@ -27,7 +29,7 @@ export function MarkdownPreview({
   className?: string
 }): JSX.Element {
   const { httpOrigin, openFile } = useStoreHandle().access
-  const fileDir = path.replace(/\/[^/]*$/, '') || '/'
+  const fileDir = machinePathDirname(path)
   const html = useMemo(
     () =>
       renderMarkdownBlocks(content, {
@@ -48,7 +50,7 @@ export function MarkdownPreview({
     if (!a) return
     e.preventDefault()
     const p = a.getAttribute('data-path')
-    if (p) openFile(sessionId, resolveAgainstCwd(fileDir, p))
+    if (p) openFile(sessionId, resolveMachinePath(fileDir, p))
   }
 
   return (

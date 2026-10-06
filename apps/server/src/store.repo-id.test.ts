@@ -294,3 +294,49 @@ describe('stored repo ids are read, never re-derived', () => {
     }
   })
 })
+
+
+it.each([
+  ['/src/Podium', '/src/Podium/.worktrees/feature', '/src/Podium-other'],
+  ['C:\\src\\Podium', 'c:/SRC/podium/.worktrees/feature', 'C:\\src\\Podium-other'],
+  ['\\\\NAS\\Share\\Podium', '\\\\nas\\share/Podium/.worktrees/feature', '\\\\NAS\\Share\\Podium-other'],
+])('machine paths: registered repo attribution and identity for %s', async (root, child, sibling) => {
+  const s = await openTestStore(':memory:')
+  const machineId = asMachineId('machine-paths')
+  try {
+    await s.repos.addRepo(root, machineId)
+    const rows = await s.repos.listRepos(machineId)
+    expect(rows[0]?.path).toBe(root)
+    const id = rows[0]!.repoId
+    expect(await s.repos.resolveRepoIdForPath(child, machineId)).toBe(id)
+    expect(await s.repos.resolveRepoIdForPath(sibling, machineId)).not.toBe(id)
+    expect((await s.repos.repoIdResolver())(child, machineId)).toBe(id)
+    expect((await s.repos.issueRepoIdResolver())(child, machineId)).toBe(id)
+    await s.repos.addRepo(root.startsWith('\\\\') ? root : root.replaceAll('\\', '/'), machineId)
+    expect(await s.repos.listRepos(machineId)).toHaveLength(1)
+    await s.repos.updateRepoOrigin(machineId, root, 'https://example.test/org/podium.git')
+    expect(await s.repos.resolveRepoIdForPath(child, machineId)).toBe(
+      deriveRepoId({ originUrl: 'https://example.test/org/podium.git', machineId, path: root }),
+    )
+    await s.repos.removeRepo(root, machineId)
+    expect(await s.repos.listRepos(machineId)).toHaveLength(0)
+  } finally { await s.close() }
+})
+
+
+it('machine paths: Windows registration and origin refresh preserve the first display spelling', async () => {
+  const store = await openTestStore(':memory:')
+  const machineId = asMachineId('windows-display')
+  const root = String.raw`C:\Src\Podium`
+  try {
+    await store.repos.addRepo(root, machineId)
+    const id = (await store.repos.listRepos(machineId))[0]?.repoId
+    await store.repos.addRepo('c:/src/podium', machineId)
+    expect(await store.repos.listRepoPaths(machineId)).toEqual([root])
+    expect(await store.repos.resolveRepoIdForPath('c:/SRC/podium/src', machineId)).toBe(id)
+    await store.repos.updateRepoOrigin(machineId, 'c:/src/podium', 'https://example.test/o/podium.git')
+    expect(await store.repos.listRepoPaths(machineId)).toEqual([root])
+    await store.repos.removeRepo('c:/SRC/PODIUM', machineId)
+    expect(await store.repos.listRepoPaths(machineId)).toEqual([])
+  } finally { await store.close() }
+})

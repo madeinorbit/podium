@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -288,7 +289,7 @@ function IssueContent({
 
   if (!inputs) return <DetailSkeleton />
 
-  const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
+  const repoName = machinePathBasename(issue.repoPath)
   const breadcrumb = parent
     ? `${repoName} › ${issueDisplayRef(parent)}${parent.archived ? ' · archived' : ''}`
     : repoName

@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 /**
  * PRE-FLIGHT — the last phase that can still be abandoned.
  *
@@ -35,7 +36,6 @@
  * grant revoked during the clone still refuses with the process untouched.
  */
 
-import { basename } from 'node:path'
 import { verifiedBundleBases, verifiedCommonBundleBases } from '../handoff-transfer'
 import type { HandoffPlacement } from './placement'
 import type { AssertMachineUse, HandoffInput, HandoffPorts } from './ports'
@@ -97,7 +97,7 @@ export class HandoffPreflight {
     let branch: string
     try {
       targetRepo = await this.ports.ensureTargetRepo(sourceRepo, input.machineId)
-      branch = issue?.branch ?? basename(session.cwd)
+      branch = issue?.branch ?? machinePathBasename(session.cwd)
       const candidates = [
         ...new Set(
           [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>

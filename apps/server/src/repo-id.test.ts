@@ -1,12 +1,12 @@
-import { asMachineId } from '@podium/model'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  canonicalizeRepoOrigin,
   deriveRepoId,
   isPathFallbackRepoId,
-  canonicalizeRepoOrigin,
   readLocalOriginUrl,
 } from './repo-id'
 
@@ -119,4 +119,16 @@ describe('readLocalOriginUrl', () => {
     writeFileSync(join(dir, '.git', 'config'), '[core]\n\tbare = false\n')
     expect(readLocalOriginUrl(dir)).toBeNull()
   })
+})
+
+
+it('machine paths: Windows spelling variants have one path-fallback repo identity', () => {
+  const machineId = asMachineId('windows')
+  const repo = deriveRepoId({ machineId, path: 'C:\\src\\podium' })
+  for (const path of ['c:/src/podium/', 'C:\\src\\podium\\', 'c:\\src\\podium'])
+    expect(deriveRepoId({ machineId, path })).toBe(repo)
+  expect(deriveRepoId({ machineId, path: '/src/podium' })).not.toBe(repo)
+  expect(deriveRepoId({ machineId, path: '/src/Podium' })).not.toBe(
+    deriveRepoId({ machineId, path: '/src/podium' }),
+  )
 })

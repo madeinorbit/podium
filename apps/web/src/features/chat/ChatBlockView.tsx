@@ -1,3 +1,4 @@
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import {
   formatChurn,
   isImagePath,
@@ -534,8 +535,8 @@ export const ChatBlockView = memo(function ChatBlockView({
       {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
         <div className="mt-1.5 flex flex-wrap items-start gap-2">
           {(item.toolPaths ?? []).map((p) => {
-            const abs = resolveAgainstCwd(cwd, p)
-            const name = p.split('/').pop() ?? p
+            const abs = resolveMachinePath(cwd, p)
+            const name = machinePathBasename(p, cwd)
             const chip = (
               <button
                 data-pressable

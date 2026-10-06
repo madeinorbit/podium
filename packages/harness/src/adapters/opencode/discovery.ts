@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { opencodePartToItems } from './transcript.js'
@@ -96,10 +97,7 @@ async function summarizeFile(
   file: ConversationProviderFile,
   _context: ProviderSummaryContext = {},
 ): Promise<ProviderSummaryResult> {
-  const sessionId = file.path
-    .split('/')
-    .pop()
-    ?.replace(/\.session$/, '')
+  const sessionId = machinePathBasename(file.path).replace(/\.session$/, '')
   if (!sessionId) return { diagnostics: [] }
 
   const db = openOpencodeDbAt(root)

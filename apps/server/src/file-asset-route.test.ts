@@ -250,3 +250,36 @@ describe('GET /files/asset', () => {
     expect(res.headers.get('content-security-policy')).toBeNull()
   })
 })
+
+
+it.each([
+  ['/repo/sub/..', '/repo', '/repo/../../etc', '/etc'],
+  [String.raw`C:\repo\sub\..`, String.raw`C:\repo`, String.raw`C:\repo\..\..\etc`, String.raw`C:\etc`],
+  [String.raw`\\host\share\repo\sub\..`, String.raw`\\host\share\repo`, String.raw`\\host\share\repo\..\etc`, String.raw`\\host\share\etc`],
+])('machine paths: authorizes the normalized asset root %s', async (input, root, escaped, outside) => {
+  const readAsset = vi.fn(async () => ({ ok: true, dataBase64: Buffer.from('A').toString('base64') }))
+  const allowsRoot = vi.fn((candidate: string) => candidate === root)
+  const app = new Hono()
+  registerAssetRoute(app, { allowsRoot, readAsset })
+  const request = (value: string) => `/files/asset?root=${encodeURIComponent(value)}&machineId=windows-host&path=a.txt`
+  expect((await app.request(request(input))).status).toBe(200)
+  expect(allowsRoot).toHaveBeenCalledWith(root, 'windows-host')
+  expect(readAsset).toHaveBeenCalledWith({ root, machineId: 'windows-host', path: 'a.txt' })
+  readAsset.mockClear()
+  expect((await app.request(request(escaped))).status).toBe(403)
+  expect(allowsRoot).toHaveBeenLastCalledWith(outside, 'windows-host')
+  expect(readAsset).not.toHaveBeenCalled()
+})
+
+
+it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: rejects ambiguous Windows asset root segment %s', async segment => {
+  const readAsset = vi.fn(async () => ({ ok: true }))
+  const allowsRoot = vi.fn(() => true)
+  const app = new Hono()
+  registerAssetRoute(app, { allowsRoot, readAsset })
+  const root = String.raw`C:\repo` + '\\' + segment
+  const res = await app.request(`/files/asset?root=${encodeURIComponent(root)}&path=shot.png`)
+  expect(res.status).toBe(403)
+  expect(allowsRoot).not.toHaveBeenCalled()
+  expect(readAsset).not.toHaveBeenCalled()
+})

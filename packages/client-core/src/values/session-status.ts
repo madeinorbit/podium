@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '../session-values'
 /**
@@ -546,7 +547,7 @@ export function isUnstartedSession(s: SessionView): boolean {
     .toLowerCase()
   if (!title) return true
   const boot = [panelLabel(s.agentKind).toLowerCase(), s.agentKind, 'claude code']
-  const cwdBase = s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()
+  const cwdBase = machinePathBasename(s.cwd)?.toLowerCase()
   return boot.includes(title) || title === cwdBase
 }
 

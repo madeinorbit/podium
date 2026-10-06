@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model/browser'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
 import { BlockNoteView } from '@blocknote/mantine'
@@ -304,12 +305,12 @@ export function SpecsView(): JSX.Element {
                 aria-label="Repository"
                 className="ml-auto h-6 w-auto max-w-[140px] gap-1 border-0 px-1 text-[11px] text-muted-foreground shadow-none"
               >
-                <span className="truncate">{activeRepo.split('/').pop()}</span>
+                <span className="truncate">{machinePathBasename(activeRepo)}</span>
               </SelectTrigger>
               <SelectContent align="end">
                 {repoPaths.map((p) => (
                   <SelectItem key={p} value={p} className="text-xs">
-                    {p.split('/').pop()}
+                    {machinePathBasename(p)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -77,3 +77,20 @@ describe('scopedAssetUrl (artifact scope) [spec:SP-0fc9]', () => {
     expect(scopedAssetUrl({ ...base, src: 'blob:http://h/xyz' })).toBeNull()
   })
 })
+
+it('resolves Windows preview assets and keeps the HTTP route portable', () => {
+  const url = assetUrl({
+    httpOrigin: 'https://podium.test',
+    sessionId: asSessionId('s1'),
+    fileDir: 'C:\\repo\\docs',
+    src: '..\\shots/final.png',
+  })
+  expect(new URL(url!).searchParams.get('path')).toBe('C:\\repo\\shots\\final.png')
+  const worktree = scopedAssetUrl({
+    httpOrigin: 'https://podium.test',
+    scope: { kind: 'worktree', root: 'C:\\repo' },
+    fileDir: 'C:\\repo',
+    src: 'D:\\shots\\final.png',
+  })
+  expect(new URL(worktree!).searchParams.get('path')).toBe('D:\\shots\\final.png')
+})

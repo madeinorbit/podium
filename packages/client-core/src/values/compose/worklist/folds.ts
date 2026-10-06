@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row PLACEMENT: which lane a row occupies once it
@@ -201,7 +202,7 @@ export function groupUnifiedWorkRows(
       const label =
         row.kind === 'worktree'
           ? row.worktree.repoName
-          : row.issue.repoPath.split('/').pop() || row.issue.repoPath
+          : machinePathBasename(row.issue.repoPath) || row.issue.repoPath
       group = { key, label, rows: [], snoozedRows: [], closedRows: [] }
       byKey.set(key, group)
       groups.push(group)

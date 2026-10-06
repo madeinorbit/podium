@@ -1,6 +1,6 @@
 // apps/server/src/raw-file-headers.test.ts
 import { describe, expect, it } from 'vitest'
-import { rawFileHeaders } from './raw-file-headers'
+import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 describe('rawFileHeaders', () => {
   it('sandboxes HTML into an opaque origin while leaving it scriptable', () => {
@@ -54,4 +54,13 @@ describe('rawFileHeaders', () => {
     const h = rawFileHeaders({ contentType: 'image/png', cacheControl: 'no-cache' })
     expect(h['content-disposition']).toBeUndefined()
   })
+})
+
+
+it.each(['/repo/site/index.html', String.raw`C:\repo\site\index.html`, 'C:/repo/site/index.html'])('machine paths: download uses the file basename for %s', path => {
+  expect(downloadName('1', path)).toBe('index.html')
+  expect(downloadName('false', path)).toBeUndefined()
+})
+it.each(['', '/repo/', 'C:\\repo\\'])('machine paths: empty download basename falls back for %s', path => {
+  expect(downloadName('1', path)).toBe('download')
 })

@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 import { bindStoreStatsOwner } from '../perf/store-stats'
 
 /**
@@ -1384,13 +1385,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           known === NAVIGATION_LOADING ||
           anchored === NAVIGATION_LOADING
       } else if (!canShow) {
+        const worktree = route.worktree
         const worktrees = reposToViews(st.repos).flatMap((repo) => repo.worktrees)
         const crew = st.navigation.worktreeSessions?.()
         canShow =
-          worktrees.some((w) => w.path === route.worktree) ||
+          worktrees.some((w) => machinePathsEqual(w.path, worktree)) ||
           crew === NAVIGATION_LOADING ||
           (crew ?? []).some(
-            (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
+            (s) => isMachinePathWithinRoot(worktree, s.cwd),
           )
       }
       if (canShow) patch.selectedWorktree = route.worktree

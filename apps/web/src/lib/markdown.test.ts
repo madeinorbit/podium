@@ -221,3 +221,20 @@ describe('linkifyRefs (#474)', () => {
     expect(html).toContain('data-ref="POD-13"')
   })
 })
+
+it('makes Windows machine paths into transcript file chips', () => {
+  for (const path of ['C:\\repo\\src\\x.ts', 'C:/repo/src/x.ts', '\\\\nas\\share\\x.ts'])
+    expect(linkifyCodePaths(`<code>${path}</code>`)).toContain(`data-path="${path}"`)
+})
+
+it.each([
+  '\\n',
+  '\\t',
+  '\\r\\n',
+  '\\d',
+  'a\\b',
+  'src\\x.ts',
+])('keeps unrooted backslash code %s as ordinary inline code', (token) => {
+  const html = `<code>${token}</code>`
+  expect(linkifyCodePaths(html)).toBe(html)
+})

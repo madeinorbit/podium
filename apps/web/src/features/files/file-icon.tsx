@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model/browser'
 import {
   Braces,
   Database,
@@ -94,7 +95,7 @@ const BY_EXT: Record<string, { icon: LucideIcon; className: string }> = {
  *  Accepts a bare name or a full path — callers pass both, and the dotfile and
  *  `Dockerfile`/`Makefile` rules below only match against the last segment. */
 export function FileTypeIcon({ name, size = 14 }: { name: string; size?: number }): JSX.Element {
-  const lower = name.slice(name.lastIndexOf('/') + 1).toLowerCase()
+  const lower = machinePathBasename(name).toLowerCase()
   const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
   const m =
     BY_EXT[ext] ??

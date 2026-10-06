@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { asRepoId, type RepoId, type MachineId } from '@podium/model'
+import { asRepoId, type MachineId, machinePathKey, type RepoId } from '@podium/model'
 
 /** Stable repo identity (#74). A repo's `repo_id` is derived from its normalized
  *  origin URL when one is known — so the same repository cloned at different paths
@@ -81,7 +81,7 @@ export function deriveRepoId(input: {
   // fallback, so this is where the brand is applied (POD-362).
   const normalized = canonicalizeRepoOrigin(input.originUrl)
   if (normalized) return asRepoId(`repo_${sha1_16(normalized)}`)
-  return asRepoId(`repo_${sha1_16(`path:${input.machineId}:${input.path}`)}`)
+  return asRepoId(`repo_${sha1_16(`path:${input.machineId}:${machinePathKey(input.path)}`)}`)
 }
 
 /** True iff `repoId` is the path-fallback id for (machineId, path) — i.e. it was
@@ -91,7 +91,7 @@ export function isPathFallbackRepoId(
   machineId: MachineId,
   path: string,
 ): boolean {
-  return repoId == null || repoId === deriveRepoId({ machineId, path })
+  return repoId == null || repoId === deriveRepoId({ machineId, path }) || repoId === asRepoId(`repo_${sha1_16(`path:${machineId}:${path}`)}`)
 }
 
 /**

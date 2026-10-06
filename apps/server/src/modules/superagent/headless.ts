@@ -1,5 +1,5 @@
+import { machinePathBasename, machinePathsEqual } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
 import { canonicalHeadlessContractFacts } from '@podium/harness/driver'
 import { describeError } from '@podium/logger'
 import type {
@@ -181,7 +181,7 @@ export class HeadlessService {
       const same =
         existing.headless &&
         existing.agentKind === input.agentKind &&
-        existing.cwd === input.cwd &&
+        machinePathsEqual(existing.cwd, input.cwd) &&
         existing.machineId === machineId &&
         existing.ownerUserId === input.ownerUserId &&
         JSON.stringify(existing.createdBy) === JSON.stringify(input.createdBy) &&
@@ -207,7 +207,7 @@ export class HeadlessService {
       durableLabel: this.deps.durableLabelFor(sessionId),
       agentKind: input.agentKind,
       cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
+      title: input.title || machinePathBasename(input.cwd) || input.cwd,
       origin: { kind: 'spawn' },
       createdAt: new Date().toISOString(),
       geometry: this.deps.defaultGeometry(),

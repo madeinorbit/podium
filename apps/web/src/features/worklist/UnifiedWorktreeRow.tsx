@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
@@ -62,7 +63,7 @@ export function UnifiedWorktreeRow({
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
-  const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
+  const branch = worktree.branch ?? machinePathBasename(worktree.path)
   const renderRow = (session: SessionView) => {
     const orphan = orphanProvenance(session, issues)
     const attachedIssueDisplayRef = session.issueId

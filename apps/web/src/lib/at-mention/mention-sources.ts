@@ -1,3 +1,4 @@
+import { machinePathBasename, machinePathDirname } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { AtOption } from './at-mention'
 
@@ -98,12 +99,12 @@ const recency = (issue: IssueViewModel): number => {
  */
 export function fileMentions(paths: readonly string[]): AtOption[] {
   return paths.map((path) => {
-    const cut = path.lastIndexOf('/')
+    const dir = machinePathDirname(path)
     return {
       kind: 'file',
       id: `file:${path}`,
-      label: cut === -1 ? path : path.slice(cut + 1),
-      detail: cut === -1 ? '' : path.slice(0, cut),
+      label: machinePathBasename(path),
+      detail: dir === '.' ? '' : dir,
       insert: `\`${path}\``,
     }
   })

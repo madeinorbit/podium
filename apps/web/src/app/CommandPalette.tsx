@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { SpawnTarget } from '@podium/client-core'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -376,8 +377,8 @@ function PaletteDialogBody({
       id: `${group}-session:${s.sessionId}`,
       group,
       label: sessionDisplayName(s),
-      keywords: [s.cwd.split('/').pop() ?? s.cwd, s.agentKind, 'agent', 'session'],
-      hint: s.cwd.split('/').pop(),
+      keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
+      hint: machinePathBasename(s.cwd),
       session: s,
       run: () => openSession(s.sessionId, s.cwd),
     })
@@ -434,7 +435,7 @@ function PaletteDialogBody({
         out.push({
           id: `place:${w.path}`,
           group: 'place',
-          label: w.branch ?? (w.path.split('/').pop() || w.path),
+          label: w.branch ?? (machinePathBasename(w.path) || w.path),
           keywords: [repo.name, 'worktree', 'branch', w.path],
           hint: repo.name,
           icon: GitBranch,
@@ -598,7 +599,7 @@ function PaletteDialogBody({
       out.push({
         id: `action:new-agent:${target.path}`,
         group: 'action',
-        label: `New ${panelLabel(defaultAgent)} agent in ${target.path.split('/').pop()}`,
+        label: `New ${panelLabel(defaultAgent)} agent in ${machinePathBasename(target.path)}`,
         keywords: ['session', 'spawn', 'start', 'new agent'],
         icon: agentIconFor(defaultAgent) ?? Bot,
         run: () => {
@@ -886,7 +887,7 @@ function PaletteDialogBody({
                       <span className="cmdk-row-title">
                         New agent{query.trim() ? `: “${query.trim()}”` : ''}
                       </span>
-                      <span className="cmdk-row-hint">{target.path.split('/').pop()}</span>
+                      <span className="cmdk-row-hint">{machinePathBasename(target.path)}</span>
                       <PaletteEnterCap />
                     </button>
                   )

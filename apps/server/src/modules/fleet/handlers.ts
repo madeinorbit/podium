@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, joinMachinePath, machinePathsEqual } from '@podium/model'
 import { settingsAuditAttribution } from '../../store/settings-audit'
 /**
  * THE TEN FLEET HANDLERS (POD-384) — L3, joined to their L1 contracts in
@@ -17,7 +18,6 @@ import { settingsAuditAttribution } from '../../store/settings-audit'
  * dependency does not drag the whole fleet module into the hub role.
  */
 
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
@@ -25,12 +25,12 @@ import { asMachineId, HOST_REPOS, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { normalizeRepoPath } from '../../store'
+import type { Context } from '../../trpc'
+import { mods } from '../../trpc'
 import { encodeOperationActor } from '../operations/actor'
 import { serverMoveAuthorization } from '../server-transfer/authorization'
 import { SERVER_MOVE_OPERATION_KIND, serverMoveFaultHook } from '../server-transfer/operation'
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
-import type { Context } from '../../trpc'
-import { mods } from '../../trpc'
 import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 
@@ -479,17 +479,17 @@ export const repoRenameFolderHandler = async ({
   name: string
 }>) => {
   await requireRepoHost(ctx, input.machineId, 'hold folders')
-  const source = normalizeRepoPath(join(input.parentPath, input.currentName))
+  const source = normalizeRepoPath(joinMachinePath(input.parentPath, input.currentName))
   // The folder itself, or anything registered BELOW it: both sets of rows point
   // at paths the rename would invalidate.
   const stranded = (await ctx.repos
     .list(input.machineId))
-    .filter((repo) => repo === source || repo.startsWith(`${source}/`))
+    .filter((repo) => isMachinePathWithinRoot(source, repo))
   if (stranded.length > 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message:
-        stranded[0] === source
+        machinePathsEqual(stranded[0]!, source)
           ? `${input.currentName} is registered in Podium. Remove it from your repositories first, then rename it.`
           : `${input.currentName} holds a repository Podium has registered (${stranded[0]}). Remove it from your repositories first, then rename it.`,
     })

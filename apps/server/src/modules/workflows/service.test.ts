@@ -70,6 +70,25 @@ describe('WorkflowService', () => {
 
   afterEach(() => store.close())
 
+  it.each([
+    ['/repo/wt', '/repo/wt', '/repo/other'],
+    [String.raw`C:\repo\wt`, 'c:/REPO/wt', 'C:/repo/other'],
+  ])('machine paths: workflow observations match worktree %s', async (worktree, reported, other) => {
+    const scoped = driveWorkflows(new WorkflowService({
+      store: store.workflows,
+      now: () => '2026-07-13T12:00:00.000Z',
+      session: id => sessions.get(id),
+      issue: id => ({ id, repoId: 'repo-1', repoPath: '/repo', worktreePath: worktree }),
+      repoIdForPath: async () => 'repo-1',
+    }))
+    const created = await scoped.create({ name: 'Path observation', description: '', scope: 'global', instructions: '', steps: [{ id: 'work', title: 'Work', instructions: '', completionGuidance: '' }] }, operator)
+    const run = await scoped.startRun({ sessionId: asSessionId('s1'), cwd: worktree, issueId: asIssueId('issue-1'), revisionId: created.revision.id })
+    const step = run.steps[0]!
+    const observation = { cwd: reported, worktree: reported, branch: 'feature', head: 'abc123', dirty: false, ahead: 0, behind: 0, observedAt: '2026-07-13T12:00:00.000Z' }
+    expect(await scoped.observationWarningsForRun(run, step, operator, 'complete', observation)).toEqual([])
+    expect(await scoped.observationWarningsForRun(run, step, operator, 'complete', { ...observation, worktree: other })).toEqual([`expected issue worktree ${worktree}, observed ${other}`])
+  })
+
   it('stores immutable revisions and resolves one exact binding by task → repo → global', async () => {
     const global = (await service.create(
       { name: 'Global', description: '', scope: 'global', instructions: 'global rules', steps: [] },

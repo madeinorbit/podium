@@ -34,3 +34,18 @@ describe('isAllowedRoot', () => {
     expect(isAllowedRoot(['/home/u/repo'], '/home/u')).toBe(false)
   })
 })
+
+
+it.each([
+  ['/repo', '/repo/src', '/repository'],
+  ['C:\\repo', 'c:/REPO/src', 'C:\\repository'],
+])('machine paths: remote root allowlist for %s', (root, child, sibling) => {
+  expect(isAllowedRoot([root], child)).toBe(true)
+  expect(isAllowedRoot([root], sibling)).toBe(false)
+})
+
+
+it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: refuses Windows root aliases ending in %s', segment => {
+  expect(isAllowedRoot([String.raw`C:\repo`], String.raw`C:\repo` + '\\' + segment)).toBe(false)
+  expect(isAllowedRoot(['/repo'], '/repo/' + segment)).toBe(true)
+})

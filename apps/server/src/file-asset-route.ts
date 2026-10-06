@@ -1,7 +1,6 @@
 // apps/server/src/file-asset-route.ts
 
-import { isAbsolute, resolve } from 'node:path'
-import { asMachineId, asSessionId, type MachineId, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, isAbsoluteMachinePath, isValidMachinePath, type MachineId, normalizeMachinePath, type SessionId } from '@podium/model'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
@@ -45,8 +44,8 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     // collapsed root, so the root that is authorized is the root that is read.
     let scopedRoot = root
     if (!sessionId && root) {
-      if (!isAbsolute(root)) return c.text('forbidden', 403)
-      scopedRoot = resolve(root)
+      if (!isAbsoluteMachinePath(root) || !isValidMachinePath(root)) return c.text('forbidden', 403)
+      scopedRoot = normalizeMachinePath(root)
       if (!(await registry.allowsRoot(scopedRoot, parsedMachineId))) {
         return c.text('forbidden', 403)
       }

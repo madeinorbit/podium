@@ -5,6 +5,7 @@ import { attachTestClient } from './test-support/client-transport'
 // resume value, and "open in terminal" takes a one-writer lock.
 
 import {
+  type AccountId,
   asAccountId,
   asIssueId,
   asSessionId,
@@ -12,7 +13,6 @@ import {
   asUserId,
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
-  type AccountId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -2193,4 +2193,13 @@ describe('buildHandoffSeed (#199)', () => {
   it('is empty-safe', () => {
     expect(() => buildHandoffSeed({ from: 'codex', to: 'grok', items: [] })).not.toThrow()
   })
+})
+
+it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: headless session titles and reuse from %s', async cwd => {
+  const h = await harness()
+  const sessionId = asSessionId('machine-paths-headless')
+  const input = { sessionId, agentKind: 'claude-code' as const, cwd, machineId: h.registry.sessionStore.hostMachineId, ownerUserId: firstAdminMemberId() }
+  await h.registry.modules.sessions.headless.createHeadlessSession(input)
+  expect((await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(row => row.sessionId === sessionId)?.title).toBe('podium')
+  await expect(h.registry.modules.sessions.headless.createHeadlessSession({ ...input, cwd: cwd.replaceAll('\\', '/') })).resolves.toEqual({ sessionId })
 })

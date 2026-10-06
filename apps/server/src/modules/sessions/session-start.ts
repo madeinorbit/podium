@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import { readIssue } from '../world-index/issue-reader'
 /**
@@ -47,12 +48,10 @@ import { readIssue } from '../world-index/issue-reader'
  */
 
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
-  terminalRuntimeDriver,
   asMachineId,
   asSessionId,
   firstAdminMemberId,
@@ -61,6 +60,7 @@ import {
   type MachineId,
   type SessionId,
   type SessionMeta,
+  terminalRuntimeDriver,
   type UserId,
 } from '@podium/model'
 import type {
@@ -523,7 +523,7 @@ export class SessionStart {
       ownerUserId,
       agentKind: input.agentKind,
       cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
+      title: input.title || machinePathBasename(input.cwd) || input.cwd,
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
       ...(accountId ? { accountId } : {}),

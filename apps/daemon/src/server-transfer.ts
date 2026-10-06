@@ -14,7 +14,7 @@ import {
   statfs,
 } from 'node:fs/promises'
 import { createServer, type Server as HttpServer } from 'node:http'
-import { basename, dirname, join, normalize, resolve } from 'node:path'
+import { basename, dirname, join, posix, resolve, sep } from 'node:path'
 import { asMachineId, type MachineId } from '@podium/model'
 import {
   canonicalServerTransferManifest,
@@ -207,14 +207,14 @@ function assertPortablePath(path: string): void {
   const allowed =
     PORTABLE_ROOT_FILES.includes(path as (typeof PORTABLE_ROOT_FILES)[number]) ||
     PORTABLE_ROOTS.some((prefix) => path.startsWith(`${prefix}/`))
-  if (!allowed || normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
+  if (!allowed || posix.normalize(path) !== path) fail('unsafe-path', `path is not portable: ${path}`)
 }
 
 function stagePath(transferId: string, path: string): string {
   assertPortablePath(path)
   const base = resolve(stageRoot(transferId), 'files')
   const candidate = resolve(base, path)
-  if (candidate !== base && !candidate.startsWith(`${base}/`))
+  if (candidate !== base && !candidate.startsWith(`${base}${sep}`))
     fail('unsafe-path', `transfer path escaped stage: ${path}`)
   return candidate
 }
@@ -223,7 +223,7 @@ function statePath(path: string): string {
   assertPortablePath(path)
   const base = resolve(stateDir())
   const candidate = resolve(base, path)
-  if (candidate !== base && !candidate.startsWith(`${base}/`))
+  if (candidate !== base && !candidate.startsWith(`${base}${sep}`))
     fail('unsafe-path', `transfer path escaped state root: ${path}`)
   return candidate
 }
@@ -756,7 +756,7 @@ function backupPathFor(meta: StageMeta, item: PromotionInventoryEntry): string {
   const backupRoot = resolve(stageRoot(meta.transferId), 'backup', 'originals')
   const relative = item.kind === 'config' ? 'config.json' : join('portable', item.path)
   const candidate = resolve(backupRoot, relative)
-  if (!candidate.startsWith(`${backupRoot}/`))
+  if (!candidate.startsWith(`${backupRoot}${sep}`))
     fail('unsafe-path', `backup path escaped transfer stage: ${item.path}`)
   return candidate
 }

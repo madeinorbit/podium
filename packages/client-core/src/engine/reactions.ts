@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -402,12 +403,13 @@ export class Reactions {
       this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
       return true
     }
-    const known = worktrees.some((w) => w.path === st.selectedWorktree)
+    const selectedWorktree = st.selectedWorktree
+    const known = worktrees.some((w) => machinePathsEqual(w.path, selectedWorktree))
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
     const hasSession = (sessions ?? []).some(
-      (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),
+      (s) => isMachinePathWithinRoot(selectedWorktree, s.cwd),
     )
     if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })

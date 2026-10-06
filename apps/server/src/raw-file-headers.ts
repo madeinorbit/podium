@@ -1,4 +1,5 @@
 // apps/server/src/raw-file-headers.ts
+import { machinePathBasename, machinePathSeparator } from '@podium/model'
 
 /**
  * The sandbox a repo/artifact document gets when a browser renders it as a page.
@@ -74,6 +75,6 @@ function attachmentDisposition(name: string): string {
 /** The save-as name for a `?download=1` request, or undefined for an inline response. */
 export function downloadName(query: string | undefined, path: string): string | undefined {
   if (!query || query === '0' || query === 'false') return undefined
-  const base = path.slice(path.lastIndexOf('/') + 1)
+  const base = path.endsWith('/') || path.endsWith(machinePathSeparator(path)) ? '' : machinePathBasename(path)
   return base || 'download'
 }

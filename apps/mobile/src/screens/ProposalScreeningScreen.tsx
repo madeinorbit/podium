@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueId } from '@podium/model'
 import { useRouter } from 'expo-router'
@@ -31,7 +32,7 @@ interface Failure {
   message: string
 }
 
-const repoName = (issue: IssueViewModel) => issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+const repoName = (issue: IssueViewModel) => machinePathBasename(issue.repoPath)
 const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
 const sameDeck = (a: Deck, b: Deck) =>
   a.index === b.index &&

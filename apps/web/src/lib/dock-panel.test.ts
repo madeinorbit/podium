@@ -360,3 +360,24 @@ describe('cwdInWorktree', () => {
     expect(cwdInWorktree('/a/bc', '/a/b')).toBe(false)
   })
 })
+
+it('resolves Windows legacy artifacts, snapshot filenames and dock ownership', () => {
+  const root = 'C:\\repo'
+  expect(cwdInWorktree('c:/repo/src', root)).toBe(true)
+  expect(cwdInWorktree('C:\\repository', root)).toBe(false)
+  expect(basename('C:\\repo\\shot.png')).toBe('shot.png')
+  const url = artifactUrl({
+    httpOrigin: 'https://podium.test',
+    issueId: asIssueId('i1'),
+    artifact: { path: 'shots\\shot.png' },
+    root,
+  })
+  expect(new URL(url!).searchParams.get('path')).toBe('shots\\shot.png')
+  expect(
+    artifactUrl({
+      httpOrigin: 'https://podium.test',
+      issueId: asIssueId('i1'),
+      artifact: { path: 'C:\\repo\\shot.png', artifactId: asArtifactId('a1') },
+    }),
+  ).toBe('https://podium.test/files/artifact/i1/a1/shot.png')
+})

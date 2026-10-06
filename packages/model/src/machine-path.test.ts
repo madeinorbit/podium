@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest'
 import {
   isAbsoluteMachinePath,
   isMachinePathWithinRoot,
+  isValidMachinePath,
   joinMachinePath,
   machinePathBasename,
   machinePathDirname,
   machinePathHasSuffix,
+  machinePathKey,
   machinePathRelativeToRoot,
   machinePathSegments,
   machinePathSeparator,
+  machinePathsEqual,
   normalizeMachinePath,
   resolveMachinePath,
 } from './machine-path'
@@ -43,7 +46,7 @@ describe('machine paths independent of the client OS', () => {
     ['C:\\', '../../x.ts', 'C:\\x.ts'],
     ['\\\\nas\\share\\repo', '..\\..\\..\\x.ts', '\\\\nas\\share\\x.ts'],
     ['//nas/share/repo', 'src/x.ts', '/nas/share/repo/src/x.ts'],
-    ['/repo', 'C:\\src\\x.ts', 'C:\\src\\x.ts'],
+    ['/repo', 'C:\\src\\x.ts', '/repo/C:\\src\\x.ts'],
   ])('resolves %s + %s', (root, child, expected) => {
     expect(resolveMachinePath(root, child)).toBe(expected)
   })
@@ -119,4 +122,47 @@ it('infers Windows only from an explicit root and keeps POSIX backslashes litera
   expect(machinePathBasename('src\\x.ts', 'C:\\repo')).toBe('x.ts')
   expect(machinePathDirname('src\\x.ts', 'C:\\repo')).toBe('src')
   expect(machinePathSeparator('C:relative')).toBe('/')
+})
+
+
+describe('machine path identity', () => {
+  it.each([
+    ['C:\\src\\Podium\\', 'c:/src/podium'],
+    ['C:\\src\\other\\..\\podium', 'c:/src/podium'],
+    ['\\\\NAS\\Share\\Repo', '\\\\nas\\share/repo'],
+  ])('uses the same Windows key for %s and %s', (a, b) => {
+    expect(machinePathKey(a)).toBe(machinePathKey(b))
+    expect(machinePathsEqual(a, b)).toBe(true)
+  })
+  it('keeps POSIX identities literal', () => {
+    for (const path of ['/src/Podium', '/src/podium/', '/src/a\\b'])
+      expect(machinePathKey(path)).toBe(path)
+    expect(machinePathsEqual('/src/Podium', '/src/podium')).toBe(false)
+  })
+})
+
+
+describe('machine paths: review namespace and segment guards', () => {
+  it.each(['.. ', '...', '.. .', 'name.', 'name '])('rejects ambiguous Windows segment %s before normalization', segment => {
+    const root = String.raw`C:\repo`
+    const path = root + '\\' + segment
+    expect(isValidMachinePath(path)).toBe(false)
+    expect(() => normalizeMachinePath(path)).toThrow('invalid Windows path segment')
+    expect(isMachinePathWithinRoot(root, path)).toBe(false)
+    expect(machinePathRelativeToRoot(root, path)).toBeNull()
+    expect(isMachinePathWithinRoot(path, path)).toBe(false)
+    expect(isValidMachinePath('/repo/' + segment)).toBe(true)
+    expect(normalizeMachinePath('/repo/' + segment)).toBe('/repo/' + segment)
+  })
+  it.each(['C:/shot.png', String.raw`\a\b.png`, String.raw`\\a\b.png`])('interprets %s within a POSIX root as a relative name', path => {
+    expect(isAbsoluteMachinePath(path, '/wt')).toBe(false)
+    expect(resolveMachinePath('/wt', path)).toBe('/wt/' + path)
+    expect(machinePathRelativeToRoot('/wt', path)).toBe(path)
+    expect(isMachinePathWithinRoot('/wt', '/wt/' + path)).toBe(true)
+  })
+  it('still resolves ordinary Windows dot segments and absolute drive paths', () => {
+    expect(resolveMachinePath(String.raw`C:\repo`, '../shot.png')).toBe(String.raw`C:\shot.png`)
+    expect(resolveMachinePath(String.raw`C:\repo`, 'D:/shot.png')).toBe(String.raw`D:\shot.png`)
+    expect(isValidMachinePath(String.raw`\\server.\share\file`)).toBe(false)
+  })
 })

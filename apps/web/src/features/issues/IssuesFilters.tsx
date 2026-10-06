@@ -5,6 +5,7 @@ import {
   type IssueId,
   type IssueStage,
   issueStatusMenuEntries,
+  machinePathBasename,
 } from '@podium/model/browser'
 import { Check, FolderGit2, ListFilter, SlidersHorizontal, Trash2 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -333,7 +334,7 @@ export function ProjectMenu({
                 onChange(checked ? [...selected, path] : selected.filter((value) => value !== path))
               }
             >
-              {path.split('/').pop() || path}
+              {machinePathBasename(path) || path}
             </DropdownMenuCheckboxItem>
           ))
         )}

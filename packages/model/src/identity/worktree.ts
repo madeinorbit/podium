@@ -1,3 +1,10 @@
+import {
+  isMachinePathWithinRoot,
+  machinePathDirname,
+  machinePathRelativeToRoot,
+  machinePathSeparator,
+  normalizeMachinePath,
+} from '../machine-path'
 /** The worktree that CONTAINS `cwd`: the longest root with `cwd === root` or
  *  `cwd` under `root/`. Longest-match matters because a repo root contains its
  *  own `.worktrees/*` checkouts — a session in one belongs to the worktree, not
@@ -12,7 +19,7 @@
 export function worktreeForCwd(cwd: string, worktreePaths: string[]): string | null {
   let best: string | null = null
   for (const root of worktreePaths) {
-    if (cwd !== root && !cwd.startsWith(root.endsWith('/') ? root : `${root}/`)) continue
+    if (!isMachinePathWithinRoot(root, cwd)) continue
     if (best === null || root.length > best.length) best = root
   }
   return best
@@ -40,6 +47,7 @@ export type WorktreeRootIndex = ReadonlyMap<string, WorktreeRootEntry>
 /** Strip one trailing slash so `a` and `a/` share an index key. `/` is
  *  preserved: it is a real (if pathological) root and `''` is not one. */
 function normalizeRoot(path: string): string {
+  if (machinePathSeparator(path) === '\\') return normalizeMachinePath(path).toLowerCase()
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
@@ -56,7 +64,7 @@ export function buildWorktreeRootIndex(worktreePaths: Iterable<string>): Worktre
   for (const root of worktreePaths) {
     const key = normalizeRoot(root)
     const existing = index.get(key)
-    const plain = root === key ? root : existing?.plain
+    const plain = machinePathSeparator(root) === '\\' || root === key ? root : existing?.plain
     const inside =
       existing === undefined || root.length > existing.inside.length ? root : existing.inside
     index.set(key, plain === undefined ? { inside } : { plain, inside })
@@ -69,6 +77,16 @@ export function buildWorktreeRootIndex(worktreePaths: Iterable<string>): Worktre
  *  The FIRST hit is the longest match, so no length comparison is needed. */
 export function worktreeForCwdIndexed(cwd: string, roots: WorktreeRootIndex): string | null {
   let prefix = normalizeRoot(cwd)
+  if (machinePathSeparator(cwd) === '\\') {
+    // Windows keys canonicalize separators/casing; keep original roots as returned spellings.
+    for (;;) {
+      const entry = roots.get(prefix)
+      if (entry) return entry.inside
+      const parent = machinePathDirname(prefix)
+      if (parent === prefix || parent === '.') return null
+      prefix = parent
+    }
+  }
   // The cwd's own directory is the only probe where spelling matters: a cwd
   // written without its trailing slash can only match a root written the same
   // way. Every ancestor below is a STRICT container, where both spellings
@@ -93,6 +111,5 @@ export function worktreeForCwdIndexed(cwd: string, roots: WorktreeRootIndex): st
  *  root itself, else a relative path (`apps/web`). Containment is the caller's
  *  to establish (`worktreeForCwd`); an uncontained cwd reads as the root. */
 export function worktreeSubpath(root: string, cwd: string): string {
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  return cwd.startsWith(prefix) ? cwd.slice(prefix.length) : ''
+  return machinePathRelativeToRoot(root, cwd) ?? ''
 }

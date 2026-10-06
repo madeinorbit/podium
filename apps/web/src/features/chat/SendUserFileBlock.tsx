@@ -1,3 +1,4 @@
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { isImagePath } from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import { FileText } from 'lucide-react'
@@ -43,8 +44,8 @@ export function SendUserFileBlock({
         )}
         <div className="mt-1.5 flex flex-wrap gap-2">
           {paths.map((p) => {
-            const abs = resolveAgainstCwd(cwd, p)
-            const name = p.split('/').pop() ?? p
+            const abs = resolveMachinePath(cwd, p)
+            const name = machinePathBasename(p, cwd)
             // Defined once: the openable file chip — used for non-image files and
             // as the fallback when an image fails to load (moved/deleted/denied).
             const chip = (

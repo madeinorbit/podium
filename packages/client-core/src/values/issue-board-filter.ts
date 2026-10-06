@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model'
 import type { IssueViewModel } from '../values/issue-type'
@@ -78,7 +79,7 @@ export function filterChips(filter: BoardFilter): { key: keyof BoardFilter; labe
       key: 'projectPaths',
       label:
         filter.projectPaths.length === 1
-          ? `Project: ${filter.projectPaths[0]?.split('/').pop() || filter.projectPaths[0]}`
+          ? `Project: ${machinePathBasename(filter.projectPaths[0] ?? '')}`
           : `Projects: ${filter.projectPaths.length}`,
     })
   if (filter.status) chips.push({ key: 'status', label: `State: ${filter.status}` })

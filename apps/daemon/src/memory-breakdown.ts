@@ -1,5 +1,11 @@
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs'
-import { asSessionId, type AgentMemoryWire, type ProjectMemoryWire, type SessionId } from '@podium/model'
+import {
+  type AgentMemoryWire,
+  asSessionId,
+  isMachinePathWithinRoot,
+  type ProjectMemoryWire,
+  type SessionId,
+} from '@podium/model'
 
 /** One process as seen in /proc. memBytes is PSS where readable, RSS otherwise. */
 export interface ProcSample {
@@ -90,7 +96,6 @@ export function snapshotProcesses(procRoot = '/proc'): ProcSample[] {
   return out
 }
 
-const underRoot = (cwd: string, root: string): boolean => cwd === root || cwd.startsWith(`${root}/`)
 
 /**
  * Split a process snapshot into agent sessions, controlled project roots, and the
@@ -139,7 +144,7 @@ export function attributeMemory(
   const byRoot = new Map<string, ProcSample[]>()
   for (const p of procs) {
     if (claimed.has(p.pid) || p.pid === opts.selfPid || p.cwd === undefined) continue
-    const root = rootsByLength.find((r) => underRoot(p.cwd as string, r))
+    const root = rootsByLength.find((r) => isMachinePathWithinRoot(r, p.cwd as string))
     if (root === undefined) continue
     const list = byRoot.get(root)
     if (list) list.push(p)

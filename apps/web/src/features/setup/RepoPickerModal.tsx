@@ -5,6 +5,7 @@ import {
   type MachineActionCopy,
   type MachineId,
   type MachineWire,
+  machinePathSeparator,
 } from '@podium/model/browser'
 import {
   Check,
@@ -372,8 +373,11 @@ export function RepoPickerModal({
       setEditError('Enter a name for the folder')
       return
     }
-    if (name.includes('/')) {
-      setEditError('A folder name cannot contain "/"')
+    if (
+      name.includes('/') ||
+      (machinePathSeparator(listing.path) === '\\' && name.includes('\\'))
+    ) {
+      setEditError('A folder name cannot contain path separators')
       return
     }
     if (edit.kind === 'rename' && name === edit.from) {
@@ -879,7 +883,7 @@ export function RepoPickerModal({
                       browsedRepoPath && 'placeholder:text-foreground',
                     )}
                     value={manualPath}
-                    placeholder={browsedRepoPath ?? '/home/user/project'}
+                    placeholder={browsedRepoPath ?? 'Absolute project path'}
                     disabled={writing || !machineReady}
                     onChange={(e) => setManualPath(e.currentTarget.value)}
                     onKeyDown={(e) => {

@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathDirname, joinMachinePath } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
@@ -12,11 +13,6 @@ import { compareEntries } from './entry-order'
 import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
-
-/** Join a directory and a child name into an absolute path (paths are POSIX here). */
-function joinPath(dir: string, name: string): string {
-  return dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`
-}
 
 export function FileBrowserModal({
   root,
@@ -69,9 +65,9 @@ export function FileBrowserModal({
   }, [load, root])
 
   const atRoot = resolvedRoot == null || path === resolvedRoot
-  const parentCandidate = path.slice(0, path.lastIndexOf('/')) || '/'
+  const parentCandidate = machinePathDirname(path)
   const parent =
-    resolvedRoot && parentCandidate.startsWith(resolvedRoot)
+    resolvedRoot && isMachinePathWithinRoot(resolvedRoot, parentCandidate)
       ? parentCandidate
       : (resolvedRoot ?? root)
 
@@ -122,7 +118,7 @@ export function FileBrowserModal({
           )}
           {!loading &&
             entries.map((entry) => {
-              const abs = joinPath(path, entry.name)
+              const abs = joinMachinePath(path, entry.name)
               return (
                 <Button
                   variant="ghost"

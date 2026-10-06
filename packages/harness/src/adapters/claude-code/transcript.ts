@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
@@ -109,7 +110,7 @@ function metaImageSourceItems(
       toolPaths: paths,
       tags: paths.map((p) => ({
         kind: 'image' as const,
-        ...(p.split('/').pop() ? { label: p.split('/').pop() as string } : {}),
+        ...(machinePathBasename(p) ? { label: machinePathBasename(p) as string } : {}),
       })),
     },
   ]
@@ -245,7 +246,7 @@ function mapClaudeRecord(record: unknown): TranscriptItem[] {
           ts,
           text: '',
           toolPaths: [filename],
-          tags: [{ kind: 'file', label: filename.split('/').pop() ?? filename }],
+          tags: [{ kind: 'file', label: machinePathBasename(filename) ?? filename }],
         },
       ]
     }
@@ -439,7 +440,7 @@ function userItems(
   const imageTags = tags.filter((t) => t.kind === 'image')
   imagePaths.forEach((p, i) => {
     const tag = imageTags[i]
-    const label = p.split('/').pop()
+    const label = machinePathBasename(p)
     if (tag && label && tag.label === undefined) tag.label = label
   })
   if (text || tags.length > 0) {
@@ -518,7 +519,7 @@ function queuedCommandItems(
             toolPaths: paths,
             tags: paths.map((path) => ({
               kind: 'image' as const,
-              ...(path.split('/').pop() ? { label: path.split('/').pop() as string } : {}),
+              ...(machinePathBasename(path) ? { label: machinePathBasename(path) as string } : {}),
             })),
           }
         : {}),

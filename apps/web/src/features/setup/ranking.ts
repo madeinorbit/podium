@@ -1,15 +1,16 @@
-import { type GitRepositoryWire, repoNameFromOrigin } from '@podium/model/browser'
+import {
+  type GitRepositoryWire,
+  machinePathBasename,
+  machinePathSegments,
+  repoNameFromOrigin,
+} from '@podium/model/browser'
 
 /** Display name for a scanned repo: its ORIGIN's repo name, since a clone's
  *  folder is not its identity (~/bak_podium of .../podium.git lists as "podium").
  *  Only a repo with no usable origin is named after its folder — that is all we
  *  know about it. The full path stays on the row as the disambiguator. */
 function repoDisplayName(path: string, originUrl?: string): string {
-  return repoNameFromOrigin(originUrl) ?? folderName(path)
-}
-
-function folderName(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
+  return repoNameFromOrigin(originUrl) ?? machinePathBasename(path)
 }
 
 export type RepoCandidate = {
@@ -63,13 +64,13 @@ export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] 
  * "." / ".." segments don't count.
  */
 export function isHiddenRepoPath(path: string): boolean {
-  return path
-    .split('/')
-    .some((seg) => seg !== '' && seg !== '.' && seg !== '..' && seg.startsWith('.'))
+  return machinePathSegments(path).some(
+    (seg) => seg !== '' && seg !== '.' && seg !== '..' && seg.startsWith('.'),
+  )
 }
 
 function pathDepth(path: string): number {
-  return path.split('/').filter((seg) => seg !== '').length
+  return machinePathSegments(path).length
 }
 
 /**

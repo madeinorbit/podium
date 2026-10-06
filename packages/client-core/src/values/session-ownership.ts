@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot } from '@podium/model'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
  * you can only partially see (POD-330).
@@ -201,8 +202,7 @@ export function sessionsForIssueWorktree(
 ): SessionView[] {
   if (!worktreePath) return []
   return sessions.filter(
-    (s) =>
-      !isHeadlessSession(s) && (s.cwd === worktreePath || s.cwd.startsWith(`${worktreePath}/`)),
+    (s) => !isHeadlessSession(s) && isMachinePathWithinRoot(worktreePath, s.cwd),
   )
 }
 

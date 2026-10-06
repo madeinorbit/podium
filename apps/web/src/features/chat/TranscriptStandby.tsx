@@ -1,3 +1,4 @@
+import { machinePathSeparator, machinePathSegments } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/values'
 
@@ -40,8 +41,9 @@ import { agentIconFor } from '@/lib/agent-tone'
  *  `title`, and the trailing segments are the ones that identify a worktree. */
 export function shortPath(cwd: string): string {
   if (cwd.length <= 34) return cwd
-  const parts = cwd.split('/').filter(Boolean)
-  return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : cwd
+  const parts = machinePathSegments(cwd)
+  const separator = machinePathSeparator(cwd)
+  return parts.length > 2 ? `…${separator}${parts.slice(-2).join(separator)}` : cwd
 }
 
 interface StandbyCopy {

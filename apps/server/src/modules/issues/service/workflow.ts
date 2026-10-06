@@ -1,3 +1,4 @@
+import { joinMachinePath } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
@@ -223,7 +224,7 @@ export class IssueGitWorkflowModule {
   private worktreePathFor(repoPath: string, branch: string): string {
     // branch is `issue/<seq>-<slug>`; flatten to a directory name under <repo>/.worktrees
     const dir = branch.replace(/\//g, '-')
-    return `${repoPath}/.worktrees/${dir}`
+    return joinMachinePath(repoPath, '.worktrees', dir)
   }
 
   /**

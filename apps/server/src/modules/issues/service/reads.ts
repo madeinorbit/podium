@@ -1,3 +1,4 @@
+import { machinePathKey } from '@podium/model'
 import {
   type DoctorReport,
   type DuplicateCandidate,
@@ -964,18 +965,18 @@ export class IssueReportsModule {
    *  worktree — an issue claiming it must not swallow every session spawned
    *  there ([spec:SP-595b] #582). */
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
-    const repoRoots = new Set(await this.store.deps.store.repos.listRepoPaths())
+    const repoRoots = new Set((await this.store.deps.store.repos.listRepoPaths()).map(machinePathKey))
     const owners = [...this.store.rows.values()].filter(
       (r) =>
         !r.deletedAt &&
         !r.archived &&
         r.worktreePath != null &&
-        !repoRoots.has(r.worktreePath) &&
+        !repoRoots.has(machinePathKey(r.worktreePath)) &&
         isMemberCwd(r.worktreePath, cwd),
     )
     let deepest = 0
-    for (const owner of owners) deepest = Math.max(deepest, owner.worktreePath?.length ?? 0)
-    const mostSpecific = owners.filter((owner) => owner.worktreePath?.length === deepest)
+    for (const owner of owners) deepest = Math.max(deepest, owner.worktreePath ? machinePathKey(owner.worktreePath).length : 0)
+    const mostSpecific = owners.filter((owner) => owner.worktreePath && machinePathKey(owner.worktreePath).length === deepest)
     return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
   }
 

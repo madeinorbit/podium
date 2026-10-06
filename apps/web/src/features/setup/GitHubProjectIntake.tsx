@@ -1,6 +1,7 @@
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineWire } from '@podium/model'
 import { isAbsoluteMachinePath } from '@podium/model'
+import { joinMachinePath } from '@podium/model/browser'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
 import { Check, Copy, Download, ExternalLink, GitFork, RefreshCw, Search } from 'lucide-react'
 import type { JSX } from 'react'
@@ -118,7 +119,7 @@ export function GitHubProjectIntake({
       same && draft.destination
         ? draft.destination
         : homePath
-          ? `${homePath.replace(/\/$/u, '')}/podium-repos/${repoFolder(repository.nameWithOwner)}`
+          ? joinMachinePath(homePath, 'podium-repos', repoFolder(repository.nameWithOwner))
           : draft.destination
     setDraft({ ...draft, repository: repository.nameWithOwner, destination })
   }
@@ -337,7 +338,7 @@ export function GitHubProjectIntake({
             aria-disabled={unavailable}
             readOnly={unavailable}
             value={draft.destination}
-            placeholder="/home/user/podium-repos/project"
+            placeholder="Absolute destination path"
             className="h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground"
             onChange={(event) => setDraft({ ...draft, destination: event.currentTarget.value })}
           />

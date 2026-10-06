@@ -2,6 +2,7 @@ import {
   asUserId,
   type IssueId,
   type IssueStage,
+  machinePathBasename,
   parseIssueStatusValue,
 } from '@podium/model/browser'
 import { Plus } from 'lucide-react'

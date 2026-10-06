@@ -1,6 +1,6 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, machinePathBasename } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { pathBasename, sessionAssetUrl } from './transcript-assets'
+import { sessionAssetUrl } from './transcript-assets'
 
 describe('sessionAssetUrl', () => {
   const context = {
@@ -22,6 +22,19 @@ describe('sessionAssetUrl', () => {
 
 describe('pathBasename', () => {
   it('returns the final non-empty segment', () => {
-    expect(pathBasename('/work/shots/final.png')).toBe('final.png')
+    expect(machinePathBasename('/work/shots/final.png')).toBe('final.png')
   })
+})
+
+it('serves Windows transcript assets using the machine cwd', () => {
+  const context = {
+    httpOrigin: 'https://podium.test',
+    sessionId: asSessionId('s1'),
+    cwd: 'C:\\repo',
+  }
+  const path = (value: string) => new URL(sessionAssetUrl(context, value)).searchParams.get('path')
+  expect(path('shots\\..\\final image.png')).toBe('C:\\repo\\final image.png')
+  expect(path('D:/shots/final.png')).toBe('D:\\shots\\final.png')
+  expect(path('\\\\nas\\share\\final.png')).toBe('\\\\nas\\share\\final.png')
+  expect(machinePathBasename('C:\\shots\\final.png')).toBe('final.png')
 })

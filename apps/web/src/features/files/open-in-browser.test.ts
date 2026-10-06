@@ -91,3 +91,11 @@ describe('downloadFileUrl', () => {
     expect(downloadFileUrl({ httpOrigin, scope, path: '/w/' })).toBeNull()
   })
 })
+
+it('opens and downloads Windows files with native paths and a plain filename', () => {
+  const scope: FileScope = { kind: 'worktree', root: 'C:\\repo' }
+  const out = downloadFileUrl({ httpOrigin, scope, path: 'C:\\repo\\shots\\final image.png' })
+  expect(out?.name).toBe('final image.png')
+  expect(new URL(out!.url).searchParams.get('path')).toBe('C:\\repo\\shots\\final image.png')
+  expect(rawFileUrl({ httpOrigin, scope, path: 'C:\\repo\\shots\\' })).toBeNull()
+})

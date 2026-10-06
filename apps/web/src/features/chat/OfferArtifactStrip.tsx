@@ -1,3 +1,4 @@
+import { resolveMachinePath } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
@@ -90,7 +91,7 @@ export function OfferArtifactStrip({
       openFileInWorktree({
         ...(machineId ? { machineId } : {}),
         root,
-        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+        path: resolveMachinePath(root, a.path),
         issueId: issue.id,
       })
     }

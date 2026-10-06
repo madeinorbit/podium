@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
@@ -619,7 +620,7 @@ function TaskRow({
   const issue = row.issue
   const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
-  const repo = issue.repoPath.split('/').filter(Boolean).pop() ?? ''
+  const repo = machinePathBasename(issue.repoPath) ?? ''
   const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
   const childCount = row.childCount
   const state = taskStateWord(issue, workingAgents, progress)

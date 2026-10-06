@@ -69,3 +69,10 @@ describe('elidePathHead', () => {
     )
   })
 })
+
+it('recognizes UNC notices and elides Windows paths at native separators', () => {
+  expect(looksLikePath('\\\\nas\\share\\repo')).toBe(true)
+  expect(elidePathHead('C:\\Users\\developer\\repo\\shots\\final.png', 22)).toBe(
+    '…\\repo\\shots\\final.png',
+  )
+})

@@ -133,3 +133,13 @@ describe('offerArtifactRows', () => {
     ).toEqual({ rows: [], extra: 0 })
   })
 })
+
+it('matches curated Windows artifact paths across absolute and relative spellings', () => {
+  const artifact = {
+    path: 'C:\\repo\\shots\\final.png',
+    addedAt: '2026-07-21T09:00:00.000Z',
+  } as IssuePanelArtifact
+  const issue = { panel: { artifacts: [artifact] } } as IssueWire
+  const offer = { artifacts: ['shots/final.png', 'c:/repo/shots/final.png'] } as SessionOffer
+  expect(resolveOfferArtifacts({ issue, offer })).toEqual([artifact])
+})

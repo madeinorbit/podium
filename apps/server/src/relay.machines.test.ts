@@ -212,18 +212,18 @@ describe('multi-daemon routing', () => {
     expect(meta?.machineName).toBe('two')
   })
 
-  it('stamps the reporting machine when a remote session adopts its worktree', async () => {
+  it.each([['/repo', '/repo'], [String.raw`c:\repo`, 'C:/REPO']])('machine paths: remote worktree adoption under %s', async (root, reportedRoot) => {
     const { reg } = await regWithTwoDaemons()
     try {
-      await reg.sessionStore.repos.addRepo('/repo', asMachineId('m2'))
+      await reg.sessionStore.repos.addRepo(root, asMachineId('m2'))
       const issue = await reg.modules.issues.crud.create({
-        repoPath: '/repo',
+        repoPath: root,
         title: 'Remote adoption',
         startNow: false,
       })
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'codex',
-        cwd: '/repo',
+        cwd: root,
         issueId: issue.id,
         machineId: asMachineId('m2'),
       })
@@ -231,14 +231,14 @@ describe('multi-daemon routing', () => {
       await reg.gateway.routeDaemonFrame('m2', {
         type: 'sessionCwd',
         sessionId,
-        cwd: '/repo/.worktrees/remote-adoption',
+        cwd: reportedRoot + '/.worktrees/remote-adoption',
         kind: 'worktree',
         branch: 'issue/remote-adoption',
-        repoRoot: '/repo',
+        repoRoot: reportedRoot,
       })
 
       await expect.poll(() => reg.modules.issues.reports.get(issue.id)).toMatchObject({
-        worktreePath: '/repo/.worktrees/remote-adoption',
+        worktreePath: reportedRoot + '/.worktrees/remote-adoption',
         branch: 'issue/remote-adoption',
         machineId: 'm2',
       })

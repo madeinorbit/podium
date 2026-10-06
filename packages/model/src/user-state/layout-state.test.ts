@@ -27,3 +27,11 @@ describe('normalizeDockWorktreeKey', () => {
     expect(normalizeDockWorktreeKey('   ')).toBeNull()
   })
 })
+
+it('accepts and canonicalizes Windows dock worktree keys', () => {
+  expect(normalizeDockWorktreeKey('C:\\repo\\')).toBe('C:\\repo')
+  expect(normalizeDockWorktreeKey('C:/repo/')).toBe('C:\\repo')
+  expect(normalizeDockWorktreeKey('C:\\')).toBe('C:\\')
+  expect(normalizeDockWorktreeKey('\\\\nas\\share\\repo\\')).toBe('\\\\nas\\share\\repo')
+  expect(normalizeDockWorktreeKey('C:repo')).toBeNull()
+})

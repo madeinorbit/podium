@@ -1,3 +1,4 @@
+import { isAbsoluteMachinePath, normalizeMachinePath } from '../machine-path'
 /**
  * PER-USER STATE FAMILY — SIDEBAR AND TAB LAYOUT (POD-1350).
  *
@@ -159,10 +160,7 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
   if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {
     return 'panelMode'
   }
-  if (
-    legacyKey.startsWith('podium.') &&
-    legacyKey.slice('podium.'.length) === 'panelModeDefault'
-  ) {
+  if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelModeDefault') {
     return 'panelModeDefault'
   }
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
@@ -294,7 +292,8 @@ export function layoutRowId(userId: UserId, key: string): string {
   // Local import-free join: escape \ and sep, then join. Same rules as
   // joinKeyParts — duplicated as two lines so this file stays free of a
   // circular import with ids/keys (layout is a consumer of perUserKey only).
-  const esc = (p: string) => p.replaceAll('\\', '\\\\').replaceAll(LAYOUT_ROW_SEP, `\\${LAYOUT_ROW_SEP}`)
+  const esc = (p: string) =>
+    p.replaceAll('\\', '\\\\').replaceAll(LAYOUT_ROW_SEP, `\\${LAYOUT_ROW_SEP}`)
   return `${esc(userId)}${LAYOUT_ROW_SEP}${esc(key)}`
 }
 
@@ -351,7 +350,6 @@ export const LAYOUT_USER_STATE_MEMBERS = [
  */
 export function normalizeDockWorktreeKey(worktreePath: string): string | null {
   const trimmed = worktreePath.trim()
-  if (trimmed.length === 0 || !trimmed.startsWith('/')) return null
-  if (/^\/+$/u.test(trimmed)) return '/'
-  return trimmed.replace(/\/+$/u, '')
+  if (trimmed.length === 0 || !isAbsoluteMachinePath(trimmed)) return null
+  return normalizeMachinePath(trimmed)
 }

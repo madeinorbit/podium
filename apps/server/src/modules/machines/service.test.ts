@@ -1660,3 +1660,18 @@ describe('current daemon recovery projection', () => {
     }
   })
 })
+
+
+test.each([
+  ['/repo', '/repo/wt/src', '/repository'],
+  ['C:\\repo', 'c:/REPO/wt/src', 'C:\\repository'],
+])('machine paths: machine repo affinity and pin guard for %s', async (root, cwd, sibling) => {
+  const { svc, store } = await storedService()
+  try {
+    await svc.attach(MACHINE, () => {})
+    await store.repos.addRepo(root, MACHINE)
+    expect(await svc.pickMachineForRepo(undefined, cwd)).toBe(MACHINE)
+    await expect(svc.requireMachineForRepo(MACHINE, cwd)).resolves.toBeUndefined()
+    await expect(svc.requireMachineForRepo(MACHINE, sibling)).rejects.toThrow('no repo registered')
+  } finally { svc.dispose(); await store.close() }
+})

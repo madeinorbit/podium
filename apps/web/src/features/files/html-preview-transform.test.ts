@@ -142,3 +142,17 @@ function cspOf(html: string): string {
     doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content') ?? ''
   )
 }
+
+it('inlines Windows stylesheets and resolves their asset directory on the machine', () => {
+  const html = buildStaticHtmlPreview({
+    html: '<link rel="stylesheet" href="style/site.css">',
+    fileDir: 'C:\\repo\\docs',
+    resolveAsset,
+    readTextAsset: (path) =>
+      path === 'C:\\repo\\docs\\style\\site.css'
+        ? '.hero{background:url("../img/hero.png")}'
+        : undefined,
+  })
+  expect(html).toContain('base=C%3A%5Crepo%5Cdocs%5Cstyle')
+  expect(html).not.toContain('<link')
+})

@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { isFinished, isClosed } from '@podium/model/browser'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
@@ -187,7 +188,7 @@ export function issueNavList(
       )
       const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
       const activityAt = lastSession || Date.parse(issue.updatedAt) || 0
-      const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
+      const repoName = machinePathBasename(issue.repoPath)
       return { issue, repoName, sessions: mine, activityAt }
     })
   return views.sort((a, b) => b.activityAt - a.activityAt)

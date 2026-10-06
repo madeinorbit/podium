@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import type { AgentRuntimeState, SessionId, SessionMeta, UserId } from '@podium/model'
 import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -155,7 +156,7 @@ export class NotifyService {
   }
 
   private attentionNoticeName(info: SessionNoticeInfo): string {
-    return info.name || info.title || info.cwd.split('/').pop() || 'agent'
+    return info.name || info.title || machinePathBasename(info.cwd) || 'agent'
   }
 
   private async sendTelegram(

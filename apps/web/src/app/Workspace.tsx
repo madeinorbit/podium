@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 import { beginSwitch } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
@@ -215,8 +216,7 @@ const keyboardSnapshot = (event: KeyboardEvent): TabDragKeyboardEventSnapshot =>
 // actually live. Closing a tab closes the view and never touches the session.
 type WTab = DeckTab
 
-const tabName = (t: WTab): string =>
-  t.kind === 'file' ? (t.file.path.split('/').pop() ?? t.file.path) : ''
+const tabName = (t: WTab): string => (t.kind === 'file' ? machinePathBasename(t.file.path) : '')
 
 /** Smallest pane a drag may leave behind, in px — below this a pane is a sliver
  *  the operator has to fish for to get back. */

@@ -5,7 +5,8 @@
  */
 
 /** `/x` on POSIX; `C:\\x`, `C:/x` or a UNC `\\\\server\\share` on Windows. */
-export function isAbsoluteMachinePath(path: string): boolean {
+export function isAbsoluteMachinePath(path: string, root?: string): boolean {
+  if (root !== undefined && machinePathSeparator(root) === '/') return path.startsWith('/')
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]/.test(path)
 }
 
@@ -17,6 +18,14 @@ export function machinePathSeparator(root: string): '/' | '\\' {
 /** A POSIX root keeps backslashes literal; a Windows root accepts either separator. */
 export function machinePathSegments(path: string, root: string = path): string[] {
   return path.split(machinePathSeparator(root) === '\\' ? /[\\/]+/ : /\/+/).filter(Boolean)
+}
+
+/** Windows aliases with trailing dots/spaces are refused before any normalization or authorization.
+ *  Ordinary dot/parent segments remain valid; POSIX names keep their literal spelling. */
+export function isValidMachinePath(path: string, root: string = path): boolean {
+  return machinePathSeparator(root) === '/' || machinePathSegments(path, root).every(
+    part => part === '.' || part === '..' || !/[ .]$/.test(part),
+  )
 }
 
 function pathParts(path: string, separator: '/' | '\\'): { root: string; parts: string[] } {
@@ -33,6 +42,7 @@ function pathParts(path: string, separator: '/' | '\\'): { root: string; parts: 
 
 /** Normalize dot segments without ever walking above a drive, share or POSIX root. */
 export function normalizeMachinePath(path: string, root: string = path): string {
+  if (!isValidMachinePath(path, root)) throw new Error('invalid Windows path segment: trailing space or dot')
   const separator = machinePathSeparator(root)
   const parsed = pathParts(path, separator)
   const out: string[] = []
@@ -53,6 +63,9 @@ export function joinMachinePath(root: string, ...children: string[]): string {
 
 /** Resolve a file against its machine cwd. Rooted Windows paths inherit the cwd's drive/share. */
 export function resolveMachinePath(cwd: string, path: string): string {
+  if (machinePathSeparator(cwd) === '/') {
+    return path.startsWith('/') ? normalizeMachinePath(path, cwd) : joinMachinePath(cwd, path)
+  }
   if (/^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]/.test(path)) return normalizeMachinePath(path)
   if (machinePathSeparator(cwd) === '\\' && /^[\\/]/.test(path)) {
     const root = pathParts(normalizeMachinePath(cwd), '\\').root
@@ -79,6 +92,7 @@ export function machinePathDirname(path: string, root: string = path): string {
 
 /** Relative path when contained; null when outside (including a different drive/share). */
 export function machinePathRelativeToRoot(root: string, path: string): string | null {
+  if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return null
   const base = normalizeMachinePath(root)
   // A relative root and cwd are already in the same namespace (repo + repo/sub).
   const target = isAbsoluteMachinePath(base)
@@ -95,6 +109,7 @@ export function machinePathRelativeToRoot(root: string, path: string): string | 
 }
 
 export function isMachinePathWithinRoot(root: string, path: string): boolean {
+  if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return false
   // Keep POSIX cwd membership literal (including relative roots and trailing slashes).
   // Unlike resolving a file token, membership must never put a relative cwd under an absolute root.
   if (machinePathSeparator(root) === '/')
@@ -115,8 +130,17 @@ export function machinePathHasSuffix(path: string, suffix: string): boolean {
   // A parent-relative token must resolve against its cwd, never match a truncated basename.
   return (
     a === b ||
-    (!isAbsoluteMachinePath(suffix) &&
+    (!isAbsoluteMachinePath(suffix, path) &&
       !machinePathSegments(suffix, path).includes('..') &&
       a.endsWith(separator + b))
   )
+}
+
+/** Stable comparison/key spelling. POSIX identity stays literal; Windows folds separators and case. */
+export function machinePathKey(path: string): string {
+  return machinePathSeparator(path) === '\\' ? normalizeMachinePath(path).toLowerCase() : path
+}
+
+export function machinePathsEqual(a: string, b: string): boolean {
+  return machinePathKey(a) === machinePathKey(b)
 }
