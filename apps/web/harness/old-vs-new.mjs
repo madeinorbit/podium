@@ -303,6 +303,7 @@ async function ready(page,{controlById=false}={}) {
     await page.getByRole('textbox',{name:'Search tasks',exact:true}).fill('Comparison target A')
     await page.getByRole('button',{name:/^Task .*Comparison target A/}).first().waitFor({timeout:120000})
   }
+  else if(heartbeatOnly && surface==='web')await page.locator('aside [data-issue-row]').first().waitFor({timeout:120000})
   else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
@@ -763,7 +764,15 @@ async function background(f) {
   await attempt('background-output-setup',async()=>{
     if(surface==='web') {
       await f.page.getByTestId('topbar-nav-workspace').click()
-      await f.page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().click()
+      const control=f.page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first()
+      if(!await control.count()) {
+        // A windowed sidebar reveals rows by scrolling their project band.
+        // Preparation is outside every measured window; no state API bypass.
+        const project=controls[0].issue.repoPath.split('/').at(-1)
+        await f.page.getByTestId('project-group-label').filter({hasText:project}).first().scrollIntoViewIfNeeded()
+        await frames(f.page);await frames(f.page)
+      }
+      await control.click()
       const expand=f.page.getByRole('button',{name:'Expand Flight Deck',exact:true})
       if(await expand.isVisible().catch(()=>false))await expand.click()
       await f.page.locator(`[data-flight-session="${targetSession}"] button.deck-agent`).first().click()

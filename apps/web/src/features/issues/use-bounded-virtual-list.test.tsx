@@ -44,11 +44,11 @@ function sizeViewport(node: HTMLElement, height: number): void {
   Object.defineProperty(node, 'clientHeight', { configurable: true, value: height })
 }
 
-function NestedWindowHarness(): JSX.Element {
+function NestedWindowHarness({ keys = KEYS }: { keys?: string[] }): JSX.Element {
   const [scroll, setScroll] = useState<HTMLDivElement | null>(null)
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const virtual = useBoundedVirtualList({
-    keys: KEYS,
+    keys,
     scrollRef: { current: scroll },
     containerRef: { current: container },
     estimateSize: 40,
@@ -78,6 +78,24 @@ function flushViewport(): void {
 }
 
 describe('bounded variable-height issue window', () => {
+  it('keeps the row anchor when an earlier group shifts the nested container', () => {
+    vi.useFakeTimers()
+    const view = render(<NestedWindowHarness />)
+    const scroll = view.getByTestId('nested-scroll')
+    const container = view.getByTestId('nested-container')
+    sizeViewport(scroll, 320)
+    let precedingHeight = 0
+    vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+    vi.spyOn(container, 'getBoundingClientRect').mockImplementation(() => ({ top: precedingHeight - scroll.scrollTop } as DOMRect))
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll); flushViewport()
+    precedingHeight = 400
+    view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
+    expect(scroll.scrollTop).toBe(1200)
+    precedingHeight = 0
+    view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
+    expect(scroll.scrollTop).toBe(800)
+  })
   it.each([0, 48])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', height => {
     vi.useFakeTimers()
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, height } as DOMRect)

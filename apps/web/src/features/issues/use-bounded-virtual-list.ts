@@ -125,6 +125,7 @@ export function useBoundedVirtualList({
   }
   const layoutRef = useRef<Layout>(emptyLayout)
   const priorLayoutRef = useRef<Layout>(emptyLayout)
+  const priorViewportRef = useRef<{ top: number; scrollTop: number } | null>(null)
   const [revision, setRevision] = useState(0)
   const [viewport, setViewport] = useState({ top: 0, height: 0 })
   const viewportFrameRef = useRef<number | null>(null)
@@ -174,6 +175,7 @@ export function useBoundedVirtualList({
       const scroll = scrollRef.current
       const top = localScrollTop(scroll, containerRef?.current)
       const height = scroll?.clientHeight ?? 0
+      priorViewportRef.current = { top, scrollTop: scroll?.scrollTop ?? 0 }
       setViewport((current) =>
         current.top === top && current.height === height ? current : { top, height },
       )
@@ -212,15 +214,8 @@ export function useBoundedVirtualList({
       const oldSize = sizesRef.current.get(key) ?? estimateSize
       if (Math.abs(oldSize - measured) < 0.5) return
 
-      const currentLayout = layoutRef.current
-      const index = currentLayout.indexes.get(key) ?? -1
-      const itemStart = index < 0 ? 0 : offsetAt(currentLayout, index)
-      const scroll = scrollRef.current
-      const beforeTop = localScrollTop(scroll, containerRef?.current)
-
       sizesRef.current.delete(key)
       sizesRef.current.set(key, measured)
-      let anchorDelta = itemStart < beforeTop ? measured - oldSize : 0
 
       while (sizesRef.current.size > ISSUE_VIRTUAL_SIZE_CACHE) {
         const evicted = sizesRef.current.keys().next().value as string | undefined
@@ -236,18 +231,11 @@ export function useBoundedVirtualList({
           }
           continue
         }
-        const evictedSize = sizesRef.current.get(evicted) as number
-        const evictedIndex = currentLayout.indexes.get(evicted) ?? -1
-        const evictedStart =
-          evictedIndex < 0 ? Number.POSITIVE_INFINITY : offsetAt(currentLayout, evictedIndex)
-        if (evictedStart < beforeTop) anchorDelta += estimateSize - evictedSize
         sizesRef.current.delete(evicted)
       }
-
-      if (scroll && anchorDelta !== 0) scroll.scrollTop += anchorDelta
       setRevision((value) => value + 1)
     },
-    [containerRef, estimateSize, scrollRef],
+    [estimateSize],
   )
 
   useLayoutEffect(() => {
@@ -302,9 +290,11 @@ export function useBoundedVirtualList({
     // layoutRef already points at the current render, so retain the prior
     // render's geometry separately.
     const prior = priorLayoutRef.current
-    if (prior.keys !== layout.keys && prior.keys.length > 0) {
+    if (prior.keys.length > 0) {
       const scroll = scrollRef.current
-      const top = localScrollTop(scroll, containerRef?.current)
+      const currentTop = localScrollTop(scroll, containerRef?.current)
+      const saved = priorViewportRef.current
+      const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
       // Only the section intersecting a shared grouped-list viewport may move
       // that viewport. Offscreen sections update their geometry silently.
       if (scroll && top < prior.totalSize && top + scroll.clientHeight > 0) {
@@ -312,12 +302,16 @@ export function useBoundedVirtualList({
         const anchorKey = prior.keys[anchorIndex]
         const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
         if (currentIndex >= 0) {
-          const delta = offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex)
+          const delta = offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
           if (delta !== 0) scroll.scrollTop += delta
         }
       }
     }
     priorLayoutRef.current = previous
+    priorViewportRef.current = {
+      top: localScrollTop(scrollRef.current, containerRef?.current),
+      scrollTop: scrollRef.current?.scrollTop ?? 0,
+    }
     publishViewport()
   }, [layout, scrollRef, containerRef, publishViewport])
 

@@ -262,6 +262,23 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     return next
   }, [sections])
   const { items, settle, discardExit } = useRowTransitions(targets)
+  // Membership owns these indexes. Selection, heartbeat, scroll and drag frames
+  // reuse them; a gesture never rebuilds the complete order from its DOM window.
+  const { targetById, scopeOrders } = useMemo(() => {
+    const targetById = new Map<string, RowTransitionTarget<Slot>>()
+    const scopeOrders = new Map<string, string[]>()
+    for (const target of targets) {
+      targetById.set(target.value.id, target)
+      if (target.value.kind !== 'issue') continue
+      const lane = target.value.lane
+      if (lane !== 'pinned' && lane !== 'open') continue
+      const scope = lane === 'pinned' ? 'pinned' : `group:${target.value.groupKey}`
+      const order = scopeOrders.get(scope) ?? []
+      order.push(target.value.id)
+      scopeOrders.set(scope, order)
+    }
+    return { targetById, scopeOrders }
+  }, [targets])
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
@@ -278,15 +295,14 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       return
     }
     if (revealedSelection.current === selectedId) return
-    const selected = targets.find((target) => target.value.id === selectedId)
+    const selected = targetById.get(selectedId)
     if (!selected) return
     revealedSelection.current = selectedId
     const key =
       selected.value.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.value.groupKey)
     if (collapsed.has(key)) toggle(key)
     // Selection is the reveal request; folding the current selection stays folded.
-  }, [selectedId, targets, collapsed, toggle])
-  const scopeOrders = useRef<ReadonlyMap<string, readonly string[]>>(new Map())
+  }, [selectedId, targetById, collapsed, toggle])
   const search = useMemo(
     () =>
       computed(
@@ -309,7 +325,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     return value === undefined || value === LOADING ? undefined : value
   }
   const { startDrag, dragging, draggedId } = useRowDrag({
-    virtualOrder: (scope) => scopeOrders.current.get(scope) ?? NO_DRAG_ROWS,
+    virtualOrder: (scope) => scopeOrders.get(scope) ?? NO_DRAG_ROWS,
     allowedTargets: (scope, id) => {
       const value = issue(id)
       return scope === 'pinned'
@@ -450,21 +466,6 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed',
         ),
       })
-  const orderSignature = JSON.stringify([
-    pinned.map(itemDragId).filter(Boolean),
-    ...bands.map((band) => [band.key, band.live.map(itemDragId).filter(Boolean)]),
-  ])
-  scopeOrders.current = useMemo(
-    () =>
-      new Map<string, readonly string[]>([
-        ['pinned', pinned.flatMap((item) => (itemDragId(item) ? [item.value.id] : []))],
-        ...bands.map((band): [string, string[]] => [
-          `group:${band.key}`,
-          band.live.flatMap((item) => (itemDragId(item) ? [item.value.id] : [])),
-        ]),
-      ]),
-    [orderSignature],
-  )
   const windowRows = (
     rows: readonly Item[],
     render = renderRow,
