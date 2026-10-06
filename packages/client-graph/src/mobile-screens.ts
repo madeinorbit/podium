@@ -14,7 +14,7 @@ import {
 } from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import {
-  compareStructural,
+  compareShallow, computed, type IComputedValue,
 } from 'mobx'
 import { type BoardQuery, ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
@@ -26,6 +26,7 @@ import {
   MOBILE_TASK_STAGES,
   type MobileMissionData,
   type MobileTasksData,
+  type MobileTaskSection,
   type MobileTasksOptions,
 } from './mobile-screens-schema'
 import type { MobxPool } from './pool'
@@ -51,19 +52,54 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
   return row
 }
 
+function settled<T>(read: () => T): T | typeof LOADING {
+  try { return read() } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
+}
+
+/** Stabilize a fixed screen shape one field at a time. Collections compare
+ * borrowed row identities, and scalar records (such as progress) one level.
+ * Nested model values are never recursively compared on publication. */
+function screenSnapshot<T extends object>(
+  data: IComputedValue<T | typeof LOADING>,
+  keys: readonly (keyof T)[],
+  overrides: Partial<{ [K in keyof T]: IComputedValue<T[K] | typeof LOADING> }> = {},
+): IComputedValue<T | typeof LOADING> {
+  const fields = keys.map(key => [key, overrides[key] ?? computed(() => {
+    const value = data.get()
+    return value === LOADING ? LOADING : value[key]
+  }, { equals: compareShallow })] as const)
+  return computed(() => {
+    const entries = fields.map(([key, field]) => [key, field.get()] as const)
+    if (entries.some(([, value]) => value === LOADING)) return LOADING
+    return Object.fromEntries(entries) as T
+  }, { equals: compareShallow })
+}
+
 export function createMobileScreenReader(pool: MobxPool) {
   const mission = new MobileMissionReader(pool)
-  // TODO(POD-5575): fresh phone screen summaries need structural equality.
-  const cache = keyedComputed((key: string) => `MobileScreen@${key}`, (_key: string, read: () => unknown) => {
-    try { return read() } catch (error) {
-      if (error === LOADING) return LOADING
-      throw error
-    }
-  }, { equals: compareStructural })
+  // Factories live only while their screen is observed. Each field computed
+  // borrows row identities or compares scalar values; publication never walks
+  // into an issue, session, deck row or document.
+  const cache = keyedComputed((key: string) => `MobileScreen@${key}`,
+    (_key: string, create: () => IComputedValue<unknown>) => create())
+  const taskRows = keyedComputed('MobileScreen.taskRow', (key: string): IssueRow<IssueViewModel> => {
+    const [id, depth, childCount, expanded] = JSON.parse(key) as [string, number, number, boolean]
+    const issue = requireRow(pool.row('issueBoardRow', id))
+    if (!issue) throw LOADING
+    return { issue, depth, childCount, expanded }
+  })
+  const taskProgress = keyedComputed('MobileScreen.taskProgress', (key: string) => {
+    const card = requireRow(pool.row('issueBoardCard', key))
+    if (!card) throw LOADING
+    return card.progress
+  }, { equals: compareShallow })
   const stats = { tasks: 0, mission: 0, deck: 0 }
   let disposed = false
-  function memo<T>(key: string, read: () => T): T | typeof LOADING {
-    return disposed ? LOADING : cache(key, read) as T | typeof LOADING
+  function memo<T>(key: string, create: () => IComputedValue<T | typeof LOADING>): T | typeof LOADING {
+    return disposed ? LOADING : cache(key, create).get() as T | typeof LOADING
   }
   function query(options: BoardQuery) {
     const result = requireRow(pool.row('issueBoardQuery', JSON.stringify(options)))
@@ -72,6 +108,27 @@ export function createMobileScreenReader(pool: MobxPool) {
   }
   function tasks(options: MobileTasksOptions): MobileTasksData | typeof LOADING {
     return memo(`tasks:${JSON.stringify(options)}`, () => {
+      const data = computed(() => settled(() => readTasks(options)))
+      const sections = MOBILE_TASK_STAGES.map(stage => {
+        const rows = computed(() => {
+          const value = data.get()
+          return value === LOADING ? LOADING : value.board.find(section => section.stage === stage)?.rows ?? []
+        }, { equals: compareShallow })
+        return computed((): MobileTaskSection | typeof LOADING => {
+          const value = rows.get()
+          if (value === LOADING) return LOADING
+          return { stage, title: ISSUE_STATUS_LABELS[stage], rows: value }
+        })
+      })
+      const board = computed(() => {
+        const result = sections.map(section => section.get())
+        if (result.some(section => section === LOADING)) return LOADING
+        return (result as MobileTaskSection[]).filter(section => section.rows.length)
+      }, { equals: compareShallow })
+      return screenSnapshot(data, ['issues', 'sessions', 'board', 'workingByIssue', 'progressByIssue', 'proposals'], { board })
+    })
+  }
+  function readTasks(options: MobileTasksOptions): MobileTasksData {
       stats.tasks++
       // The shared source owns the resident index and declared cold questions.
       // This map is this mounted query's borrowed presentation, never an index.
@@ -184,7 +241,7 @@ export function createMobileScreenReader(pool: MobxPool) {
         listed?.add(row.id)
         const kids = children(row.id, scope),
           open = kids.length > 0 && expanded.has(row.id)
-        out.push({ issue: row, depth, childCount: kids.length, expanded: open })
+        out.push(taskRows(JSON.stringify([row.id, depth, kids.length, open])))
         if (open)
           for (const child of orderIssues(kids, options.ordering))
             emit(child, depth + 1, scope, out, new Set(path).add(row.id), listed)
@@ -254,7 +311,9 @@ export function createMobileScreenReader(pool: MobxPool) {
         )
         if (!card) throw LOADING
         workingByIssue.set(row.issue.id, confirmedWorkingAgentCount(card.fleet, pool.clock.trackedNow()))
-        progressByIssue.set(row.issue.id, card.progress)
+        progressByIssue.set(row.issue.id, taskProgress(JSON.stringify({
+          id: row.issue.id, now: pool.clock.trackedNow(), agents: options.showAgentTasks,
+        })))
         for (const seat of card.sessions) sessions.set(seat.sessionId, seat)
       }
       // The banner is independent of board filters and agent-task visibility.
@@ -294,10 +353,15 @@ export function createMobileScreenReader(pool: MobxPool) {
         progressByIssue,
         proposals: proposalCount,
       }
-    })
   }
   function deck(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
-    return memo(`deck:${id}:${mode}`, () => {
+    return memo(`deck:${id}:${mode}`, () => screenSnapshot(
+      computed(() => settled(() => readDeck(id, mode))),
+      ['root', 'rows', 'members', 'issueIds', 'deck', 'sessions', 'archivedCount', 'titles',
+        'progress', 'departures', 'continuation', 'note', 'presence', 'rowPresentation'],
+    ))
+  }
+  function readDeck(id: string | null, mode: FlightDeckMode): MissionViewValues {
       stats.deck++
       const values = readMissionView(mission, id, mode)
       if (values === LOADING) throw LOADING
@@ -338,10 +402,14 @@ export function createMobileScreenReader(pool: MobxPool) {
       }
       const sessions = [...crew.values()].sort(mission.sessionOrder)
       return { ...values, progress, presence, sessions }
-    })
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {
-    return memo(`mission:${id}`, () => {
+    return memo(`mission:${id}`, () => screenSnapshot(
+      computed(() => settled(() => readMissionData(id))),
+      ['root', 'issues', 'sessions', 'missionSessions', 'progress'],
+    ))
+  }
+  function readMissionData(id: string | null): MobileMissionData {
       stats.mission++
       const values = deck(id, 'full')
       if (values === LOADING) throw LOADING
@@ -384,7 +452,6 @@ export function createMobileScreenReader(pool: MobxPool) {
         missionSessions: [...crew.values()].sort(mission.sessionOrder),
         progress: values.progress,
       }
-    })
   }
   return {
     stats,
@@ -394,6 +461,8 @@ export function createMobileScreenReader(pool: MobxPool) {
     dispose() {
       disposed = true
       cache.clear()
+      taskRows.clear()
+      taskProgress.clear()
       mission.dispose()
     },
   }
