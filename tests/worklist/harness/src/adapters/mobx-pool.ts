@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4760 + POD-4944 + POD-4945 — the MobX pool's harness adapter: helpers
@@ -47,7 +48,7 @@ import type { ArmStats } from '../../../shared/src/stats'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 import type { MobxPool, PoolLazyOptions } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from './mobx-rebuild'
-import { rowViewOf } from '@podium/client-graph/models'
+
 import { sliceOrderOf, type Layout } from '@podium/client-graph/worklist/groups'
 import { sliceRowOf } from '@podium/client-graph/shared/row-view'
 import type { Schedule } from '@podium/client-graph/residency'

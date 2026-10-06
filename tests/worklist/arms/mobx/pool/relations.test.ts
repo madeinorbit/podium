@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { sidebarRosterView } from '@podium/client-graph/worklist/sidebar-roster'
 /**
  * POD-4566 (Ma2) — the pool's relations, maintained from the declared schema
@@ -47,7 +48,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from '../../../harness/src/adapters/mobx-rebuild'
 import { ancestorPaths } from '@podium/client-graph/relations'
 import type { RelationDelta, RelationQueries } from '@podium/client-graph/shared/relation-index'
-import { rowViewOf } from '@podium/client-graph/models'
+
 
 installMobxWarnTrap()
 

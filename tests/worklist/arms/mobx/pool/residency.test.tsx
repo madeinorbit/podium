@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
@@ -33,7 +34,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { LOAD_WINDOW_MS } from '@podium/client-graph/residency'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sliceOrderOf } from '@podium/client-graph/worklist/groups'
-import { rowViewOf } from '@podium/client-graph/models'
+
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

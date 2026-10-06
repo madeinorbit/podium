@@ -1,3 +1,4 @@
+import { displayChanged } from '../../shared/src/row-snapshots'
 // @vitest-environment happy-dom
 /**
  * POD-4445 — the ONE way every round-two arm is counted in CI.
@@ -43,7 +44,7 @@ import {
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
-import { displayChanged } from '@podium/client-graph/shared/row-view'
+
 import type { LocalsKey, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import type { RowViews } from './oracle/row-views'

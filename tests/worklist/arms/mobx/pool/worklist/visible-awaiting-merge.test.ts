@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
@@ -18,7 +19,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  * row views' phase/asking for the shaped rows.
  */
 
-import { rowViewOf } from '@podium/client-graph/models'
+
 import { describe, expect, it } from 'vitest'
 import {
   harnessMobxPoolArm,

@@ -10,16 +10,25 @@ export function createReadOnlyRuntimePool(runtime: WorklistRuntime, summaries: P
   const rows = createRowSource(runtime, runtime.replica, { pending: EMPTY_PENDING })
   const locals = createEngineLocals(runtime)
   try {
-    const handle = createWorklistPool({
-    ...rows.source,
-    ...(rows.source.issueIdsByRef ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] } : {}),
-    subscribe: listener => rows.source.subscribe(listener),
-  }, locals.source, { summaries, worklist: 'demand' })
-    return { pool: handle.pool, dispose() {
-      try { handle.dispose() } finally {
-        try { locals.dispose() } finally { rows.dispose() }
-      }
-    } }
+    const handle = createWorklistPool(
+      {
+        ...rows.source,
+        ...(rows.source.issueIdsByRef
+          ? { issueIdByRef: (ref: string) => rows.source.issueIdsByRef!(ref)[0] }
+          : {}),
+        subscribe: listener => rows.source.subscribe(listener),
+      },
+      locals.source,
+      { summaries, worklist: 'demand' },
+    )
+    return {
+      pool: handle.pool,
+      dispose() {
+        try { handle.dispose() } finally {
+          try { locals.dispose() } finally { rows.dispose() }
+        }
+      },
+    }
   } catch (error) {
     try { locals.dispose() } finally { rows.dispose() }
     throw error

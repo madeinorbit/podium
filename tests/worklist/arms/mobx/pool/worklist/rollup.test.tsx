@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
@@ -50,7 +51,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  * oracle's withdrawn ask.
  */
 
-import { rowViewOf } from '@podium/client-graph/models'
+
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { RowView } from '@podium/client-graph/shared/row-view'
 import { observable, reaction, runInAction } from 'mobx'

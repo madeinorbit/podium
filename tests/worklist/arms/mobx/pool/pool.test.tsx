@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
@@ -26,7 +27,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type HarnessMobxPoolHandle, harnessMobxPoolArm, poolPendingLoads, tracked, visibleOrderOf } from '../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { rowViewOf } from '@podium/client-graph/models'
+
 import { ENTITIES } from '@podium/client-graph/tables'
 import { FINISHED_GRACE_MS } from '@podium/client-graph/views'
 

@@ -78,7 +78,6 @@ import { createRowOverlay } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
 import { FEED_SPELLING } from './shared/repo-from-lane'
 import {
-  plainRowView,
   ROW_VIEW_FIELDS,
   type RowOriginTick,
   type RowRank,
@@ -1105,11 +1104,3 @@ for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
   installRelations(MODEL_CLASSES[entity].prototype, entity)
 }
 
-/**
- * The issue's row as ONE plain `RowView` (the projection through the
- * interface, `plainRowView`): what a gate or a test compares with the
- * rebuild. Undefined while the row is not in memory. Drawing never calls it.
- */
-export function rowViewOf(issue: IssueModel | undefined): RowView | undefined {
-  return issue === undefined || !issue.inMemory ? undefined : plainRowView(issue)
-}

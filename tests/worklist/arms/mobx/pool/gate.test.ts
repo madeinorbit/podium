@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '../../../diagnostics/reference-state'
 /**
@@ -128,7 +129,7 @@ import type { RelationQueries } from '@podium/client-graph/shared/relation-index
 import type { EntityName } from '@podium/client-graph/shared/schema'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { rebuildSnapshot, rebuildViews } from '../../../harness/src/adapters/mobx-rebuild'
-import { rowViewOf } from '@podium/client-graph/models'
+
 
 installMobxWarnTrap()
 

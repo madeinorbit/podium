@@ -346,7 +346,7 @@ export function createRowSource(
 
   /** Only discovery is read from runtime publications: a change to
    *  the `repos` array is a signal. */
-  function onDiscoveryPublication(): void {
+  function onTruthPublication(): void {
     if (disposed || currentRepos() === heldFrom) return
     discoveryDirty = true
     schedule()
@@ -1084,7 +1084,7 @@ export function createRowSource(
   // The feed reads no runtime publication but discovery: kernel addresses and the log's repaint
   // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(runtime.onLocals(['repos'], onDiscoveryPublication))
+  offs.push(runtime.onLocals(['repos'], onTruthPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,

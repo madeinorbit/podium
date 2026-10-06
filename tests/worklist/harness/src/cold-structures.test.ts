@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-5407 — the heap census of per-cold-row structures (POD-5417 finding
@@ -26,7 +27,7 @@ import { worklistGroups } from '@podium/client-graph/worklist/groups'
  */
 
 import { createWorklistPool, type MobxPool } from '@podium/client-graph'
-import { rowViewOf } from '@podium/client-graph/models'
+
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../shared/src/row-source'
 import { reaction, runInAction } from 'mobx'

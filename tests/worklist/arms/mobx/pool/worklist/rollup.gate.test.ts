@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4571 (Mb3) — the correctness gate (L4b, `shared/src/gen/check.ts`)
@@ -30,7 +31,7 @@ import { type CheckedArm, checkArm } from '../../../../shared/src/gen/check'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm, visibleOrderOf, type HarnessMobxPoolHandle } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { rowViewOf } from '@podium/client-graph/models'
+
 
 installMobxWarnTrap()
 

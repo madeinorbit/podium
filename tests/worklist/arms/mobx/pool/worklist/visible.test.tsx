@@ -1,3 +1,4 @@
+import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 
 import { allIssueViewModels } from '../../../../diagnostics/reference/issue-view-models'
@@ -26,7 +27,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
  */
 
 import { knownIds } from '@podium/client-graph/enumerate'
-import { rowViewOf } from '@podium/client-graph/models'
+
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from 'mobx-react-lite'
 import { act, type ReactElement } from 'react'

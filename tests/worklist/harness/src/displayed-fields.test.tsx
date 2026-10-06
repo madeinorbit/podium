@@ -1,3 +1,4 @@
+import { displayChanged } from '../../shared/src/row-snapshots'
 import { referenceState } from '../../diagnostics/reference-state'
 import { upsertIssue } from '../../shared/src/scenarios'
 
@@ -27,9 +28,8 @@ import { upsertIssue } from '../../shared/src/scenarios'
  */
 
 import {
-  displayChanged,
   ROW_DISPLAYED_FIELDS,
-  ROW_VIEW_FIELDS,
+  ROW_VIEW_FIELDS
 } from '@podium/client-graph/shared/row-view'
 import { describe, expect, it } from 'vitest'
 import { type ScenarioEngine, startScenarioEngine } from '../../shared/src/scenarios'

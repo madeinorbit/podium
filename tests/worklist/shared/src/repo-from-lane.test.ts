@@ -364,22 +364,22 @@ describe('every worktree record passes through the shared composer', () => {
     const repo = target.write.repo as Map<string, object>
     const consumed = vi.spyOn(composer, 'ingestWorktreeRecord')
     try {
-    const [w1, w2, issue, w3, ...rest] = script.records
-    mobxIngestRecord(target, w1!, out)
-    mobxIngestRecord(target, w2!, out)
-    // POD-5423 finding 12: w2 carries the same repo facts, so the holder stays.
-    expect(repo.get('r1')).toBe(script.a)
-    mobxIngestRecord(target, issue!, out)
-    expect(consumed).toHaveBeenCalledTimes(2)
-    mobxIngestRecord(target, w3!, out)
-    expect(repo.get('r1')).toBe(script.a)
-    for (const record of rest) mobxIngestRecord(target, record, out)
-    expect(consumed).toHaveBeenCalledTimes(script.worktreeRecords)
-    expectScriptedHoldings(
-      repo,
-      target.write.worktree as Map<string, object>,
-      script,
-    )
+      const [w1, w2, issue, w3, ...rest] = script.records
+      mobxIngestRecord(target, w1!, out)
+      mobxIngestRecord(target, w2!, out)
+      // POD-5423 finding 12: w2 carries the same repo facts, so the holder stays.
+      expect(repo.get('r1')).toBe(script.a)
+      mobxIngestRecord(target, issue!, out)
+      expect(consumed).toHaveBeenCalledTimes(2)
+      mobxIngestRecord(target, w3!, out)
+      expect(repo.get('r1')).toBe(script.a)
+      for (const record of rest) mobxIngestRecord(target, record, out)
+      expect(consumed).toHaveBeenCalledTimes(script.worktreeRecords)
+      expectScriptedHoldings(
+        repo,
+        target.write.worktree as Map<string, object>,
+        script,
+      )
     } finally { consumed.mockRestore() }
   })
 
