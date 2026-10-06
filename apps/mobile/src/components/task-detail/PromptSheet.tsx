@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { color, font, leading, monoLabel, radius, sans, space } from '../../theme/theme'
 import { BottomSheet } from '../BottomSheet'
@@ -36,12 +36,19 @@ export function PromptSheet({
   onConfirm: (value: string) => void
   onClose: () => void
 }) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(initialValue)
   // A reopened compose prompt must not carry its prior text; an edit prompt
-  // starts from the current value each time it opens.
-  useEffect(() => {
-    if (visible) setValue(initialValue)
-  }, [initialValue, visible])
+  // starts from the current value each time it opens. Seed synchronously
+  // during render (not in an effect) so the first committed frame already
+  // shows the seeded text: an effect leaves one empty frame that a fast
+  // confirm — autofill, a test driver, a double-tap — can observe and submit.
+  const [seed, setSeed] = useState({ visible, initial: initialValue })
+  if (visible && (!seed.visible || seed.initial !== initialValue)) {
+    setSeed({ visible: true, initial: initialValue })
+    setValue(initialValue)
+  } else if (visible !== seed.visible) {
+    setSeed({ visible, initial: initialValue })
+  }
 
   return (
     <BottomSheet
