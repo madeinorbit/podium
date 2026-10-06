@@ -33,6 +33,9 @@ async function mount() {
   fixture.patch('issueProjection', 'synthetic-3', { parentId: 'synthetic-2' })
   fixture.patch('issueProjection', 'synthetic-4', { parentId: 'synthetic-0' })
   fixture.patch('issueProjection', 'synthetic-5', { parentId: 'synthetic-1' })
+  fixture.patch('session', 'synthetic-session-3', {
+    agentState: { phase: 'working', since: new Date(NOW - 60_000).toISOString() },
+  })
   render(
     <StoreProvider
       principal={asClientPrincipal(USER)}
@@ -61,18 +64,21 @@ function row(id: string) {
   return body!.closest('[data-testid="unified-issue-row"]')!
 }
 
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 it('updates a mounted ancestor status when a grandchild session asks', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
   const fixture = await mount()
   const ancestor = row('synthetic-0')
-  expect(ancestor.textContent).toContain('0/3 subtasks done · 3 stalled')
+  expect(ancestor.querySelector('[title^="Working since"]')?.textContent).toContain('1:00')
   await act(async () => {
     fixture.patch('session', 'synthetic-session-3', {
       agentState: { phase: 'idle', idle: { kind: 'question' }, since: new Date(NOW).toISOString() },
     })
   })
-  await waitFor(() => expect(ancestor.textContent).toContain('0/3 subtasks done · 2 underway'))
+  await waitFor(() => expect(ancestor.querySelector('[title^="Waiting since"]')?.textContent).toBe('just now'))
+  expect(ancestor.querySelector('[data-phase="waiting"]')).not.toBeNull()
   expect(row('synthetic-0')).toBe(ancestor)
 })
 

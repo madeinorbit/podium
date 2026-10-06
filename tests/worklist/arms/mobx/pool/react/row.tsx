@@ -17,10 +17,15 @@
 
 import { observer } from 'mobx-react-lite'
 import type { ReactElement } from 'react'
+import { hostOf, IssueModel } from '@podium/client-graph/models'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
 import type { RowProps } from '../../../../shared/src/row-shell'
 
 export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElement {
-  if ('sidebar' in row) void row.sidebar
+  // Screen payloads live in their module, rather than on the model. Observe
+  // this row's addressed payload in the same reaction as its displayed fields.
+  if (row instanceof IssueModel) void sidebarIssueRow(row, hostOf(row) as MobxPool)
   return (
     <div
       data-issue-row={row.id}

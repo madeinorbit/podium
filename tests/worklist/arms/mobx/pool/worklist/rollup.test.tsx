@@ -281,6 +281,7 @@ async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCe
     const chain = findChain(handle.pool)
     if (process.env.POD_ANCESTOR_TRACE === '1') {
       console.info('[ancestor trace before]', JSON.stringify({ chain,
+        obsoleteSidebarGetter: 'sidebar' in handle.pool.issue(chain.rows[0]!)!,
         sessionObservers: getObserverTree(handle.pool.tables.session, chain.sessionId),
         rows: chain.rows.map(id => ({ id, text: document.querySelector(`[data-issue-row="${id}"]`)?.textContent })),
       }))
