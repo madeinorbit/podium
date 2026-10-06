@@ -28,7 +28,7 @@ function deps(over: Partial<TunnelCliDeps> = {}) {
     io: out.io,
     env: ENV,
     config: OPTED_IN,
-    hasBinary: () => true,
+    findBinary: (b: string) => `/usr/bin/${b}`,
     fileExists: () => true,
     hasSystemctl: () => true,
     hasUserSystemd: () => true,
@@ -44,7 +44,7 @@ function deps(over: Partial<TunnelCliDeps> = {}) {
 }
 
 describe('tunnelPreflight: the opt-in', () => {
-  const ok = { hasBinary: () => true, fileExists: () => true }
+  const ok = { findBinary: (b: string) => `/usr/bin/${b}`, fileExists: () => true }
 
   it('is OFF by default: a fresh box refuses', () => {
     expect(tunnelPreflight({ config: {}, env: ENV, ...ok }).ok).toBe(false)
@@ -63,6 +63,7 @@ describe('tunnelPreflight: the opt-in', () => {
       ok: true,
       origin: 'http://127.0.0.1:18787',
       binary: BIN,
+      cloudflared: '/usr/bin/cloudflared',
     })
   })
 
@@ -89,11 +90,31 @@ describe('tunnelPreflight: the opt-in', () => {
     expect(
       tunnelPreflight({
         config: OPTED_IN,
-        env: ENV,
-        hasBinary: () => false,
-        fileExists: () => true,
+        env: { ...ENV, PODIUM_HOME: '/opt/podium' },
+        findBinary: () => undefined,
+        fileExists: (path) => path !== '/opt/podium/cloudflared',
       }),
     ).toMatchObject({ ok: false, reason: expect.stringContaining('cloudflared is not installed') })
+  })
+
+  it('uses the cloudflared setup downloaded beside podium when PATH has none', () => {
+    const env = { ...ENV, PODIUM_HOME: '/opt/podium' }
+    expect(
+      tunnelPreflight({
+        config: OPTED_IN,
+        env,
+        findBinary: () => undefined,
+        fileExists: () => true,
+      }),
+    ).toMatchObject({ ok: true, cloudflared: '/opt/podium/cloudflared' })
+  })
+
+  it("prefers the operator's own cloudflared on PATH over the downloaded copy", () => {
+    const env = { ...ENV, PODIUM_HOME: '/opt/podium' }
+    expect(tunnelPreflight({ config: OPTED_IN, env, ...ok })).toMatchObject({
+      ok: true,
+      cloudflared: '/usr/bin/cloudflared',
+    })
   })
 
   it('refuses when podium-tunnel is not where it should be, and says how to build it', () => {
@@ -101,7 +122,7 @@ describe('tunnelPreflight: the opt-in', () => {
       tunnelPreflight({
         config: OPTED_IN,
         env: ENV,
-        hasBinary: () => true,
+        findBinary: (b: string) => `/usr/bin/${b}`,
         fileExists: () => false,
       }),
     ).toMatchObject({ ok: false, reason: expect.stringContaining('cargo build --release') })
@@ -120,7 +141,7 @@ describe('podium tunnel enable / disable', () => {
     expect(tunnelCliMain(['enable'], d)).toBe(0)
     expect(calls).toEqual(['write podium-tunnel.service', 'start podium-tunnel.service'])
     expect(bodies[0]).toContain(
-      `ExecStart="${BIN}" "--origin" "http://127.0.0.1:18787" "--socket" "/home/u/.podium/run/control.sock"`,
+      `ExecStart="${BIN}" "--origin" "http://127.0.0.1:18787" "--socket" "/home/u/.podium/run/control.sock" "--cloudflared" "/usr/bin/cloudflared"`,
     )
   })
 

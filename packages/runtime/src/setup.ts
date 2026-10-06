@@ -100,6 +100,16 @@ function cloudflaredArch(arch: string): string | undefined {
   return byNodeArch[arch]
 }
 
+/** Cloudflare's own Linux build of cloudflared for this architecture, from its GitHub
+ *  releases — the same file the documented install command downloads. Undefined on an
+ *  architecture Cloudflare publishes no build for. */
+export function cloudflaredDownloadUrl(arch: string = process.arch): string | undefined {
+  const goArch = cloudflaredArch(arch)
+  return goArch
+    ? `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${goArch}`
+    : undefined
+}
+
 /** What {@link networkOptionCommand}'s command assumes is already installed. `undefined`
  *  for `manual`, which runs no command of ours. */
 export function networkOptionTool(
@@ -116,13 +126,13 @@ export function networkOptionTool(
         docs: 'https://tailscale.com/kb/1347/installation',
       }
     case 'cloudflare-tunnel': {
-      const goArch = cloudflaredArch(arch)
+      const url = cloudflaredDownloadUrl(arch)
       return {
         binary: 'cloudflared',
-        ...(goArch
+        ...(url
           ? {
               install: [
-                `curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${goArch}`,
+                `curl -fsSL -o cloudflared ${url}`,
                 'sudo install -m 0755 cloudflared /usr/local/bin/cloudflared && rm cloudflared',
               ].join('\n'),
             }
@@ -142,16 +152,23 @@ export function networkOptionTool(
  * answer. `env` is a parameter so a test never has to mutate the real PATH.
  */
 export function commandExists(binary: string, env: EnvSource = process.env): boolean {
+  return findCommand(binary, env) !== undefined
+}
+
+/** Where on PATH `binary` is, or undefined. The same walk as {@link commandExists}, for a
+ *  caller that has to hand the absolute path to a process with a different PATH. */
+export function findCommand(binary: string, env: EnvSource = process.env): string | undefined {
   for (const dir of (env.PATH ?? '').split(delimiter)) {
     if (dir === '') continue
+    const candidate = join(dir, binary)
     try {
-      accessSync(join(dir, binary), constants.X_OK)
-      return true
+      accessSync(candidate, constants.X_OK)
+      return candidate
     } catch {
       // Not here (or not executable) — keep walking.
     }
   }
-  return false
+  return undefined
 }
 
 export function validatePublicUrl(

@@ -359,6 +359,8 @@ export interface TunnelUnitOptions {
   origin: string
   /** The server's control socket (serverControlSocketPath). */
   socket: string
+  /** Absolute path of cloudflared. Omitted: found on the unit's PATH. */
+  cloudflared?: string
 }
 
 /** systemd ExecStart= quoting: double quotes, with `"` and `\` escaped and `%` doubled. */
@@ -380,7 +382,14 @@ function execArg(value: string): string {
  */
 export function renderTunnelUnit(opts: TunnelUnitOptions): string {
   const c = context(opts.instanceId === undefined ? {} : { instanceId: opts.instanceId })
-  const exec = [opts.binary, '--origin', opts.origin, '--socket', opts.socket]
+  const exec = [
+    opts.binary,
+    '--origin',
+    opts.origin,
+    '--socket',
+    opts.socket,
+    ...(opts.cloudflared ? ['--cloudflared', opts.cloudflared] : []),
+  ]
     .map(execArg)
     .join(' ')
   return generatedUnit(`[Unit]
@@ -391,7 +400,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=PODIUM_INSTANCE=${c.instanceId}
-# cloudflared is found on this PATH.
+# cloudflared is found on this PATH, unless --cloudflared names it.
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=${exec}
 # podium-tunnel restarts cloudflared itself; this only covers podium-tunnel dying.

@@ -8,15 +8,18 @@
  * server's control socket, which records it and publishes it to Podium Connect.
  * `disable` stops the unit and removes it.
  *
- * NOTHING RUNS THIS FOR YOU. The design rule is "never auto-run a tunnel"
- * (docs/internal/superpowers/specs/2026-06-30-distribution-onboarding-design.md):
- * setup prints the cloudflared command as it always has, and this is the second,
- * explicit step — refused unless the operator already chose the quick tunnel.
+ * NOTHING RUNS THIS UNASKED. The design rule is "never auto-run a tunnel"
+ * (docs/internal/superpowers/specs/2026-06-30-distribution-onboarding-design.md).
+ * `podium setup` offers it as one of the reachability choices and runs it only when
+ * the operator picks that choice (POD-3274); this command is the same step for a box
+ * set up before that, and is refused unless the operator chose the quick tunnel.
  */
-import { existsSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   type EnvSource,
+  forgetConfig,
   LAYERED_ENV,
   loadConfig,
   type PodiumConfig,
@@ -25,7 +28,7 @@ import {
   resolveSetting,
 } from '@podium/runtime/config'
 import { instanceServiceName, instanceStateDir, resolveInstanceId } from '@podium/runtime/instance'
-import { commandExists, networkOptionTool } from '@podium/runtime/setup'
+import { cloudflaredDownloadUrl, findCommand, networkOptionTool } from '@podium/runtime/setup'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import {
   disableSystemdUnits,
@@ -53,8 +56,18 @@ export const TUNNEL_USAGE = [
 /** The tunnel binary's file name in the headless bundle. */
 export const TUNNEL_BINARY = 'podium-tunnel'
 
+/** cloudflared's file name, on PATH or as the copy setup downloads beside podium. */
+export const CLOUDFLARED_BINARY = 'cloudflared'
+
 export type TunnelPreflight =
-  | { ok: true; origin: string; binary: string }
+  | {
+      ok: true
+      origin: string
+      binary: string
+      /** cloudflared's absolute path. The unit runs with a fixed PATH of its own, so it is
+       *  always told where cloudflared is rather than left to find it. */
+      cloudflared: string
+    }
   | { ok: false; reason: string }
 
 /**
@@ -77,6 +90,29 @@ export function resolveTunnelBinary(env: EnvSource = process.env): string {
   return env.PODIUM_TUNNEL_BIN ?? join(resolveInstallDir(env), TUNNEL_BINARY)
 }
 
+/** The cloudflared `podium setup` downloads: beside podium, so a user-level install needs
+ *  no sudo and nothing outside Podium's own directory. */
+export function bundledCloudflaredPath(env: EnvSource = process.env): string {
+  return join(resolveInstallDir(env), CLOUDFLARED_BINARY)
+}
+
+/**
+ * Which cloudflared podium-tunnel should run, or undefined when there is none. PATH
+ * first — an operator's own install wins — as an ABSOLUTE path, because the unit runs
+ * with a fixed PATH of its own that need not contain the operator's; then the copy
+ * setup downloaded.
+ */
+export function resolveCloudflared(
+  env: EnvSource = process.env,
+  find: (binary: string) => string | undefined = (binary) => findCommand(binary, env),
+  fileExists: (path: string) => boolean = existsSync,
+): string | undefined {
+  const onPath = find(CLOUDFLARED_BINARY)
+  if (onPath) return onPath
+  const bundled = bundledCloudflaredPath(env)
+  return fileExists(bundled) ? bundled : undefined
+}
+
 /**
  * May this box enable the tunnel? Every refusal is a sentence the operator can act
  * on. The environment owning the URL comes first: no amount of re-running setup
@@ -85,7 +121,8 @@ export function resolveTunnelBinary(env: EnvSource = process.env): string {
 export function tunnelPreflight(input: {
   config: PodiumConfig
   env: EnvSource
-  hasBinary?: (binary: string) => boolean
+  /** Injected for tests: where `binary` is on PATH, or undefined. */
+  findBinary?: (binary: string) => string | undefined
   fileExists?: (path: string) => boolean
 }): TunnelPreflight {
   const { config, env } = input
@@ -116,19 +153,25 @@ export function tunnelPreflight(input: {
         'in `podium setup` first.',
     }
   }
-  const tool = networkOptionTool('cloudflare-tunnel')
-  const hasBinary = input.hasBinary ?? ((binary: string) => commandExists(binary, env))
-  if (tool && !hasBinary(tool.binary)) {
+  const fileExists = input.fileExists ?? existsSync
+  const cloudflared = resolveCloudflared(
+    env,
+    input.findBinary ?? ((binary) => findCommand(binary, env)),
+    fileExists,
+  )
+  if (cloudflared === undefined) {
+    const tool = networkOptionTool('cloudflare-tunnel')
     return {
       ok: false,
       reason:
-        `${tool.binary} is not installed (not on PATH).` +
-        (tool.install ? ` Install it with:\n${tool.install}` : '') +
-        `\nOther ways to install it: ${tool.docs}`,
+        `${CLOUDFLARED_BINARY} is not installed (not on PATH, and not at ` +
+        `${bundledCloudflaredPath(env)}). \`podium setup\` can download it for you.` +
+        (tool?.install ? ` Or install it yourself with:\n${tool.install}` : '') +
+        (tool ? `\nOther ways to install it: ${tool.docs}` : ''),
     }
   }
   const binary = resolveTunnelBinary(env)
-  if (!(input.fileExists ?? existsSync)(binary)) {
+  if (!fileExists(binary)) {
     return {
       ok: false,
       reason:
@@ -138,7 +181,7 @@ export function tunnelPreflight(input: {
     }
   }
   const port = resolveSetting('port', config, env).value
-  return { ok: true, origin: tunnelOrigin(port, env), binary }
+  return { ok: true, origin: tunnelOrigin(port, env), binary, cloudflared }
 }
 
 export interface TunnelCliIo {
@@ -150,7 +193,7 @@ export interface TunnelCliDeps {
   io?: TunnelCliIo
   env?: EnvSource
   config?: PodiumConfig
-  hasBinary?: (binary: string) => boolean
+  findBinary?: (binary: string) => string | undefined
   fileExists?: (path: string) => boolean
   hasSystemctl?: () => boolean
   hasUserSystemd?: () => boolean
@@ -181,28 +224,32 @@ export function tunnelCliMain(args: string[], deps: TunnelCliDeps = {}): number 
   return 2
 }
 
-function enable(io: TunnelCliIo, deps: TunnelCliDeps): number {
+export type EnableTunnelResult = { ok: true; unit: string } | { ok: false; reason: string }
+
+/**
+ * Install and start the tunnel unit. The step both `podium tunnel enable` and
+ * `podium setup` take; every refusal is a sentence for the operator.
+ */
+export function enableTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): EnableTunnelResult {
   const env = deps.env ?? process.env
   const preflight = tunnelPreflight({
     config: deps.config ?? loadConfig(),
     env,
-    ...(deps.hasBinary ? { hasBinary: deps.hasBinary } : {}),
+    ...(deps.findBinary ? { findBinary: deps.findBinary } : {}),
     ...(deps.fileExists ? { fileExists: deps.fileExists } : {}),
   })
-  if (!preflight.ok) {
-    io.err(`podium tunnel: ${preflight.reason}`)
-    return 1
-  }
+  if (!preflight.ok) return preflight
   const instanceId = resolveInstanceId(env)
   // The same derivation the server uses for its own socket, so neither is told.
   const socket = serverControlSocketPath({ instanceId, root: instanceStateDir(instanceId, env) })
   if (!(deps.hasSystemctl ?? hasSystemctl)() || !(deps.hasUserSystemd ?? hasUserSystemd)()) {
-    io.err(
-      'podium tunnel: this host has no systemd user session to run the tunnel as a service. ' +
+    return {
+      ok: false,
+      reason:
+        'this host has no systemd user session to run the tunnel as a service. ' +
         `Run it under a supervisor of your choice instead:\n  ${preflight.binary} --origin ` +
-        `${preflight.origin} --socket ${socket}`,
-    )
-    return 1
+        `${preflight.origin} --socket ${socket} --cloudflared ${preflight.cloudflared}`,
+    }
   }
   const unit = instanceServiceName('tunnel', instanceId)
   const body = renderTunnelUnit({
@@ -210,6 +257,7 @@ function enable(io: TunnelCliIo, deps: TunnelCliDeps): number {
     binary: preflight.binary,
     origin: preflight.origin,
     socket,
+    cloudflared: preflight.cloudflared,
   })
   try {
     ;(deps.writeUnit ?? ((name, text) => void writeUserUnit(name, text)))(unit, body)
@@ -221,13 +269,69 @@ function enable(io: TunnelCliIo, deps: TunnelCliDeps): number {
       })
     )(unit)
   } catch (error) {
-    io.err(`podium tunnel: could not enable ${unit}: ${(error as Error).message}`)
+    return { ok: false, reason: `could not enable ${unit}: ${(error as Error).message}` }
+  }
+  return { ok: true, unit }
+}
+
+function enable(io: TunnelCliIo, deps: TunnelCliDeps): number {
+  const result = enableTunnel(deps)
+  if (!result.ok) {
+    io.err(`podium tunnel: ${result.reason}`)
     return 1
   }
-  io.out(`Quick tunnel enabled as ${unit}.`)
+  io.out(`Quick tunnel enabled as ${result.unit}.`)
   io.out("Each new trycloudflare URL is recorded as this server's public URL.")
-  io.out(`Watch it with: journalctl --user -u ${unit} -f`)
+  io.out(`Watch it with: journalctl --user -u ${result.unit} -f`)
   return 0
+}
+
+/**
+ * Download Cloudflare's own cloudflared build beside podium and prove it runs. Written
+ * to a temporary name and renamed into place, so an interrupted download never leaves a
+ * half-written file where {@link resolveCloudflared} would find it. Returns the path.
+ */
+export async function downloadCloudflared(
+  env: EnvSource = process.env,
+  arch: string = process.arch,
+): Promise<string> {
+  const url = cloudflaredDownloadUrl(arch)
+  if (!url) throw new Error(`Cloudflare publishes no cloudflared build for ${arch}`)
+  const dest = bundledCloudflaredPath(env)
+  const partial = `${dest}.download`
+  const res = await fetch(url, { redirect: 'follow' })
+  if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText} (${url})`)
+  mkdirSync(resolveInstallDir(env), { recursive: true })
+  try {
+    writeFileSync(partial, new Uint8Array(await res.arrayBuffer()))
+    chmodSync(partial, 0o755)
+    const probe = spawnSync(partial, ['--version'], { encoding: 'utf8', timeout: 15_000 })
+    if (probe.status !== 0) {
+      throw new Error(`the downloaded cloudflared does not run: ${probe.stderr || probe.error}`)
+    }
+    renameSync(partial, dest)
+  } finally {
+    rmSync(partial, { force: true })
+  }
+  return dest
+}
+
+/**
+ * Wait for the server to record the tunnel's address. podium-tunnel hands each URL
+ * to the server, which writes it to config — so the config file is where it shows up.
+ * Re-read from disk every poll: another process wrote it. Undefined on timeout.
+ */
+export async function waitForTunnelUrl(
+  opts: { timeoutMs?: number; pollMs?: number; previous?: string } = {},
+): Promise<string | undefined> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 90_000)
+  for (;;) {
+    forgetConfig()
+    const url = loadConfig().publicUrl
+    if (url && url !== opts.previous && /\.trycloudflare\.com\/?$/.test(url)) return url
+    if (Date.now() >= deadline) return undefined
+    await new Promise((resolve) => setTimeout(resolve, opts.pollMs ?? 500))
+  }
 }
 
 function disable(io: TunnelCliIo, deps: TunnelCliDeps): number {

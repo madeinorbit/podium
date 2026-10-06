@@ -419,9 +419,7 @@ describe('runCliSetup', () => {
         ),
       ).toBe(true)
       // The one that IS installed carries no such mark.
-      expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel (no Tailscale) —'))).toBe(
-        true,
-      )
+      expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel, run by Podium'))).toBe(true)
       expect(prompts.some((p) => p.includes('cloudflared is not installed'))).toBe(false)
     })
 
@@ -1169,5 +1167,144 @@ describe('waitForDaemonEnrollment ignores a dead daemon s leftover record (POD-3
   it('still trusts a record that names no writer — absence is not proof of staleness', async () => {
     writeConnectivity({ state: 'connected' }, dir)
     await expect(wait(scriptedClock())).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * THE MANAGED QUICK TUNNEL (POD-3274): picking Cloudflare means Podium runs it. No URL
+ * to paste — the address is unknown until the tunnel starts, which needs the server up.
+ */
+describe('runCliSetup: Cloudflare quick tunnel run by Podium', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-clisetup-tunnel-'))
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    process.env.PODIUM_STATE_DIR = priorStateDir
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const TUNNEL_URL = 'https://quiet-river-1234.trycloudflare.com'
+  const CLOUDFLARE = net(2)
+
+  function runTunnel(answers: unknown[], over: Record<string, unknown> = {}) {
+    const events: string[] = []
+    const s = scriptedIO(answers)
+    const done = runCliSetup(s.io, 18787, {
+      hasCommand: () => true,
+      setPassword: vi.fn(async () => {
+        events.push('password')
+      }),
+      startBackend: async (o) => {
+        events.push('backend')
+        return { effectivePersistence: o.persistence, message: '' }
+      },
+      waitForEnrollment: async () => {},
+      managedTunnel: {
+        hasCloudflared: () => true,
+        canSupervise: () => true,
+        download: async () => {
+          events.push('download')
+          return '/home/u/.podium/bin/cloudflared'
+        },
+        enable: () => {
+          events.push('enable')
+          return { ok: true, unit: 'podium-tunnel.service' }
+        },
+        waitForUrl: async () => TUNNEL_URL,
+        ...over,
+      },
+    })
+    return { ...s, events, done }
+  }
+
+  it('asks for no URL, starts the tunnel AFTER the server, and shows the address it got', async () => {
+    const { prompts, output, events, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true])
+    await done
+    expect(prompts.some((p) => p.includes('trycloudflare.com URL'))).toBe(false)
+    expect(events).toEqual(['password', 'backend', 'enable'])
+    expect(output).toContain(`Reachable at ${TUNNEL_URL}`)
+    expect(loadConfig()).toMatchObject({ mode: 'all-in-one', networkOption: 'cloudflare-tunnel' })
+    // No URL is saved by setup: the server records the tunnel's own.
+    expect(loadConfig().publicUrl).toBeUndefined()
+  })
+
+  it('labels the row as run by Podium, never as "not installed"', async () => {
+    const { prompts, done } = runTunnel(['all-in-one'])
+    await done
+    expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel, run by Podium'))).toBe(true)
+    expect(prompts.some((p) => p.includes('cloudflared is not installed —'))).toBe(false)
+  })
+
+  it('downloads cloudflared when missing — after asking, and before the password', async () => {
+    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, true, 's3cret', true], {
+      hasCloudflared: () => false,
+    })
+    await done
+    expect(
+      prompts.some((p) => p.startsWith('cloudflared is not installed. Download it now?')),
+    ).toBe(true)
+    expect(events).toEqual(['download', 'password', 'backend', 'enable'])
+  })
+
+  it('declining the download saves nothing and boxes the install command instead', async () => {
+    const { commands, events, done } = runTunnel(['all-in-one', CLOUDFLARE, false], {
+      hasCloudflared: () => false,
+    })
+    await done
+    expect(events).toEqual([])
+    expect(commands.some((c) => c.includes('cloudflared-linux-'))).toBe(true)
+    expect(loadConfig().mode).toBeUndefined()
+  })
+
+  it('a failed download saves nothing and says why', async () => {
+    const { output, events, done } = runTunnel(['all-in-one', CLOUDFLARE, true], {
+      hasCloudflared: () => false,
+      download: async () => {
+        throw new Error('download failed: 404 Not Found')
+      },
+    })
+    await done
+    expect(events).toEqual([])
+    expect(output.join('\n')).toContain('Could not download cloudflared: download failed: 404')
+    expect(loadConfig().mode).toBeUndefined()
+  })
+
+  it('no address in time: says where to look, and the setup itself still stands', async () => {
+    const { commands, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true], {
+      waitForUrl: async () => undefined,
+    })
+    await done
+    expect(commands).toContain('journalctl --user -u podium-tunnel.service -f')
+    expect(loadConfig().networkOption).toBe('cloudflare-tunnel')
+  })
+
+  it('without a systemd user session, falls back to running cloudflared by hand and pasting', async () => {
+    const { commands, events, done } = runTunnel(
+      ['all-in-one', CLOUDFLARE, TUNNEL_URL, 's3cret', true],
+      { canSupervise: () => false },
+    )
+    await done
+    expect(commands).toContain('cloudflared tunnel --url http://127.0.0.1:18787')
+    expect(events).not.toContain('enable')
+    expect(loadConfig().publicUrl).toBe(TUNNEL_URL)
+  })
+
+  it('replacing an earlier quick-tunnel address does not demand CHANGE', async () => {
+    saveConfig({ ...loadConfig(), publicUrl: 'https://old-one.trycloudflare.com' })
+    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true])
+    await done
+    expect(prompts.some((p) => p.startsWith('Type CHANGE'))).toBe(false)
+    expect(events).toContain('enable')
+  })
+
+  it('replacing a durable address still asks first', async () => {
+    saveConfig({ ...loadConfig(), publicUrl: 'https://box.ts.net' })
+    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, ''])
+    await done
+    expect(prompts).toContain('Type CHANGE to replace it with a Cloudflare quick tunnel')
+    expect(events).toEqual([])
+    expect(loadConfig().publicUrl).toBe('https://box.ts.net')
   })
 })

@@ -1,6 +1,6 @@
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
-import { renameSync, rmSync } from 'node:fs'
+import { existsSync, renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
 import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import {
@@ -28,6 +28,14 @@ import {
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 import { realCheckReachability } from './cli-reachability'
+import { hasSystemctl, hasUserSystemd } from './cli-systemd'
+import {
+  bundledCloudflaredPath,
+  downloadCloudflared as realDownloadCloudflared,
+  type EnableTunnelResult,
+  enableTunnel as realEnableTunnel,
+  waitForTunnelUrl as realWaitForTunnelUrl,
+} from './tunnel-cli'
 import { isCancel, type SetupIO } from './setup-ui'
 
 export type { SetupIO } from './setup-ui'
@@ -88,6 +96,40 @@ export interface SetupDeps {
    * test performs network I/O.
    */
   checkReachability?: (url: string) => Promise<CheckResult | undefined>
+  /**
+   * THE MANAGED QUICK TUNNEL (POD-3274). Injected for testing; the defaults download
+   * cloudflared, install the podium-tunnel user unit and read the URL the server records.
+   * No test may touch the network or systemd, so each step has a seam.
+   */
+  managedTunnel?: Partial<ManagedTunnelDeps>
+}
+
+/** What the managed Cloudflare quick tunnel needs from the machine. */
+export interface ManagedTunnelDeps {
+  /** cloudflared is on PATH, or setup already downloaded it beside podium. */
+  hasCloudflared: () => boolean
+  /** A systemd user session exists to keep podium-tunnel running. */
+  canSupervise: () => boolean
+  /** Fetch Cloudflare's own cloudflared build; resolves to where it was put. */
+  download: () => Promise<string>
+  /** Install and start the podium-tunnel unit. */
+  enable: () => EnableTunnelResult
+  /** Resolve to the first quick-tunnel URL the server records that is not `previous`. */
+  waitForUrl: (previous?: string) => Promise<string | undefined>
+}
+
+function managedTunnelDeps(
+  hasCommand: (binary: string) => boolean,
+  over: Partial<ManagedTunnelDeps> = {},
+): ManagedTunnelDeps {
+  return {
+    hasCloudflared: () => hasCommand('cloudflared') || existsSync(bundledCloudflaredPath()),
+    canSupervise: () => hasSystemctl() && hasUserSystemd(),
+    download: () => realDownloadCloudflared(),
+    enable: () => realEnableTunnel(),
+    waitForUrl: (previous) => realWaitForTunnelUrl(previous ? { previous } : {}),
+    ...over,
+  }
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -250,6 +292,8 @@ async function confirmUrlChange(
 ): Promise<boolean> {
   const current = loadConfig().publicUrl
   if (!current || current === next) return true
+  // A quick-tunnel address was always going to change; replacing it strands nothing new.
+  if (next === MANAGED_TUNNEL_TARGET && ephemeralTunnelWarning(current)) return true
   if (preConfirmed) return true
   io.warn(
     `This instance is already reachable at ${current}.\n` +
@@ -270,9 +314,84 @@ async function confirmUrlChange(
   return false
 }
 
-interface ReachabilityChoice {
-  publicUrl: string
-  networkOption: NetworkOption
+type ReachabilityChoice =
+  | { publicUrl: string; networkOption: NetworkOption; managedTunnel?: false }
+  /** Podium runs the quick tunnel, so the URL is not known until the server is up. */
+  | { networkOption: 'cloudflare-tunnel'; managedTunnel: true }
+
+/**
+ * THE ONE-CLICK OPTION. The Cloudflare quick tunnel is the only way to be reachable that
+ * needs no account and no sign-in, so it is the one Podium can run end to end: fetch
+ * cloudflared when it is missing, keep it running under podium-tunnel, and record each
+ * new address so joined machines can look it up. The label says Podium runs it, because
+ * that is the difference from every other row.
+ */
+/** What {@link confirmUrlChange} names as the replacement when the URL is not known yet. */
+const MANAGED_TUNNEL_TARGET = 'a Cloudflare quick tunnel'
+const MANAGED_TUNNEL_LABEL = 'Cloudflare quick tunnel, run by Podium (easiest, no account)'
+const MANAGED_TUNNEL_NOTE =
+  'Podium keeps the tunnel running and keeps track of its address, which is random and changes when the tunnel restarts.'
+
+/**
+ * Get cloudflared onto this machine for the managed tunnel, asking first. False means the
+ * managed tunnel cannot go ahead and the operator has been told why.
+ */
+async function ensureCloudflared(io: SetupIO, tunnel: ManagedTunnelDeps): Promise<boolean> {
+  if (tunnel.hasCloudflared()) return true
+  const tool = networkOptionTool('cloudflare-tunnel')
+  const fetchIt = await io.confirm({
+    message: `cloudflared is not installed. Download it now? (Cloudflare's own build, into ${bundledCloudflaredPath()})`,
+    initialValue: true,
+  })
+  if (isCancel(fetchIt) || !fetchIt) {
+    if (tool?.install) io.command(tool.install, 'Install it yourself, then re-run `podium setup`:')
+    return false
+  }
+  const spin = io.spinner()
+  spin.start('Downloading cloudflared')
+  try {
+    const path = await tunnel.download()
+    spin.stop(`Downloaded cloudflared to ${path}.`)
+    return true
+  } catch (e) {
+    spin.error(`Could not download cloudflared: ${(e as Error).message}`)
+    if (tool?.install) io.command(tool.install, 'Install it yourself, then re-run `podium setup`:')
+    return false
+  }
+}
+
+/**
+ * Start the managed tunnel and wait for its first address. Runs once the server is up,
+ * because podium-tunnel hands each address to the running server.
+ */
+async function startManagedTunnel(
+  io: SetupIO,
+  tunnel: ManagedTunnelDeps,
+  previous: string | undefined,
+): Promise<void> {
+  const enabled = tunnel.enable()
+  if (!enabled.ok) {
+    io.error(`Could not start the tunnel: ${enabled.reason}`)
+    return
+  }
+  const spin = io.spinner()
+  spin.start('Starting the Cloudflare tunnel')
+  const url = await tunnel.waitForUrl(previous)
+  if (!url) {
+    spin.error('The tunnel has not reported an address yet.')
+    io.command(`journalctl --user -u ${enabled.unit} -f`, 'See what it is doing:')
+    io.step('Podium records the address as soon as the tunnel reports one.')
+    return
+  }
+  spin.stop(`Reachable at ${url}`)
+  io.note(
+    [
+      'The address changes whenever the tunnel restarts — after a reboot or a dropped',
+      'connection. Podium records each new one, and machines joined to this server find',
+      'it on their own. A browser bookmark will not: `podium status` shows the current one.',
+    ].join('\n'),
+    'About this address',
+  )
 }
 
 /**
@@ -341,6 +460,7 @@ async function reachabilityStep(
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
     checkReachability?: (url: string) => Promise<CheckResult | undefined>
+    managedTunnel?: Partial<ManagedTunnelDeps>
   } = { save: true },
 ): Promise<ReachabilityChoice | undefined> {
   const hasCommand = opts.hasCommand ?? commandExists
@@ -351,6 +471,10 @@ async function reachabilityStep(
   const opt = await io.select({
     message: 'How can clients reach this machine over the network?',
     options: NETWORK_OPTIONS.map((o) => {
+      // Podium fetches cloudflared itself for this row, so it is never "not installed".
+      if (o.id === 'cloudflare-tunnel') {
+        return { value: o, label: MANAGED_TUNNEL_LABEL, hint: MANAGED_TUNNEL_NOTE }
+      }
       const tool = networkOptionTool(o.id)
       // Said on the ROW, not only after the choice: an operator picking the recommended
       // option on a box without tailscale should see that before they commit to it.
@@ -363,6 +487,29 @@ async function reachabilityStep(
     }),
   })
   if (isCancel(opt) || !opt) return undefined
+  if (opt.id === 'cloudflare-tunnel') {
+    const tunnel = managedTunnelDeps(hasCommand, opts.managedTunnel)
+    if (tunnel.canSupervise()) {
+      if (!(await ensureCloudflared(io, tunnel))) {
+        io.step('Nothing saved. Re-run `podium setup` when ready.')
+        return undefined
+      }
+      if (!opts.save) return { networkOption: 'cloudflare-tunnel', managedTunnel: true }
+      const previous = loadConfig().publicUrl
+      if (!(await confirmUrlChange(io, MANAGED_TUNNEL_TARGET, opts.confirmUrlChange === true)))
+        return undefined
+      const { publicUrl: _replaced, ...rest } = loadConfig()
+      saveConfig({ ...rest, mode, networkOption: 'cloudflare-tunnel' })
+      await startManagedTunnel(io, tunnel, previous)
+      return { networkOption: 'cloudflare-tunnel', managedTunnel: true }
+    }
+    // No systemd user session to keep podium-tunnel alive: fall back to running
+    // cloudflared by hand and pasting its URL, exactly as before the managed tunnel.
+    io.warn(
+      'This machine has no systemd user session, so Podium cannot keep the tunnel running.\n' +
+        'Run cloudflared yourself instead.',
+    )
+  }
   presentReachabilityCommand(io, opt.id, port, hasCommand)
   const { hint } = networkOptionCommand(opt.id, port)
   // A URL is re-asked by the prompt itself until it validates, so there is no attempt
@@ -634,6 +781,7 @@ async function hostStep(
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
     checkReachability?: (url: string) => Promise<CheckResult | undefined>
+    managedTunnel?: Partial<ManagedTunnelDeps>
   } = {},
 ): Promise<void> {
   if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
@@ -641,10 +789,11 @@ async function hostStep(
     save: false,
     ...(options.hasCommand ? { hasCommand: options.hasCommand } : {}),
     ...(options.checkReachability ? { checkReachability: options.checkReachability } : {}),
+    ...(options.managedTunnel ? { managedTunnel: options.managedTunnel } : {}),
   })
   if (!reachability) return
-  const { publicUrl, networkOption } = reachability
-  if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return
+  const nextUrl = reachability.managedTunnel ? MANAGED_TUNNEL_TARGET : reachability.publicUrl
+  if (!(await confirmUrlChange(io, nextUrl, options.confirmUrlChange === true))) return
   if (!(await passwordStep(io, setPassword))) {
     io.error('Nothing saved — re-run `podium setup` to start over.')
     return
@@ -652,11 +801,27 @@ async function hostStep(
   const supervisor = loadSupervisorState(stateDir())
   if (!supervisor.enrolledPublicKey && !supervisor.token)
     prepareSetupEnrollment(mode === 'all-in-one', true)
-  saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
-  io.success(`Saved. This instance is reachable at ${publicUrl}.`)
+  const previousUrl = loadConfig().publicUrl
+  if (reachability.managedTunnel) {
+    // No URL yet: the tunnel has not started. The server records it when it does.
+    const { publicUrl: _replaced, ...rest } = loadConfig()
+    saveConfig({ ...rest, mode, networkOption: reachability.networkOption })
+    io.success('Saved.')
+  } else {
+    const { publicUrl, networkOption } = reachability
+    saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
+    io.success(`Saved. This instance is reachable at ${publicUrl}.`)
+  }
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,
   })
+  if (reachability.managedTunnel) {
+    await startManagedTunnel(
+      io,
+      managedTunnelDeps(options.hasCommand ?? commandExists, options.managedTunnel),
+      previousUrl,
+    )
+  }
   // LAST, deliberately (step 8): the backend is already running and the install
   // already works, so this question can be abandoned at no cost [spec:SP-f933].
   // The backend being up first is why consent must be read fresh at flush (D9) —
@@ -691,6 +856,7 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
       activateImmediately: true,
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
       ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+      ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
     },
   )
 }
@@ -830,6 +996,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
     ...(deps.activateImmediately ? { activateImmediately: true } : {}),
     ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+    ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
   }
   if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
@@ -845,6 +1012,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
       ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
       ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+      ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
     })
   } else if (choice === 'password' && hostsServer) {
     await passwordStep(io, setPassword)
