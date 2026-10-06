@@ -10,24 +10,15 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { moduleGraphOf } from '../entry-pin'
 
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 
 function entry(name: string): string {
   return readFileSync(join(PACKAGE_DIR, 'harness/web/entries', `${name}.ts`), 'utf-8')
 }
 
 describe('browser entries mount the round-three pools', () => {
-  it('hand mounts harnessHandPoolArm with no parity allowance (POD-4671 fixed)', () => {
-    const code = entry('hand')
-    expect(code, 'the harness pool adapter').toContain('src/adapters/hand-pool')
-    expect(code, 'the harness arm value').toContain('harnessHandPoolArm')
-    expect(code, 'no parity allowance').not.toContain('HAND_POOL_ALLOWANCES')
-    expect(code, 'not the product arm directly').not.toContain('arms/hand/pool/arm')
-    expect(code, 'not the round-two arm').not.toContain('arms/hand/arm')
-    expect(code, 'not the round-two store').not.toContain('HandStore')
-  })
 
   it('mobx mounts harnessMobxPoolArm with no parity allowance (POD-4671 fixed)', () => {
     const code = entry('mobx')
@@ -47,7 +38,7 @@ describe('browser entries mount the round-three pools', () => {
       join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
     )
     expect(graph, 'the product pool under the adapter').toContain(
-      resolve(PACKAGE_DIR, '../client-graph/src/pool.ts'),
+      resolve(PACKAGE_DIR, '../../packages/client-graph/src/pool.ts'),
     )
   })
 
@@ -58,29 +49,13 @@ describe('browser entries mount the round-three pools', () => {
         join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
       )
       expect(graph, `${name}: the product pool under the adapter`).toContain(
-        resolve(PACKAGE_DIR, '../client-graph/src/pool.ts'),
+        resolve(PACKAGE_DIR, '../../packages/client-graph/src/pool.ts'),
       )
       // POD-5432: the arm owns optimism through the product's transaction log.
       expect(graph, `${name}: the product transaction log`).toContain(
-        resolve(PACKAGE_DIR, '../client-graph/src/write/transactions.ts'),
+        resolve(PACKAGE_DIR, '../../packages/client-graph/src/write/transactions.ts'),
       )
     }
   })
 
-  it('hand web entry resolves to the harness adapter over the product pool', () => {
-    // By module, not by spelling: this is the page that mounted `handArm`
-    // (the round-two `HandStore`) while the matrix timed it as the
-    // round-three pool (dacdf9d98). Same graph assertion as the MobX entry.
-    const graph = moduleGraphOf(join(PACKAGE_DIR, 'harness/web/entries/hand.ts'))
-    expect(graph, 'the harness adapter').toContain(
-      join(PACKAGE_DIR, 'harness/src/adapters/hand-pool.ts'),
-    )
-    expect(graph, 'the product pool under the adapter').toContain(
-      join(PACKAGE_DIR, 'arms/hand/pool/pool.ts'),
-    )
-    expect(
-      graph.filter((file) => file === join(PACKAGE_DIR, 'arms/hand/arm.ts')),
-      'the round-two arm, however it is spelled',
-    ).toEqual([])
-  })
 })

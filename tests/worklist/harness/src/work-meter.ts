@@ -83,7 +83,6 @@ import {
   isObservableSet,
   Reaction,
 } from 'mobx'
-import { CellGraph } from '../../arms/hand/pool/cells'
 
 type Side = 'arm' | 'outside'
 
@@ -523,29 +522,6 @@ function countedDerivation(original: Method): Method {
 }
 
 /**
- * POD-4934 — a method that runs a hand-rolled cell body (`CellGraph.run`):
- * counts one, and runs it as the arm. Every cell body goes through `run`,
- * first runs included, wherever the cell was created — so cells built before
- * the window still count when a change re-runs them. Patched here, from
- * OUTSIDE the hand arm: nothing in `arms/hand` counts itself. `run` is
- * private to the graph, so it is reached by name (as the MobX patch reaches
- * `computeValue_`): the patch throws loudly when it is not an own method.
- */
-function countedHandDerivation(original: Method): Method {
-  return function (this: unknown, ...args: unknown[]) {
-    if (tally === null) return original.apply(this, args)
-    const by = derivationOwner((args[0] as { name?: unknown } | undefined)?.name)
-    countDerivation(by)
-    running.push(by)
-    try {
-      return insideArm(() => original.apply(this, args))
-    } finally {
-      running.pop()
-    }
-  }
-}
-
-/**
  * An `observer` component's invalidation hands the redraw to React
  * (`useSyncExternalStore`'s store change): React's side, so the render React
  * schedules there is not the arm's. The render body itself comes back to the
@@ -644,8 +620,6 @@ function install(patches: Patches): void {
   patches.replace(computedProto, 'computeValue_', countedDerivation)
   patches.replace(Reaction.prototype as unknown as object, 'track', countedDerivation)
   patches.replace(Reaction.prototype as unknown as object, 'runReaction_', reactSchedulesObserver)
-  // Hand derivations: the cell body (POD-4934, from outside the hand arm).
-  patches.replace(CellGraph.prototype as unknown as object, 'run', countedHandDerivation)
   // The DOM's own work (happy-dom under the count lane) is not the arm's.
   for (const [name, methods] of DOM_METHODS) {
     const ctor = (globalThis as Record<string, unknown>)[name] as { prototype: object } | undefined

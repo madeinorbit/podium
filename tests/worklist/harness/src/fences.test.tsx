@@ -58,9 +58,9 @@ import {
 
 // happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead
 // (the root lane runs at the repo root, the package lane in the package).
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 const ARMS_DIR = join(PACKAGE_DIR, 'arms')
 
 /** Per-scenario cells to the (git-ignored) results folder: the evidence behind a green run. */

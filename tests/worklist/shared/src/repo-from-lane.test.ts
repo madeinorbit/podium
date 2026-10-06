@@ -15,12 +15,6 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  createTables as createHandTables,
-  ingestOut as handIngestOut,
-  ingestRecord as handIngestRecord,
-  type RelationMaintenance as HandMaintenance,
-} from '../../arms/hand/pool/tables'
-import {
   createPlainTables as createMobxPlainTables,
   ingestOut as mobxIngestOut,
   ingestRecord as mobxIngestRecord,
@@ -39,10 +33,10 @@ import {
 } from '@podium/client-graph/shared/repo-from-lane'
 import type { RowRecord } from './stats'
 
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
-const SHARED_COMPOSER = resolve(PACKAGE_DIR, '../client-graph/src/shared/repo-from-lane.ts')
+  : join(process.cwd(), 'tests', 'worklist')
+const SHARED_COMPOSER = resolve(PACKAGE_DIR, '../../packages/client-graph/src/shared/repo-from-lane.ts')
 
 // ------------------------------------------------------------------ fakes
 
@@ -219,12 +213,10 @@ describe('repo-from-lane composition', () => {
 // ------------------------------------------------------------------ Part B
 
 const ARM_TABLES = [
-  resolve(PACKAGE_DIR, '../client-graph/src/tables.ts'),
-  join(PACKAGE_DIR, 'arms', 'hand', 'pool', 'tables.ts'),
+  resolve(PACKAGE_DIR, '../../packages/client-graph/src/tables.ts'),
 ]
 const FIELD_LAYERS = [
-  resolve(PACKAGE_DIR, '../client-graph/src/models.ts'),
-  join(PACKAGE_DIR, 'arms', 'hand', 'pool', 'records.ts'),
+  resolve(PACKAGE_DIR, '../../packages/client-graph/src/models.ts'),
 ]
 
 function codeOf(file: string): string {
@@ -375,26 +367,4 @@ describe('every worktree record passes through the shared composer', () => {
     )
   })
 
-  it('hand ingestRecord routes each worktree record through it', () => {
-    const script = laneScript()
-    const tables = createHandTables()
-    const target = {
-      read: tables,
-      write: tables,
-      relations: liveWorktreeMembers(tables.worktree) as unknown as HandMaintenance,
-    }
-    const out = handIngestOut()
-    resetRepoLaneCalls()
-    const [w1, w2, issue, w3, ...rest] = script.records
-    handIngestRecord(target, w1!, out)
-    handIngestRecord(target, w2!, out)
-    expect(tables.repo.get('r1')).toBe(script.b)
-    handIngestRecord(target, issue!, out)
-    expect(repoLaneCalls.worktreeRecords).toBe(2)
-    handIngestRecord(target, w3!, out)
-    expect(tables.repo.get('r1')).toBe(script.a)
-    for (const record of rest) handIngestRecord(target, record, out)
-    expect(repoLaneCalls.worktreeRecords).toBe(script.worktreeRecords)
-    expectScriptedHoldings(target.write.repo, target.write.worktree, script)
-  })
 })

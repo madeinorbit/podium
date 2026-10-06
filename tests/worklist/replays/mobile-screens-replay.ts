@@ -21,13 +21,13 @@ import { reaction, runInAction } from 'mobx'
 import {
   corpusFromLive,
   type LiveCollections,
-} from '../../../tests/worklist/harness/src/fixture/live-snapshot'
-import { sidebarReplayStore } from '../../../tests/worklist/harness/src/oracle/sidebar-replay'
-import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
-import { attachMobileScreens } from '../src/mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES } from '../src/mobile-screens-schema'
-import { createRuntimeWorklistPool } from '../src/runtime-pool'
-import type { MobileScreenInput } from './mobile-screens-snapshot'
+} from '../harness/src/fixture/live-snapshot'
+import { sidebarReplayStore } from '../harness/src/oracle/sidebar-replay'
+import { ScenarioCache } from '../shared/src/scenarios'
+import { attachMobileScreens } from '../../../packages/client-graph/src/mobile-screens'
+import { MOBILE_SCREEN_SUMMARIES } from '../../../packages/client-graph/src/mobile-screens-schema'
+import { createRuntimeWorklistPool } from '../../../packages/client-graph/src/runtime-pool'
+import type { MobileScreenInput } from '../../../packages/client-graph/diagnostics/mobile-screens-snapshot'
 
 const MAX_CHECKS_PER_POOL = 100
 let phase = 0
@@ -35,13 +35,13 @@ async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
   storeStats.enable()
   storeStats.reset()
-  const { poolMobileScreensSnapshot } = await import('./mobile-screens-snapshot')
+  const { poolMobileScreensSnapshot } = await import('../../../packages/client-graph/diagnostics/mobile-screens-snapshot')
   const { mostRelevantSession } = await import('../../../apps/mobile/src/lib/mission-session')
   const origin =
     process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
   phase = 1
   const { token } = JSON.parse(
-    readFileSync(join(homedir(), '.podium/cli-session.json'), 'utf8'),
+    readFileSync(join(homedir(), '../../../packages/client-graph/diagnostics/.podium/cli-session.json'), 'utf8'),
   ) as { token: string }
   const cookie = `podium_session=${token}`
   const cache = new ScenarioCache(),

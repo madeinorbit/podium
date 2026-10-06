@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture'
 import { startCensus } from '../../../harness/src/mobx-census'
-import { handPoolArm } from '../../hand/pool/arm'
 import { LeanPool, LOADING } from './pool'
 
 function boot() {
@@ -71,38 +70,6 @@ describe('lean memory prototype', () => {
     census.stop()
   })
 
-  it('uses the same visible order and borrowed resident rows as the hand arm', () => {
-    const { pool, replay, locals } = boot()
-    const hand = handPoolArm.create(replay.source, locals, undefined, { schedule: () => () => {} })
-    const off = autorun(() => pool.filing.get())
-    expect(pool.filing.get().order).toEqual(hand.pool.order())
-    pool.setWindow(pool.filing.get().order.slice(0, 20))
-    expect(
-      pool.filing
-        .get()
-        .order.slice(0, 20)
-        .map((id) => pool.mountRow(id).get()),
-    ).toEqual(
-      hand.pool
-        .order()
-        .slice(0, 20)
-        .map((id) => hand.pool.view(id)),
-    )
-    const id = pool.filing.get().order[0]!
-    expect(pool.tables.issue.get(id)).toBe(replay.source.row!('issue', id))
-    const old = replay.source.row!(
-      'issue',
-      id,
-    ) as import('@podium/client-graph/shared/slice-types').SliceIssue
-    replay.push({
-      type: 'update',
-      rows: [{ kind: 'issue', id, value: { ...old, title: 'Changed prototype title' } }],
-    })
-    expect(pool.filing.get().views.get(id)?.title).toBe('Changed prototype title')
-    off()
-    pool.dispose()
-    hand.dispose()
-  })
 
   it('keeps cold relations out, reads declared summaries and batches missing reads', () => {
     const { pool } = boot()

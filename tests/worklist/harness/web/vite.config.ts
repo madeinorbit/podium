@@ -68,7 +68,6 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: {
-        hand: entry('hand'),
         mobx: entry('mobx'),
         // POD-4825: the MobX pool with its write layer, idle and with pending edits.
         'mobx-write': entry('mobx-write'),

@@ -32,7 +32,7 @@
  * at the commit being timed, with `harness/web/dist` built there.
  *
  *   bun --conditions=@podium/source tests/worklist/harness/browser/matrix.ts \
- *     --arms noop,hand --scales 1,2,4 --rounds 4 --samples 5 --tag floor [--host flatblock]
+ *     --arms noop,mobx --scales 1,2,4 --rounds 4 --samples 5 --tag floor [--host flatblock]
  *   bun tests/worklist/harness/browser/summarize.ts \
  *     tests/worklist/harness/browser/results/floor
  *
@@ -72,7 +72,7 @@ function arg(argv: string[], flag: string, fallback: string): string {
 const argv = process.argv.slice(2)
 // An arm, or `noop+<plant>` for a planted no-op page (the timer's and the
 // budgets' can-say-NO runs), interleaved with the rest like any arm.
-const arms = arg(argv, '--arms', 'noop,hand').split(',')
+const arms = arg(argv, '--arms', 'noop,mobx').split(',')
 for (const arm of arms) {
   const [name, plant] = arm.split('+')
   if (!(CAPTURE_ARMS as readonly string[]).includes(name ?? '')) throw new Error(`unknown arm ${arm}`)

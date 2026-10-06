@@ -4,7 +4,6 @@ import type { RowView } from '@podium/client-graph/shared/row-view'
 import { autorun } from 'mobx'
 import { useCallback, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { HandPool } from '../../hand/pool/pool'
 import type { LeanPool } from './pool'
 
 export const WINDOW_ROWS = 20
@@ -15,12 +14,6 @@ export interface WindowPool {
   subscribeOrder(changed: () => void): () => void
   subscribeRow(id: string, changed: () => void): () => void
 }
-export const handWindow = (pool: HandPool): WindowPool => ({
-  order: () => pool.order(),
-  view: (id) => pool.view(id),
-  subscribeOrder: (changed) => pool.subscribeOrder(changed),
-  subscribeRow: (id, changed) => pool.subscribe(id, changed),
-})
 export const leanWindow = (pool: LeanPool): WindowPool => ({
   prepare: (ids) => pool.setWindow(ids),
   order: () => pool.filing.get().order,

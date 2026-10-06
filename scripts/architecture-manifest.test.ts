@@ -19,7 +19,6 @@ import {
   MANIFEST,
   MANIFEST_RULES,
   partitionAllowlist,
-  PROTOTYPE_READER_EDGES,
   RETIRED_MODULES,
   SAME_LAYER_ALLOWED,
   stripComments,
@@ -328,54 +327,6 @@ describe('checkManifestEdge — test-file exemptions', () => {
         value('@podium/issue-client'),
       ),
     ).toEqual([])
-  })
-})
-
-describe('checkManifestEdge — prototype reader edges (POD-5615, debt owned by POD-5544)', () => {
-  it('lets a listed prototype file read app readers upward, layer and deps arms alike', () => {
-    expect(
-      checkManifestEdge(
-        'packages/client-graph/src/mission-pane.work.test.ts',
-        'packages/client-graph',
-        'apps/web',
-        value('../../../apps/web/src/app/mission-pane-reader'),
-      ),
-    ).toEqual([])
-  })
-
-  it('still refuses an unlisted target from a listed file', () => {
-    const v = checkManifestEdge(
-      'packages/client-graph/src/mission-pane.work.test.ts',
-      'packages/client-graph',
-      'apps/server',
-      value('../../../apps/server/src/x'),
-    )
-    expect(v.map((x) => x.rule)).toContain('manifest-layer')
-  })
-
-  it('still refuses a listed target from an unlisted file', () => {
-    const v = checkManifestEdge(
-      'packages/client-core/src/x.ts',
-      'packages/client-core',
-      'apps/web',
-      value('@podium/web'),
-    )
-    expect(v.map((x) => x.rule)).toContain('manifest-layer')
-  })
-
-  it('pins the allowance list: every entry names a file on disk and a tagged workspace', () => {
-    for (const entry of PROTOTYPE_READER_EDGES) {
-      const [file = '', to = ''] = entry.split(' -> ')
-      expect(existsSync(join(REPO_ROOT, file)), `${entry}: importer is gone`).toBe(true)
-      expect(tagsFor(to), `${entry}: target is untagged`).not.toBeNull()
-    }
-  })
-
-  it('records every prototype reader edge in the ledger', () => {
-    const ledger = readFileSync(join(REPO_ROOT, 'docs/rearchitecture-v3.md'), 'utf8')
-    for (const entry of PROTOTYPE_READER_EDGES) {
-      expect(ledger, `prototype reader edge '${entry}' is not in the ledger`).toContain(entry)
-    }
   })
 })
 

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { moduleGraphOf, specifiersOf } from '../entry-pin'
 
-const PROTOTYPE = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PROTOTYPE = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
   : join(process.cwd(), 'tests/worklist')
 const PRODUCT = join(PROTOTYPE, '../client-graph')

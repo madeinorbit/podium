@@ -3993,30 +3993,12 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   'packages/client-graph/diagnostics/command-launch-replay.ts',
   'packages/client-graph/diagnostics/debug-name-heap.ts',
   'packages/client-graph/diagnostics/input-mechanisms.ts',
-  'packages/client-graph/diagnostics/mobile-screens-replay.ts',
   'packages/client-graph/diagnostics/notice-replay.ts',
   'packages/client-graph/diagnostics/projection-comparison-mechanism.ts',
   'packages/client-graph/diagnostics/session-pane-replay.ts',
   'packages/client-graph/diagnostics/shell-red-controls.ts',
   'packages/client-graph/diagnostics/shell-replay.ts',
   'packages/client-graph/diagnostics/workflow-replay.ts',
-  // Worklist-proto bench, replay and oracle harnesses (POD-5615): printed
-  // measurements, census tables and replay verdicts are the product.
-  'tests/worklist/harness/browser/layers.ts',
-  'tests/worklist/harness/browser/matrix.ts',
-  'tests/worklist/harness/browser/run.ts',
-  'tests/worklist/harness/browser/window-cost.ts',
-  'tests/worklist/harness/review/h3-witness.ts',
-  'tests/worklist/harness/src/fixture/export-snapshot.ts',
-  'tests/worklist/harness/src/mobx-trap.ts',
-  'tests/worklist/harness/src/oracle/header-replay.ts',
-  'tests/worklist/harness/src/oracle/issue-page-replay.ts',
-  'tests/worklist/harness/src/oracle/mission-replay.ts',
-  'tests/worklist/harness/src/oracle/mission-view-replay.ts',
-  'tests/worklist/harness/src/oracle/session-homes-replay.ts',
-  'tests/worklist/harness/src/oracle/sidebar-replay.ts',
-  'tests/worklist/harness/src/per-row-census.ts',
-  'tests/worklist/harness/web/entries/mobx.ts',
 ])
 
 /**

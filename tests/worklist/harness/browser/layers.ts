@@ -29,7 +29,7 @@
  * Heap is not timing: this runs on any machine, never under the bench lease.
  *
  *   bun scripts/test-heavy.ts -- bun --conditions=@podium/source tests/worklist/harness/browser/layers.ts \
- *     --arms noop,hand,mobx --cells h1a1,h10a1,h1a4 --out tests/worklist/harness/browser/results/layers.json
+ *     --arms noop,mobx --cells h1a1,h10a1,h1a4 --out tests/worklist/harness/browser/results/layers.json
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -239,7 +239,7 @@ async function main(): Promise<number> {
       console.log(line)
     return 0
   }
-  const arms = arg(argv, '--arms', 'noop,hand,mobx').split(',')
+  const arms = arg(argv, '--arms', 'noop,mobx').split(',')
   for (const arm of arms)
     if (!(CAPTURE_ARMS as readonly string[]).includes(arm.split('+')[0] ?? ''))
       throw new Error(`unknown arm ${arm}`)

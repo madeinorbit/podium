@@ -11,9 +11,9 @@ import { describe, expect, it } from 'vitest'
 import { harnessMobxPoolArm } from '../src/adapters/mobx-pool'
 import { moduleGraphOf } from '../entry-pin'
 
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 
 function harnessAdapter(): string {
   return readFileSync(join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'), 'utf-8')

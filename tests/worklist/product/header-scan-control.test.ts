@@ -1,6 +1,6 @@
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { SessionView } from '@podium/client-core/session-values'
-import { MobxPool } from './pool'
+import { MobxPool } from '../../../packages/client-graph/src/pool'
 import { autorun, compareStructural } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createScanningHeaderSessions } from '../../../apps/web/harness/header-scan-control'

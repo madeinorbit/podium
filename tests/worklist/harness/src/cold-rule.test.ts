@@ -30,8 +30,6 @@ import { referenceState } from '@podium/client-graph/diagnostics/reference-state
  */
 
 import { describe, expect, it } from 'vitest'
-import { harnessHandPoolArm } from './adapters/hand-pool'
-import { diffResidency as handDiffResidency } from '../../arms/hand/pool/enumerate'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { diffResidency as mobxDiffResidency } from './adapters/mobx-rebuild'
 import { coldByRule, type EntityName, SCHEMA, tableColdContext } from '@podium/client-graph/shared/schema'
@@ -136,24 +134,18 @@ async function measure(scale: 1 | 4) {
     const never = { schedule: () => () => {} }
     const pools = {
       mobx: mobxPoolArm.create(feeds.rows.source, feeds.locals.source, never),
-      hand: harnessHandPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, never),
     }
     const pooled: Record<string, unknown> = {}
     try {
       for (const [name, handle] of Object.entries(pools)) {
         const residency = handle.pool.residency
         if (residency === null) throw new Error(`${name}: no residency`)
-        const diff =
-          name === 'mobx'
-            ? mobxDiffResidency(pools.mobx.pool, feeds.rows.source)
-            : handDiffResidency(pools.hand.pool, feeds.rows.source)
+        const diff = mobxDiffResidency(handle.pool, feeds.rows.source)
         // POD-5407: the MobX pool keeps no list of its cold rows: they are the
         // feed's rows it does not hold. `ids()` is the cold rows it has seen,
         // which must be cold by the rule too.
         const coldOf = (entity: 'issue' | 'session') =>
-          name === 'mobx'
-            ? [...(entity === 'issue' ? issues : sessions).keys()].filter((id) => residency.isCold(entity, id))
-            : [...residency.ids(entity)]
+          [...(entity === 'issue' ? issues : sessions).keys()].filter((id) => residency.isCold(entity, id))
         pooled[name] = {
           coldIssues: coldOf('issue').length,
           coldSessions: coldOf('session').length,
@@ -166,7 +158,6 @@ async function measure(scale: 1 | 4) {
       }
     } finally {
       pools.mobx.dispose()
-      pools.hand.dispose()
     }
     return {
       scale,
@@ -178,7 +169,7 @@ async function measure(scale: 1 | 4) {
       control,
       declared,
       pools: pooled as Record<
-        'mobx' | 'hand',
+        'mobx',
         {
           coldIssues: number
           coldSessions: number
@@ -209,7 +200,7 @@ describe('the cold rule against the drawn rows (POD-4665)', () => {
     // It still keeps most closed rows out of memory.
     expect(cell.declared.coldIssues).toBeGreaterThan(cell.issues / 3)
     // Both pools apply exactly the declared rule.
-    for (const name of ['mobx', 'hand'] as const) {
+    for (const name of ['mobx'] as const) {
       const pool = cell.pools[name]
       expect(pool.partition, name).toEqual([])
       expect(pool.coldIssues, name).toBe(cell.declared.coldIssues)

@@ -23,7 +23,6 @@
  */
 
 import { harnessMobxPoolArm } from './adapters/mobx-pool'
-import { harnessHandPoolArm, harnessWritableHandPoolArm } from './adapters/hand-pool'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
@@ -126,18 +125,5 @@ export const ROUND_THREE_ARMS: readonly RosterArm[] = [
     mode: 'pooled',
     armFor: () => harnessMobxPoolArm,
     ownsOptimism: true,
-  },
-  {
-    // POD-4934: the round-three hand-rolled pool, measured on the same bar as
-    // MobX BEFORE any hand rework (pre-review design). It is EXPECTED to fail
-    // some work-per-change scenarios: measuredOnly reports each verdict
-    // instead of failing, with no allowances and no widened bound. The hand
-    // rework removes the flag.
-    name: 'Hand pool',
-    folder: 'hand',
-    mode: 'pooled',
-    armFor: () => harnessHandPoolArm,
-    writable: (transport) => harnessWritableHandPoolArm(transport),
-    measuredOnly: true,
   },
 ]

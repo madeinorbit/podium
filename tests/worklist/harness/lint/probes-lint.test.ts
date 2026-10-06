@@ -18,9 +18,9 @@ import { describe, expect, it } from 'vitest'
 import { PROBES } from '../../shared/src/probes/index'
 import { fenceConfig } from './fence-plugin.mjs'
 
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 const FIXTURES = 'harness/lint/fixtures/arms'
 const PLANTED = `${FIXTURES}/planted`
 

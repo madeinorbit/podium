@@ -611,10 +611,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'browser-safe',
     features: ['client-graph'],
     deps: ['packages/client-core', 'packages/harness', 'packages/model', 'packages/mobx-helpers', 'packages/protocol',
-      // POD-5615: the feeds' own tests and diagnostics replays read the
-      // prototype's corpus/oracle/meter readers. Product pool code below the
-      // tests does not reach back up.
-      'tests/worklist',
       // POD-5615: pool feed diagnostics report through the logger barrel.
       'packages/logger'],
   },
@@ -652,18 +648,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // L5 — build / compose tier.
   scripts: { layer: 5, platform: 'node-only', features: ['build', 'lint', 'compose'] },
 
-  // Worklist prototype screens, harnesses and experiments (POD-5615): the
-  // pool-migration proving ground. L3 beside the feeds it proves — the L3/L4
-  // tests and diagnostics that consume its corpus/oracle/meter readers import
-  // down or sideways (tests are exempt from the same-layer arm). Its own
-  // upward reads of app readers stay listed in PROTOTYPE_READER_EDGES below.
-  // browser-safe: the proofs and pool tests that import it run in browsers;
-  // its node bench tools are entry points nothing bundles.
-  'tests/worklist': {
-    layer: 3,
-    platform: 'browser-safe',
-    features: ['worklist-prototype'],
-  },
+
 }
 
 /**
@@ -696,13 +681,6 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   'packages/terminal-client-react -> packages/client-core',
   // Worklist feeds adapt the caller-owned client runtime and its existing outbox.
   'packages/client-graph -> packages/client-core',
-  // The pool-migration proving ground (POD-5615): the prototype's arms read
-  // the feeds they prove, and the feeds' own tests and diagnostics replays read
-  // the prototype's corpus/oracle/meter readers back. Deliberate in both
-  // directions — the pilot's parity tests are written against the corpus.
-  'tests/worklist -> packages/client-graph',
-  'tests/worklist -> packages/client-core',
-  'packages/client-graph -> tests/worklist',
   // The shared router types name the frames they type (POD-5615).
   'packages/api-types -> packages/protocol',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
@@ -710,37 +688,6 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // this set because the import is type-only and type-only used to skip the
   // whole rule; it is a deliberate edge and now says so (POD-335).
   'packages/issue-client -> packages/commands',
-])
-
-/**
- * Prototype reader edges (POD-5615) — UPWARD reads the layer axiom would
- * otherwise refuse, allowed explicitly and only here.
- *
- * WHAT THESE ARE. The worklist-proto screen-work harness executes the apps'
- * own pool readers for coverage, and three client-graph tests/diagnostics
- * drive app readers the same way. The readers stay owned by their apps:
- * moving app modules into client-graph is an architecture change that needs
- * the operator's yes, and the mission/chat lanes own those files — so the
- * edge points the wrong way, and it is DEBT, not design. POD-5544 removes
- * these edges when the prototype readers find their post-pilot home.
- *
- * RATCHET. Pair-scoped (`importing file -> target workspace`): a new app
- * import from any other file still fails, and so does a new target workspace
- * from a listed file. The ledger test pins the full list, so an entry can
- * only change beside its ledger line.
- */
-export const PROTOTYPE_READER_EDGES: ReadonlySet<string> = new Set<string>([
-  // Screen-work coverage executes the web mission pane + command-launch
-  // readers and the mobile work sections + pool menu.
-  'tests/worklist/harness/src/pool-screen-work.ts -> apps/web',
-  'tests/worklist/harness/src/pool-screen-work.ts -> apps/mobile',
-  // The mobile oracle compares the mobile sections reader.
-  'tests/worklist/harness/src/oracle/mobile-snapshot.ts -> apps/mobile',
-  // Feed tests drive their app readers directly.
-  'packages/client-graph/src/header-scan-control.test.ts -> apps/web',
-  'packages/client-graph/src/mission-pane.work.test.ts -> apps/web',
-  // The mobile replay boots the mobile mission session.
-  'packages/client-graph/diagnostics/mobile-screens-replay.ts -> apps/mobile',
 ])
 
 /**
@@ -973,11 +920,7 @@ export function checkManifestEdge(
   // rather than a guardrail issue quietly widening its own scope. Recorded in
   // docs/gates/pod-335-boundary-lint-end-state.md and filed, not swept.
   const upwardExempt = ref.typeOnly && !to.startsWith('apps/')
-  // Prototype reader debt (POD-5615, owned by POD-5544): the listed
-  // prototype/test edges read app readers upward. Pair-scoped — anything not
-  // in PROTOTYPE_READER_EDGES still fails below.
-  const prototypeReader = PROTOTYPE_READER_EDGES.has(`${file} -> ${to}`)
-  if (toTags.layer > fromTags.layer && !upwardExempt && !prototypeReader) {
+  if (toTags.layer > fromTags.layer && !upwardExempt) {
     violations.push({
       file,
       specifier: ref.specifier,
@@ -1002,9 +945,7 @@ export function checkManifestEdge(
   // Tests are NOT exempt — a near-leaf whose tests need a package it may not
   // import is a near-leaf that can no longer be built or tested without it,
   // which is the same architectural fact the upward rule refuses.
-  // Prototype reader debt (POD-5615, owned by POD-5544) reads through the
-  // closed set the same way it reads through the layer axiom.
-  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed && !prototypeReader) {
+  if (fromTags.deps && !fromTags.deps.includes(to) && !typeOnlyAllowed) {
     violations.push({
       file,
       specifier: ref.specifier,

@@ -238,9 +238,9 @@ describe('pool screens work ratios', () => {
 })
 
 // happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead.
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 
 /** The arm one engine mounts, and what it must show: its own pending edits over the oracle. */
 interface CellArm {

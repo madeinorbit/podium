@@ -3,12 +3,9 @@ import { runInAction } from 'mobx'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph'
 import { SCHEMA, type ModelSchema } from '@podium/client-graph/shared/schema'
-import { HandPool } from '../../arms/hand/pool/pool'
-import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { checkRelations } from '../../shared/src/probes/relations-check'
 import type { RowRecord } from '../../shared/src/stats'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
-import { scanRelations as handScan } from '../../arms/hand/pool/enumerate'
 import { scanRelations as mobxScan } from './adapters/mobx-rebuild'
 import { tracked } from './adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
@@ -85,17 +82,16 @@ describe('page schema generic relation collections', () => {
     } finally { pool.dispose() }
   })
 
-  it.each(['mobx', 'hand'] as const)('keeps multi-edges and uncollapsed membership correct in the %s engine and rebuild', arm => {
+  it('keeps multi-edges and uncollapsed membership correct in the pool and rebuild', () => {
     const locals = { selectedIssueId: null, coarseNow: Date.parse(STAMP) }
-    const pool = arm === 'mobx' ? new MobxPool(locals) : new HandPool(DISABLED_READ_FENCE, locals)
-    const reader = pool instanceof MobxPool ? pool.graph : pool.engine
-    const read = <T,>(fn: () => T) => pool instanceof MobxPool ? tracked(fn) : fn()
+    const reader = pool.graph
+    const read = <T,>(fn: () => T) => tracked(fn)
     const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }]), session('twin-a'), session('twin-b')]
     const ids = { issue: new Set(['a', 'b', 'owner']), session: new Set(['twin-a', 'twin-b']) }
     const scope = [{ from: 'issue' as const, relation: 'pageDependencies' }, { from: 'session' as const, relation: 'pageIssue' }]
     const check = () => {
       expect(read(() => checkRelations(reader, ids, scope))).toMatchObject({ total: 0 })
-      const scan = runInAction(() => pool instanceof MobxPool ? mobxScan(pool.tables) : handScan(pool.tables))
+      const scan = runInAction(() => mobxScan(pool.tables))
       expect(read(() => [...reader.many('issue', 'owner', 'pageDependencies')].sort()))
         .toEqual([...scan.many('issue', 'owner', 'pageDependencies')])
       expect(read(() => [...reader.many('issue', 'a', 'pageSessions')].sort()))

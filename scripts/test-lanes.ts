@@ -197,8 +197,8 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   const [top, second] = parts
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
   if (
-    top === 'packages' &&
-    second === 'worklist-proto' &&
+    top === 'tests' &&
+    second === 'worklist' &&
     parts[2] === 'harness' &&
     parts[3] === 'native'
   )

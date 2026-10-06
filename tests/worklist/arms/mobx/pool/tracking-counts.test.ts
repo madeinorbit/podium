@@ -137,9 +137,9 @@ installMobxWarnTrap()
 
 // happy-dom rewrites `import.meta.url` (the package's own `test` lane); resolve
 // from the lane's cwd instead, as work-per-change.test.tsx does.
-const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
-  : join(process.cwd(), 'packages', 'worklist-proto')
+  : join(process.cwd(), 'tests', 'worklist')
 const BASELINE_PATH = join(PACKAGE_DIR, 'harness', 'src', 'tracking-counts.baseline.json')
 const UPDATE = process.env['POD_TRACKING_COUNTS_UPDATE']
 
