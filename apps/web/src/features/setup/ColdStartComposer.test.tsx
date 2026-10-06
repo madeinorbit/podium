@@ -206,11 +206,11 @@ function recentSession(cwd: string): SessionMeta {
  * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
   it.each([
-    '/Users/bob/src/podium',
-    'C:\src\podium',
-    'C:/src/podium',
-    '\\server\share\podium',
-    'C:\src\podium\',
+    "/Users/bob/src/podium",
+    "C:\\src\\podium",
+    "C:/src/podium",
+    "\\\\server\\share\\podium",
+    "C:\\src\\podium\\",
   ])('names the originless repository in the heading by its folder: %s', (path) => {
     const { name: _name, ...repo } = initialRepo
     store.repos.splice(0, store.repos.length, { ...repo, path })
