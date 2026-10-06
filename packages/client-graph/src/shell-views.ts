@@ -28,7 +28,7 @@ export interface ShellDockData {
 
 /** Cached views over the pool's one reader. No replica, legacy array, peek or
  * cold-ID index lives here. A missing summary queues the existing batch. */
-export function createShellViews(pool: MobxPool) {
+function createShellViews(pool: MobxPool) {
   // Summaries build fresh arrays/records; equal answers must not wake consumers.
   const cache = keyedComputed(
     () => undefined,

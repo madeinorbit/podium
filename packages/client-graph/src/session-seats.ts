@@ -22,9 +22,9 @@ export interface SeatPartition {
 
 /** A seated (non-archived) session: one constant, so a heartbeat on it
  * re-reads its row and stops there. Its readers read the row directly. */
-export const SEATED = Object.freeze({ seat: 'seated' as const })
+const SEATED = Object.freeze({ seat: 'seated' as const })
 /** A cold session whose declared summary does not carry the archived flag. */
-export const UNSETTLED = Object.freeze({ seat: 'unknown' as const })
+const UNSETTLED = Object.freeze({ seat: 'unknown' as const })
 
 /** An archived session, with everything history aggregates read of it. A
  * read marker or any other display change leaves these facts, and so every
@@ -77,7 +77,7 @@ type SeatRow = {
  * value per session. Nothing here loads a row; everything lives only while a
  * mounted reader observes it, and no index or keep-alive is added to the pool.
  */
-export function createSessionSeats(pool: MobxPool): SessionSeats {
+function createSessionSeats(pool: MobxPool): SessionSeats {
   const seat = cachedKey('SessionSeat', 'seat', (sessionId): Loaded<Seat> => {
     const row = pool.row('session', sessionId, 'summary') as Loaded<SeatRow>
     if (row === LOADING || row === undefined) return row

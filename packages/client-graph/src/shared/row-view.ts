@@ -331,7 +331,7 @@ export const ROW_DISPLAYED_FIELDS = [
  * `seq`; the fold's `foldAt`). A change to one moves the row in the list (the
  * lane redraws), never the row itself.
  */
-export const ROW_PLACEMENT_FIELDS = [
+const ROW_PLACEMENT_FIELDS = [
   'id',
   'repoKey',
   'sortKey',

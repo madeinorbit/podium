@@ -60,7 +60,7 @@ export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
 /** The defer sentinel that never returns on its own (spec §3 R-ORDER). */
 export { DEFER_NEXT_MESSAGE }
 /** A draft's placeholder title (spec §3 R-SUM). */
-export const DRAFT_TITLE = 'Draft'
+const DRAFT_TITLE = 'Draft'
 
 /** A repo row as the feed spells it (a root lane, or the raw replicated row). */
 export interface RepoRow {
@@ -276,7 +276,7 @@ export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed'
 }
 
 /** The row-only fields of issue `id`; undefined when it is not in memory. */
-export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
+function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
   const issue = input.issue(id)
   return issue === undefined ? undefined : ownPartOfRow(issue, input)
 }
@@ -317,14 +317,14 @@ export function prefixPartOf(input: ViewInputs, repoTarget: string | null): stri
 }
 
 /** `prefix-seq`, else `#seq`, from the parts (spec §3 R-SUM). */
-export function displayRefPartOf(
+function displayRefPartOf(
   own: OwnPart | undefined,
   prefix: string | null,
 ): string | undefined {
   return own === undefined ? undefined : displayRefOf(own.seq, prefix)
 }
 
-export function displayTitlePartOf(
+function displayTitlePartOf(
   input: ViewInputs,
   id: string,
   sessionIds: readonly string[],
@@ -387,7 +387,7 @@ export function activityMsOf(session: SliceSession | undefined): number | null {
  * contribution (`ViewInputs.sessionActivity`): a seat's change re-reads that
  * seat only.
  */
-export function activityAtPartOf(input: ViewInputs, id: string): number {
+function activityAtPartOf(input: ViewInputs, id: string): number {
   return activityAtOf(input, input.retainedSeats(id), () => parseMs(input.issue(id)?.updatedAt))
 }
 

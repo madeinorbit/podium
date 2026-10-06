@@ -37,7 +37,7 @@ type Common = Pick<
 
 /** Global browsing values have no selection dependency. Only the small
  * placement and selected-context overlays read their window fields. */
-export function createCommandLaunchViews(pool: MobxPool) {
+function createCommandLaunchViews(pool: MobxPool) {
   const read = <E extends keyof CommandLaunchRows>(entity: E, id: string) =>
     pool.row(entity, id) as Loaded<CommandLaunchRows[E]>
   const counts = {

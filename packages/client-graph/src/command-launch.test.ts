@@ -32,7 +32,7 @@ import {
 } from '../../../tests/worklist/diagnostics/command-launch-check'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
-import { commandLaunchViews, createCommandLaunchViews } from './command-launch-views'
+import { commandLaunchViews } from './command-launch-views'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { LOADING } from './worklist/rollup'
 
@@ -402,7 +402,7 @@ describe('declared command and launch targets', () => {
     try {
       f.parity()
       const state = referenceState(f.ctx.engine),
-        views = createCommandLaunchViews(f.pool),
+        views = commandLaunchViews(f.pool),
         data = views.launch()
       expect(data && data !== LOADING).toBeTruthy()
       if (!data || data === LOADING) throw new Error('Launcher did not settle')
@@ -414,12 +414,15 @@ describe('declared command and launch targets', () => {
       )
       expect(data.usage).toEqual(expected)
       expect(Object.values(expected).some((at) => at > 0)).toBe(true)
-      const fault = vi.spyOn(f.pool.queries, 'activity').mockReturnValue(0)
+      // A fresh owner reaches the planted query before any launcher value is cached.
+      const faulty = await fixture()
+      const fault = vi.spyOn(faulty.pool.queries, 'activity').mockReturnValue(0)
       try {
-        const broken = createCommandLaunchViews(f.pool).launch()
+        const broken = commandLaunchViews(faulty.pool).launch()
         expect(broken && broken !== LOADING ? broken.usage : undefined).not.toEqual(expected)
       } finally {
         fault.mockRestore()
+        faulty.close()
       }
     } finally {
       f.close()

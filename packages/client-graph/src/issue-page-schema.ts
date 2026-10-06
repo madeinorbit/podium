@@ -3,9 +3,6 @@ import type { ReferentExit } from '@podium/client-core/values'
 
 export interface IssuePageSourceRows { issueExit: { kind: ReferentExit | undefined } }
 declare module './source-registry' { interface PoolSourceRows extends IssuePageSourceRows {} }
-export const ISSUE_PAGE_SOURCE_SCHEMA = {
-  issueExit: { key: 'issueId', source: 'replica:exitKind(issueProjection,issueId)', fields: ['kind'], residency: 'borrowed-summary' },
-} as const
 
 const field = (type: FieldSpec['type'], optional = true): FieldSpec => ({
   type, optional, source: { schema: 'IssueProjection', arrivesOn: 'replica:issueProjections' },

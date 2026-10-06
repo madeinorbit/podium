@@ -16,7 +16,7 @@ const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 /** Value reads always use pool.row. Memos live only while observed. Catalog
  * relations cover resident definitions/runs, and cold sessions contribute only
  * the existing declared summary. This layer owns no runtime or mutations. */
-export function createAutomationViews(pool: MobxPool) {
+function createAutomationViews(pool: MobxPool) {
   // Summaries build fresh arrays/records; equal answers must not wake consumers.
   const cache = keyedComputed(
     (key: string) => debugName(() => `automations.${key}`),

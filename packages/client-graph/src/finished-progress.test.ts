@@ -3,7 +3,7 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { issueClosed, missionRollup, type IssueNavigationModel } from '@podium/client-core/values'
 import { isFinished as modelFinished } from '@podium/model/browser'
-import { createHeaderViews } from './header-views'
+import { headerView } from './header-views'
 import { createIssueBoardSource } from './issue-board-source'
 import { missionView } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
@@ -43,7 +43,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, {
     load: (_entity, id) => byId.get(id), summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
   })
-  const header = createHeaderViews(pool)
+  const header = headerView(pool)
   const pane = missionView(pool)
   const board = createIssueBoardSource(pool)
   try {

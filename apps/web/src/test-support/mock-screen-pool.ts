@@ -24,7 +24,7 @@ import {
   rowPendingDecision,
   type UnifiedIssueRow,
 } from '@podium/client-core/values'
-import { createSettingsViews } from '@podium/client-graph/settings-views'
+import { settingsView } from '@podium/client-graph/settings-views'
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { computed, observable, reaction, runInAction } from 'mobx'
 import { afterEach, vi } from 'vitest'
@@ -656,7 +656,7 @@ function useFixturePool(): MobxPool {
           if (name === 'header.entities') return fixture.header
           if (name === 'header.views') return fixture.headerViews
           if (name === 'sessionPanes') return fixture.sessionPanes
-          if (name === 'settings.views') return fixture.settingsViews
+          if (name === 'settings.views') return fixture.settingsViews ?? (_factory as () => unknown)()
           if (name !== 'missions') throw new Error(`Undeclared component fixture source: ${name}`)
           const byId = new Map<string, IssueViewModel>(
             live.current.issues.map((row) => [row.id as string, row]),
@@ -787,7 +787,7 @@ function useFixturePool(): MobxPool {
       },
     } as unknown as MobxPool
     const reader = createChatContextReader(pool)
-    Object.assign(pool, { settingsViews: createSettingsViews(pool) })
+    Object.assign(pool, { settingsViews: settingsView(pool) })
     return pool
   }, [version])
 }

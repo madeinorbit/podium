@@ -18,14 +18,6 @@ declare module './source-registry' {
 }
 export const MOBILE_SETTINGS_SOURCE_KEY = 'mobile-settings'
 export const MOBILE_SETTINGS_ENTITIES = ['mobileSettingsDiagnostics'] as const
-export const MOBILE_SETTINGS_SCHEMA = {
-  mobileSettingsDiagnostics: {
-    key: 'diagnostics',
-    source: 'runtime:diagnostics',
-    residency: 'on-demand',
-    relations: {},
-  },
-} as const
 
 type DiagnosticsOwner = Pick<ClientRuntime, 'replica'>
 

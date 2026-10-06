@@ -9,7 +9,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Observed summaries suspend when settings/setup unmounts. No full-session
  * mirror or cold-row index; every value is read through the pool's one reader. */
-export function createSettingsViews(pool: MobxPool) {
+function createSettingsViews(pool: MobxPool) {
   // Summaries build fresh arrays/records; equal answers must not wake consumers.
   const cache = keyedComputed(
     (key: string) => debugName(() => `settings.${key}`),

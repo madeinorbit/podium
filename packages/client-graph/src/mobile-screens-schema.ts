@@ -72,31 +72,6 @@ export const MOBILE_TASK_STAGES: readonly IssueBoardStage[] = [
   'proposed',
   'done',
 ]
-
-/** All relationships already belong to shared/schema.ts. This screen adds no
- * relation index: query results and presentation maps live only while observed. */
-export const MOBILE_SCREEN_SCHEMA = {
-  mobileScreenReader: { key: 'reader', source: 'existing pool', residency: 'principal' },
-  tasks: {
-    candidates: 'issueBoardQuery: boardIssues declared cold question + resident index',
-    rows: 'issueBoardRow',
-    cards: 'issueBoardCard',
-    parent: 'treeParent',
-    children: 'treeChildren',
-    proposals: 'issueBoardQuery: proposed, then declared ancestor summaries',
-  },
-  mission: {
-    root: 'mission.rootFor',
-    members: 'mission.members',
-    formal: 'children: declared visible-child relation',
-    rows: 'mission-view reader',
-    sessions: 'missionSessions',
-    authors: 'startedBySession: addressed session summary, shared resume collapse verdict',
-    provenance: 'missionStartedIssues',
-    context: ['pageDependencies', 'pageDependents', 'supersedingIssue', 'canonicalIssue'],
-  },
-  writes: 'existing runtime actions and outbox',
-} as const
 export const MOBILE_SCREEN_SUMMARIES = mergePoolSummaries(
   ISSUE_BOARD_SUMMARIES,
   MISSION_SUMMARIES,

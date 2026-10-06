@@ -24,7 +24,7 @@ export const CHAT_CONTEXT_ENTITIES = [
   'chatIssueOrder',
   'chatSessionOrder',
 ] as const
-export const CHAT_CONTEXT_SCHEMA = {
+const CHAT_CONTEXT_SCHEMA = {
   chatContextReader: { source: 'screen:reader', key: 'reader', owner: 'existing pool' },
   chatDraft: {
     key: 'sessionId',
@@ -105,10 +105,3 @@ export const CHAT_CONTEXT_SUMMARIES = {
   issue: CHAT_CONTEXT_SCHEMA.issue.summary,
   session: CHAT_CONTEXT_SCHEMA.session.summary,
 }
-export const CHAT_CONTEXT_RELATIONS = [
-  { from: 'chatDraft', name: 'session', key: 'sessionId', to: 'session' },
-  { from: 'chatHeld', name: 'session', key: 'sessionId', to: 'session' },
-  { from: 'chatWindow', name: 'attachedSession', key: 'attachedSessionId', to: 'session' },
-  { from: 'issue', name: 'repo', to: 'repo', reader: 'pool.relations.one' },
-  { from: 'issue', name: 'pageSessions', to: 'session', reader: 'pool.relations.many', raw: true },
-] as const

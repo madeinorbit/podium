@@ -48,7 +48,7 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
 /** Presentation helpers preserve the existing vocabulary. Every fact fed to
  * them comes through this pool's one reader and its declared relationships. */
-export function createIssuePageViews(pool: MobxPool) {
+function createIssuePageViews(pool: MobxPool) {
   // TODO(POD-5575): fresh pane summaries still need explicit structural equality.
   const cache = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
   const identities = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read())

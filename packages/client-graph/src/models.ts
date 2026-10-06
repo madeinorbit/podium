@@ -1036,7 +1036,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   }
 }
 
-export class WorktreeModel extends EntityModel {
+class WorktreeModel extends EntityModel {
   private static readonly roster = cachedGroup('roster', (worktree: WorktreeModel) =>
     sidebarRosterOf(worktree.host, worktree.id), compareStructural,
   )
@@ -1050,7 +1050,7 @@ export class WorktreeModel extends EntityModel {
   }
 }
 
-export class RepoModel extends EntityModel {
+class RepoModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('repo', id, host)
   }

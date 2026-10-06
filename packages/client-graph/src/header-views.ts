@@ -45,7 +45,7 @@ const contains = (cwd: string, root: string) =>
 
 /** Views over one pool. Memos exist only while observed, and are released when
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */
-export function createHeaderViews(pool: MobxPool) {
+function createHeaderViews(pool: MobxPool) {
   // Header summaries allocate fresh records; compare their values explicitly.
   const cache = keyedComputed(
     (key: string) => debugName(() => `header.${key}`),

@@ -23,7 +23,7 @@ export const NOTICE_ENTITIES = ['messageRecord', 'pendingInteraction', 'outboxDe
 /** Session identity/order is declared at attachment and maintained at addressed
  * ingestion. Payloads are borrowed by ID. Aggregate answers exist only during
  * observed demand; an imperative read borrows an answer for that read alone. */
-export const NOTICE_SCHEMA = {
+const NOTICE_SCHEMA = {
   messageRecord: { key: 'id', source: 'replica:messageRecords', residency: 'resident-on-demand' },
   pendingInteraction: { key: 'id', source: 'replica:pendingInteractions', residency: 'resident-on-demand' },
   outboxDeadLetter: { key: 'entry.mutationId', source: 'runtime:outbox', residency: 'resident-on-demand', relations: {} },

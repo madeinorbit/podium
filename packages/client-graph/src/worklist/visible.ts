@@ -310,7 +310,7 @@ export interface IssueFacts {
 }
 
 /** The facts group of `issue` (the fold verdict and the band are computed once, here). */
-export function issueFactsOf(
+function issueFactsOf(
   issue: SliceIssue,
   input: Pick<VisibleInputs, 'passed' | 'reached'>,
 ): IssueFacts {
@@ -334,7 +334,7 @@ export function issueFactsPartOf(input: VisibleInputs, id: string): IssueFacts |
  * carries one at all (`''` normalizes to null: `Boolean('')` is false and
  * `Date.parse('')` is NaN, both ways).
  */
-export function readCursorOf(raw: string | null | undefined): {
+function readCursorOf(raw: string | null | undefined): {
   readonly readMs: number | null
   readonly hasRead: boolean
 } {
@@ -644,7 +644,7 @@ export type MemberSeats = Pick<Members, 'seatIds' | 'laneMemberIds' | 'memberIds
 export type MemberVerdicts = Omit<Members, keyof MemberSeats>
 
 /** The membership part of issue `id`: re-runs only when a seat or lane member joins or leaves. */
-export function memberSeatsOf(input: VisibleInputs, id: string): MemberSeats {
+function memberSeatsOf(input: VisibleInputs, id: string): MemberSeats {
   // A copy: the maintained list mutates in place, and a cached group must
   // hold a value (a membership change re-runs this through the list's reads).
   const seatIds = input.seatList(id).slice()
@@ -1122,7 +1122,7 @@ export function nestedPartOf(
 }
 
 /** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
-export function rankPartOf(input: VisibleInputs, id: string): RowRank | undefined {
+function rankPartOf(input: VisibleInputs, id: string): RowRank | undefined {
   const issue = input.issueRow(id)
   return issue === undefined ? undefined : rankOfPart(id, ownPartOfRow(issue, input))
 }

@@ -56,7 +56,7 @@ export function laneRepoId(row: LaneStoredRow): string | null {
  * Where a feed row spells a schema field differently. Only the repo: its row
  * is a lane, which carries the repo's path as `repoPath`.
  */
-export const REPO_FEED_SPELLING: Readonly<Record<string, string>> = { path: 'repoPath' }
+const REPO_FEED_SPELLING: Readonly<Record<string, string>> = { path: 'repoPath' }
 
 /** The feed spelling, by entity: the field layers of both arms read through this. */
 export const FEED_SPELLING: Readonly<

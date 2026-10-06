@@ -11,7 +11,7 @@ declare module './source-registry' {
 export const MOBILE_INBOX_SOURCE_KEY = 'mobile-inbox'
 export const MOBILE_INBOX_VIEW_KEY = 'mobile-inbox-views'
 export const MOBILE_INBOX_ENTITIES = ['mobileInboxState'] as const
-export const MOBILE_INBOX_SCHEMA = {
+const MOBILE_INBOX_SCHEMA = {
   mobileInboxState: {
     key: 'state',
     source: 'replica:cursor',

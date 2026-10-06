@@ -1,16 +1,5 @@
 import { uiStateRoute, type UiStateHome } from '@podium/client-core/ui-state'
 
-/** A routed preference is an entity owned by this principal's existing UI port.
- * Dynamic layout keys use the same declared routing vocabulary as their writer.
- * There are no relations or unloaded summaries: demand is by exact key, and the
- * small resident rows contain only that key's scalar value. No entity scan. */
-export const PREFERENCE_SCHEMA = {
-  preference: {
-    key: 'key', source: 'runtime:ui', fields: ['key', 'home', 'value'],
-    relations: {}, summaries: {}, residency: 'on-demand',
-  },
-} as const
-
 export interface PreferenceRow {
   readonly key: string
   readonly home: UiStateHome

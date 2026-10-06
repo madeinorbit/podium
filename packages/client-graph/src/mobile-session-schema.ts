@@ -88,34 +88,3 @@ export const MOBILE_SESSION_SUMMARIES = {
   session: MOBILE_SESSION_SCHEMA.session.summary,
   issue: MOBILE_SESSION_SCHEMA.issue.summary,
 }
-export const MOBILE_SESSION_RELATIONS = [
-  {
-    from: 'session',
-    name: 'issue',
-    key: 'issueId',
-    to: 'issue',
-    reader: 'pool.row addressed foreign key, including headless sessions',
-  },
-  { from: 'issue', name: 'repo', to: 'repo', reader: 'pool.relations.one' },
-  {
-    from: 'issue',
-    name: 'missionSessions',
-    to: 'session',
-    reader: 'existing issue-page attached roster for draft-delete confirmation',
-  },
-  {
-    from: 'issue',
-    name: 'pageDependents',
-    to: 'issue',
-    reader: 'existing issue-page reader over declared inverse edges',
-  },
-  {
-    from: 'issue',
-    name: 'treeChildren',
-    to: 'issue',
-    reader: 'existing issue-page reader over declared parent edges',
-  },
-  { from: 'session', name: 'machine', key: 'machineId', to: 'machine' },
-  { from: 'chatDraft', name: 'session', key: 'sessionId', to: 'session' },
-  { from: 'chatHeld', name: 'session', key: 'sessionId', to: 'session' },
-] as const

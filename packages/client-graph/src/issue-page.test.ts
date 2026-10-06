@@ -3,7 +3,7 @@ import { presenceNote } from '@podium/client-core/values'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { createIssuePageViews, type IssuePageData } from './issue-page'
+import { issuePages, type IssuePageData } from './issue-page'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 import type { RowRecord } from './shared/source'
@@ -95,7 +95,7 @@ it('preserves detail catalogs, continuations and roster lifecycle without readin
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
   pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
   pool.apply({ type: 'replace', rows })
-  const views = createIssuePageViews(pool)
+  const views = issuePages(pool)
   let current: Loaded<IssuePageData> = LOADING
   const stop = autorun(() => {
     current = views.data('root')
@@ -237,7 +237,7 @@ it('keeps page reads bounded at 4x and releases the unrelated menu catalog', () 
         } as RowRecord,
       ],
     })
-    const views = createIssuePageViews(pool)
+    const views = issuePages(pool)
     const reads = vi.spyOn(pool, 'row')
     const project = vi.spyOn(pool.queries, 'project')
     let current: Loaded<IssuePageData> = LOADING
@@ -334,7 +334,7 @@ it('keeps named and draft detail independent of unrelated worktree choices at 1x
         ),
       ],
     })
-    const views = createIssuePageViews(pool),
+    const views = issuePages(pool),
       reads = vi.spyOn(pool, 'row'),
       keys = vi.spyOn(pool.tables.worktree, 'keys'),
       paint = vi.fn(),
