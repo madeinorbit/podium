@@ -668,11 +668,8 @@ describe('POD-5058 staffed continuation preference', () => {
 })
 
 describe('POD-5059 section label from root rows', () => {
-  // Known failures owned by POD-5719 (Bug: Sidebar keeps old repo path after
-  // rename): after updateRepoPath the pool sidebar rows keep the projection's
-  // denormalized repoPath while the legacy oracle joins the live repo row.
-  // These two cases fail on exactly that field until that issue lands; their
-  // bodies are unchanged and must not be skipped or weakened.
+  // POD-5719: observed sidebar rows follow the live repo relation even when
+  // the issue projection still carries the path from before the rename.
   it.each([
     false,
     true,
@@ -704,6 +701,8 @@ describe('POD-5059 section label from root rows', () => {
       expect(ctx.check().first).toBeNull()
       // A root rename changes the header without moving the group or its rows.
       ctx.updateRepoPath('synthetic-repo', '/synthetic/renamed-root')
+      expect(ctx.row(root.id).actual.issue.repoPath).toBe('/synthetic/renamed-root')
+      expect(ctx.row(child.id).actual.issue.repoPath).toBe('/synthetic/renamed-root')
       expect(band().expected.label).toBe('renamed-root')
       expect(band().actual.label).toBe(band().expected.label)
       expect(ctx.check().first).toBeNull()

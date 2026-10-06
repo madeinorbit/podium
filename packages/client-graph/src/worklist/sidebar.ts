@@ -9,7 +9,7 @@ import { sidebarRosterView } from './sidebar-roster'
 
 import { compareStructural, observable, reaction } from 'mobx'
 import { cachedGroup, keyedViews } from '../cached'
-import { hostOf, type IssueModel, type ModelHost, type SessionModel } from '../models'
+import { hostOf, type IssueModel, type ModelHost, type ModelOf, type SessionModel } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
@@ -238,10 +238,13 @@ function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<SidebarRowValu
   if (own === LOADING) return LOADING
   if (own === undefined) return undefined
   const facts = model.loaded.facts
+  const repo = (model as ModelOf['issue']).repo
   const issue = overlayRow(
     own,
     {
       displayRef: model.displayRef,
+      // Follow the declared live repo relation; the issue projection can lag a rename.
+      repoPath: repo?.path ?? own.repoPath,
       readAt: host.visibleInputs.issueRead(model.id),
       unread: model.unread,
     },
