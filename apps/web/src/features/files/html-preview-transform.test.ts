@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { Window } from 'happy-dom'
 import { describe, expect, it } from 'vitest'
 import { scopedAssetUrl } from '@/lib/asset-url'
 import { buildStaticHtmlPreview, linkedStylesheetPathsForStaticHtml, rewriteCssUrls } from './html-preview-transform'
@@ -160,26 +161,33 @@ it('inlines Windows stylesheets and resolves their asset directory on the machin
 
 
 it.each(['/r/docs', String.raw`C:\r\docs`])('keeps a preview alive with trailing-dot assets under %s', fileDir => {
-  const source = '<img src="img."><style>.x{background:url(x.)}</style><link rel="stylesheet" href="style.">'
-  const reads: string[] = []
-  const html = buildStaticHtmlPreview({
-    html: source,
-    fileDir,
-    resolveAsset: (baseDir, src) => scopedAssetUrl({ httpOrigin: 'https://podium.test', scope: { kind: 'worktree', root: fileDir }, fileDir: baseDir, src }),
-    readTextAsset: path => { reads.push(path); return undefined },
-  })
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  const paths = linkedStylesheetPathsForStaticHtml(source, fileDir)
-  if (fileDir.startsWith('C:')) {
-    expect(doc.querySelector('img')?.getAttribute('src')).toBe('img.')
-    expect(doc.querySelector('style')?.textContent).toContain('url(x.)')
-    expect(doc.querySelector('link')?.getAttribute('href')).toBe('style.')
-    expect(paths).toEqual([])
-    expect(reads).toEqual([])
-  } else {
-    expect(doc.querySelector('img')?.getAttribute('src')).toContain('/files/asset?')
-    expect(doc.querySelector('style')?.textContent).toContain('/files/asset?')
-    expect(paths).toEqual(['/r/docs/style.'])
-    expect(reads).toEqual(paths)
+  const settings = (window as unknown as Window).happyDOM.settings
+  const previous = settings.disableCSSFileLoading
+  settings.disableCSSFileLoading = true
+  try {
+    const source = '<img src="img."><style>.x{background:url(x.)}</style><link rel="stylesheet" href="style.">'
+    const reads: string[] = []
+    const html = buildStaticHtmlPreview({
+      html: source,
+      fileDir,
+      resolveAsset: (baseDir, src) => scopedAssetUrl({ httpOrigin: 'https://podium.test', scope: { kind: 'worktree', root: fileDir }, fileDir: baseDir, src }),
+      readTextAsset: path => { reads.push(path); return undefined },
+    })
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const paths = linkedStylesheetPathsForStaticHtml(source, fileDir)
+    if (fileDir.startsWith('C:')) {
+      expect(doc.querySelector('img')?.getAttribute('src')).toBe('img.')
+      expect(doc.querySelector('style')?.textContent).toContain('url(x.)')
+      expect(doc.querySelector('link')?.getAttribute('href')).toBe('style.')
+      expect(paths).toEqual([])
+      expect(reads).toEqual([])
+    } else {
+      expect(doc.querySelector('img')?.getAttribute('src')).toContain('/files/asset?')
+      expect(doc.querySelector('style')?.textContent).toContain('/files/asset?')
+      expect(paths).toEqual(['/r/docs/style.'])
+      expect(reads).toEqual(paths)
+    }
+  } finally {
+    settings.disableCSSFileLoading = previous
   }
 })
