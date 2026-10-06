@@ -1232,7 +1232,7 @@ mod tests {
                 GetTokenInformation(
                     token,
                     TokenImpersonationLevel,
-                    (&mut level as *mut _).cast(),
+                    (&mut level as *mut SECURITY_IMPERSONATION_LEVEL).cast(),
                     size_of_val(&level) as u32,
                     &mut len,
                 )
