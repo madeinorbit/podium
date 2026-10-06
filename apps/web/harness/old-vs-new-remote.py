@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--arm', required=True)
 parser.add_argument('--checkout-arm', choices=['old', 'new'])
 parser.add_argument('--comparison-arm')
+parser.add_argument('--checkout', help='Issue-owned flatblock checkout directory')
 parser.add_argument('--surface', choices=['web', 'phone'], default='web')
 parser.add_argument('--scale', choices=['1','4'], default='1')
 parser.add_argument('--mode', choices=['probe','timing','memory'], default='probe')
@@ -20,15 +21,19 @@ parser.add_argument('--round', default='0')
 parser.add_argument('--samples', default='8')
 parser.add_argument('--control-only', action='store_true')
 parser.add_argument('--background-only', action='store_true')
+parser.add_argument('--heartbeat-only', action='store_true')
 parser.add_argument('--terminal-probe', action='store_true')
 parser.add_argument('--tasks-probe', action='store_true')
 args=parser.parse_args()
-checkout=f'podium-test-5501-{args.checkout_arm or args.arm}'
+checkout=args.checkout or f'podium-test-5501-{args.checkout_arm or args.arm}'
+if not re.fullmatch(r'podium-test-[a-zA-Z0-9-]+', checkout):
+    parser.error('Checkout must be an issue-owned podium-test directory name')
 relative=f'.artifacts/old-vs-new/{args.mode}-{args.arm}-{args.surface}-{args.scale}x-r{args.round}'
 name='bench:flatblock' if args.mode=='timing' else 'meter:flatblock'
 argv=['--external-lease',f'--mode={args.mode}',f'--arm={args.arm}',f'--surface={args.surface}',f'--scale={args.scale}',f'--round={args.round}',f'--samples={args.samples}',f'--comparison-arm={args.comparison_arm or ("new" if args.arm=="old" else args.arm)}',f'--out={relative}']
 if args.control_only:argv.append('--control-only')
 if args.background_only:argv.append('--background-only')
+if args.heartbeat_only:argv.append('--heartbeat-only')
 if args.terminal_probe:argv.append('--terminal-probe')
 if args.tasks_probe:argv.append('--tasks-probe')
 command=f'cd "$HOME/{checkout}" && export PATH="$PWD/.toolchain:$PATH" && export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && exec .toolchain/bun --conditions=@podium/source apps/web/harness/old-vs-new.mjs '+shlex.join(argv)

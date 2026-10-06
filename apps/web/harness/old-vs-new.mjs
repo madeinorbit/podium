@@ -15,7 +15,8 @@ const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const controlOnly=process.argv.includes('--control-only')
-const backgroundOnly=process.argv.includes('--background-only')
+const heartbeatOnly=process.argv.includes('--heartbeat-only')
+const backgroundOnly=heartbeatOnly || process.argv.includes('--background-only')
 const terminalProbe=process.argv.includes('--terminal-probe')
 const tasksProbe=process.argv.includes('--tasks-probe')
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
@@ -57,6 +58,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   warmStartup:'Reload with retained durable data and preferences; snapshot responses augmented, delta/cursor-resume responses passed through',
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,tasksProbe,
+  heartbeatOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -776,24 +778,29 @@ async function background(f) {
     result.outputDeliveryWitness=true;save()
   })
   const outputAvailable=outputEpochs.has(targetSession)
-  const metricWindow=async(kind,perform)=>{
+  const metricWindow=async(kind,perform,profiled=false)=>{
     const before=await metrics(f.cdp), load=loadavg(), stop=await trace(f.cdp)
+    if(profiled){await f.cdp.send('Profiler.enable');await f.cdp.send('Profiler.setSamplingInterval',{interval:100});await f.cdp.send('Profiler.start')}
     await perform();await pause(200);await frames(f.page)
+    const cpu=profiled?(await f.cdp.send('Profiler.stop')).profile:null
     const after=await metrics(f.cdp), events=await stop()
     const index=result.background.length, name=`background-${index}-${kind}.trace.json.gz`
     writeFileSync(resolve(out,name),gzipSync(JSON.stringify(events)))
-    const row={kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:kind==='quiet'?0:1,nominalWindowMs:200,actualWindowMs:(after.Timestamp-before.Timestamp)*1000,trace:name}
+    const cpuName=cpu?`background-${index}-${kind}.cpuprofile`:null
+    if(cpu)writeFileSync(resolve(out,cpuName),JSON.stringify(cpu))
+    const row={kind,load,taskMs:(after.TaskDuration-before.TaskDuration)*1000,scriptMs:(after.ScriptDuration-before.ScriptDuration)*1000,layoutMs:(after.LayoutDuration-before.LayoutDuration)*1000,count:kind==='quiet'?0:1,nominalWindowMs:200,actualWindowMs:(after.Timestamp-before.Timestamp)*1000,trace:name,...(heartbeatOnly?{profiled,cpu:cpuName}:{})}
     result.background.push(row);save()
     return row
   }
   for(let i=0;i<samples;i++)await metricWindow('quiet',async()=>{})
-  for(const [kind,row] of [['heartbeat',heartbeat],['issue-change',issue]]) {
+  for(const [kind,row] of (heartbeatOnly?[['heartbeat',heartbeat]]:[['heartbeat',heartbeat],['issue-change',issue]])) {
     if(!row){result.unavailable.push({action:`background-${kind}`,reason:'No fixture target'});continue}
     for(let i=0;i<samples+2;i++) {
       const value={...row.value,...(kind==='heartbeat'?{lastActiveAt:new Date(corpus.fixedNow+10000+i*1000).toISOString()}:{title:`Background issue revision ${i}`})}
-      await metricWindow(kind,async()=>kind==='issue-change'?pushChanges(issueChanges(value)):push(row.entity,row.entityId,value))
+      await metricWindow(kind,async()=>kind==='issue-change'?pushChanges(issueChanges(value)):push(row.entity,row.entityId,value),heartbeatOnly && i>=samples)
     }
   }
+  if(heartbeatOnly)return
   if(outputAvailable)for(let i=0;i<samples+2;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
   // Approximate the historical operator publication rates, using synthetic
   // payloads. Host/draft/conversation events were not output frames; do not
