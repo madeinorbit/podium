@@ -37,6 +37,7 @@ it('keeps broad-search scalar reads and context-menu facts bounded at 1x and 4x'
     try {
       summaries = 0
       runInAction(() => needle.set('shared'))
+      runInAction(() => needle.set('shared task'))
       const search = summaries
       expect(board! && board! !== LOADING && board!.activeIds.length).toBe(128 * scale)
       summaries = 0
@@ -44,7 +45,7 @@ it('keeps broad-search scalar reads and context-menu facts bounded at 1x and 4x'
       stops.push(autorun(() => {
         menu = source.read('issueBoardMenu', JSON.stringify({ ids: ['issue-0'], agents: false }))
       }))
-      expect(menu!).not.toBe(LOADING)
+      expect(menu!).toMatchObject({ issues: [{ id: 'issue-0' }], allIssues: [{ id: 'issue-0' }] })
       const contextMenu = summaries
       console.info('board interaction summary reads', JSON.stringify({ scale, search, contextMenu }))
       return { search, contextMenu }
