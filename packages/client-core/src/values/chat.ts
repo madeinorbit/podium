@@ -68,7 +68,7 @@ export interface ChatBlock {
  *  as its own right-aligned "You" bubble holding nothing but a chip — a turn the
  *  operator never took. Anything else the parser might one day tag stays
  *  standalone rather than being silently absorbed into someone's prompt. */
-function isUserMediaMarker(item: TranscriptItem): boolean {
+export function isUserMediaMarker(item: TranscriptItem): boolean {
   return (
     item.role === 'user' &&
     item.text === '' &&

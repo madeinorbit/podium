@@ -21,6 +21,7 @@ import {
 import { freezePlain } from './frozen'
 import { Sends, type SendsOptions } from './sends'
 import { TranscriptLog, type TranscriptChange, type TranscriptLogOptions } from './transcript-log'
+import { TranscriptGraph } from './transcript-graph'
 
 export const TURN_PREVIEW_STALE_MS = 20_000
 
@@ -68,6 +69,7 @@ export interface ConversationOptions {
 export class Conversation {
   readonly sessionId: SessionId
   readonly transcript: TranscriptLog
+  readonly graph: TranscriptGraph
   readonly sends: Sends
   preview: TurnPreview | null = null
   headless: HeadlessOverlay | null = null
@@ -120,6 +122,7 @@ export class Conversation {
       enqueueFrame: (items, meta) => this.frames.enqueue(() => this.transcript.merge(items, meta)),
       onChange: (change) => this.transcriptChanged(change),
     })
+    this.graph = new TranscriptGraph(this.transcript.items)
     this.sends = new Sends({
       ...options.sends,
       sessionId: options.sessionId,
@@ -306,9 +309,16 @@ export class Conversation {
     this.disarmPreview()
     this.sends.dispose()
     this.transcript.dispose()
+    this.graph.dispose()
   }
 
   private transcriptChanged(change: TranscriptChange): void {
+    // Cache hydration precedes graph construction. Later updates reach both
+    // addressed graph cells and sends inside the transcript's owning action.
+    if (this.graph) {
+      if (change.rebuild) this.graph.reset(this.transcript.items)
+      else this.graph.apply(change)
+    }
     // Cache hydration occurs before Sends is constructed. start() sets its baseline.
     this.sends?.reconcile(change)
     this.options.onTranscriptChange?.(change)

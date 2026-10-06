@@ -61,7 +61,7 @@ export function computeTranscript(input: TranscriptComputeInput): TranscriptComp
  * reply stamped at or before the prompt — it is a local repair of one inverted
  * write, never a timestamp sort of the transcript. Mutates and returns `items`.
  */
-function promptsBeforeTheirReplies(items: TranscriptItem[]): TranscriptItem[] {
+export function promptsBeforeTheirReplies(items: TranscriptItem[]): TranscriptItem[] {
   for (let i = 1; i < items.length; i++) {
     const prompt = items[i]!
     if (prompt.role !== 'user') continue

@@ -23,8 +23,9 @@ import {
   sameTranscriptItems,
 } from '../transcript/merge'
 import { freezePlain } from './frozen'
+import type { TranscriptGraphChange, TranscriptGraphInsertion } from './transcript-graph'
 
-export interface TranscriptChange {
+export interface TranscriptChange extends TranscriptGraphChange {
   readonly changed: readonly TranscriptItem[]
   readonly added: readonly TranscriptItem[]
   readonly rebuild: boolean
@@ -508,6 +509,7 @@ export class TranscriptLog {
   private applyFrame(frame: readonly TranscriptItem[], status?: Partial<TranscriptState>): void {
     const changed: TranscriptItem[] = []
     const added: TranscriptItem[] = []
+    const insertions: TranscriptGraphInsertion[] = []
     // The source action owns mutable order; immutable array snapshots are
     // materialized only by a reader that actually requests the whole window.
     for (const item of new Map(frame.map((item) => [item.id, item])).values()) {
@@ -518,6 +520,7 @@ export class TranscriptLog {
       } else {
         const insertion = cursorInsertionIndex(this.orderedItems, item)
         const at = insertion < 0 ? this.orderedItems.length : insertion
+        insertions.push({ id: item.id, before: this.ids[at] })
         this.orderedItems.splice(at, 0, item)
         this.ids.splice(at, 0, item.id)
         for (let index = at; index < this.orderedItems.length; index++)
@@ -541,11 +544,15 @@ export class TranscriptLog {
     const retainHistory = this.options.retainHistory ? this.options.retainHistory() : this.pagedBack
     const limit = this.initialLimit * 2
     let trimmed = false
+    const removed: string[] = []
     if (!retainHistory && !this.loadingOlder && this.orderedItems.length > limit) {
       const drop = this.orderedItems.length - limit
       const head = this.orderedItems[drop]?.cursor
       if (head) {
-        for (const item of this.orderedItems.splice(0, drop)) this.removeFacts(item.id)
+        for (const item of this.orderedItems.splice(0, drop)) {
+          removed.push(item.id)
+          this.removeFacts(item.id)
+        }
         this.positionOffset -= drop
         this.ids.splice(0, drop)
         this.head = head
@@ -561,6 +568,8 @@ export class TranscriptLog {
       added.filter((item) => this.byId.has(item.id)),
       false,
       added.length > 0 || trimmed,
+      insertions.filter(insertion => this.byId.has(insertion.id)),
+      removed,
     )
     this.writeCache()
   }
@@ -595,6 +604,8 @@ export class TranscriptLog {
     added: readonly TranscriptItem[],
     rebuild: boolean,
     orderChanged = rebuild,
+    insertions?: readonly TranscriptGraphInsertion[],
+    removed?: readonly string[],
   ): void {
     this.latestOperatorPrompt = this.getItem(this.userPrompts.latest())?.text ?? null
     const question = this.getItem(this.questions.latest())
@@ -602,10 +613,11 @@ export class TranscriptLog {
     const recorded = this.recordedItems.latest()
     this.latestRecordedAt = recorded === undefined ? null : (this.recordedAt.get(recorded) ?? null)
     this.latestUserId = this.userItems.latest() ?? null
-    this.options.onChange?.({ changed, added, rebuild, orderChanged })
+    this.options.onChange?.({ changed, added, rebuild, orderChanged, insertions, removed })
   }
 
   private prepend(fresh: TranscriptItem[], status: Partial<TranscriptState>): void {
+    const before = this.ids[0]
     this.positionOffset += fresh.length
     this.orderedItems.unshift(...fresh)
     this.snapshotItems = undefined
@@ -616,7 +628,7 @@ export class TranscriptLog {
     })
     this.ids.splice(0, 0, ...fresh.map((item) => item.id))
     this.patch(status)
-    this.publishChanges(fresh, fresh, false, true)
+    this.publishChanges(fresh, fresh, false, true, fresh.map(item => ({ id: item.id, before })))
   }
 
   private boundFollowingWindow(items: TranscriptItem[]): {
