@@ -168,7 +168,7 @@ describe('UpdatesSection', () => {
     })
 
     expect(screen.getByTestId('settings-release-proposal-server-transition').textContent).toContain(
-      'Server: dev (aaaaaaa) → dev.1 (aaaaaaa)',
+      'Server: dev+aaaaaaa → dev.1 (aaaaaaa)',
     )
     expect(screen.getByText('No changes since what this server is running.')).toBeTruthy()
   })
