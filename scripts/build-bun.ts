@@ -36,6 +36,7 @@ import {
   commitShaFromDevVersion,
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
+import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
 import {
   bunVersion,
   hasBunTerminal,
@@ -43,8 +44,6 @@ import {
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
-import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
-import { resolveRcodesign } from './tool-pins'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
@@ -52,6 +51,7 @@ import {
 } from './client-build-root-digest'
 import { resolvePigz, tarCompressArgs } from './parallel-gzip'
 import { buildLocalRustHost, crossBuildRustHost } from './rust-host-cross'
+import { resolveRcodesign } from './tool-pins'
 import { buildLocalTunnel, crossBuildTunnel, TUNNEL_BINARY } from './tunnel-cross'
 import {
   type ClientBuildEvidence,

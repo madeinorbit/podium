@@ -21,11 +21,11 @@ import {
   type DurableSpawnOptions,
   execCreate,
   liveEnv,
+  type SystemctlRunner,
   scopeEnv,
   scopeReclaimArgvs,
   scopeUnitName,
   stopSessionScope,
-  type SystemctlRunner,
   systemdScopeArgv,
   userRuntimeDir,
 } from './scope.js'
@@ -110,7 +110,9 @@ export function encodeHello(mode: 'writer' | 'reader', fromSeq: bigint): Buffer 
 }
 
 /** Incremental frame decoder: feed bytes in any chunking, get whole frames. */
-export function createHostFrameDecoder(): (chunk: Uint8Array) => Array<{ type: number; payload: Buffer }> {
+export function createHostFrameDecoder(): (
+  chunk: Uint8Array,
+) => Array<{ type: number; payload: Buffer }> {
   let acc = Buffer.alloc(0)
   return (chunk) => {
     acc = acc.length ? Buffer.concat([acc, chunk]) : Buffer.from(chunk)
@@ -151,7 +153,14 @@ export interface HostWelcome {
  */
 export type HostItem =
   | { kind: 'data'; seq: bigint; data: Buffer }
-  | { kind: 'picture'; seq: bigint; reason: 'reset' | 'cut'; cols: number; rows: number; bytes: Buffer }
+  | {
+      kind: 'picture'
+      seq: bigint
+      reason: 'reset' | 'cut'
+      cols: number
+      rows: number
+      bytes: Buffer
+    }
 
 export interface HostStatus {
   alive: boolean
@@ -208,7 +217,10 @@ type Pending = {
   reject: (e: Error) => void
 }
 type PendingWrite = { id: number; resolve: (bytes: number) => void; reject: (e: Error) => void }
-type PendingReplay = { resolve: (r: { from: bigint; bytes: number }) => void; reject: (e: Error) => void }
+type PendingReplay = {
+  resolve: (r: { from: bigint; bytes: number }) => void
+  reject: (e: Error) => void
+}
 
 /**
  * One connection to a host: framing, request/response correlation and events.
@@ -687,9 +699,13 @@ export async function waitForHostSocket(
     const found = await liveHostSocket(label, env)
     if (found) return found
     if (Date.now() >= deadline) break
-    await new Promise<void>((r) => setTimeout(r, Math.min(pollMs, Math.max(1, deadline - Date.now()))))
+    await new Promise<void>((r) =>
+      setTimeout(r, Math.min(pollMs, Math.max(1, deadline - Date.now()))),
+    )
   }
-  throw new Error(`podium-host session ${label} did not publish a live socket within ${timeoutMs}ms`)
+  throw new Error(
+    `podium-host session ${label} did not publish a live socket within ${timeoutMs}ms`,
+  )
 }
 
 /** The path of a live host for `label` in any of its directories, else undefined. */
@@ -709,7 +725,10 @@ export async function liveHostSocket(
  * and asks STATUS — never `stat` alone: a lingering host after the child's exit
  * owns the name but is not a session.
  */
-export async function hostHasSession(label: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+export async function hostHasSession(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
   const path = await liveHostSocket(label, env)
   if (!path) return false
   return hostSocketAlive(path)
@@ -798,7 +817,11 @@ export async function killHostSession(
           await c.steal()
           c.kill()
         } else {
-          try { process.kill(w.hostPid, 'SIGTERM') } catch { /* already gone */ }
+          try {
+            process.kill(w.hostPid, 'SIGTERM')
+          } catch {
+            /* already gone */
+          }
         }
       }
     } catch {
@@ -913,7 +936,9 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     // reattach path resumes from `connection.lastSeq`. Only surface the drop.
     if (err && !disposed) log.warn('podium-host connection dropped', { label: opts.label, err })
   })
-  conn.onError((err) => log.warn('podium-host refused a request', { label: opts.label, err: err.message }))
+  conn.onError((err) =>
+    log.warn('podium-host refused a request', { label: opts.label, err: err.message }),
+  )
   // Someone stole the lease out from under this attachment: say so once, by
   // label, so the next swallowed write is never a mystery. The host keeps
   // delivering DATA (reading is allowed); only writes stop landing.
@@ -937,11 +962,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
         // names the session instead of leaving a live-looking dead writer.
         const status = await conn.status().catch(() => undefined)
         conn.detach()
-        throw new WriterLeaseRefusedError(
-          opts.label,
-          status?.writers ?? 1,
-          status?.readers ?? 0,
-        )
+        throw new WriterLeaseRefusedError(opts.label, status?.writers ?? 1, status?.readers ?? 0)
       }
       log.warn('podium-host granted no writer lease — another writer is attached', {
         label: opts.label,
@@ -985,10 +1006,13 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
           // lease never comes back without a reattach.
           if (leaseLost && !warnedLeaselessWrite) {
             warnedLeaselessWrite = true
-            log.warn('podium-host dropped input: this attachment no longer holds the writer lease', {
-              label: opts.label,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            log.warn(
+              'podium-host dropped input: this attachment no longer holds the writer lease',
+              {
+                label: opts.label,
+                err: err instanceof Error ? err.message : String(err),
+              },
+            )
           }
         },
       )
@@ -1156,7 +1180,10 @@ export async function spawnHostAgent(
   mkdirSync(dir, { recursive: true, mode: 0o700 })
 
   const adopt = async (path: string): Promise<HostDurableAttachment> => {
-    log.info('durable label already owned by a live host — adopting it', { label: opts.label, path })
+    log.info('durable label already owned by a live host — adopting it', {
+      label: opts.label,
+      path,
+    })
     // A spawn that adopts while another writer holds the lease is the update-
     // overlap symptom (two daemons, one host): refuse loudly when the caller
     // asked for the lease rather than attaching a silent reader. The refusal
@@ -1190,7 +1217,12 @@ export async function spawnHostAgent(
   const attachCreated = async (): Promise<HostDurableAttachment> => {
     const path = await waitForHostSocket(opts.label, childEnv)
     // From seq 0: the child's first bytes are in the ring already; nothing is missed.
-    const s = attachHostAgent({ label: opts.label, socketPath: path, fromSeq: 0n, ...(opts.env ? { env: opts.env } : {}) })
+    const s = attachHostAgent({
+      label: opts.label,
+      socketPath: path,
+      fromSeq: 0n,
+      ...(opts.env ? { env: opts.env } : {}),
+    })
     await s.ready
     return s
   }

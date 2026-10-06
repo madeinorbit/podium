@@ -932,7 +932,8 @@ pub fn run() {
                             .pidfile
                             .as_ref()
                             .map(|_| (std::process::id() as u64, 0));
-                        let mut host = Host::new(path, id, listener, (), child, ring, opts.linger_secs);
+                        let mut host =
+                            Host::new(path, id, listener, (), child, ring, opts.linger_secs);
                         // ConPTY emits VT: use exactly the shared emulator and cut clock.
                         #[cfg(feature = "screen")]
                         if !opts.no_pty {

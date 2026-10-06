@@ -293,7 +293,11 @@ mod tests {
 
 fn os_string(bytes: Vec<u8>) -> OsString {
     #[cfg(unix)]
-    { OsString::from_vec(bytes) }
+    {
+        OsString::from_vec(bytes)
+    }
     #[cfg(windows)]
-    { OsString::from(String::from_utf8(bytes).expect("Unicode Windows argv")) }
+    {
+        OsString::from(String::from_utf8(bytes).expect("Unicode Windows argv"))
+    }
 }

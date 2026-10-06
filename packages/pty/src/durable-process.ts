@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import type { Geometry } from '@podium/model'
-import type { DurableAttachment } from './session.js'
 import {
   abducoHasSession,
   abducoSocketPath,
@@ -10,11 +9,10 @@ import {
   reapStaleAbducoBindTemps,
   waitForAbducoSocket,
 } from './abduco.js'
-import type { DurableSpawnOptions } from './scope.js'
 import {
+  attachHostAgent,
   type HostDurableAttachment,
   type HostRetention,
-  attachHostAgent,
   hostHasSession,
   hostSocketPath,
   killHostSession,
@@ -23,6 +21,8 @@ import {
   spawnHostAgent,
   waitForHostSocket,
 } from './host.js'
+import type { DurableSpawnOptions } from './scope.js'
+import type { DurableAttachment } from './session.js'
 
 /**
  * ONE OBJECT BETWEEN THE DAEMON AND ITS DURABLE HOST (SPEC-6, stage 6 of POD-3190).
@@ -174,7 +174,8 @@ export interface DurableProcess {
 /** Backwards-compatible alias: the daemon predates the `DurableProcess` name. */
 export type Durable = DurableProcess
 
-const ABDUCO_ADOPTS_ONLY = 'abduco sessions are adopted, never created (POD-4986): podium-host is the only host a spawn uses'
+const ABDUCO_ADOPTS_ONLY =
+  'abduco sessions are adopted, never created (POD-4986): podium-host is the only host a spawn uses'
 
 /**
  * RUNNING abduco sessions, adopted — nothing here creates one (POD-4986). Every

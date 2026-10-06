@@ -70,10 +70,13 @@ export function isDurableBackend(value: string | undefined): value is DurableBac
 export function parseBackendArg(argv: readonly string[]): DurableBackend | undefined {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
-    const value = a === '--backend' ? argv[i + 1] : a?.startsWith('--backend=') ? a.slice(10) : undefined
+    const value =
+      a === '--backend' ? argv[i + 1] : a?.startsWith('--backend=') ? a.slice(10) : undefined
     if (value === undefined) continue
     if (value === 'abduco') {
-      log.warn('--backend abduco is no longer supported; ignoring it (podium-host is the only backend)')
+      log.warn(
+        '--backend abduco is no longer supported; ignoring it (podium-host is the only backend)',
+      )
       return undefined
     }
     if (!isDurableBackend(value)) {

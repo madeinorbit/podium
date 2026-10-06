@@ -141,23 +141,39 @@ describe.skipIf(!windows)('Windows durable host', () => {
     await until(() => view.text().includes('SIZE_113_37'), 'child observes ConPTY size')
     // dev/mw uses pictures, not the old resize nudge. A resize immediately
     // followed by a picture cannot restore stale geometry.
-    const pictures: Array<{ cols: number; rows: number; bytes: Uint8Array; reason: 'reset' | 'cut' }> = []
+    const pictures: Array<{
+      cols: number
+      rows: number
+      bytes: Uint8Array
+      reason: 'reset' | 'cut'
+    }> = []
     s.onPicture((p) => pictures.push(p))
     const pending = s.resize(101, 31)
     expect(s.requestPicture()).toBe(true)
     await pending
-    await until(() => pictures.some((p) => p.cols === 101 && p.rows === 31), 'picture at acknowledged grid')
+    await until(
+      () => pictures.some((p) => p.cols === 101 && p.rows === 31),
+      'picture at acknowledged grid',
+    )
     expect(await s.connection.size()).toEqual({ cols: 101, rows: 31 })
     await s.connection.write(Buffer.from("Write-Output ('RETAINED_' + 'SCROLLBACK')\r"))
     await until(() => view.text().includes('RETAINED_SCROLLBACK'), 'retained console output')
     pictures.length = 0
     s.requestPicture()
-    await until(() => pictures.some((p) => Buffer.from(p.bytes).toString().includes('RETAINED_SCROLLBACK')), 'picture retains scrollback')
+    await until(
+      () => pictures.some((p) => Buffer.from(p.bytes).toString().includes('RETAINED_SCROLLBACK')),
+      'picture retains scrollback',
+    )
     // Sustained VT output drives the shared cut clock on Windows too.
     pictures.length = 0
-    await s.connection.write(Buffer.from("1..3000 | ForEach-Object { Write-Output ('CUT_' + $_ + 'x' * 60) }\r"))
-    await until(() => pictures.some((p) => p.reason === 'cut'), 'automatic Windows screen cut', 30_000)
-
+    await s.connection.write(
+      Buffer.from("1..3000 | ForEach-Object { Write-Output ('CUT_' + $_ + 'x' * 60) }\r"),
+    )
+    await until(
+      () => pictures.some((p) => p.reason === 'cut'),
+      'automatic Windows screen cut',
+      30_000,
+    )
   }, 30_000)
 
   it('pipes merge output and preserve the real exit code and final bytes', async () => {

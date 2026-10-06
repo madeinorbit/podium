@@ -13,7 +13,7 @@ use args::{Command, CreateOpts};
 use host::{Child, ChildIo, Host};
 use ring::Ring;
 
-use crate::{args, host, ring, sys, die_raw, usage, VERSION, HOST_FEATURES};
+use crate::{HOST_FEATURES, VERSION, args, die_raw, host, ring, sys, usage};
 macro_rules! die {
     ($($t:tt)*) => { crate::die(format_args!($($t)*)) };
 }

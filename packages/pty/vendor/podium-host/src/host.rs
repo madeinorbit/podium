@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::cut::CutClock;
 use crate::proto::{self, Frame, Next, Request};
 use crate::ring::Ring;
-use crate::sys::{self, Io, Listener, Stream, SignalSource, Pid, PollFlags, Winsize};
+use crate::sys::{self, Io, Listener, Pid, PollFlags, SignalSource, Stream, Winsize};
 #[cfg(unix)]
 use crate::sys::{PollFd, Timespec};
 
@@ -491,7 +491,9 @@ impl Host {
 
     #[cfg(windows)]
     fn kill_child(&self, signo: i32) {
-        if !self.child_exited { self.control.signal(signo); }
+        if !self.child_exited {
+            self.control.signal(signo);
+        }
     }
 
     fn request_kill(&mut self) {
@@ -591,20 +593,27 @@ impl Host {
                     };
                     #[cfg(unix)]
                     {
-                        if sys::set_winsize(pty, want) { changed = 1; }
+                        if sys::set_winsize(pty, want) {
+                            changed = 1;
+                        }
                         cur = sys::get_winsize(pty).unwrap_or(cur);
                     }
                     #[cfg(windows)]
                     {
                         let _ = pty;
-                        if self.control.resize(want) { changed = 1; cur = want; }
+                        if self.control.resize(want) {
+                            changed = 1;
+                            cur = want;
+                        }
                     }
                 }
                 #[cfg(windows)]
                 {
                     self.ws = cur;
                     #[cfg(feature = "screen")]
-                    if changed != 0 { self.screen_resized(cur); }
+                    if changed != 0 {
+                        self.screen_resized(cur);
+                    }
                 }
                 cur = self.read_winsize().unwrap_or(cur);
                 Frame::begin(self.clients[ci].out.tail(), proto::H_RESIZED)
@@ -633,8 +642,15 @@ impl Host {
                         return self.refuse(ci, proto::ERR_INPUT_FULL, "input queue full");
                     }
                     self.wq_cost += 1 + proto::WRITE_OVERHEAD;
-                    self.wq.push_back(PendingWrite { client_id: 0, write_id: 0, data: vec![3], off: 0 });
-                } else { self.kill_child(signo as i32); }
+                    self.wq.push_back(PendingWrite {
+                        client_id: 0,
+                        write_id: 0,
+                        data: vec![3],
+                        off: 0,
+                    });
+                } else {
+                    self.kill_child(signo as i32);
+                }
                 #[cfg(unix)]
                 self.kill_child(signo as i32);
             }

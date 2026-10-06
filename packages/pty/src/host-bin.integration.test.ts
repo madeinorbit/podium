@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ensureSourceRustHost,
   HOST_FEATURES,
-  hostBinFeatures,
   hostBinaryName,
+  hostBinFeatures,
   hostSupported,
   RUST_HOST_BINARY,
   resolveHostBin,

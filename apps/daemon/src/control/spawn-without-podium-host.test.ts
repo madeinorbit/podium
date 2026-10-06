@@ -44,21 +44,32 @@ function hostlessContext(sent: DaemonMessage[]) {
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
     composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
-    observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
+    observers: {
+      initSessionObservers: () => {},
+      clearSession: () => {},
+      trackedState: () => undefined,
+    },
     tailSeedGate: () => {},
     sessionCwdTracker: { setLaunchCwd: vi.fn(async () => {}), clear: () => {} },
     primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   }
-  return { ctx: ctx as unknown as DaemonContext, launch, setLaunchCwd: ctx.sessionCwdTracker.setLaunchCwd }
+  return {
+    ctx: ctx as unknown as DaemonContext,
+    launch,
+    setLaunchCwd: ctx.sessionCwdTracker.setLaunchCwd,
+  }
 }
 
 it.each([
   { name: 'an agent', agentKind: 'claude-code' },
   { name: 'a shell', agentKind: 'shell' },
   { name: 'a native login', agentKind: 'shell', loginHarness: 'claude-code' },
-])('refuses $name with no durable backend and starts nothing', async ({ agentKind, loginHarness }) => {
+])('refuses $name with no durable backend and starts nothing', async ({
+  agentKind,
+  loginHarness,
+}) => {
   const sent: DaemonMessage[] = []
   const { ctx, launch, setLaunchCwd } = hostlessContext(sent)
   const sessionId = asSessionId(`no-host-${agentKind}-${loginHarness ?? 'plain'}`)
@@ -83,6 +94,8 @@ it.each([
 })
 
 it('names a missing Windows host in its own words', () => {
-  expect(noDurableBackendRefusal('win32')).toContain('podium-host is missing on this Windows machine')
+  expect(noDurableBackendRefusal('win32')).toContain(
+    'podium-host is missing on this Windows machine',
+  )
   expect(noDurableBackendRefusal('linux')).toContain('podium-host is missing')
 })
