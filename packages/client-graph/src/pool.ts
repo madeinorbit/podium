@@ -754,10 +754,10 @@ export class MobxPool {
     return typeof companion?.name === 'string' ? companion.name : undefined
   }
 
-  /** Install live machine rows under their feed companions (POD-5661,
-   * POD-5704): the same merge as the companion path, so either arrival order
-   * converges on live presence with live display facts. The live row wins;
-   * companion-only facts (loggedOutHarnesses) survive because the live row
+  /** Install live machine rows alongside their feed companions (POD-5661,
+   * POD-5704): the live row wins, so a keyed live rename reaches the header
+   * instead of being clobbered by the stored (stale) replicated name.
+   * Companion-only facts (loggedOutHarnesses) survive because the live row
    * never carries them. The offline banner never reads this row — it reads
    * the stored companion via machineHomeName, so replicated renames still
    * reach the banner. Companion removals and row deletions pass through
