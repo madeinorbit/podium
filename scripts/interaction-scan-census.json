@@ -15023,7 +15023,7 @@
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar-rail.tsx",
-      "holder": "PoolRailTile/PoolRailTile/urgent",
+      "holder": "PoolRailTile/PoolRailTile/waiting",
       "rule": "consume:filter",
       "tokens": "30a976bd8e8b58924377ef91e55b6672a85a5d3ecc81771bbbd9d319b6c17d5b",
       "gate": [
@@ -15033,11 +15033,11 @@
       "origin": [
         "0937978eea315bb25529c46291bd6d2f0b7416fce4396b53276d6eabb6496876"
       ],
-      "fingerprint": "37071fe382abd7250970ea2dda13aa5767030b74754c2a64f08962dfd43a744f",
+      "fingerprint": "828bf87ba5e84435dcc7765f1a394df4f9410bf9826128e1caa8ea64bc2643e1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolRailTile/PoolRailTile/urgent",
+      "trigger": "Invocation of PoolRailTile/PoolRailTile/waiting",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -15046,7 +15046,7 @@
       "file": "apps/web/src/features/worklist/pool-sidebar-rail.tsx",
       "holder": "PoolRailTile/PoolRailTile/urgent",
       "rule": "helper-consumer",
-      "tokens": "28bfdd89b788c1b32bb27f76884553af132335822b1a981921722722ccc46709",
+      "tokens": "2e6aeb0256d79293d781677b9871ae6217076aeb0af5eaff10b6c11c8cba90bf",
       "gate": [
         "exit:then:08e89267f5a96c12d46f606a55c6aed701ec4dc0caad5c6c64c22235878007a3",
         "else:11e13500121e66f2c2780333d3c2d5476f0c448bdd7db2f9469d4e340a25066a"
@@ -15054,13 +15054,52 @@
       "origin": [
         "0937978eea315bb25529c46291bd6d2f0b7416fce4396b53276d6eabb6496876"
       ],
-      "fingerprint": "81fcfe5ed04cb73d54645ddb193b414b9ad4965efbfe0d05f058c38e4aa1d390",
+      "fingerprint": "d89a9f7a1c2deff53fce3c398c01495fbc183b4e7254e00d79c8b74205ddb1cc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of PoolRailTile/PoolRailTile/urgent",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar-rail.tsx",
+      "holder": "PoolRailTile/PoolRailTile/urgent",
+      "rule": "helper-consumer",
+      "tokens": "96b239a12b9a0015eb992ba659f08922b19175bc6bda5c3b70be5d3ad961f1f0",
+      "gate": [
+        "exit:then:08e89267f5a96c12d46f606a55c6aed701ec4dc0caad5c6c64c22235878007a3",
+        "else:11e13500121e66f2c2780333d3c2d5476f0c448bdd7db2f9469d4e340a25066a"
+      ],
+      "origin": [
+        "0937978eea315bb25529c46291bd6d2f0b7416fce4396b53276d6eabb6496876"
+      ],
+      "fingerprint": "fbcb91993b7fe9a7df1306c73a504f52af07a16480072933c5fbf894fc2d7bb0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of PoolRailTile/PoolRailTile/urgent",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar-rail.tsx",
+      "holder": "railWaitingNow",
+      "rule": "loop:for-of",
+      "tokens": "0a282fad6599e8e0e60cbbf7cd3ca45f9b483a423bf78158170cef1994718ba8",
+      "gate": [],
+      "origin": [
+        "12ebcd0a196b86751522103ebaa2369727ed4ff31a28dedfbcf1bb7ed9474a29"
+      ],
+      "fingerprint": "35dcfab902530e33774d8dba725b34eebc44dc5e8233d76ae5cb006ae229a8a0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of railWaitingNow",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
