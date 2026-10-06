@@ -39856,13 +39856,13 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "issueRow",
       "rule": "reader-summary",
-      "tokens": "7d6a3f2352e9e3ec8deb49059e67efa676d66f913f1c84d1bab046f0dbcc8106",
+      "tokens": "2e33fc5a954e5eeede826f1d6a77fd15fcb45659eaa314abbb29185ca6b0d14f",
       "gate": [],
       "origin": [
         "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
-      "fingerprint": "07aa3071d95af718def2bc038e509aa3459dd26366b9031d33f43fc22bdd81be",
+      "fingerprint": "43d6c526535a47569f372b2e9a0e8863b7bd09c16a9875799b6abc34409068ef",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39875,7 +39875,7 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "MobileWorkIndex/row",
       "rule": "reader-summary",
-      "tokens": "22422c7b0aad9c1c2c98133c52542714230a999124af281f674eba5bea374c0f",
+      "tokens": "5f9f8f65884eb60fc066b4b53c00194c27f5f305af92912208f898ac994b82b3",
       "gate": [
         "then:f6213ee324a7a725b31946bd27595b74728252d7118e6f2bd8bde78f482e5ec5",
         "else:6078ad973230ce9668629ca57a594b2f5bd1450103aa2b9e9241001c4475f399"
@@ -39884,7 +39884,7 @@
         "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
-      "fingerprint": "65bb6a2efee916be17f9bc3413d35d4ee525da98d7ed00be4e96d2cac617a9b1",
+      "fingerprint": "a7a06fb95481eaebfefb57353b2ad50b84cc9d92d45a456adea1bf81d52423b4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39895,9 +39895,9 @@
     },
     {
       "file": "packages/client-graph/src/worklist/mobile.ts",
-      "holder": "issueRow/cachedGroup:callback",
+      "holder": "issueRow/keyedComputed:callback",
       "rule": "reader-summary",
-      "tokens": "d6d3f7126fd1a1faf1ab51a561d9a9d24772537227cfda1c80433b0a8fedbed6",
+      "tokens": "85cc65023fce9d05dbb129224943de9e3e165b7a6ef4304adf39f32170d381e7",
       "gate": [
         "else:84540e276edc5ac4b635be84082a14c098bfeba2bb7e6339d9dd3f4522c02432"
       ],
@@ -39905,11 +39905,11 @@
         "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
-      "fingerprint": "eb9263f3ef8c87966860857efb251a9636e053b28fd65ed3a04b457ad087178f",
+      "fingerprint": "fc60bb5c9c084e50dd3a24f5fbbc7dca47517d47edbf78236268d12b98bca859",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of issueRow/cachedGroup:callback",
+      "trigger": "Invocation of issueRow/keyedComputed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -42149,25 +42149,6 @@
         "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
       ],
       "fingerprint": "ccb6356294f4e30dbe6c86417bc2e3abdf9204ab61299d72a4dc595838ba0754",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of cachedGroup",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/cached.ts",
-      "holder": "cachedGroup",
-      "rule": "reader-summary",
-      "tokens": "903f6447d7e2ccfc4078034c3efbe95c2a1b2851c4755e42de082dc539745215",
-      "gate": [],
-      "origin": [
-        "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
-        "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
-      ],
-      "fingerprint": "dc81e7d3d6d1460d6f9cb7814e57cce1680ac6410008f61687dc71bd8c3816b7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
