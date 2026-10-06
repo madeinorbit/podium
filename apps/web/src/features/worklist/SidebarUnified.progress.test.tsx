@@ -26,7 +26,6 @@ import '@/test-support/mock-core-store-handle'
  */
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => ({
@@ -142,12 +141,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-    useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(
-        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
-      ),
   }
 })
 

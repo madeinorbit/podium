@@ -824,7 +824,6 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   ['@podium/sync/span', 'packages/sync/src/span.ts'],
   ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
   ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
-  ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
 ])
 
 /**

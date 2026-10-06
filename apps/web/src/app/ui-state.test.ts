@@ -1,4 +1,4 @@
-import { createReplica, type ReplicaInit } from '@podium/client-core/replica'
+import { createReplicaFixture, type ReplicaFixtureOptions } from '@podium/client-core/test-support/replica'
 import { readStoredView } from '@podium/client-core/ui-state'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // ---------------------------------------------------------------------------
 
 function makeStorage(seed: Record<string, string> = {}): {
-  storage: NonNullable<ReplicaInit['storage']>
+  storage: NonNullable<ReplicaFixtureOptions['storage']>
   data: Map<string, string>
 } {
   const data = new Map<string, string>(Object.entries(seed))
@@ -32,7 +32,7 @@ beforeEach(() => {
 describe('replica ui-state collection', () => {
   it('migrates a persisted removed Home view to Work', () => {
     const { storage } = makeStorage()
-    const ui = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const ui = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     ui.set('podium.view', 'home')
     expect(readStoredView(ui)).toBe('workspace')
   })
@@ -46,7 +46,7 @@ describe('replica ui-state collection', () => {
       'podium:sidebar:width': '320',
       'unrelated.key': 'stays',
     })
-    const ui = createReplica({
+    const ui = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -77,7 +77,7 @@ describe('replica ui-state collection', () => {
       'podium.htmlmode:file:b:/y.html': 'source',
       'podium.mdmode:file:a:/notes.md': 'source',
     })
-    const ui = createReplica({
+    const ui = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -108,7 +108,7 @@ describe('replica ui-state collection', () => {
     const { storage, data } = makeStorage({
       'podium.theme.mode': 'light',
     })
-    const ui = createReplica({
+    const ui = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -121,13 +121,13 @@ describe('replica ui-state collection', () => {
 
   it('a per-file map entry already in the collection wins over a stale legacy key', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     a.set('podium.htmlmode', JSON.stringify({ 'file:a:/x.html': 'preview' }))
     await new Promise((r) => setTimeout(r, 0))
     // Stale legacy keys reappear: one colliding, one new.
     data.set('podium.htmlmode:file:a:/x.html', 'split')
     data.set('podium.htmlmode:file:c:/z.html', 'source')
-    const b = createReplica({
+    const b = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -142,14 +142,14 @@ describe('replica ui-state collection', () => {
 
   it('kv semantics: set/get/delete round-trip and persist across instances', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     expect(a.get('podium.view')).toBeNull()
     a.set('podium.view', 'workspace')
     a.set('podium.split', '1')
     expect(a.get('podium.view')).toBe('workspace')
     await new Promise((r) => setTimeout(r, 0))
 
-    const b = createReplica({
+    const b = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -163,12 +163,12 @@ describe('replica ui-state collection', () => {
 
   it('a collection row wins over a stale legacy key (migration never clobbers)', async () => {
     const { storage, data } = makeStorage()
-    const a = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const a = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     a.set('podium.view', 'settings')
     await new Promise((r) => setTimeout(r, 0))
     // A stale ad-hoc key reappears (e.g. an old tab wrote it post-migration).
     data.set('podium.view', 'home')
-    const b = createReplica({
+    const b = createReplicaFixture({
       storage,
       keyPrefix: prefix,
       enumerateKeys: () => [...data.keys()],
@@ -179,7 +179,7 @@ describe('replica ui-state collection', () => {
 
   it('notifies subscribers on writes', () => {
     const { storage } = makeStorage()
-    const ui = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    const ui = createReplicaFixture({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
     const cb = vi.fn()
     const off = ui.subscribe(cb)
     ui.set('podium.dockTab', 'files')
@@ -191,7 +191,7 @@ describe('replica ui-state collection', () => {
   })
 
   it('works in private mode (in-memory) without throwing', () => {
-    const ui = createReplica({
+    const ui = createReplicaFixture({
       storage: {
         getItem: () => null,
         setItem: () => {

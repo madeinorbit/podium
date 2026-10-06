@@ -4,7 +4,6 @@ import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 // ---------------------------------------------------------------------------
 // Capture the latest MountedSession handed back by mountSession so we can assert
@@ -138,8 +137,6 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () =>
-      normalizedFixtureIssues({ issues: storeIssues, sessions: storeSessions }),
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',

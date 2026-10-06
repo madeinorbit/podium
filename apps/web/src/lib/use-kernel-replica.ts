@@ -22,7 +22,7 @@ export { STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 import type { ClientPrincipal } from '@podium/client-core/principal'
 import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
 import { createLogger } from '@podium/logger'
-import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -210,13 +210,7 @@ export function useKernelReplica(args: {
           evidence: recordIdentityEvidence(principal),
           onDegraded: (detail) => {
             const report = detail as { kind?: unknown; notice?: unknown; reason?: unknown }
-            if (report?.kind === 'legacy-outbox-migrated' && typeof report.notice === 'string')
-              notice = report.notice
-            else if (
-              report?.kind === 'store-not-adopted' &&
-              report.reason !== 'legacy-cursor-discarded' &&
-              notice === undefined
-            )
+            if (report?.kind === 'store-not-adopted' && notice === undefined)
               notice = STORE_REFRESH_NOTICE
           },
         }).catch((error: unknown) => {

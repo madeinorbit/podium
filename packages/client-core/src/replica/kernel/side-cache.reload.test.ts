@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { memoryStorage } from '../replica'
+import { memoryStorage } from '../contract'
 import { createSideCache } from './side-cache'
 
 describe('draft storage checkpoint before reload', () => {

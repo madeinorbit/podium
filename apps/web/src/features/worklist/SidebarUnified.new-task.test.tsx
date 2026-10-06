@@ -1,6 +1,5 @@
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 // @vitest-environment happy-dom
 /**
  * THE COLUMN'S HEAD, ITS UTILITIES, AND THE PROJECTS WITH NOTHING IN THEM
@@ -149,12 +148,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-    useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(
-        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
-      ),
   }
 })
 

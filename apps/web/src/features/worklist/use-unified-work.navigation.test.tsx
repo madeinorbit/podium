@@ -16,15 +16,6 @@ const fixture = vi.hoisted(() => ({
 }))
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (select: (s: Record<string, unknown>) => unknown) => select(fixture.store),
-  useReplicaIssues: () => fixture.issues,
-  useSlice: () => ({
-    now: Date.now(),
-    sections: { pinnedRepos: [], repos: [] },
-    allWorktreePaths: ['/repo'],
-    work: [],
-    pinned: [],
-    groups: [],
-  }),
 }))
 const root = {
   id: asIssueId('root'),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { UiState } from '../replica/replica'
+import type { UiState } from '../replica/contract'
 import {
   DOCK_SHELLS_KEY,
   FILE_TABS_KEY,

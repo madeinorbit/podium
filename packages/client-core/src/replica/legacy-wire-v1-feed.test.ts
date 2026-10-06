@@ -20,7 +20,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from '../socket-transport/socket-hub'
 import { applyLegacyMetadataState } from './legacy-wire-v1-binding'
 import { type LegacyMetadataAppliedState, LegacyWireV1Feed } from './legacy-wire-v1-feed'
-import { createReplica, memoryStorage } from './replica'
+import { memoryStorage } from './contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = []
@@ -171,7 +172,7 @@ describe('SocketHub metadata delta mode', () => {
       blockedOrderIds: [],
     }
     const cached = { ...lane, trains: [] }
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const { hub, sock } = setup([{ ...snapshot(5), shipLanes: [lane] }], {
       onMetadataApplied: (state) => applyLegacyMetadataState(replica, state),
     })

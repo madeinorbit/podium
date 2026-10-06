@@ -17,7 +17,6 @@ const storeState: { machines: MachineWire[]; trpc: Store['trpc']; setSettingsTab
 }
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => [],
   useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 

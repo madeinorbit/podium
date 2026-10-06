@@ -22,7 +22,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OnlineEvents } from '../outbox'
 import { asClientPrincipal } from '../principal'
-import { createReplica, memoryStorage } from '../replica/replica'
+import { memoryStorage } from '../replica/contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type { SocketHub, SocketHubOptions } from '../socket-transport'
 import { openKernelEngineOutbox } from './kernel-outbox'
 import { createClientRuntime } from './runtime'
@@ -151,7 +152,7 @@ function makeEngine(
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: init.api ?? makeApi().api,
     onFatalError: () => {},
-    createReplicaFn: () => createReplica({ storage: memoryStorage() }),
+    createReplicaFn: () => createReplicaFixture({ storage: memoryStorage() }),
     createHub: (options) => {
       hubOptions.push(options)
       return hub as unknown as SocketHub

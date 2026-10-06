@@ -1,7 +1,7 @@
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { normalizedFixtureStore } from '@/test-support/normalized-issues'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
 import { makeIssue } from './test-issue'
 
@@ -33,7 +33,7 @@ const row = {
   entity: 'issueProjection',
   entityId: 'i',
   op: 'upsert',
-  value: normalizedFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows(
+  value: poolFixtureStore({ issues: [makeIssue({ id: 'i', title: 'HTTP' })] }).replica.rows(
     'issueProjections',
   )[0],
 }

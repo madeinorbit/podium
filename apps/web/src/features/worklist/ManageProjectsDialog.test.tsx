@@ -6,12 +6,6 @@ import { ManageProjectsButton } from './ManageProjectsDialog'
 const { saveOrder } = vi.hoisted(() => ({ saveOrder: vi.fn().mockResolvedValue(undefined) }))
 
 vi.mock('@/app/store', () => ({
-  useSlice: () => ({
-    projects: [
-      { key: 'repo-a', name: 'Alpha', aliases: ['repo-a', '/a'] },
-      { key: 'repo-b', name: 'Beta', aliases: ['repo-b', '/b'] },
-    ],
-  }),
   useRuntimeSelector: (select: (store: unknown) => unknown) =>
     select({
       setSidebarSettings: saveOrder,

@@ -156,11 +156,9 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => normalizedIssues(),
     useSession: (id: string | undefined) =>
       [...storeSessions, ...embeddedSessions()].find((session) => session.sessionId === id),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-    useSlice: (def: { derive: (s: unknown) => unknown }) => def.derive(useStore() as never),
   }
 })
 vi.mock('@/lib/hooks/use-is-mobile', () => ({

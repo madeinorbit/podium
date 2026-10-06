@@ -98,12 +98,7 @@ describe('the kernel replica path is free of the adapter it replaces', () => {
   })
 
   it('the detector can SEE a @tanstack import when there is one', () => {
-    // The instrument proving it can fire. `replica.ts` is the outgoing adapter and
-    // legitimately still imports the library, so it is the honest positive control
-    // — and when POD-378 deletes it, this case fails and says so, which is the
-    // reminder to retire this guard's scaffolding rather than leave it asserting
-    // against a file that no longer exists.
-    const body = readFileSync(join(HERE, 'replica.ts'), 'utf8')
+    const body = "import type { StorageApi } from '@tanstack/db'"
     expect(importsTanstack(body)).toBe(true)
   })
 })

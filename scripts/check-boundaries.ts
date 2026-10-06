@@ -4111,13 +4111,11 @@ const SANCTIONED_UI_STORAGE_FILES: ReadonlySet<string> = new Set([
   // Sole UI persistence module — including the theme pre-auth exception.
   'packages/client-core/src/ui-state.ts',
   // Replica persistence adapter family.
-  'packages/client-core/src/replica/replica.ts',
   'packages/client-core/src/replica/async-storage.ts',
   'packages/client-core/src/replica/principal-storage.ts',
   'packages/client-core/src/replica/contract.ts',
   'packages/client-core/src/replica/kernel/side-cache.ts',
   'packages/client-core/src/replica/kernel/facade.ts',
-  'packages/client-core/src/replica/legacy-snapshot.ts',
   // Platform composition roots that inject storage into the replica factory.
   // NEXT entry must be a composition root that wires StorageApi into createReplica
   // (or its AsyncStorage twin), never a feature surface that reads a key ad hoc.

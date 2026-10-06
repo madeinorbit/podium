@@ -114,7 +114,6 @@ describe('web shared assembly adapter', () => {
   })
 
   it.each([
-    ['legacy-cursor-discarded', undefined],
     ['principal-changed', STORE_REFRESH_NOTICE],
   ])('a store-not-adopted report (%s) gives notice %s', async (reason, notice) => {
     const openAssembly = vi.fn(async (options: { onDegraded?: (detail: unknown) => void }) => {

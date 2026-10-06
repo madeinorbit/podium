@@ -15,7 +15,7 @@ import { InMemoryOutboxStore, Outbox as KernelOutbox } from '@podium/sync/outbox
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry, OutboxStorage } from '../outbox'
-import type { Replica } from '../replica/replica'
+import type { Replica } from '../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, EngineOutboxCallbacks } from './wiring'

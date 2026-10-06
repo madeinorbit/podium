@@ -12,11 +12,12 @@ import type { OutboxEntry } from '../outbox'
 import { COLD_CURSOR } from './feed'
 import { applyLegacyMetadataState } from './legacy-wire-v1-binding'
 import type { LegacyMetadataAppliedState } from './legacy-wire-v1-feed'
-import { createReplica, memoryStorage } from './replica'
+import { memoryStorage } from './contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 
 /** Build the Replica binding over a real replica. */
 function setup() {
-  const replica = createReplica({ storage: memoryStorage() })
+  const replica = createReplicaFixture({ storage: memoryStorage() })
   return {
     replica,
     apply: (state: LegacyMetadataAppliedState) => applyLegacyMetadataState(replica, state),

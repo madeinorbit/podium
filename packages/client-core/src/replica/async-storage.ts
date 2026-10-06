@@ -1,7 +1,6 @@
 /**
  * Async key-value → synchronous StorageApi bridge (React Native AsyncStorage,
- * or any Promise-based kv). The replica engine (and TanStack DB's localStorage
- * collections underneath it) needs SYNCHRONOUS reads/writes; AsyncStorage is
+ * or any Promise-based kv). The side cache needs synchronous reads/writes; AsyncStorage is
  * Promise-only. The standard bridge: hydrate every namespaced key into an
  * in-memory map up front (await `createAsyncStorageReplicaStorage` before
  * constructing the replica), then serve reads from the map and write through
@@ -16,8 +15,7 @@
  * migration and authored-work families retain their issue order.
  */
 
-import type { StorageApi } from '@tanstack/db'
-import { REPLICA_KEY_PREFIX } from './replica'
+import { REPLICA_KEY_PREFIX, type StorageApi } from './contract'
 
 /** The subset of @react-native-async-storage/async-storage the bridge needs. */
 export interface AsyncKeyValueStorage {
@@ -53,7 +51,7 @@ interface PendingOperation {
 
 /**
  * Hydrate all keys under `prefixes` from the async backing and return a
- * synchronous write-through StorageApi. Must be awaited BEFORE `createReplica`.
+ * synchronous write-through StorageApi. Await before opening the replica side cache.
  */
 export async function createAsyncStorageReplicaStorage(
   backing: AsyncKeyValueStorage,

@@ -109,7 +109,6 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => [],
     useHostMetrics: () => useStore().hostMetrics,
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }

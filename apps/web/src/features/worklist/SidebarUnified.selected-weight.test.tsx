@@ -5,7 +5,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
@@ -130,18 +129,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
-    // POD-331: the worklist is a PUBLISHED slice now, so the component reads it
-    // through `useSlice` instead of deriving it locally. These suites assert
-    // BEHAVIOUR, not derivation counts, so this derives on every read rather
-    // than memoizing — sharing is measured in src/perf/slice-render-count.test.tsx,
-    // and a mock that pretended to memoize here would be a second, untested
-    // implementation of the mechanism.
-    useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(
-        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
-      ),
   }
 })
 

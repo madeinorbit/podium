@@ -63,7 +63,6 @@ vi.mock('@podium/client-core/react', async (original) => {
   }
   return {
     ...real,
-    useSlice: forbidden,
     useAllIssueViewModels: forbidden,
     useSessionViews: forbidden,
   }

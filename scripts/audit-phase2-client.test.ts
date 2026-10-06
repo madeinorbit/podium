@@ -216,7 +216,7 @@ describe('phase-2 client audit — the composition-root detector', () => {
     write(
       'a/root.ts',
       [
-        "import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'",
+        "import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'",
         'const replica = createReplica({ storage })',
       ].join('\n'),
     )

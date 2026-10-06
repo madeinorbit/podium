@@ -27,7 +27,6 @@ import {
 } from './IssueParentRow'
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => [],
   useRuntimeSelector: (sel: (s: unknown) => unknown) => sel({} as never),
 }))
 

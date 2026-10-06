@@ -42,7 +42,6 @@ const mockState = {
 
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
-  useReplicaIssues: () => [],
 }))
 
 vi.mock('@podium/terminal-client-react', () => ({

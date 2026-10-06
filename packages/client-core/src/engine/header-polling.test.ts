@@ -1,7 +1,7 @@
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AgentConcurrencyHistoryResult, PodiumClientApi } from '../api'
-import type { ReplicaAddressedBatch } from '../replica/replica'
+import type { ReplicaAddressedBatch } from '../replica/contract'
 import { createHeaderPollingService } from './header-polling'
 
 function fixture() {

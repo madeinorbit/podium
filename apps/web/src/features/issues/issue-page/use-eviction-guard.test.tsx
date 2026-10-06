@@ -28,7 +28,6 @@ const ISSUE = makeIssue({ id: 'i-open', seq: 3, title: 'Open issue' })
 let rows: IssueViewModel[] = []
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => rows,
 }))
 
 function Guarded({ onLeave }: { onLeave: () => void }) {

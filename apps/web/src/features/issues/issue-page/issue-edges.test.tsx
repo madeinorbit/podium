@@ -51,7 +51,6 @@ let replicaExits: Record<string, 'removed' | 'evicted'> = {}
 let replicaAnswersExits = true
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => [VISIBLE, ARCHIVED],
   useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({
       replica: replicaAnswersExits

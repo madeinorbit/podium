@@ -77,10 +77,6 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
   const real = await importOriginal<typeof import('@podium/client-core/react')>()
   return {
     ...real,
-    useSlice: (...args: Parameters<(def: unknown) => unknown>) => {
-      state.sliceReads++
-      throw new Error('pool path subscribed to a legacy slice')
-    },
   }
 })
 vi.mock('@podium/client-core/values', async (importOriginal) => {

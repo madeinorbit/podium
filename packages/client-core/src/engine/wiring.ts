@@ -40,7 +40,7 @@ import {
 } from '../outbox-recovery-copy'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
-import type { Replica } from '../replica/replica'
+import type { Replica } from '../replica/kernel/facade'
 import { type FeedSinkPort, SocketHub } from '../socket-transport'
 import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'

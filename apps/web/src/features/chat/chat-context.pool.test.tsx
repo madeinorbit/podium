@@ -69,10 +69,6 @@ const handle = {
 }
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
-  useReplicaIssues: () => {
-    if (f.guard) throw new Error('Legacy chat issue views ran')
-    return f.fixture!.issues.filter((row) => !row.deletedAt)
-  },
   useSessionDraft: (id: string) => snapshot().drafts[id] ?? '',
   useSessionExitKind: (id: string) => {
     if (f.guard) throw new Error('Legacy session exit metadata read')

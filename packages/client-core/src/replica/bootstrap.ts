@@ -47,7 +47,7 @@ import type { MetadataChangeLenient, SyncChangesSinceResultLenient } from '@podi
 import { isKnownMetadataChange } from '@podium/protocol'
 import type { FeedCursor } from './feed'
 import { entityForKind, retainReplicaEntity, rowKey } from './kernel/kinds'
-import type { Replica, ReplicaKind, ReplicaRows } from './replica'
+import type { Replica, ReplicaKind, ReplicaRows } from './contract'
 
 /** Wire entity kind → replica collection kind. The feed says `session`, the
  *  replica says `sessions`; this is the only place the two vocabularies meet. */

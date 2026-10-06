@@ -13,7 +13,6 @@ import '@/test-support/mock-core-store-handle'
 //    have would move nothing — the item says so instead of lying.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { SidebarUnified } from './SidebarUnified'
 
 // A live ui-state collection, as in the lifecycle suite: the tail folds are shut
@@ -151,12 +150,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useReplicaIssues: () => normalizedFixtureIssues(useStore()),
     useRuntimeSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
-    useSlice: (def: { derive: (s: unknown) => unknown }) =>
-      def.derive(
-        normalizedFixtureStore({ ...(useStore() as object), coarseNow: Date.now() } as never),
-      ),
   }
 })
 

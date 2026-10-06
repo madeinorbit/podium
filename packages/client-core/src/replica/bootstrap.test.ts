@@ -15,7 +15,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import { BootstrapSession, snapshotToChunks } from './bootstrap'
 import { advanceCursor, COLD_CURSOR, decideFeedAction, type FeedCursor } from './feed'
-import { createReplica, memoryStorage, type Replica } from './replica'
+import { memoryStorage, type Replica } from './contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 
 const at = (feedId: string, epoch: string, seq: number): FeedCursor => ({ feedId, epoch, seq })
 /** Tests pace synchronously — the real yield is a macrotask hop. */
@@ -74,7 +75,7 @@ describe('authoritative empty rescope', () => {
     { name: 'omitted', snapshot: {} },
     { name: 'explicitly empty', snapshot: emptyScope },
   ])('replaces every authoritative kind when the snapshot is $name', async ({ snapshot }) => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     seedScope(replica)
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
     for (const chunk of snapshotToChunks(snapshot)) await session.install(chunk)
@@ -86,7 +87,7 @@ describe('authoritative empty rescope', () => {
   })
 
   it('replaces empty siblings of a populated kind and keeps kinds outside the snapshot contract', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     seedScope(replica)
     const supplements = {
       issueEvents: [{ id: 'event-1' }],
@@ -106,9 +107,9 @@ describe('authoritative empty rescope', () => {
     for (const kind of supplementKinds) expect(replica.rows(kind)).toMatchObject(supplements[kind])
   })
 
-  it('an aborted empty snapshot keeps the old rows and cursor, including after reload', async () => {
+  it('an aborted empty snapshot keeps the old rows and cursor', async () => {
     const storage = memoryStorage()
-    const replica = createReplica({ storage })
+    const replica = createReplicaFixture({ storage })
     seedScope(replica)
     await replica.flush()
     const notified = vi.fn()
@@ -124,14 +125,11 @@ describe('authoritative empty rescope', () => {
     expect(replica.getFeedCursor()).toEqual(at('old-feed', 'old-epoch', 5))
     expect(notified).not.toHaveBeenCalled()
     await replica.flush()
-    const reloaded = createReplica({ storage })
-    await reloaded.hydrate()
-    expect(readScope(reloaded)).toEqual(oldScope)
-    expect(reloaded.getFeedCursor()).toEqual(at('old-feed', 'old-epoch', 5))
+
   })
 
   it('applies buffered deltas over the empty replacement in sequence order', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     seedScope(replica)
     const session = new BootstrapSession(replica, at('new-feed', 'new-epoch', 10), noYield)
     for (const chunk of snapshotToChunks({})) await session.install(chunk)
@@ -155,7 +153,7 @@ describe('authoritative empty rescope', () => {
   })
 
   it('notifies each changed kind once with the final rows and buffered cursor', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     seedScope(replica)
     const seen = new Map<string, unknown[]>()
     for (const kind of snapshotKinds) {
@@ -177,9 +175,9 @@ describe('authoritative empty rescope', () => {
     for (const kind of snapshotKinds) expect(seen.get(kind), kind).toEqual([final])
   })
 
-  it('keeps the durable outbox family through an empty rescope and reload', async () => {
+  it('keeps the side-cache outbox family through an empty rescope and reload', async () => {
     const storage = memoryStorage()
-    const replica = createReplica({ storage })
+    const replica = createReplicaFixture({ storage })
     seedScope(replica)
     const awaiting = { ...userWrite, mutationId: asMutationId('mut_awaiting') }
     const deadLetter = { ...userWrite, mutationId: asMutationId('mut_dead_letter') }
@@ -195,13 +193,13 @@ describe('authoritative empty rescope', () => {
     expect(replica.outboxDeadLetterStorage().load()).toEqual([deadLetter])
     await replica.flush()
 
-    const reloaded = createReplica({ storage })
+    const reloaded = createReplicaFixture({ storage })
     await reloaded.hydrate()
     expect(reloaded.outboxStorage().load()).toEqual([userWrite])
     expect(reloaded.outboxAwaitingStorage().load()).toEqual([awaiting])
     expect(reloaded.outboxDeadLetterStorage().load()).toEqual([deadLetter])
     expect(readScope(reloaded)).toEqual(emptyScope)
-    expect(reloaded.getFeedCursor()).toEqual(at('new-feed', 'new-epoch', 10))
+    expect(reloaded.getFeedCursor()).toEqual(COLD_CURSOR)
   })
 })
 
@@ -210,7 +208,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
     // D7's "stale-visible, never blank": a re-bootstrap that never finishes
     // (offline) keeps serving the last-known state. Clearing first and filling
     // after is the obvious implementation and the one D6 forbids.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [{ id: 'old', title: 'stale but visible' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
@@ -227,7 +225,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
   })
 
   it('an aborted bootstrap leaves the replica exactly as it was', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [{ id: 'old', title: 'old' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 5))
 
@@ -242,7 +240,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
   it('the swap is ONE notification against the final state, not a flicker', () => {
     // A subscriber that reacted to the transient half-installed list is exactly
     // what yanked the engine's worktree selection once (#262).
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [{ id: 'old', title: 'old' } as never])
     const seen: string[][] = []
     replica.subscribeRows('issueProjections', () =>
@@ -259,7 +257,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
   })
 
   it('installs across kinds and drops rows the authority no longer has', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [{ id: 'gone', title: 'gone' } as never])
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 3), noYield)
     await session.install({
@@ -277,7 +275,7 @@ describe('BootstrapSession — staging and the atomic swap', () => {
   it('ignores an unknown entity kind rather than quarantining the bootstrap', async () => {
     // D4's additive rule: a NEWER authority adding a kind must not break an
     // older client. The row is ignored, the bootstrap completes.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 2), noYield)
     await session.install({
       changes: [upsert('machine', 'm1', 1), upsert('issueProjection', 'i1', 2)],
@@ -292,7 +290,7 @@ describe('pacing — the bootstrap must never own the loop (D6)', () => {
     // The transcript-mirror incident in one assertion: chunks that drain
     // back-to-back starve the loop the bootstrap itself depends on, and the
     // restart re-triggers the bootstrap. Yielding is what stops the loop.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const yieldToLoop = vi.fn(() => Promise.resolve())
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 1), {
       yieldToLoop,
@@ -305,7 +303,7 @@ describe('pacing — the bootstrap must never own the loop (D6)', () => {
   })
 
   it('a small bootstrap does not yield at all', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const yieldToLoop = vi.fn(() => Promise.resolve())
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 1), {
       yieldToLoop,
@@ -347,7 +345,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
       expected: [],
     },
   ])('honors same-id buffered operation order: $name', async ({ changes, expected }) => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({
       changes: [upsert('issueProjection', 'i1', 1, { id: 'i1', title: 'snapshot' })],
@@ -360,7 +358,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   })
 
   it('keeps buffered operation identity separate across kinds', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({ changes: [] })
     session.bufferDelta(13, [
@@ -376,7 +374,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   })
 
   it('buffers deltas past snapshotSeq and applies them in the commit', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({
       changes: [upsert('issueProjection', 'i1', 1, { id: 'i1', title: 'as of 10' })],
@@ -400,7 +398,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
     // The case that silently rots if buffering only handles upserts: the
     // snapshot was read before the delete, so the row is in staging and the
     // tombstone is in the buffer. Drop the buffer and the row lives forever.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({
       changes: [upsert('issueProjection', 'i1', 1), upsert('issueProjection', 'i2', 2)],
@@ -413,7 +411,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   })
 
   it('applies buffered deltas in seq order regardless of arrival order', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     await session.install({ changes: [upsert('issueProjection', 'i1', 1)] })
     session.bufferDelta(13, [upsert('issueProjection', 'i1', 13, { id: 'i1', title: 'last' })])
@@ -424,7 +422,7 @@ describe('concurrent deltas — the world moves while we stream (D6 step 3)', ()
   })
 
   it('declines a delta at or below snapshotSeq — the snapshot already has it', () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 10), noYield)
     expect(session.bufferDelta(10, [upsert('issueProjection', 'i1', 10)])).toBe(false)
     expect(session.bufferDelta(9, [upsert('issueProjection', 'i1', 9)])).toBe(false)
@@ -452,7 +450,7 @@ describe('snapshotToChunks — today’s monolithic arm through the final machin
   })
 
   it('installs end-to-end through the session', async () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const session = new BootstrapSession(replica, at('feed_1', 'epoch_1', 42), noYield)
     for (const chunk of snapshotToChunks({ issueProjections: [{ id: 'i1' }, { id: 'i2' }] }, 1)) {
       await session.install(chunk)
@@ -473,7 +471,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // loss. The danger is that it is invisible: entity convergence looks perfect
     // either way.
     const storage = memoryStorage()
-    const replica = createReplica({ storage })
+    const replica = createReplicaFixture({ storage })
 
     // A warm replica on epoch_1.
     replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'from epoch 1' } as never])
@@ -518,14 +516,14 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // has to survive both. A discard that keeps the queue in memory and loses it
     // on the next reload passes the test above and still eats the user's work.
     const storage = memoryStorage()
-    const first = createReplica({ storage })
+    const first = createReplicaFixture({ storage })
     first.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' } as never])
     first.setFeedCursor(at('feed_1', 'epoch_1', 77))
     first.outboxStorage().save([userWrite])
     first.resetCache()
     await new Promise((r) => setTimeout(r, 0))
 
-    const reloaded = createReplica({ storage })
+    const reloaded = createReplicaFixture({ storage })
     const result = await reloaded.hydrate()
     expect(result.issueProjections).toHaveLength(0)
     expect(result.cursor).toBeNull()
@@ -537,7 +535,7 @@ describe('D7 conformance: THE OUTBOX SURVIVES EVERY RUNG', () => {
     // replica is COLD, so the next thing it can legally do is take a snapshot.
     // Were the cursor to survive at 77, this would say "apply" over an empty
     // replica and be wrong forever.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' } as never])
     replica.setFeedCursor(at('feed_1', 'epoch_1', 77))
     replica.resetCache()

@@ -51,7 +51,8 @@ import {
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
-import { createReplica, memoryStorage, type Replica, type StorageApi } from '../replica/replica'
+import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { sessionById } from '../session-index'
 import type { SocketHub } from '../socket-transport'
 import {
@@ -301,7 +302,7 @@ function makeEngine(
     ...(opts.networkEnabled !== undefined ? { networkEnabled: opts.networkEnabled } : {}),
     notices: { error: (m) => errors.push(m), info: opts.info ?? (() => {}) },
     createReplicaFn: () =>
-      opts.replica ?? createReplica({ storage: opts.storage ?? memoryStorage() }),
+      opts.replica ?? createReplicaFixture({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
     ...(opts.spawnConfirmGraceMs !== undefined
@@ -455,7 +456,7 @@ describe('addressed topology navigation', () => {
 
 describe('engine replica construction (POD-1239)', () => {
   it('refuses to construct without a replica factory instead of adopting ambient storage', () => {
-    // The engine used to fall back to `createReplica()` with no argument, which
+    // The engine used to fall back to `createReplicaFixture()` with no argument, which
     // resolved window.localStorage itself — so the flag-off browser adopted the
     // previous user's rows through a construction site that belonged to no
     // composition root and therefore appeared in no audit population.
@@ -480,7 +481,7 @@ describe('engine replica construction (POD-1239)', () => {
     // The counterfactual for the refusal above: a factory IS honoured, so the
     // throw is about the missing factory and not about this init shape being
     // unconstructable for some unrelated reason.
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const { engine } = makeEngine()
     expect(engine).toBeDefined()
     expect(() =>

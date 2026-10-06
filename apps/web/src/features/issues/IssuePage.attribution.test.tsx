@@ -20,12 +20,12 @@ import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/i
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureStore } from '@/test-support/normalized-issues'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
 const world = vi.hoisted(() => ({
-  current: null as ReturnType<typeof normalizedFixtureStore> | null,
+  current: null as ReturnType<typeof poolFixtureStore> | null,
 }))
 
 vi.mock('@/app/store', () => {
@@ -55,14 +55,13 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    useReplicaIssues: () => (world.current ? allIssueViewModels(world.current.replica) : []),
   }
 })
 
 afterEach(cleanup)
 
 const show = (over: Parameters<typeof makeIssue>[0]) => {
-  world.current = normalizedFixtureStore({
+  world.current = poolFixtureStore({
     issues: [
       makeIssue({
         id: 'i-1',

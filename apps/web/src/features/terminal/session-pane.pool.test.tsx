@@ -69,9 +69,6 @@ vi.mock('@/app/store', () => ({
       }),
     )
   },
-  useReplicaIssues: vi.fn(() => {
-    throw new Error('Session pane read the legacy issue list')
-  }),
   useSessionDraft: () => '',
   useSessionExitKind: () => undefined,
 }))

@@ -69,7 +69,6 @@ vi.mock('@/app/store', () => {
   const useStore = () => storeSnapshot
   return {
     useStore,
-    useReplicaIssues: () => (useStore() as unknown as { issues?: unknown[] }).issues ?? [],
     useRuntimeSelector: useTestStoreSelector,
   }
 })

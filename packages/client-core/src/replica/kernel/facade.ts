@@ -1,88 +1,4 @@
-/**
- * THE STORE-NEUTRAL CLIENT `Replica` FACADE (POD-1228, for POD-1223).
- *
- * The engine reads its world through the `Replica` interface in `../replica.ts`,
- * whose only implementation is the outgoing TanStack one. This module is the
- * second implementation: the same interface, backed by the kernel Replica's
- * cache instead. Nothing in the engine changes — the cutover is a different
- * object arriving through the existing `createReplicaFn` seam.
- *
- * ---------------------------------------------------------------------------
- * WHY IT IS BUILT HERE, AND UNDER A DIFFERENT ISSUE THAN THE BRIEF EXPECTED
- * ---------------------------------------------------------------------------
- *
- * POD-376 recorded this file as POD-377's, and POD-1223's brief repeats it.
- * POD-377 shipped and closed WITHOUT it: its merge landed the D6 legacy-snapshot
- * migration, and `apps/mobile` still constructs the TanStack `createReplica`. So
- * the file was owned by an issue that finished elsewhere. It is written once,
- * here, store-neutral, so mobile adopts this one rather than the fork this
- * programme exists to end.
- *
- * ---------------------------------------------------------------------------
- * WHAT IT REFUSES, AND WHY REFUSING IS THE FEATURE
- * ---------------------------------------------------------------------------
- *
- * `applySnapshot`, `applyChanges` and `setCursor` are the WIRE-v1 write-in path:
- * the SocketHub folds a metadata batch and pushes it into the replica. On the
- * kernel path frames arrive as v2 and are applied by the kernel Replica through
- * its own transactional store, so those three methods have no correct
- * behaviour here — and the two plausible wrong ones are both silent. A no-op
- * would leave the engine rendering a frozen slice while the hub reported health;
- * a best-effort write would put a second writer on a store whose whole design is
- * one ordered writer. They THROW. A mis-wiring that hands this facade to a v1
- * hub is then a loud failure at the first frame instead of a slice that quietly
- * stops moving — the run's recurring defect class is instruments that cannot say
- * NO, and a facade that cannot say NO to the wrong wire is the same shape.
- *
- * ---------------------------------------------------------------------------
- * WHAT IS DELIBERATELY NOT ON THE KERNEL CACHE
- * ---------------------------------------------------------------------------
- *
- * ui-state, transcript windows and the outbox queue go to `SideCache` — see its
- * header for the reasoning on the first two. The OUTBOX is the load-bearing one:
- * the brief describes this facade as sitting over `{cache, outbox}`, and it does
- * not, on purpose. The kernel `OutboxStorePort` stores `OutboxRecord`s — a
- * dotted CONTRACT NAME and version, a delivery class, a partition key, an
- * attribution pair, a lifecycle state. The client `Outbox`'s entries are tRPC
- * mutation kinds. Bridging them means MINTING contract identity — inventing
- * `sessions.rename@1` and an attribution for a client that cannot yet name a
- * user — and writing it into a durable store, where POD-311's real contracts
- * would later disagree with records already on people's disks. The read-model
- * cutover this issue owns does not need it (the shadow basis §2.3 excludes
- * optimistic state from the comparison by design), so the write path stays where
- * it is and its cutover is filed separately rather than half-done here.
- *
- * ---------------------------------------------------------------------------
- * WHAT THAT SEPARATE CUTOVER DID (POD-1232) — READ THIS BEFORE TRUSTING THE ABOVE
- * ---------------------------------------------------------------------------
- *
- * The minting problem is gone: POD-311's contracts exist, and `OUTBOX_COMMANDS`
- * in `../../engine/wiring.ts` is the table that names each queued kind's real
- * contract and version, pinned to the contracts themselves by
- * `outbox-contract-table.test.ts`. So the ENGINE's queue is now the kernel's on
- * both platforms: web drove the kernel `Outbox` state machine over its IndexedDB
- * `OutboxStorePort` from POD-1232 (`openKernelEngineOutbox`), and POD-2073 put
- * mobile on the same driver over its SQLite one. Queued writes are in the same
- * transactional store as the entity rows (ADR 6 D4.3), with a dotted contract
- * name, a version, a delivery class, a partition key and an attribution pair
- * stamped from the AUTHENTICATED principal (ADR 3 D7) — never from anything the
- * entry carried.
- *
- * WHAT THIS FACADE'S THREE `outbox*Storage()` SEAMS ARE, THEREFORE: the side
- * cache, on both platforms, and NOT the engine's queue on either. Nothing on the
- * kernel path reads them. They are kept because the compatibility `Outbox` is
- * still the queue on the legacy replica, and they are NOT pointed at the kernel
- * store because that would put a second, mirror-backed writer on records the
- * kernel `Outbox` owns — and would lose POD-1231's synchronous "this write is
- * not durable" report, which only exists because `StorageApi.setItem` is
- * synchronous.
- *
- * Mobile used to be the exception: it passed a pair of `OutboxStorage` views
- * over its kernel outbox rows through an `init.outbox` seam here, which let the
- * compatibility state machine drive kernel-owned records. POD-2073 deleted both
- * the views and the seam. Named here so the next reader does not conclude from
- * `outboxStorage()` that either platform queues to a blob store — neither does.
- */
+/** Kernel-backed client replica. Wire-v1 writer methods refuse; the kernel owns entity writes. */
 
 import type { TranscriptItem } from '@podium/model'
 import type { Cursor, EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
@@ -774,3 +690,5 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
 
   return facade
 }
+
+export type { Replica } from '../contract'

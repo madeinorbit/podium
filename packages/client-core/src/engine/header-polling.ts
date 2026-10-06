@@ -6,7 +6,7 @@ import {
   type SessionMeta,
 } from '@podium/model'
 import type { AgentConcurrencyHistoryResult, PodiumClientApi } from '../api'
-import type { Replica } from '../replica/replica'
+import type { Replica } from '../replica/kernel/facade'
 
 const log = createLogger('client.header-polling')
 

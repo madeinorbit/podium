@@ -23,36 +23,16 @@ const httpSync = {
 }
 
 describe('shared replica storage lifecycle', () => {
-  it('keeps legacy authored work when migration loses durability', async () => {
+  it('refuses unavailable private storage and closes the opened store', async () => {
     const storage = device()
-    const queued = JSON.stringify([
-      {
-        mutationId: 'm-legacy',
-        kind: 'rename',
-        input: { sessionId: 's', name: 'offline name' },
-        queuedAt: Date.now(),
-      },
-    ])
-    storage.setItem('podium.outbox.v1', queued)
     const store = await openStore()
-    const transact = store.unitOfWork.transact
-    vi.spyOn(store.unitOfWork, 'transact').mockImplementation(async (run) => {
-      const result = await transact(run)
-      vi.spyOn(store, 'durability').mockReturnValue('degraded-memory')
-      return result
-    })
+    vi.spyOn(store, 'durability').mockReturnValue('degraded-memory')
     const close = vi.spyOn(store, 'close')
-    await expect(
-      openReplicaAssembly({
-        api: {} as never,
-        principal,
-        openStore: async () => store,
-        settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
-        evidence: { kind: 'single-account', principal },
-        httpSync,
-      }),
-    ).rejects.toMatchObject({ failure: { kind: 'replica-blocked' } })
-    expect(storage.getItem('podium.outbox.v1')).toBe(queued)
+    await expect(openReplicaAssembly({
+      api: {} as never, principal, openStore: async () => store,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      evidence: { kind: 'single-account', principal }, httpSync,
+    })).rejects.toMatchObject({ failure: { kind: 'replica-blocked' } })
     expect(close).toHaveBeenCalledOnce()
   })
 

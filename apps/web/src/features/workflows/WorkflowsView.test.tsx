@@ -19,7 +19,6 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import '@/test-support/mock-screen-pool'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 let subjects: ReturnType<typeof makeIssue>[] = []
 const testHandle = vi.hoisted(() => ({
@@ -94,7 +93,6 @@ vi.mock('@/app/store', () => {
         : (fixtureState().sessions as Array<{ sessionId: string }>).find(
             (session) => session.sessionId === id,
           ),
-    useReplicaIssues: () => normalizedFixtureIssues({ issues: subjects }),
   }
 })
 

@@ -105,7 +105,6 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore: () => state(),
-    useReplicaIssues: () => state().issues,
     useRuntimeSelector: (selector: (value: ReturnType<typeof state>) => unknown) => selector(state()),
   }
 })

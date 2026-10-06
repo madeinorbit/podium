@@ -91,7 +91,7 @@ import { type ReferentState, resolveReferent } from '../values/session-ownership
 import type { Replica as ClientReplica } from './contract'
 import { FeedSink } from './feed/sink'
 import { createKernelReplica, createSideCache, type KernelCacheRead } from './kernel'
-import { memoryStorage } from './replica'
+import { memoryStorage } from './contract'
 
 const ALICE: ConformancePrincipal = conformanceUser('user:alice')
 const BOB: ConformancePrincipal = conformanceUser('user:bob')

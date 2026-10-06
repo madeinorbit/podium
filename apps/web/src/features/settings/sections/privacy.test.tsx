@@ -30,7 +30,6 @@ vi.mock('@/app/store', () => {
     setup: { info: { query: trpcMock.setupInfo }, provenance: { query: trpcMock.provenance } },
   }
   return {
-    useReplicaIssues: () => [],
     useRuntimeSelector: (fn: (s: unknown) => unknown) => fn({ trpc }),
   }
 })

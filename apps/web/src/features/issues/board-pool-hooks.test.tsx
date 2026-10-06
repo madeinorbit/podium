@@ -20,10 +20,6 @@ const state = vi.hoisted(() => ({
   update: vi.fn(async () => {}),
 }))
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => {
-    state.issueReads()
-    return []
-  },
   useRuntimeSelector: (read: (store: object) => unknown) =>
     read({
       get sessions() {

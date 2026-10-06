@@ -22,7 +22,7 @@
 
 import type { SessionId, SessionMeta } from '@podium/model'
 import { hasDomWindow } from '../platform-globals'
-import type { UiState } from '../replica/replica'
+import type { UiState } from '../replica/contract'
 import { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY } from '../ui-state'
 import { play, prewarmAudio, type SoundName } from './cuelume'
 

@@ -70,7 +70,7 @@ import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
 import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
-import type { Replica } from '../replica/replica'
+import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
 

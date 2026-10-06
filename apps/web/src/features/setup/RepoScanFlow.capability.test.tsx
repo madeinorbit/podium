@@ -76,7 +76,6 @@ vi.mock('@/app/store', () => {
   const useStore = () => store
   return {
     useStore,
-    useReplicaIssues: () => [],
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })

@@ -8,9 +8,6 @@ import { IssueChipLiveness } from './IssueChipLiveness'
 const fixture = vi.hoisted(() => ({ pool: null as unknown, owner: {} }))
 vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture.owner }))
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => {
-    throw new Error('Pool chip called legacy list reader')
-  },
 }))
 vi.mock('@/app/store-worklist-pool', () => ({ useWorklistPool: () => fixture.pool }))
 

@@ -8,7 +8,8 @@ import { asUserId } from '@podium/model'
 import { createClientRuntime } from '@podium/client-core/engine'
 import { platformIsOnline, platformOnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { memoryStorage } from '@podium/client-core/replica'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { afterEach, describe, expect, test } from 'vitest'
 import { installNativeGlobals, type NativeGlobals } from '../../test/native-globals'
@@ -108,7 +109,7 @@ describe('the client boots on native globals', () => {
       config: { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:0/client' },
       api: {} as never,
       onFatalError: () => {},
-      createReplicaFn: () => createReplica({ storage: memoryStorage() }),
+      createReplicaFn: () => createReplicaFixture({ storage: memoryStorage() }),
       routerWindow: createMemoryRouterWindow(),
       ...nativeClientSeams(connectivity),
     })

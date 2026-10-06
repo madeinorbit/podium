@@ -1,7 +1,7 @@
+import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 /** Convert older test inputs at the fixture boundary, then exercise real joins. */
 
-import { createReplica, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type {
   IssueGitStateProjection,
   IssueProjection,
@@ -22,7 +22,7 @@ const cache = new WeakMap<
 >()
 
 function make(store: FixtureStore) {
-  const replica = createReplica({ storage: memoryStorage() })
+  const replica = createReplicaFixture()
   const repos = new Map<string, RepoProjection>()
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
@@ -137,7 +137,7 @@ function make(store: FixtureStore) {
 }
 
 /** The store's retained issue rows stay empty, including in published slices. */
-export function normalizedFixtureStore<T extends FixtureStore>(
+export function poolFixtureStore<T extends FixtureStore>(
   store: T,
 ): T & ReturnType<typeof make> {
   const key = store.issues ?? store
@@ -149,11 +149,7 @@ export function normalizedFixtureStore<T extends FixtureStore>(
   return { ...store, issues: [], ...hit.value }
 }
 
-export function normalizedFixtureIssues(store: FixtureStore) {
-  const normalized = normalizedFixtureStore(store)
-  return allIssueViewModels(
-    normalized.replica,
-    normalized.issueProjections,
-    normalized.issueUserStates,
-  )
+export function poolFixtureIssues(store: FixtureStore) {
+  const normalized = poolFixtureStore(store)
+  return allIssueViewModels(normalized.replica, normalized.issueProjections, normalized.issueUserStates)
 }

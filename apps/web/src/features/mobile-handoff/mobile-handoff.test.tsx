@@ -19,7 +19,6 @@ import {
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 
 const fixture = vi.hoisted(() => {
   const rows = new Map<string, string>()
@@ -54,7 +53,6 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => normalizedFixtureIssues({ issues: fixture.issues }),
   useRuntimeSelector: (selector: (store: unknown) => unknown) =>
     selector(
       normalizedFixtureStore({

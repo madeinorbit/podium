@@ -14,7 +14,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { poolMissionContains } from '@/features/worklist/use-pool-unified-work'
 import { makeIssue } from '@/lib/test-issue'
-import { normalizedFixtureIssues, normalizedFixtureStore } from '@/test-support/normalized-issues'
 import { ISSUE_VIRTUAL_MAX_ITEMS } from '../use-bounded-virtual-list'
 import {
   EXPLORER_SCROLL_CACHE_LIMIT,
@@ -72,10 +71,6 @@ const state = {
 vi.mock('@/app/store', () => ({
   useStore: () => state as never,
   useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state),
-  useReplicaIssues: () => {
-    legacyIssueRead()
-    throw new Error('Explorer read legacy issue collection')
-  },
 }))
 
 // The detail is IssuePanelView's job and has its own tests; what this file is

@@ -70,10 +70,6 @@ vi.mock('@/app/store', () => {
   return {
     useStore: () => state(),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
-    // Two repo-mates, so the rail renders its relation controls: the pending
-    // relation TYPE is the transient the properties reset still owns, and with
-    // an empty replica there is no control to hold it (POD-1224).
-    useReplicaIssues: () => [FIRST, SECOND],
   }
 })
 

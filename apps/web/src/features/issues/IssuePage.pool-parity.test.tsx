@@ -135,10 +135,6 @@ const state = {
 vi.mock('@/app/store', () => ({
   useStore: () => state,
   useRuntimeSelector: (select: (owner: unknown) => unknown) => select(state),
-  useReplicaIssues: () => {
-    recordSliceDerivation(replica, 'replica.issueViews')
-    return state.issues
-  },
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => {

@@ -30,7 +30,6 @@ const demand = vi.hoisted(() => ({
 vi.mock('@/app/store', () => ({
   useHostMetrics: demand.metrics,
   useRuntimeSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
-  useReplicaIssues: () => [],
 }))
 vi.mock('@/app/header-data', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/app/header-data')>()),

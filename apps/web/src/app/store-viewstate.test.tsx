@@ -1,5 +1,5 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createReplica } from '@podium/client-core/replica'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -167,7 +167,7 @@ function mount(): void {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createReplica()}
+        createReplicaFn={() => createReplicaFixture()}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={() => {}}
       >

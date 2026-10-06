@@ -1,7 +1,7 @@
 import { asSessionId } from '@podium/model'
 import type { AgentRuntimeState, SessionId, SessionMeta, SessionMetaInput } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { UiState } from '../replica/replica'
+import type { UiState } from '../replica/contract'
 import {
   audibleCondition,
   type NotificationCue,

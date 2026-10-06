@@ -1,4 +1,4 @@
-import { createReplica } from '@podium/client-core/replica'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +39,7 @@ let sharedStorage: {
 let sharedPrefix: string
 
 function replicaBacking(): OutboxStorage {
-  return createReplica({
+  return createReplicaFixture({
     storage: sharedStorage,
     keyPrefix: sharedPrefix,
     enumerateKeys: () => [],
@@ -202,7 +202,7 @@ describe('outbox', () => {
       setItem: (k: string, v: string) => void data.set(k, v),
       removeItem: (k: string) => void data.delete(k),
     }
-    const backing = () => createReplica({ storage, keyPrefix: 'ob.itest' }).outboxStorage()
+    const backing = () => createReplicaFixture({ storage, keyPrefix: 'ob.itest' }).outboxStorage()
     // "Offline" first life: entries persist into the replica collection.
     const first = createOutbox<Kinds>({
       executors: makeExecutors().executors,

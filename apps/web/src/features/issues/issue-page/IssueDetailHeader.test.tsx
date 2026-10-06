@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueDetailHeader } from './IssueDetailHeader'
 
-vi.mock('@/app/store', () => ({ useReplicaIssues: () => [] }))
+vi.mock('@/app/store', () => ({ }))
 
 const working = (id: string): SessionView =>
   ({

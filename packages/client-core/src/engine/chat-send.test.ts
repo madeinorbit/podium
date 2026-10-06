@@ -19,7 +19,7 @@ import { asMutationId, asSessionId, type MutationId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import type { Replica } from '../replica/replica'
+import type { Replica } from '../replica/contract'
 import {
   ChatNotSentError,
   discardChatThroughOutbox,

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { createEngineHub } from '../engine/wiring'
-import { createReplica, memoryStorage } from '../replica'
+import { memoryStorage } from '../replica/contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { cookieCredentials } from '../accounts/storage'
 import type {
   FeedServerFrame,
@@ -210,7 +211,7 @@ describe('login carriage', () => {
     const hub = createEngineHub({
       wsClientUrl: 'wss://one.test/client',
       api: {} as PodiumClientApi,
-      replica: createReplica({ storage: memoryStorage() }),
+      replica: createReplicaFixture({ storage: memoryStorage() }),
       onFatalError: vi.fn(),
       feed: onFeed ? sink() : undefined,
       makeSocket: createSocketLogin({

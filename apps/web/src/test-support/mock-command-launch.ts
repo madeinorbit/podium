@@ -1,6 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import { normalizedFixtureIssues } from './normalized-issues'
+import { poolFixtureIssues } from './pool-issue-fixture'
 import { isDeepStrictEqual } from 'node:util'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -33,7 +33,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
   const state = useRuntimeSelector((value) => value) as unknown as Store
   const issues = state.replica && state.issueProjections
     ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
-    : normalizedFixtureIssues(state)
+    : poolFixtureIssues(state)
   const fixture = useMemo(() => {
     let current: Store
     let previousRows: unknown

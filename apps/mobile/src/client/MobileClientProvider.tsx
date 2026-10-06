@@ -19,7 +19,7 @@ import {
  * kernel-driven): the queue's rows have been in SQLite since POD-1220, and the
  * state machine over them is now the kernel `Outbox` the web app runs — see
  * `openKernelEngineOutbox` below. AsyncStorage holds only side-cache
- * (ui-state, transcript windows), the pre-migration legacy bridge, and small
+ * (ui-state, transcript windows), and small
  * pre-replica app metadata (server profiles, cleanup intents, credential id
  * registry) — never authoritative per-user state, which is replicated rows
  * read through the same slices and commands as the web (doc §3.3, POD-1076).
@@ -73,11 +73,7 @@ import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { asUserId, type SessionId } from '@podium/model'
-import {
-  LEGACY_STANDALONE_OUTBOX_KEY,
-  type LegacyIdentityEvidence,
-  type LegacyMigrationOutcome,
-} from '@podium/sync/adapters/legacy-replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 
 export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
@@ -144,17 +140,6 @@ export const MOBILE_REPLICA_PRINCIPAL = 'default'
  *  drifts is which contract a queued write is replayed under. */
 export const MOBILE_OUTBOX_COMMANDS = OUTBOX_COMMANDS
 
-/**
- * WHICH KEYS THE BRIDGE MUST HYDRATE, and why the default is not enough.
- *
- * `createAsyncStorageReplicaStorage` hydrates `podium.replica*` by default, but the
- * PRE-replica standalone outbox blob is `podium.outbox.v1` — outside that prefix. A
- * device that upgraded straight from a build older than the replica collections has
- * its queued work in exactly that key and nowhere else, so hydrating the default
- * prefix alone would make the migration read an empty store and report success.
- */
-export const LEGACY_HYDRATE_PREFIXES = [REPLICA_KEY_PREFIX, LEGACY_STANDALONE_OUTBOX_KEY] as const
-
 export type MobileEntityStore = ReplicaDataStore
 
 export interface MobileReplicaDeps {
@@ -175,8 +160,7 @@ export interface MobileReplicaDeps {
    * takes `trpc` for exactly this and nothing else.
    */
   readonly api: PodiumClientApi
-  /** The hydrated AsyncStorage bridge: the legacy migration's source AND the
-   *  side-cache home for ui-state / transcript windows. */
+  /** Hydrated side-cache home for ui-state and transcript windows. */
   readonly storage: StorageApi
   /** Hydrated AsyncStorage inventory used for namespace retention/erasure. */
   readonly enumerateKeys?: () => string[]
@@ -231,8 +215,6 @@ export interface MobileReplica {
    * driving one durable queue.
    */
   readonly createOutboxFn: CreateEngineOutbox
-  /** What the migration did — the caller tells the user (D4.4). */
-  readonly outcome: LegacyMigrationOutcome
   readonly store: MobileEntityStore
   readonly principal: string
   readonly clientPrincipal: string
@@ -260,8 +242,6 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     onDegraded: (detail) => {
       const report = detail as { kind?: string; notice?: string }
       if (report?.kind === 'store-not-adopted') deps.onDegraded(STORE_REFRESH_NOTICE, 'info')
-      else if (report?.kind === 'legacy-outbox-migrated' && report.notice)
-        deps.onDegraded(report.notice)
       else deps.onDegraded(String(detail))
     },
     onAuthExpired: deps.onAuthExpired,
@@ -293,7 +273,6 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     feed: relay?.feed ?? assembly.feed,
     syncProgress: new MobileSyncProgressStore(assembly.progress),
     createOutboxFn: assembly.createOutboxFn,
-    outcome: assembly.migrations[0]!,
     store: assembly.store,
     principal,
     clientPrincipal,
@@ -637,7 +616,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
             config.workspaceSlug,
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
+          createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX], {
             coalesce: isTranscriptWindowStorageKey,
           }),
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId),

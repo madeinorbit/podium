@@ -7,7 +7,7 @@ import { bandOf, closedOf, displayTitleOf, foldAtOf, ownPartOfRow, rankOfPart } 
 import { fleetOf, sidebarLifecycle } from '@podium/client-graph/worklist/sidebar-row'
 import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import { normalizedFixtureIssues } from './normalized-issues'
+import { poolFixtureIssues } from './pool-issue-fixture'
 import { isDeepStrictEqual } from 'node:util'
 import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
 // Older provider-free fixtures carry saved documents as plain test data.
@@ -60,7 +60,7 @@ let borrowed: { read(): Inputs; subscribe(wake: () => void): () => void } = {
 const selectFixture = storeInputs.useRuntimeSelector as unknown as <T>(select: (state: Store) => T, equals?: (a: T, b: T) => boolean) => T
 const useFixtureIssues = () => selectFixture(state => state.replica && state.issueProjections
   ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
-  : normalizedFixtureIssues(state), isDeepStrictEqual)
+  : poolFixtureIssues(state), isDeepStrictEqual)
 const selectInputs = (state: Store): Inputs => ({
   sessions: state.sessions,
   machines: state.machines,

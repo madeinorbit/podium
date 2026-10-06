@@ -47,9 +47,6 @@ vi.mock('@/app/store', () => ({
   useRuntimeSelector: () => {
     throw new Error('Menu subscribed to the old store')
   },
-  useReplicaIssues: () => {
-    throw new Error('Menu enumerated legacy issues')
-  },
 }))
 vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),

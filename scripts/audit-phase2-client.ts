@@ -63,7 +63,7 @@
  *
  * 4. NO UNATTRIBUTED READ OF THE PERSISTED STORE. Per POD-307 this fails CLOSED:
  *    an unattributable store is discarded and re-bootstrapped, never adopted
- *    (`packages/sync/src/adapters/legacy-replica/adoption.ts` is the gate).
+ *    (`packages/client-core/src/replica-assembly/adoption.ts` is the gate).
  *
  *    The detector is over COMPOSITION ROOTS — the places that construct a client
  *    replica over persisted storage — because that is where the decision either

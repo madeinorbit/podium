@@ -6,7 +6,8 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useRuntimeSelector } from '@podium/client-core/react'
-import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { memoryStorage } from '@podium/client-core/replica'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -108,7 +109,7 @@ async function render(config: Config, api: PodiumClientApi): Promise<void> {
         config={config}
         api={api}
         onFatalError={() => {}}
-        createReplicaFn={() => createReplica()}
+        createReplicaFn={() => createReplicaFixture()}
       >
         <Probe />
       </StoreProvider>,
@@ -239,7 +240,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
           onFatalError={() => {}}
           createReplicaFn={(p) => {
             closedWhenOpened.set(p.userId, FakeWS.closed)
-            return createReplica({ storage: storageFor(p.userId) })
+            return createReplicaFixture({ storage: storageFor(p.userId) })
           }}
         >
           <PrincipalProbe />
@@ -418,7 +419,7 @@ describe('no principal, no client (POD-404)', () => {
           onFatalError={() => {}}
           createReplicaFn={() => {
             replicaBuilds++
-            return createReplica({ storage: memoryStorage() })
+            return createReplicaFixture({ storage: memoryStorage() })
           }}
           unauthenticated={<span data-testid="gate">signing in</span>}
         >
@@ -452,7 +453,7 @@ describe('no principal, no client (POD-404)', () => {
             config={config}
             api={api}
             onFatalError={() => {}}
-            createReplicaFn={() => createReplica({ storage })}
+            createReplicaFn={() => createReplicaFixture({ storage })}
           >
             <Probe />
           </StoreProvider>,

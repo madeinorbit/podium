@@ -21,7 +21,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
 import { useRuntimeSelector as readFixtureSnapshot } from '@/app/store'
 import { fixtureStoreSnapshot } from './fixture-store'
-import { normalizedFixtureStore } from './normalized-issues'
+import { poolFixtureStore } from './pool-issue-fixture'
 
 let pool: MobxPool | null = null
 let signature: string | undefined
@@ -109,7 +109,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     const normalized =
       state.replica && state.issueProjections
         ? state
-        : normalizedFixtureStore({ ...state, issues: fixtureIssues })
+        : poolFixtureStore({ ...state, issues: fixtureIssues })
     const issues = allIssueViewModels(
       normalized.replica,
       normalized.issueProjections,

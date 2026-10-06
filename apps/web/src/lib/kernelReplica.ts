@@ -11,13 +11,11 @@ import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import { createLogger } from '@podium/logger'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import type { LegacyIdentityEvidence } from '@podium/sync/adapters/legacy-replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import type { Trpc } from '@/app/trpc'
 import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { workspaceFetch } from './workspace-request'
 
-export type { OutboxMigrationSummary as WebOutboxMigrationSummary } from '@podium/client-core/replica-assembly'
-export { sideCacheQueueAsLegacy, summarizeMigrations } from '@podium/client-core/replica-assembly'
 
 const log = createLogger('web:kernel-replica')
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'

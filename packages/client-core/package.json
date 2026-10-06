@@ -219,6 +219,11 @@
       "@podium/source": "./src/demo/index.ts",
       "types": "./src/demo/index.ts",
       "import": "./src/demo/index.ts"
+    },
+    "./test-support/replica": {
+      "@podium/source": "./test-support/replica.ts",
+      "types": "./test-support/replica.ts",
+      "import": "./test-support/replica.ts"
     }
   },
   "scripts": {
@@ -233,9 +238,6 @@
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
-    "@tanstack/db": "0.9.2",
-    "@tanstack/db-sqlite-persistence-core": "0.2.23",
-    "@tanstack/react-db": "0.4.1",
     "highlight.js": "11.11.1",
     "mobx": "7.0.3",
     "zod": "^3.24.0",

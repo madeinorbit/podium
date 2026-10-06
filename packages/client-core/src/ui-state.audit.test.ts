@@ -36,13 +36,11 @@ const PRODUCT_ROOTS = [
  */
 const SANCTIONED_STORAGE_FILES = new Set([
   relative(ROOT, UI_STATE_SOURCE),
-  'packages/client-core/src/replica/replica.ts',
   'packages/client-core/src/replica/async-storage.ts',
   'packages/client-core/src/replica/principal-storage.ts',
   'packages/client-core/src/replica/contract.ts',
   'packages/client-core/src/replica/kernel/side-cache.ts',
   'packages/client-core/src/replica/kernel/facade.ts',
-  'packages/client-core/src/replica/legacy-snapshot.ts',
   // The shared account metadata port, used before a principal replica can open.
   'packages/client-core/src/accounts/storage.ts',
   // Platform composition roots that *inject* storage into the replica factory.

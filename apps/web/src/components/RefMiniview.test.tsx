@@ -49,11 +49,11 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
 })
 
 vi.mock('@/app/store', async () => {
-  const { normalizedFixtureStore } = await import('@/test-support/normalized-issues')
+  const { poolFixtureStore } = await import('@/test-support/pool-issue-fixture')
   return {
     useRuntimeSelector: (select: (state: unknown) => unknown) =>
       select({
-        ...normalizedFixtureStore({
+        ...poolFixtureStore({
           issues: hostStore.replicaIssues,
           sessions: hostStore.sessions,
         }),

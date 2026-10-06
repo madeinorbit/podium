@@ -1,10 +1,3 @@
-import { actorUser, asUserId } from '@podium/model'
-import {
-  decideLegacyAdoption,
-  type LegacyIdentityEvidence,
-  type LegacyMigrationOutcome,
-  migrateLegacyReplica,
-} from '@podium/sync/adapters/legacy-replica'
 import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
   Replica as KernelReplica,
@@ -16,7 +9,6 @@ import {
   type CreateEngineOutbox,
   type CreateReplicaForPrincipal,
   openKernelEngineOutbox,
-  outboxCommandFor,
 } from '../engine'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import {
@@ -39,11 +31,7 @@ import {
   SyncNetworkError,
 } from '../sync-stream'
 import { ReplicaGateError } from './failure'
-import {
-  type OutboxMigrationSummary,
-  sideCacheQueueAsLegacy,
-  summarizeMigrations,
-} from './migration'
+import { decideLegacyAdoption, type LegacyIdentityEvidence } from './adoption'
 import { SyncProgressStore } from './progress'
 
 export const STORE_REFRESH_NOTICE = 'Refreshing your data after the upgrade — this happens once.'
@@ -67,9 +55,7 @@ export interface ReplicaSettings {
   readonly storageEventApi?: Parameters<typeof createSideCache>[0]['storageEventApi']
 }
 
-export type ReplicaDegradation =
-  | { kind: 'store-not-adopted'; reason: string }
-  | ({ kind: 'legacy-outbox-migrated' } & OutboxMigrationSummary)
+export type ReplicaDegradation = { kind: 'store-not-adopted'; reason: string }
 
 export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   readonly openStore: (onDegraded: (detail: unknown) => void) => Promise<T>
@@ -96,8 +82,6 @@ export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> 
   readonly createOutboxFn: CreateEngineOutbox
   readonly store: T
   readonly progress: SyncProgressStore
-  readonly migrations: readonly LegacyMigrationOutcome[]
-  readonly migration: OutboxMigrationSummary
   settled(): Promise<void>
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
@@ -150,7 +134,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         throw storageFailure(error)
       }
     }
-    // No migration may retire authored work into an ephemeral store.
+    // Private data requires durable storage before the engine may start.
     if (store.durability() !== 'durable')
       throw storageFailure(
         unavailableCause instanceof Error
@@ -184,9 +168,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       identitiesEverSignedIn: namespace.knownPrincipals,
     }
     const adoption = decideLegacyAdoption(
-      { verdict: 'import', outbox: [], retireKeys: [], rejected: [], cursorDiscarded: false },
       evidence,
-      now(),
       { kind: 'principal-scoped', writtenUnder: [options.principal] },
     )
     if (!adoption.adopt) {
@@ -194,44 +176,6 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       options.onDegraded?.({
         kind: 'store-not-adopted',
         reason: adoption.reason,
-      } satisfies ReplicaDegradation)
-    }
-    const migrations: LegacyMigrationOutcome[] = []
-    const durableTransact: SyncUnitOfWork['transact'] = async (run) => {
-      const result = await store.unitOfWork.transact(run)
-      if (store.durability() !== 'durable')
-        throw storageFailure('private replica storage lost durability during migration')
-      return result
-    }
-    for (const legacy of [
-      settings.storage,
-      sideCacheQueueAsLegacy(settings.storage, namespace.keyPrefix),
-    ]) {
-      migrations.push(
-        await migrateLegacyReplica({
-          legacy,
-          outbox: view.outbox,
-          transact: durableTransact,
-          resolveCommand: outboxCommandFor,
-          attribution: { actor: actorUser(asUserId(memberId)), onBehalfOf: asUserId(memberId) },
-          evidence,
-          now,
-        }),
-      )
-      if (store.durability() !== 'durable')
-        throw storageFailure('private replica storage lost durability during migration')
-    }
-    await flushSettings()
-    const migration = summarizeMigrations(migrations)
-    if (migration.notice !== undefined)
-      options.onDegraded?.({
-        kind: 'legacy-outbox-migrated',
-        ...migration,
-      } satisfies ReplicaDegradation)
-    else if (migrations.some((outcome) => outcome.cursorDiscarded)) {
-      options.onDegraded?.({
-        kind: 'store-not-adopted',
-        reason: 'legacy-cursor-discarded',
       } satisfies ReplicaDegradation)
     }
     const createOutboxFn = await openKernelEngineOutbox({
@@ -371,8 +315,6 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       createOutboxFn,
       store,
       progress,
-      migrations,
-      migration,
       settled,
       erasePrincipalData: async () => {
         erased = true

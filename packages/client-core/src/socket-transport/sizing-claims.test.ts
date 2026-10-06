@@ -15,7 +15,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type CreateHub, createEngineHub } from '../engine/wiring'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import type { LegacyMetadataAppliedState } from '../replica/legacy-wire-v1-feed'
-import { createReplica, memoryStorage } from '../replica/replica'
+import { memoryStorage } from '../replica/contract'
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { type ConnectionState, SocketHub, type WebSocketLike } from './socket-hub'
 
 const SESSION = asSessionId('s-sizing')
@@ -88,7 +89,7 @@ describe('C1 (REWRITTEN for POD-3239 B2/B8): a SessionConnection has NO geometry
       seen.push(opts as unknown as Record<string, unknown>)
       return { dispose: () => {} } as unknown as SocketHub
     }
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     createEngineHub({
       wsClientUrl: 'ws://sizing.test',
       api: {} as never,
@@ -216,7 +217,7 @@ describe('C3: the `attached` handler sets cols/rows and emits BEFORE onAttached'
 
 describe('C10: the server geometry reaches the client session row through the replica', () => {
   it('a session row keeps the server value verbatim', () => {
-    const replica = createReplica({ storage: memoryStorage() })
+    const replica = createReplicaFixture({ storage: memoryStorage() })
     const state = {
       cursor: 1,
       sessions: [

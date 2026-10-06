@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueListView } from '@/features/issues/IssueListView'
 import { IssuesKanban } from '@/features/issues/IssuesKanban'
 import { DEFAULT_DISPLAY } from '@/features/issues/issues-display'
-import { normalizedFixtureStore } from '@/test-support/normalized-issues'
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -147,7 +147,7 @@ describe('web legacy issue retention', () => {
         },
       }),
     ]
-    const fixture = normalizedFixtureStore({ issues: wires })
+    const fixture = poolFixtureStore({ issues: wires })
     const records = [
       ...wires.map((wire) => ({
         entity: 'issue',

@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import { advanceCursor, identityVerdict } from './feed'
 import type { LegacyMetadataAppliedState } from './legacy-wire-v1-feed'
-import type { Replica } from './replica'
+import type { Replica } from './contract'
 
 const log = createLogger('client-core:feed')
 

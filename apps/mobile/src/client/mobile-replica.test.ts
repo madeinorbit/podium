@@ -1,37 +1,4 @@
-/**
- * THE ATTRIBUTION GATE + v2 FEED ASSEMBLY, ON MOBILE (POD-1220 + POD-1241).
- *
- * POD-1220: the gate has a caller and an effect on the durable outbox.
- * POD-1241: the composition root assembles KernelReplica + HTTP sources
- * so entity rows land in SQLite and paint on cold start.
- *
- * WHY EVERY CASE RUNS OVER A REAL SQLITE FILE. The property is durability across a
- * process, and `:memory:` dies with the connection: an assertion that queued work
- * survived would pass by finding nothing in exactly the same shape as by finding the
- * right thing. `readDurable` therefore opens its OWN connection and reads the tables
- * directly, so the store's in-memory mirror can never answer for the engine.
- *
- * WHY THE REFUSAL ARMS ARE THE POINT AND THE ADOPT ARM IS NOT (outbox). A wiring
- * that ran the gate and then ignored its verdict would still make the audit count
- * drop, still migrate, still report `adopted=N`, and still be a privacy hole. The
- * mutation that proves otherwise is the refusal cases below: flip ONLY the
- * evidence, and the user's queued work must stop being drainable.
- *
- * WHY THEY READ THROUGH THE QUEUE RATHER THAN THE TABLE. A parked entry is still a
- * ROW — dead-lettered, payload redacted. Asserting the table is empty would fail on
- * correct behaviour; asserting it non-empty would pass on the hole. What must be
- * empty is what the ENGINE can replay, so the assertions are made on the queue's own
- * `pending()`. That queue is the kernel `Outbox` since POD-2073 (it was the
- * compatibility one over a pair of SQLite-backed `OutboxStorage` views before);
- * `engineOutbox` below builds it exactly as the provider does.
- *
- * WHY COLD-START PAINT RUNS AGAINST A SILENT AUTHORITY (POD-1241). An authority
- * whose frames never arrive paints an empty slice that looks exactly like a
- * working offline cold start. A test that only ever ran against a live feed
- * cannot tell "store is wired" from "empty and quiet". The positive case seeds
- * the store, silences the authority, and asserts rows paint; the negative case
- * proves the same assertion goes red when the store is empty.
- */
+/** Mobile kernel assembly: durable queue, cold-start paint and principal isolation. */
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -45,10 +12,7 @@ import {
   type StorageApi,
 } from '@podium/client-core/replica'
 import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
-import {
-  LEGACY_STANDALONE_OUTBOX_KEY,
-  type LegacyIdentityEvidence,
-} from '@podium/sync/adapters/legacy-replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -72,7 +36,7 @@ vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEMO_ISSUES } from './demoData'
 import type { MobileReplicaDeps } from './MobileClientProvider'
-import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
+import { openMobileReplica } from './MobileClientProvider'
 
 /**
  * An authority that delivers NOTHING. Used so a cold-start paint assertion can
@@ -204,7 +168,7 @@ function fileExists(file: string): boolean {
  * returns exactly this shape — a synchronous map over a hydrated snapshot — and the
  * async write-behind it wraps is the bridge's business, not this file's.
  */
-function legacyDevice(entries: Record<string, string>): StorageApi & { keys(): string[] } {
+function deviceStorage(entries: Record<string, string>): StorageApi & { keys(): string[] } {
   const data = new Map(Object.entries(entries))
   return {
     getItem: (key) => data.get(key) ?? null,
@@ -214,52 +178,7 @@ function legacyDevice(entries: Record<string, string>): StorageApi & { keys(): s
   }
 }
 
-/** One queued rename and one queued tuck, plus the entity and cursor state that
- *  ADR 6 D1 forbids from living here at all. */
-const QUEUED_RENAME = {
-  mutationId: 'm-rename',
-  kind: 'rename',
-  input: { sessionId: 's1', name: 'renamed on the train' },
-  queuedAt: 1_700_000_000_000,
-}
-const QUEUED_TUCK = {
-  mutationId: 'm-tuck',
-  kind: 'issueSetTucked',
-  input: { id: 'i1', tucked: true },
-  queuedAt: 1_700_000_001_000,
-}
-
-function seededDevice() {
-  return legacyDevice({
-    'podium.replica.outbox.v1': JSON.stringify([QUEUED_RENAME, QUEUED_TUCK]),
-    'podium.replica.sessions.v1': JSON.stringify([{ sessionId: 's1', name: 'stale' }]),
-    'podium.replica.cursor.v1': '42',
-  })
-}
-
 const SINGLE_ACCOUNT: LegacyIdentityEvidence = { kind: 'single-account', principal: 'default' }
-
-/**
- * The three ways a device can fail to name its owner. Each is a DISTINCT arm of
- * `decideLegacyAdoption`, and they are driven separately because a suite that only
- * ran `unknown` would pass against a gate that had lost the `multi-user` branch
- * entirely.
- */
-const UNATTRIBUTABLE: { label: string; evidence: LegacyIdentityEvidence }[] = [
-  { label: 'identity-unknown', evidence: { kind: 'unknown' } },
-  {
-    label: 'multiple-identities',
-    evidence: {
-      kind: 'multi-user',
-      signedInAs: 'alice',
-      identitiesEverSignedIn: ['alice', 'bob'],
-    },
-  },
-  {
-    label: 'foreign-identity',
-    evidence: { kind: 'multi-user', signedInAs: 'alice', identitiesEverSignedIn: ['bob'] },
-  },
-]
 
 /**
  * THE ENGINE'S QUEUE, BUILT THE WAY THE PROVIDER BUILDS IT (POD-2073).
@@ -414,7 +333,7 @@ function seedIssue(
 describe('the mobile replica composition root', () => {
   it('erases a tombstoned profile replica before completing its durable cleanup intent', async () => {
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
     const stalePrincipal = 'server:old-profile:user:user%3Aadmin'
     const stalePrefix = principalKeyPrefix(REPLICA_KEY_PREFIX, stalePrincipal)
     const seeded = await open({ file, storage: device, principal: stalePrincipal })
@@ -453,7 +372,7 @@ describe('the mobile replica composition root', () => {
 
   it('leaves cleanup incomplete after a storage failure so the same tombstone can retry', async () => {
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
     const stalePrincipal = 'server:old-profile:user:user%3Aadmin'
     let completed = 0
     const cleanup = {
@@ -487,57 +406,9 @@ describe('the mobile replica composition root', () => {
     retried.store.close()
   })
 
-  it('adopts an attributable device: the queued writes are drainable AND durable in SQLite', async () => {
-    const file = freshDatabaseFile()
-    const device = seededDevice()
-
-    const opened = await open({ file, storage: device })
-    const { outcome } = opened
-
-    expect(outcome.ran).toBe(true)
-    expect(outcome.reason).toBe('adopted-single-account')
-    expect(outcome.adopted).toBe(2)
-    expect(outcome.parked).toBe(0)
-
-    // What the ENGINE will replay — the kernel queue's own pending set, which is
-    // what `StoreProvider` receives through `createOutboxFn`.
-    const queue = engineOutbox(opened)
-    expect(queue.pending().map((entry) => entry.mutationId)).toEqual(['m-rename', 'm-tuck'])
-    // FIFO by intent age, and the payload intact: a lossy import would replay a
-    // rename with no name.
-    expect(queue.pending()[0]?.input).toEqual(QUEUED_RENAME.input)
-    // Adopted, not parked. The two are one row apart in the file and a whole
-    // outcome apart for the user, so the absence has to be asserted too.
-    expect(queue.deadLetters()).toEqual([])
-    queue.dispose()
-
-    // Durable, in the file, before anything was awaited past the open.
-    expect(durableOutbox(file).map((row) => row.mutationId)).toEqual(['m-rename', 'm-tuck'])
-  })
-
-  it('drains from SQLITE, not from AsyncStorage — the half that makes the gate matter', async () => {
-    const file = freshDatabaseFile()
-    const device = seededDevice()
-    await open({ file, storage: device })
-
-    // The migration retired every legacy replica key it owns (ADR 6 D1: none of this
-    // may live on AsyncStorage). If the engine were still reading the legacy outbox,
-    // the user's queued work would now be GONE — which is trap 1 of this issue,
-    // reported as success at every other level.
-    expect(device.keys()).not.toContain('podium.replica.outbox.v1')
-
-    // A SECOND open over the same file, with a device that has nothing left to
-    // migrate. The work is still there because its home is now the database.
-    const second = await open({ file, storage: legacyDevice({}) })
-    expect(second.outcome.ran).toBe(false)
-    const queue = engineOutbox(second)
-    expect(queue.pending().map((e) => e.mutationId)).toEqual(['m-rename', 'm-tuck'])
-    queue.dispose()
-  })
-
   it('a write through the queue lands in SQLite, not in the legacy key space', async () => {
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
     const opened = await open({ file, storage: device })
 
     const queue = engineOutbox(opened)
@@ -564,69 +435,21 @@ describe('the mobile replica composition root', () => {
     ).toBe(false)
   })
 
-  for (const arm of UNATTRIBUTABLE) {
-    it(`refuses an unattributable device (${arm.label}): the queued work is NOT drainable`, async () => {
-      const file = freshDatabaseFile()
-      const device = seededDevice()
-
-      const opened = await open({ file, storage: device, evidence: arm.evidence })
-      const { outcome } = opened
-
-      expect(outcome.ran).toBe(true)
-      expect(outcome.reason).toBe(`discarded-${arm.label}`)
-      expect(outcome.adopted).toBe(0)
-      expect(outcome.parked).toBe(2)
-
-      // THE MUTATION. Only the evidence changed between this and the adopt case
-      // above; if these two lines could both pass, the gate would have no effect.
-      // Read through the KERNEL queue, which is the thing that would replay
-      // them: a parked row is a row the engine can see and must not send, so
-      // "not drainable" has to be asserted where drainability is decided.
-      const queue = engineOutbox(opened)
-      expect(queue.pending()).toEqual([])
-      expect(queue.awaiting()).toEqual([])
-      queue.dispose()
-
-      // AND THE USER IS TOLD. `parked: 2` above is what `LiveProvider` turns
-      // into "2 queued change(s) from an earlier session could not be carried
-      // over and were not sent" — the D4.4 sentence, said in the same session
-      // the loss happened in.
-      //
-      // WHAT IS NOT HERE ANY MORE, and why this is the honest assertion rather
-      // than the one that reads better. The gate parks these rows as dead
-      // letters with the payload REDACTED — on a device we could not attribute,
-      // showing the text would turn a migration into a disclosure — and they
-      // used to stay in the file. They do not now: `openKernelEngineOutbox`
-      // reconciles automatic bookkeeping at open, and `shouldParkDeadLetter`
-      // decides that from `recoverableAuthoredText(input)`, which a redacted
-      // entry has none of by construction. So the receipt is retired before
-      // anything could show it.
-      //
-      // This is WEB's behaviour too — same migration, same reconciliation, same
-      // order — so it arrived here as parity rather than as a regression, and
-      // it is filed as POD-2083 rather than fixed under a parity issue. What
-      // this case still pins is the property it was written for: only the
-      // evidence changed between here and the adopt case, and the user's queued
-      // work must stop being drainable.
-      expect(durableOutbox(file)).toEqual([])
-    })
-  }
-
   it('discards and re-bootstraps: after an unattributable open nothing paints from cache', async () => {
     const file = freshDatabaseFile()
-    const device = seededDevice()
+    const device = deviceStorage({})
 
     // Seed the SQLite entity cache under an attributable open first, so the
     // refusal has something real to discard — otherwise empty-after-refuse is
     // indistinguishable from never having rows. Close without erase so the
     // bytes remain for the second open to refuse.
-    const seeded = await open({ file, storage: legacyDevice({}) })
+    const seeded = await open({ file, storage: deviceStorage({}) })
     seedIssue(seeded.store, seeded.principal, { id: 'i-seed', title: 'should not survive' })
     await seeded.store.settled()
     expect(seeded.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-seed'])
     seeded.store.close()
 
-    const { replica, outcome, degradations } = await open({
+    const { replica, degradations } = await open({
       file,
       storage: device,
       evidence: { kind: 'unknown' },
@@ -636,61 +459,10 @@ describe('the mobile replica composition root', () => {
     expect(degradations).toContain('Refreshing your data after the upgrade — this happens once.')
     expect(degradations.some((line) => /discarded-/.test(line))).toBe(false)
 
-    // Legacy AsyncStorage entities/cursor are retired by the migration; the
-    // SQLite entity cache is discarded by the same attribution decision that
-    // parks the outbox (POD-1241 extends the gate to the read path).
-    expect(outcome.cursorDiscarded).toBe(true)
-    expect(device.keys()).toContain('podium.replica.principal.default.namespace.v1')
-    expect(device.keys().some((k) => k.includes('outbox'))).toBe(false)
-    expect(device.keys()).not.toContain('podium.replica.sessions.v1')
-    expect(device.keys()).not.toContain('podium.replica.cursor.v1')
-
     const hydrated = await replica.hydrate()
     expect(hydrated.sessions).toEqual([])
     expect(hydrated.issueProjections).toEqual([])
     expect(hydrated.cursor).toBeNull()
-  })
-
-  it('carries the PRE-replica standalone outbox when the bridge hydrated it', async () => {
-    const file = freshDatabaseFile()
-    const device = legacyDevice({
-      [LEGACY_STANDALONE_OUTBOX_KEY]: JSON.stringify([QUEUED_RENAME]),
-    })
-
-    const opened = await open({ file, storage: device })
-
-    expect(opened.outcome.adopted).toBe(1)
-    const queue = engineOutbox(opened)
-    expect(queue.pending().map((e) => e.mutationId)).toEqual(['m-rename'])
-    queue.dispose()
-  })
-
-  it('and the bridge is TOLD to hydrate it — it is outside the default prefix', () => {
-    // Stated as a constant rather than a behaviour, and the limitation is named
-    // rather than dressed up: the only consumer of this list is `LiveProvider`'s
-    // effect, which needs React and the native module and so cannot run in this
-    // lane. What the case above proves is that the key MATTERS; what this one
-    // proves is that the root asks for it.
-    //
-    // `podium.outbox.v1` does not start with `podium.replica`, so
-    // `createAsyncStorageReplicaStorage`'s default prefix hydrates a snapshot with
-    // no trace of it — and the migration then honestly reports nothing to do. The
-    // device this strands upgraded straight from a build older than the replica
-    // collections, so this key is the ONLY place its queued work lives.
-    expect(LEGACY_HYDRATE_PREFIXES).toContain(LEGACY_STANDALONE_OUTBOX_KEY)
-    expect(LEGACY_HYDRATE_PREFIXES).toContain(REPLICA_KEY_PREFIX)
-  })
-
-  it('a device with nothing to migrate is not a migration', async () => {
-    const file = freshDatabaseFile()
-    const opened = await open({ file, storage: legacyDevice({}) })
-
-    expect(opened.outcome.ran).toBe(false)
-    expect(opened.outcome.adopted).toBe(0)
-    expect(opened.outcome.parked).toBe(0)
-    const queue = engineOutbox(opened)
-    expect(queue.pending()).toEqual([])
-    queue.dispose()
   })
 
   it('hands the provider a kernel queue, already open over this principal', async () => {
@@ -702,11 +474,11 @@ describe('the mobile replica composition root', () => {
     // unsent, and every case above would still be green, because they read the
     // store rather than the seam.
     const file = freshDatabaseFile()
-    const opened = await open({ file, storage: seededDevice() })
+    const opened = await open({ file, storage: deviceStorage({}) })
     expect(typeof opened.createOutboxFn).toBe('function')
 
     const queue = engineOutbox(opened)
-    expect(queue.pending()).toHaveLength(2)
+    expect(queue.pending()).toHaveLength(0)
     // CONSUMED ONCE. Two engines over one durable queue is two writers on the
     // same records, so the factory refuses rather than handing out a second.
     expect(() => engineOutbox(opened)).toThrow()
@@ -715,7 +487,7 @@ describe('the mobile replica composition root', () => {
 
   it('exposes a v2 feed sink so the hub advertises wire 2', async () => {
     const file = freshDatabaseFile()
-    const { feed } = await open({ file, storage: legacyDevice({}) })
+    const { feed } = await open({ file, storage: deviceStorage({}) })
     expect(typeof feed.connected).toBe('function')
     expect(typeof feed.disconnected).toBe('function')
     expect(typeof feed.frame).toBe('function')
@@ -732,7 +504,7 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     const file = freshDatabaseFile()
 
     // First process: adopt, seed durable rows, settle, tear down.
-    const first = await open({ file, storage: legacyDevice({}) })
+    const first = await open({ file, storage: deviceStorage({}) })
     seedIssue(first.store, first.principal, { id: 'i-cold', title: 'from disk' })
     await first.store.settled()
     expect(first.replica.rows('issueProjections').map((r) => r.id)).toEqual(['i-cold'])
@@ -745,7 +517,7 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     // the rows are already durable and hydrate without a single frame.
     const cold = await open({
       file,
-      storage: legacyDevice({}),
+      storage: deviceStorage({}),
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issueProjections).toMatchObject([{ id: 'i-cold', title: 'from disk' }])
@@ -762,7 +534,7 @@ describe('cold-start paint from the durable store (POD-1241)', () => {
     const file = freshDatabaseFile()
     const cold = await open({
       file,
-      storage: legacyDevice({}),
+      storage: deviceStorage({}),
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issueProjections).toEqual([])
@@ -864,7 +636,7 @@ function onlineWithBootstrap(
 describe('feed delivery through the assembled sink (POD-1241)', () => {
   it('publishes one React notification burst for a large bootstrap install', async () => {
     const file = freshDatabaseFile()
-    const opened = await open({ file, storage: legacyDevice({}) })
+    const opened = await open({ file, storage: deviceStorage({}) })
     const paintedSizes: number[] = []
     opened.replica.subscribeRows('issueProjections', () => {
       paintedSizes.push(opened.replica.rows('issueProjections').length)
@@ -888,7 +660,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 
   it('a bootstrap that carries rows paints them — proves the sink is not a silent drop', async () => {
     const file = freshDatabaseFile()
-    const opened = await open({ file, storage: legacyDevice({}) })
+    const opened = await open({ file, storage: deviceStorage({}) })
 
     // Pre-project empty so a missing onKernelEvent fan-out cannot be masked:
     // the facade caches the empty projection, and only onKernelEvent clears it.
@@ -925,7 +697,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
     // Separated from the case above on purpose. Empty alone cannot prove the
     // sink works; together with "carries rows", empty is "correctly empty".
     const file = freshDatabaseFile()
-    const opened = await open({ file, storage: legacyDevice({}) })
+    const opened = await open({ file, storage: deviceStorage({}) })
     expect(opened.replica.rows('issueProjections')).toEqual([])
 
     onlineWithBootstrap(opened, bootstrapFrame({ seq: 3, changes: [] }))
@@ -940,7 +712,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 
   it('a delta after bootstrap adds the row the empty case cannot see', async () => {
     const file = freshDatabaseFile()
-    const opened = await open({ file, storage: legacyDevice({}) })
+    const opened = await open({ file, storage: deviceStorage({}) })
     expect(opened.replica.rows('issueProjections')).toEqual([])
 
     onlineWithBootstrap(opened, bootstrapFrame({ seq: 1, changes: [] }))
@@ -986,7 +758,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
    */
   it('a feed delta is durable across process reopen (POD-541)', async () => {
     const file = freshDatabaseFile()
-    const first = await open({ file, storage: legacyDevice({}) })
+    const first = await open({ file, storage: deviceStorage({}) })
 
     onlineWithBootstrap(first, bootstrapFrame({ seq: 1, changes: [] }))
     await waitUntil('cursor after empty bootstrap', () => first.replica.getCursor() === 1)
@@ -1018,7 +790,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 
     const cold = await open({
       file,
-      storage: legacyDevice({}),
+      storage: deviceStorage({}),
     })
     const hydrated = await cold.replica.hydrate()
     expect(hydrated.issueProjections).toMatchObject([
@@ -1046,7 +818,7 @@ describe('feed delivery through the assembled sink (POD-1241)', () => {
 describe('local persistence is per-principal on mobile (doc §3.2)', () => {
   it("a user switch in a live process never adopts the previous principal's rows or cursor", async () => {
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
 
     // Alice, signed in, with durable rows and a cursor.
     const alice = await open({ file, storage: device, principal: 'alice' })
@@ -1080,7 +852,7 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
     // from "a second open sees nothing", which would be a bug in the store
     // rather than the isolation working.
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
 
     const first = await open({ file, storage: device, principal: 'alice' })
     seedIssue(first.store, 'alice', { id: 'i-alice', title: 'alice private work' })
@@ -1093,7 +865,7 @@ describe('local persistence is per-principal on mobile (doc §3.2)', () => {
 
   it("the AsyncStorage side-cache is namespaced too — a switch cannot read the other principal's keys", async () => {
     const file = freshDatabaseFile()
-    const device = legacyDevice({})
+    const device = deviceStorage({})
 
     await open({ file, storage: device, principal: 'alice' })
     await open({ file, storage: device, principal: 'bob' })
@@ -1125,7 +897,7 @@ describe('HTTP sync through the mobile assembly', () => {
     const fetch = vi.fn().mockResolvedValueOnce(response)
     const opened = await open({
       file,
-      storage: legacyDevice({}),
+      storage: deviceStorage({}),
       httpSync: { origin: 'https://server', streamingFetch: { fetch } },
     })
     const send = (record: unknown) =>
@@ -1240,7 +1012,7 @@ describe('HTTP sync through the mobile assembly', () => {
 
 it('reopens the same boundary/member queue after re-pairing and keeps member attribution', async () => {
   const file = freshDatabaseFile()
-  const device = legacyDevice({})
+  const device = deviceStorage({})
   const principal = JSON.stringify(['installation-a', 'member-a'])
   const first = await open({ file, storage: device, principal, clientPrincipal: 'member-a' })
   const queue = engineOutbox(first)
