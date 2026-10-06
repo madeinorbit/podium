@@ -243,3 +243,62 @@ it('observes an addressed mission without subscribing to unrelated issue content
   runInAction(() => selected.set('unrelated'))
   expect(reader.mission('unrelated')).toMatchObject({ root: { title: 'new title' } })
 })
+
+for (const scale of [1, 4] as const)
+  it(`keeps phone screen publication quiet for unshown changes at ${scale}x`, async () => {
+    const { pool, reader } = await setup([
+      issue('root'),
+      issue('child', { parentId: 'root' }),
+      ...Array.from({ length: 8 * scale }, (_, index) => issue(`unshown-${index}`)),
+    ])
+    const scoped = { ...options, filter: { text: 'root' } }
+    let draws = 0
+    const stop = autorun(() => {
+      reader.tasks(scoped)
+      reader.mission('root')
+      reader.deck('root', 'full')
+      draws++
+    })
+    disposals.push(stop)
+    while (pool.hydrate()) {}
+    const tasks = reader.tasks(scoped), mission = reader.mission('root'), deck = reader.deck('root', 'full')
+    const before = draws, counters = { ...reader.stats }
+    runInAction(() => pool.apply({ type: 'update', rows: [{
+      kind: 'issue', id: 'unshown-0', value: issue('unshown-0', {
+        description: { value: 'Unshown bookkeeping' },
+      }),
+    }] }))
+    expect(draws).toBe(before)
+    expect(reader.stats).toEqual(counters)
+    expect(reader.tasks(scoped)).toBe(tasks)
+    expect(reader.mission('root')).toBe(mission)
+    expect(reader.deck('root', 'full')).toBe(deck)
+    console.info('[phone screen unshown]', { scale, publications: draws - before, counters: {
+      tasks: reader.stats.tasks - counters.tasks,
+      mission: reader.stats.mission - counters.mission,
+      deck: reader.stats.deck - counters.deck,
+    } })
+  })
+
+it('preserves untouched phone task rows and sections when one shown title changes', async () => {
+  const { pool, reader } = await setup([
+    issue('root'), issue('peer'), issue('review', { stage: 'review' }),
+  ])
+  const stop = autorun(() => reader.tasks(options))
+  disposals.push(stop)
+  while (pool.hydrate()) {}
+  const before = reader.tasks(options)
+  if (before === LOADING) throw new Error('Tasks did not settle')
+  const peer = before.board[0]!.rows.find(row => row.issue.id === 'peer')!
+  const review = before.board.find(section => section.stage === 'review')!
+  runInAction(() => pool.apply({ type: 'update', rows: [{
+    kind: 'issue', id: 'root', value: issue('root', { title: 'Shown title changed' }),
+  }] }))
+  const after = reader.tasks(options)
+  if (after === LOADING) throw new Error('Tasks became loading')
+  expect(after.board[0]!.rows.find(row => row.issue.id === 'peer')).toBe(peer)
+  expect(after.board.find(section => section.stage === 'review')).toBe(review)
+  expect(after.board[0]!.rows.find(row => row.issue.id === 'root')!.issue.title).toBe('Shown title changed')
+  expect(after.progressByIssue).toBe(before.progressByIssue)
+  expect(after.workingByIssue).toBe(before.workingByIssue)
+})

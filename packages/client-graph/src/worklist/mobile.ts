@@ -159,10 +159,12 @@ class MobileSectionsView {
       const section = pinnedSection.get()
       return { section, ordering: section, attention: pinnedAttention.get(), issueCount: section.total, pending }
     }, { equals: compareShallow, name: debugName(() => 'pool.mobileWork.pinned') })
-    this.attention = computed(() => band('needs-you', 'Needs you', 'attention', [
+    const attentionData = computed(() => [
       ...this.pinned.get().attention,
       ...this.projectKeys().flatMap(key => this.project(key).attention),
-    ]), { name: debugName(() => 'pool.mobileWork.attention') })
+    ], { equals: compareShallow, name: debugName(() => 'pool.mobileWork.attentionData') })
+    this.attention = computed(() => band('needs-you', 'Needs you', 'attention', attentionData.get()),
+      { name: debugName(() => 'pool.mobileWork.attention') })
     this.value = computed(() => this.sections(), {
       name: debugName(() => 'pool.mobileWork.sections'),
       equals: (a, b) => a.issueCount === b.issueCount && a.pinnedCount === b.pinnedCount
