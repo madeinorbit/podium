@@ -1,11 +1,11 @@
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
-/** Cumulative screen derivations, not a subscription guard: enable before bootstrap
- * and retain counts across updates, gestures, idle and provider rebuilds.
- * All data is synthetic. The real slice hooks/publisher are never mocked. */
+/** Count real pool publications across bootstrap, updates, gestures, idle and
+ * provider rebuilds. Settled screen projections must reuse their cached paint
+ * without reading rows or rerunning derivations. All data is synthetic; the
+ * production hooks and projections run unchanged beneath the counters. */
 
 import { createHash } from 'node:crypto'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
   createSideCache,
@@ -26,6 +26,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import { type ReactNode, useCallback } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
+import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
 import type { MobilePool } from '../client/mobile-pool'
 import {
   ServerProfileContext,
@@ -40,7 +41,46 @@ const state = vi.hoisted(() => ({
   missionId: '',
   runtime: null as ClientRuntime<MobileTrpc> | null,
   errors: [] as string[],
+  publications: new Map<MobxPool, { count: number; views: Set<() => unknown> }>(),
 }))
+// Observe the production projection boundary; never substitute its tracking,
+// equality decision, subscription or snapshot with a fixture implementation.
+vi.mock('@podium/client-graph/runtime-pool', async (original) => {
+  const real = await original<typeof import('@podium/client-graph/runtime-pool')>()
+  return {
+    ...real,
+    createPoolProjection: <T,>(
+      pool: MobxPool,
+      read: (pool: MobxPool) => T,
+      options?: Parameters<typeof real.createPoolProjection>[2],
+    ) => {
+      const view = real.createPoolProjection(pool, read, options)
+      const counts = state.publications.get(pool) ?? { count: 0, views: new Set<() => unknown>() }
+      state.publications.set(pool, counts)
+      let paint: { value: T } | null = null
+      const measured = {
+        ...view,
+        getSnapshot(...args: Parameters<typeof view.getSnapshot>): T {
+          const value = view.getSnapshot(...args)
+          if (!paint || !Object.is(paint.value, value)) {
+            paint = { value }
+            counts.count++
+          }
+          return value
+        },
+        subscribe(wake: () => void): () => void {
+          const off = view.subscribe(wake)
+          counts.views.add(measured.getSnapshot)
+          return () => {
+            counts.views.delete(measured.getSnapshot)
+            off()
+          }
+        },
+      }
+      return measured
+    },
+  }
+})
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
@@ -319,17 +359,15 @@ const profile: ServerProfileContextValue = {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
-  storeStats.enable(false)
-  storeStats.reset()
+  state.publications.clear()
   missionLegacyStats.disable()
   missionLegacyStats.reset()
   state.errors.length = 0
   state.pool = null
 })
 afterAll(() => vi.unstubAllEnvs())
+// Retain the accepted snapshot namespace while measuring the live pool boundary.
 it('three mounted phone screens keep cumulative legacy derivations at zero (ON=true)', async () => {
-  storeStats.enable()
-  storeStats.reset()
   missionLegacyStats.enable()
   missionLegacyStats.reset()
   const corpus = buildCorpus(1)
@@ -401,15 +439,13 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     if (delay === 60_000 && typeof handler === 'function') ticks.push(() => handler(...args))
     return interval(handler, delay, ...args)
   })
-  const replicas: ReturnType<typeof kernelFixture>['replica'][] = []
-  const phases: { phase: string; legacy: number; rows: number }[] = []
+  const phases: { phase: string; publications: number; derivations: number; rows: number }[] = []
   let release!: () => void
   const receipt = new Promise<void>((resolve) => {
     release = resolve
   })
   async function mount(principal: string) {
     const feed = kernelFixture(corpus)
-    replicas.push(feed.replica)
     const view = await renderWithMobileStore(
       <ServerProfileContext.Provider value={profile}>
         <div data-testid="tasks">
@@ -444,24 +480,20 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     )
     return { view, feed }
   }
-  function checkpoint(phase: string, parity = true) {
-    const stats = storeStats.snapshot()
-    expect(stats.enabled).toBe(true)
-    expect(stats.dropped).toBe(0)
-    expect(stats.runtimes.reduce((n, value) => n + value.publishes, 0)).toBeGreaterThan(0)
-    let legacy = 0
-    for (const name of ['tasks', 'mission', 'details', 'deck']) {
-      const count = stats.runtimes.reduce(
-        (n, value) => n + (value.slices[`mobileScreens.${name}`] ?? 0),
-        0,
-      )
-      expect(count, `${phase} ${name}`).toBe(0)
-      legacy += count
-    }
-    const rows = replicas.reduce(
-      (n, replica) => n + 0,
-      0,
+  async function checkpoint(phase: string, parity = true) {
+    const counts = state.publications.get(state.pool!)!
+    expect(counts.count, `${phase} pool publications`).toBeGreaterThan(0)
+    expect(counts.views.size, `${phase} subscribed projections`).toBeGreaterThan(0)
+    // React can ask for the same snapshot repeatedly. Every currently mounted
+    // pool reader must reuse its settled paint, including after each feed or gesture.
+    const { work } = await measureWork(
+      async () => {
+        for (const snapshot of counts.views) snapshot()
+      },
+      { pool: state.pool! },
     )
+    expect(work.derivations, `${phase} cached derivations`).toBe(0)
+    expect(work.rows, `${phase} cached row reads`).toBe(0)
     const missions = missionLegacyStats.read()
     expect(chatContextReadStats(state.pool!), phase).toEqual({
       mentionBuilds: 0,
@@ -469,7 +501,6 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
       referenceBuilds: 0,
       referenceSessionReads: 0,
     })
-    expect(rows, phase).toBe(0)
     expect(missions.indexMissionSessions, phase).toBe(0)
     expect(missions.missionIssueIds, phase).toBe(0)
     expect(state.errors).toEqual([])
@@ -485,12 +516,12 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
         ).toMatchSnapshot(`${phase} ${id}`)
       }
     }
-    phases.push({ phase, legacy, rows })
+    phases.push({ phase, publications: counts.count, derivations: work.derivations, rows: work.rows! })
   }
   const { view, feed } = await mount('u-bench')
   expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
   expect(state.pool!.tables.session.has(authorId)).toBe(false)
-  checkpoint('startup')
+  await checkpoint('startup')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Show done tasks'))
     fireEvent.click(screen.getByLabelText('Search tasks'))
@@ -499,21 +530,21 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: root.title } })
   })
   await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain(root.title))
-  checkpoint('search and done')
+  await checkpoint('search and done')
   // Search by the stable reference while titles change. SectionList only mounts
   // its first window; this complex mission need not be in that initial window.
   await act(async () => {
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
     fireEvent.click(screen.getByLabelText('Working'))
   })
-  checkpoint('deck mode')
+  await checkpoint('deck mode')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Full'))
   })
   await act(async () => {
     fireEvent.click(screen.getByLabelText(/Fold every branch|Expand every branch/))
   })
-  checkpoint('deck fold')
+  await checkpoint('deck fold')
   const sessions = corpus.sessions.map((session, index) =>
     index === 0
       ? {
@@ -524,13 +555,13 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
       : session,
   )
   await act(async () => feed.publish('sessions', sessions))
-  checkpoint('session feed')
+  await checkpoint('session feed')
   const changed = corpus.issueProjections.map((issue) =>
     issue.id === root.id ? { ...issue, title: 'Phone feed title' } : issue,
   )
   await act(async () => feed.publish('issueProjections', changed))
   await waitFor(() => expect(screen.getByTestId('tasks').textContent).toContain('Phone feed title'))
-  checkpoint('issue feed')
+  await checkpoint('issue feed')
   let action!: Promise<void>
   await act(async () => {
     action = referenceState(state.runtime!).updateIssue(root.id, { title: 'Phone optimistic title' })
@@ -539,7 +570,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   await waitFor(() =>
     expect(screen.getByTestId('tasks').textContent).toContain('Phone optimistic title'),
   )
-  checkpoint('optimistic action')
+  await checkpoint('optimistic action')
   await act(async () => {
     feed.publish(
       'issueProjections',
@@ -550,7 +581,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     release()
     await action
   })
-  checkpoint('server echo')
+  await checkpoint('server echo')
   const beforeClock = referenceState(state.runtime!).coarseNow
   expect(ticks.length).toBeGreaterThan(0)
   now.mockReturnValue(corpus.fixedNow + 60_000)
@@ -558,19 +589,19 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     for (const tick of ticks) tick()
   })
   expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(beforeClock)
-  checkpoint('idle clock')
+  await checkpoint('idle clock')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Close task search'))
   })
-  checkpoint('clear search')
+  await checkpoint('clear search')
   const before = state.runtime
   view.unmount()
 
   await mount('u-next')
   expect(state.runtime).not.toBe(before)
-  expect(storeStats.snapshot().runtimes.length).toBeGreaterThanOrEqual(2)
-  checkpoint('provider rebuild', false)
-  console.info('[phone legacy derivations]', JSON.stringify({ phases }))
+  expect(state.publications.size).toBeGreaterThanOrEqual(2)
+  await checkpoint('provider rebuild', false)
+  console.info('[phone pool publications]', JSON.stringify({ phases }))
 }, 120_000)
 
 function ColdConversation({ id }: { id: string }) {
