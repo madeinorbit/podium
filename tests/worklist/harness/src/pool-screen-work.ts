@@ -445,7 +445,7 @@ async function measureScreenCells(
     )
     add('launcher.panel', ['NewPanelMenu'], () => {
       if (scene === 'background-terminal') return undefined
-      const origin = readLaunchOrigin(pool, window.get().selectedWorktree ?? '/repo-000')
+      const origin = readLaunchOrigin(pool, '/repo-000')
       return { ...origin, targets: origin.repo
         ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex']) : {} }
     })

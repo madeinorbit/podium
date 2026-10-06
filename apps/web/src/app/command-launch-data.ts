@@ -65,14 +65,14 @@ export function useCommandLaunchData(): Loaded<CommandLaunchData> {
   return useWorklistPoolProjection(readLaunch, LOADING)
 }
 export function useCommandLaunchCatalog() {
-  return useWorklistPoolProjection(readLaunchCatalog, LOADING)
+  return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchCatalog>>>(readLaunchCatalog, LOADING)
 }
 /** A tab-strip menu draws one origin and the displayed machines. Recency is a
  * scalar per machine, so opening it never acquires session choice rows. */
 export function useCommandLaunchOrigin(path: string) {
   const read = useMemo(() => (pool: Parameters<typeof readLaunch>[0]) =>
     readLaunchOrigin(pool, path), [path])
-  return useWorklistPoolProjection(read, LOADING)
+  return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
 export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
   const kindsKey = JSON.stringify(kinds)

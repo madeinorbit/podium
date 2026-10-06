@@ -27,6 +27,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 function fixture(scale: number) {
   const machines = ['mine', 'remote'].map(id => ({ id, name: id, hostname: id, online: true,
+    lastSeenAt: new Date().toISOString(),
     serviceAssignment: { server: false, agentExecution: true },
     availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
     inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
