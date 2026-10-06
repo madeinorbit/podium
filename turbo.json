@@ -209,7 +209,8 @@
         "$TURBO_ROOT$/apps/mobile/src/lib/work-menu.ts",
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
-        "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts"
+        "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts",
+        "$TURBO_ROOT$/apps/web/src/features/worklist/pool-row-data.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
