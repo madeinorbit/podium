@@ -110,3 +110,33 @@ Runs used the issue's flatblock checkout and its copied Bun 1.4.2 toolchain,
 with the checkout-local node link pointing to that Bun. No meter lease or merge
 lock was held during measurement. The before-edit table and confirmed native-slot
 growth were mailed to POD-4286 before the product change.
+
+## Landing validation
+
+On the candidate rebased onto pilot `47f65342a7`, the full typecheck is green
+across all 31 package scopes and all 29 Turbo tasks. The lean gate is green:
+154 tests executed in 4 of 1,832 node-project files, with the span-effect,
+interaction-scan, MobX-private, untracked-read and clock-read checks passing.
+The interaction scan reports 2,292 fingerprints and zero ratchet errors; this
+repair changes no census classification or allowance.
+The normal web production build and bundle-budget check are green on the rebased
+candidate; its peak individual RSS was 1,386.4 MiB and minimum MemAvailable was
+6,165.3 MiB.
+
+The coordinator-required `speed:structural` run under `meter:flatblock` executed
+21 passing tests, two failing tests and seven skipped tests on `0f9e1d0acd`.
+It remains red with exactly the previously documented ten screen counters and
+the issue-detail pair **55 → 151 / 49 → 145**. The screen result contains
+50 readers, 1,376 counters, 68 expected failures and 96 fixed counts green.
+The ten counters match the coordinator-confirmed baseline in
+`pod-5710-known-failures.json`: seven sidebar counters and one folded-header
+counter owned by POD-5716, plus two accepted addressed MRU walks under POD-5708.
+The detail pair belongs to POD-5618. There are no failures beyond that list and
+no new gate allowances. Curated results are attached to this issue as
+`.artifacts/POD-5653/structural-census.json`.
+
+The census peaked at **5,933.9 MiB** individual RSS, with **6,720.7 MiB** minimum
+MemAvailable. Its meter lease was released before subsequent checks and landing.
+All validation ran sequentially in the foreground on flatblock. The existing
+census failures and the source sorted-array limits remain explicit limits of
+the pilot, rather than claims of whole-repository bounded work.
