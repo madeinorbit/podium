@@ -9,7 +9,7 @@ import { SettingsSource, type SettingsOwner } from './settings-source'
 import { settingsRepositoryId, type SettingsRows } from './settings-schema'
 import type { RowRecord } from './shared/source'
 
-enableDebugNames(true)
+enableDebugNames()
 const old = '2020-01-01T00:00:00Z'
 const stamp = '2026-10-03T12:00:00Z'
 
@@ -28,6 +28,7 @@ function fixture(scale: 1 | 4) {
   const machines: SettingsRows['settingsMachine'][] = [{
     id: asMachineId('host'), name: 'Host', hostname: 'host', online: true,
     lastSeenAt: stamp, use: 'granted', availability: { daemon: true },
+    serviceAssignment: { server: false, agentExecution: true },
   }]
   const lists = {
     repos: new Map(repos.map(repo => [settingsRepositoryId(repo), repo])),
