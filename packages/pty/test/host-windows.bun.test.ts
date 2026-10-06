@@ -338,10 +338,21 @@ describe.skipIf(!windows)('Windows durable host', () => {
     const markerDirectory = join(root, 'marker-directory')
     mkdirSync(markerDirectory)
     try {
-      const result = spawnSync(bin, [
-        'create', '--socket', hostSocketPath(name), '--pidfile', markerDirectory,
-        '--no-pty', '--', process.execPath, fixture,
-      ], { encoding: 'utf8' })
+      const result = spawnSync(
+        bin,
+        [
+          'create',
+          '--socket',
+          hostSocketPath(name),
+          '--pidfile',
+          markerDirectory,
+          '--no-pty',
+          '--',
+          process.execPath,
+          fixture,
+        ],
+        { encoding: 'utf8' },
+      )
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('podium-host:')
     } finally {

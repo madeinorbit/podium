@@ -61,7 +61,14 @@ class WindowsHostStream extends Duplex {
 export function connectWindowsHost(path: string): Duplex {
   const bin = resolveHostBin()
   if (bin) return new WindowsHostStream(bin, path)
-  const stream = new Duplex({ read() {}, write(_chunk, _encoding, done) { done() } })
-  queueMicrotask(() => stream.destroy(Object.assign(new Error(HOST_UNAVAILABLE), { code: 'ENOENT' })))
+  const stream = new Duplex({
+    read() {},
+    write(_chunk, _encoding, done) {
+      done()
+    },
+  })
+  queueMicrotask(() =>
+    stream.destroy(Object.assign(new Error(HOST_UNAVAILABLE), { code: 'ENOENT' })),
+  )
   return stream
 }

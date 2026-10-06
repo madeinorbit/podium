@@ -371,11 +371,14 @@ impl Listener {
                 0,
                 &sa,
             )
-        }).map_err(|e| {
+        })
+        .map_err(|e| {
             if first && e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
                 // Only failure of FIRST_PIPE_INSTANCE establishes a name collision.
                 io::Error::new(io::ErrorKind::AddrInUse, e)
-            } else { e }
+            } else {
+                e
+            }
         })?;
         let mut connect = Operation::new()?;
         let ok = unsafe { ConnectNamedPipe(handle.0, &mut *connect.ov) };
@@ -535,7 +538,9 @@ impl ChildControl {
         // its interrupt equivalent terminates the owned job with status 130.
         // It must not silently defeat SDK interrupt/termination escalation.
         if let Some(code) = termination_status(signo) {
-            unsafe { TerminateJobObject(self.job.0, code); }
+            unsafe {
+                TerminateJobObject(self.job.0, code);
+            }
         }
     }
     pub fn close_console(&self) {
@@ -650,9 +655,11 @@ fn quote_batch_arg(arg: &str) -> io::Result<String> {
 }
 
 fn resolve_program(program: &str) -> io::Result<PathBuf> {
-    resolve_program_on_path(program,
+    resolve_program_on_path(
+        program,
         &std::env::var_os("PATH").unwrap_or_default(),
-        &std::env::var("PATHEXT").unwrap_or(".COM;.EXE;.BAT;.CMD".into()))
+        &std::env::var("PATHEXT").unwrap_or(".COM;.EXE;.BAT;.CMD".into()),
+    )
 }
 fn resolve_program_on_path(program: &str, path: &OsStr, extensions: &str) -> io::Result<PathBuf> {
     // CreateProcessW's search omits PATH changes in custom environments in some
@@ -903,22 +910,45 @@ fn verify_server(handle: HANDLE, expected_owner: PSID) -> io::Result<()> {
     check(unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) })?;
     let token = Handle::new(token)?;
     let mut len = 0;
-    unsafe { GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut len); }
+    unsafe {
+        GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut len);
+    }
     let mut storage = vec![0usize; (len as usize).div_ceil(size_of::<usize>())];
-    check(unsafe { GetTokenInformation(token.0, TokenUser, storage.as_mut_ptr().cast(), len, &mut len) })?;
+    check(unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            storage.as_mut_ptr().cast(),
+            len,
+            &mut len,
+        )
+    })?;
     let user = unsafe { &*(storage.as_ptr().cast::<TOKEN_USER>()) };
     if unsafe { EqualSid(expected_owner, user.User.Sid) } == 0 {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "named pipe server belongs to another user"));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "named pipe server belongs to another user",
+        ));
     }
     Ok(())
 }
 fn authenticated_pipe(name: &OsStr) -> io::Result<Stream> {
     if !name.to_string_lossy().starts_with(r"\\.\pipe\podium-host-") {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "expected a local podium-host named pipe"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected a local podium-host named pipe",
+        ));
     }
     let handle = Handle::new(unsafe {
-        CreateFileW(wide(name).as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, null(), OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, null_mut())
+        CreateFileW(
+            wide(name).as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            0,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION,
+            null_mut(),
+        )
     })?;
     let security = Security::current_user()?;
     let mut owner = null_mut();
@@ -939,7 +969,12 @@ fn connect_stdio(name: &OsStr) -> io::Result<()> {
             let mut bytes = vec![0; 16384];
             match input.read(&mut bytes) {
                 Ok(0) | Err(_) => break,
-                Ok(n) => { bytes.truncate(n); if sender.send(bytes).is_err() { break; } }
+                Ok(n) => {
+                    bytes.truncate(n);
+                    if sender.send(bytes).is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
@@ -950,7 +985,10 @@ fn connect_stdio(name: &OsStr) -> io::Result<()> {
     loop {
         if pending.is_empty() {
             match receiver.try_recv() {
-                Ok(bytes) => { pending = bytes; offset = 0; }
+                Ok(bytes) => {
+                    pending = bytes;
+                    offset = 0;
+                }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => return Ok(()),
                 Err(std::sync::mpsc::TryRecvError::Empty) => (),
             }
@@ -958,14 +996,22 @@ fn connect_stdio(name: &OsStr) -> io::Result<()> {
         if !pending.is_empty() {
             match (&pipe).write(&pending[offset..]) {
                 Ok(0) => return Ok(()),
-                Ok(n) => { offset += n; if offset == pending.len() { pending.clear(); } }
+                Ok(n) => {
+                    offset += n;
+                    if offset == pending.len() {
+                        pending.clear();
+                    }
+                }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
                 Err(e) => return Err(e),
             }
         }
         match (&pipe).read(&mut buffer) {
             Ok(0) => return Ok(()),
-            Ok(n) => { output.write_all(&buffer[..n])?; output.flush()?; }
+            Ok(n) => {
+                output.write_all(&buffer[..n])?;
+                output.flush()?;
+            }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
             Err(e) => return Err(e),
         }
@@ -992,7 +1038,11 @@ pub fn run() {
         Command::Connect(name) => {
             if let Err(e) = connect_stdio(&name) {
                 eprintln!("podium-host connect: {e}");
-                std::process::exit(if matches!(e.raw_os_error(), Some(2 | 3)) { 4 } else { 5 });
+                std::process::exit(if matches!(e.raw_os_error(), Some(2 | 3)) {
+                    4
+                } else {
+                    5
+                });
             }
         }
         Command::Create(opts) => {
@@ -1045,13 +1095,11 @@ pub fn run() {
                             Path::new(&report),
                             format!("podium-host: {e}\n").as_bytes(),
                         );
-                        std::process::exit(
-                            if e.kind() == io::ErrorKind::AddrInUse {
-                                3
-                            } else {
-                                1
-                            },
-                        );
+                        std::process::exit(if e.kind() == io::ErrorKind::AddrInUse {
+                            3
+                        } else {
+                            1
+                        });
                     }
                 }
             }
@@ -1116,7 +1164,9 @@ mod tests {
     use super::*;
     #[test]
     fn unsupported_signals_never_terminate_and_pipe_interrupt_is_explicit() {
-        for signal in [0, 1, 18, 19, 28] { assert_eq!(termination_status(signal), None); }
+        for signal in [0, 1, 18, 19, 28] {
+            assert_eq!(termination_status(signal), None);
+        }
         assert_eq!(termination_status(2), Some(130));
         assert_eq!(termination_status(9), Some(137));
         assert_eq!(termination_status(15), Some(143));
@@ -1129,21 +1179,27 @@ mod tests {
         fs::write(&planted, b"not an agent").unwrap();
         let other = cwd.join("target").join("no-agent-here");
         let result = resolve_program_on_path(&name, other.as_os_str(), ".EXE;.CMD");
-        let explicit = resolve_program_on_path(&format!(r".\{name}"), other.as_os_str(), ".EXE;.CMD");
+        let explicit =
+            resolve_program_on_path(&format!(r".\{name}"), other.as_os_str(), ".EXE;.CMD");
         fs::remove_file(planted).unwrap();
         assert!(result.is_err());
         assert!(explicit.is_ok());
     }
     #[test]
     fn authenticated_client_checks_owner_on_its_handle_and_cannot_act_as_client() {
-        let name = OsString::from(format!(r"\\.\pipe\podium-host-auth-test-{}", std::process::id()));
+        let name = OsString::from(format!(
+            r"\\.\pipe\podium-host-auth-test-{}",
+            std::process::id()
+        ));
         let listener = Listener::bind(&name).unwrap();
         let client = authenticated_pipe(&name).unwrap();
         // A different expected owner is rejected using the real server token.
         let mut other = null_mut();
         check(unsafe { ConvertStringSidToSidW(wide("S-1-1-0").as_ptr(), &mut other) }).unwrap();
         let refused = verify_server(client.handle.0, other);
-        unsafe { LocalFree(other); }
+        unsafe {
+            LocalFree(other);
+        }
         assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -1171,10 +1227,25 @@ mod tests {
         let opened = unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut token) };
         let mut level = SecurityAnonymous;
         let mut len = 0;
-        let queried = if opened != 0 { unsafe {
-            GetTokenInformation(token, TokenImpersonationLevel, (&mut level as *mut _).cast(), size_of_val(&level) as u32, &mut len)
-        }} else { 0 };
-        unsafe { RevertToSelf(); if !token.is_null() { CloseHandle(token); } }
+        let queried = if opened != 0 {
+            unsafe {
+                GetTokenInformation(
+                    token,
+                    TokenImpersonationLevel,
+                    (&mut level as *mut _).cast(),
+                    size_of_val(&level) as u32,
+                    &mut len,
+                )
+            }
+        } else {
+            0
+        };
+        unsafe {
+            RevertToSelf();
+            if !token.is_null() {
+                CloseHandle(token);
+            }
+        }
         assert_ne!(queried, 0);
         assert_eq!(level, SecurityIdentification);
     }
