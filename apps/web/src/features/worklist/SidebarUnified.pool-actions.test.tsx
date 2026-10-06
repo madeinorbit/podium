@@ -282,6 +282,19 @@ afterEach(() => {
 })
 
 describe('pool navigation uses the existing gesture semantics', () => {
+  it('borrows immutable full drag order across heartbeat and selection changes', async () => {
+    const fixture = await mount()
+    const band = sidebarView(pool!).sections().bands.find((band) => band.rowIds.includes(TARGET))!
+    const scope = `group:${band.key}`
+    const order = drag.options!.virtualOrder!(scope)
+    expect(order).toBe(band.rowIds)
+    await act(async () => {
+      fixture.patch('session', value().firstSessionId!, { lastActiveAt: new Date(NOW + 1000).toISOString() })
+    })
+    expect(drag.options!.virtualOrder!(scope)).toBe(order)
+    await act(async () => { actions.selectIssue(TARGET) })
+    expect(drag.options!.virtualOrder!(scope)).toBe(order)
+  })
   it('selects the mission root, traces the explicit pane and batches read/defer before focus once', async () => {
     await mount((fixture) =>
       patchIssue(fixture, 'synthetic-3', { deferUntil: new Date(NOW - 1000).toISOString() }),
