@@ -192,7 +192,9 @@ export function useRowDrag(opts: {
     (e: ReactPointerEvent, movedId: string) => {
       if (session.current || e.button !== 0) return
       const grip = e.currentTarget as HTMLElement
-      const wrapper = grip.closest<HTMLElement>('[data-window-row][data-drag-key]') ?? grip.closest<HTMLElement>('[data-drag-key]')
+      const wrapper =
+        grip.closest<HTMLElement>('[data-window-row][data-drag-key]') ??
+        grip.closest<HTMLElement>('[data-drag-key]')
       const sourceContainer = wrapper?.closest<HTMLElement>('[data-drag-scope]')
       const sourceScope = sourceContainer?.dataset.dragScope
       if (!wrapper || !sourceContainer || !sourceScope) return
@@ -227,7 +229,9 @@ export function useRowDrag(opts: {
         }
       }
       const homeRows = frozen.get(sourceScope)!
-      const homeIndex = opts.virtualOrder ? (fullIndexes.get(sourceScope)?.get(movedId) ?? -1) : homeRows.findIndex((row) => row.el === wrapper)
+      const homeIndex = opts.virtualOrder
+        ? (fullIndexes.get(sourceScope)?.get(movedId) ?? -1)
+        : homeRows.findIndex((row) => row.el === wrapper)
       if (homeIndex < 0) return
 
       const pointerId = e.pointerId
@@ -256,7 +260,16 @@ export function useRowDrag(opts: {
       // last row). Relax only the legal scopes for the life of this gesture,
       // then put their exact inline values back in clearAll.
       const scopePaint = new Map(
-        [...new Set([...containers.values()].flatMap((container) => [container, ...(container.closest<HTMLElement>('[data-work-fold-panel]') ? [container.closest<HTMLElement>('[data-work-fold-panel]')!] : [])]))].map((container) => [
+        [
+          ...new Set(
+            [...containers.values()].flatMap((container) => [
+              container,
+              ...(container.closest<HTMLElement>('[data-work-fold-panel]')
+                ? [container.closest<HTMLElement>('[data-work-fold-panel]')!]
+                : []),
+            ]),
+          ),
+        ].map((container) => [
           container,
           { overflow: container.style.overflow, contain: container.style.contain },
         ]),
@@ -316,7 +329,9 @@ export function useRowDrag(opts: {
           for (let i = 0; i < rows.length; i++) {
             const el = rows[i]!.el
             if (el === wrapper) continue
-            const rowIndex = opts.virtualOrder ? (fullIndexes.get(cScope)?.get(rows[i]!.key) ?? i) : i
+            const rowIndex = opts.virtualOrder
+              ? (fullIndexes.get(cScope)?.get(rows[i]!.key) ?? i)
+              : i
             let dy = 0
             if (cScope === sourceScope) {
               if (cScope === scope) {
@@ -351,7 +366,10 @@ export function useRowDrag(opts: {
         // still the gesture's snapshot; new mounted neighbours join its preview.
         if (opts.virtualOrder) {
           for (const [scope, container] of containers) {
-            frozen.set(scope, siblingWrappers(container).map((el) => ({ el, key: el.dataset.dragKey! })))
+            frozen.set(
+              scope,
+              siblingWrappers(container).map((el) => ({ el, key: el.dataset.dragKey! })),
+            )
           }
         }
         // The frozen list is the gesture's whole frame of reference. Once the
@@ -391,18 +409,21 @@ export function useRowDrag(opts: {
           const r = el.getBoundingClientRect()
           if (pointerY < r.top - appliedShift(el) + r.height / 2) {
             const fullIndex = fullIndexes.get(scope)?.get(rows[i]!.key)
-            index = fullIndex === undefined ? i : fullIndex - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
+            index =
+              fullIndex === undefined
+                ? i
+                : fullIndex - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
             break
           }
           // A window's last row is followed by unmounted rows, not the list end.
           const fullIndex = fullIndexes.get(scope)?.get(rows[i]!.key)
-          if (fullIndex !== undefined) index = fullIndex + 1 - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
+          if (fullIndex !== undefined)
+            index = fullIndex + 1 - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
         }
         if (target.scope !== scope || target.index !== index) {
           target = { scope, index }
           applyPreview()
-        }
-        else if (opts.virtualOrder) applyPreview()
+        } else if (opts.virtualOrder) applyPreview()
         return true
       }
 
@@ -488,8 +509,12 @@ export function useRowDrag(opts: {
           setDraggedId(null)
           return
         }
-        const others = fullOrders.get(scope)?.filter((key) => key !== movedId) ?? frozen
-          .get(scope)!.filter((row) => row.el !== wrapper).map((row) => row.key)
+        const others =
+          fullOrders.get(scope)?.filter((key) => key !== movedId) ??
+          frozen
+            .get(scope)!
+            .filter((row) => row.el !== wrapper)
+            .map((row) => row.key)
         const order = [...others.slice(0, index), movedId, ...others.slice(index)]
         // The order is the FROZEN reading order, which the preview never moved —
         // only the insertion index came from the previewed geometry.

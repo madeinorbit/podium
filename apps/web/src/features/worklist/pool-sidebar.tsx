@@ -93,7 +93,8 @@ type Slot = {
 }
 type Item = RowTransitionItem<Slot>
 const itemKey = (item: Item) => item.key
-const itemDragId = (item: Item) => item.value.kind === 'issue' && item.phase !== 'exiting' ? item.value.id : undefined
+const itemDragId = (item: Item) =>
+  item.value.kind === 'issue' && item.phase !== 'exiting' ? item.value.id : undefined
 const NO_DRAG_ROWS: readonly string[] = []
 const selectLayout = (s: Store) => ({
   projectOrder: s.sidebarSettings.repoOrder,
@@ -203,10 +204,18 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   )
 })
 
-export function PoolWorkSections({ query = '', scrollRef }: { query?: string; scrollRef?: RefObject<HTMLElement | null> }): JSX.Element | null {
+export function PoolWorkSections({
+  query = '',
+  scrollRef,
+}: {
+  query?: string
+  scrollRef?: RefObject<HTMLElement | null>
+}): JSX.Element | null {
   const pool = useWorklistPool()
   const fallbackScroll = useRef<HTMLElement | null>(null)
-  return pool ? <ObservedPoolWorkSections pool={pool} query={query} scrollRef={scrollRef ?? fallbackScroll} /> : null
+  return pool ? (
+    <ObservedPoolWorkSections pool={pool} query={query} scrollRef={scrollRef ?? fallbackScroll} />
+  ) : null
 }
 
 const ObservedClosedIssueFold = observer(ClosedIssueFold<Item>)
@@ -264,12 +273,16 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
   const revealedSelection = useRef<string | null>(null)
   useEffect(() => {
-    if (!selectedId) { revealedSelection.current = null; return }
+    if (!selectedId) {
+      revealedSelection.current = null
+      return
+    }
     if (revealedSelection.current === selectedId) return
     const selected = targets.find((target) => target.value.id === selectedId)
     if (!selected) return
     revealedSelection.current = selectedId
-    const key = selected.value.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.value.groupKey)
+    const key =
+      selected.value.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.value.groupKey)
     if (collapsed.has(key)) toggle(key)
     // Selection is the reveal request; folding the current selection stays folded.
   }, [selectedId, targets, collapsed, toggle])
@@ -441,11 +454,23 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     pinned.map(itemDragId).filter(Boolean),
     ...bands.map((band) => [band.key, band.live.map(itemDragId).filter(Boolean)]),
   ])
-  scopeOrders.current = useMemo(() => new Map<string, readonly string[]>([
-    ['pinned', pinned.flatMap((item) => itemDragId(item) ? [item.value.id] : [])],
-    ...bands.map((band): [string, string[]] => [`group:${band.key}`, band.live.flatMap((item) => itemDragId(item) ? [item.value.id] : [])]),
-  ]), [orderSignature])
-  const windowRows = (rows: readonly Item[], render = renderRow, dragScope?: string, estimateSize = 50) => (
+  scopeOrders.current = useMemo(
+    () =>
+      new Map<string, readonly string[]>([
+        ['pinned', pinned.flatMap((item) => (itemDragId(item) ? [item.value.id] : []))],
+        ...bands.map((band): [string, string[]] => [
+          `group:${band.key}`,
+          band.live.flatMap((item) => (itemDragId(item) ? [item.value.id] : [])),
+        ]),
+      ]),
+    [orderSignature],
+  )
+  const windowRows = (
+    rows: readonly Item[],
+    render = renderRow,
+    dragScope?: string,
+    estimateSize = 50,
+  ) => (
     <WorklistWindow
       rows={rows}
       rowKey={itemKey}
@@ -490,10 +515,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
             collapsed={collapsed.has(PINNED_FOLD_KEY)}
             onToggle={() => toggle(PINNED_FOLD_KEY)}
           />
-          <FoldPanel
-            open={!collapsed.has(PINNED_FOLD_KEY)}
-            testId="pinned-section-rows"
-          >
+          <FoldPanel open={!collapsed.has(PINNED_FOLD_KEY)} testId="pinned-section-rows">
             {windowRows(pinned, renderRow, 'pinned')}
           </FoldPanel>
         </m.div>
@@ -539,7 +561,11 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                       rows={band.snoozed}
                       renderRow={renderRow}
                       settleTransition={settle}
-                      revealKey={band.snoozed.some((item) => item.value.id === selectedId) ? selectedId : null}
+                      revealKey={
+                        band.snoozed.some((item) => item.value.id === selectedId)
+                          ? selectedId
+                          : null
+                      }
                       renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
                     />
                   </m.div>
@@ -569,7 +595,9 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                             }
                       }}
                       onArchive={archive}
-                      revealKey={band.closed.some((item) => item.value.id === selectedId) ? selectedId : null}
+                      revealKey={
+                        band.closed.some((item) => item.value.id === selectedId) ? selectedId : null
+                      }
                       renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
                     />
                   </m.div>

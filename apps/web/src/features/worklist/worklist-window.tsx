@@ -1,11 +1,28 @@
-import { Fragment, type JSX, type KeyboardEvent, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  type JSX,
+  type KeyboardEvent,
+  type RefObject,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 
 const focusable = 'button:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]'
 
 /** Mount geometry only; callers keep the complete order and all action state. */
 export function WorklistWindow<T>({
-  rows, rowKey, renderRow, scrollRef, selectedKey, draggingKey, dragScope, dragId,
+  rows,
+  rowKey,
+  renderRow,
+  scrollRef,
+  selectedKey,
+  draggingKey,
+  dragScope,
+  dragId,
   estimateSize = 50,
 }: {
   rows: readonly T[]
@@ -30,8 +47,13 @@ export function WorklistWindow<T>({
     return () => cancelAnimationFrame(frame)
   }, [revealKey])
   const virtual = useBoundedVirtualList({
-    keys, scrollRef, containerRef, estimateSize, overscan: 3,
-    pinnedKeys: [focusedKey, draggingKey, revealKey], revealKey,
+    keys,
+    scrollRef,
+    containerRef,
+    estimateSize,
+    overscan: 3,
+    pinnedKeys: [focusedKey, draggingKey, revealKey],
+    revealKey,
   })
   useLayoutEffect(() => {
     const pending = pendingFocus.current
@@ -47,15 +69,18 @@ export function WorklistWindow<T>({
     }
   })
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.target instanceof HTMLInputElement) return
+    if (event.altKey || event.ctrlKey || event.metaKey || event.target instanceof HTMLInputElement)
+      return
     const row = (event.target as HTMLElement).closest<HTMLElement>('[data-window-row]')
     const index = keys.indexOf(row?.dataset.windowRow ?? '')
     if (index < 0) return
     let next = index
     let last = false
     if (event.key === 'ArrowDown') next++
-    else if (event.key === 'ArrowUp') { next--; last = true }
-    else if (event.key === 'Home') next = 0
+    else if (event.key === 'ArrowUp') {
+      next--
+      last = true
+    } else if (event.key === 'Home') next = 0
     else if (event.key === 'End') next = keys.length - 1
     else if (event.key === 'Tab') {
       const controls = row!.querySelectorAll<HTMLElement>(focusable)
@@ -64,7 +89,10 @@ export function WorklistWindow<T>({
       next += event.shiftKey ? -1 : 1
       last = event.shiftKey
       // Native Tab still owns movement inside the mounted window and to bands.
-      if (containerRef.current?.querySelector(`[data-window-row="${CSS.escape(keys[next] ?? '')}"]`)) return
+      if (
+        containerRef.current?.querySelector(`[data-window-row="${CSS.escape(keys[next] ?? '')}"]`)
+      )
+        return
     } else return
     const key = keys[next]
     if (!key || next === index) return
@@ -109,7 +137,9 @@ export function WorklistWindow<T>({
           </Fragment>
         )
       })}
-      {virtual.totalSize > end && <div aria-hidden="true" style={{ height: virtual.totalSize - end }} />}
+      {virtual.totalSize > end && (
+        <div aria-hidden="true" style={{ height: virtual.totalSize - end }} />
+      )}
     </div>
   )
 }

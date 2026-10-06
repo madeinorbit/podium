@@ -451,19 +451,29 @@ export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
   revealKey?: string | null
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(snoozedFoldKey(groupKey), true)
-  useEffect(() => { if (revealKey && collapsed) toggle() }, [revealKey])
+  useEffect(() => {
+    if (revealKey && collapsed) toggle()
+  }, [revealKey])
   const contentId = useId()
   const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
   const { arrivals, settle } = useArrivals(visibleKeys)
   const render = (row: T) => {
     const arriving = arrivals.has(row.key) || row.phase === 'entering'
     return (
-      <div key={row.key} className={cn('min-w-0', arriving && 'row-arrive')} data-testid="snoozed-fold-row"
-        onAnimationEnd={arriving ? (event) => {
-          if (event.animationName !== 'podium-arrive-wash') return
-          settle(row.key)
-          settleTransition(row.key, row.placement)
-        } : undefined}>
+      <div
+        key={row.key}
+        className={cn('min-w-0', arriving && 'row-arrive')}
+        data-testid="snoozed-fold-row"
+        onAnimationEnd={
+          arriving
+            ? (event) => {
+                if (event.animationName !== 'podium-arrive-wash') return
+                settle(row.key)
+                settleTransition(row.key, row.placement)
+              }
+            : undefined
+        }
+      >
         {renderRow(row, false)}
       </div>
     )
@@ -488,9 +498,7 @@ export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
         />
       </button>
       <FoldPanel open={!collapsed} id={contentId} testId="snoozed-fold-rows">
-        <div className="min-w-0">
-          {renderRows ? renderRows(rows, render) : rows.map(render)}
-        </div>
+        <div className="min-w-0">{renderRows ? renderRows(rows, render) : rows.map(render)}</div>
       </FoldPanel>
     </div>
   )
@@ -516,7 +524,9 @@ export function ClosedIssueFold<T>({
   revealKey?: string | null
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
-  useEffect(() => { if (revealKey && collapsed) toggle() }, [revealKey])
+  useEffect(() => {
+    if (revealKey && collapsed) toggle()
+  }, [revealKey])
   const contentId = useId()
   // NO IN-FLIGHT ARCHIVE SET (POD-781). This fold used to take one, to disable
   // the buttons and fade their icons while the server was asked. Archiving is
@@ -531,13 +541,26 @@ export function ClosedIssueFold<T>({
   const render = (row: T) => {
     const issueRow = issueForRow(row)
     return (
-      <div key={issueRow.issue.id} className="group/closed relative min-w-0" data-testid="closed-fold-row">
+      <div
+        key={issueRow.issue.id}
+        className="group/closed relative min-w-0"
+        data-testid="closed-fold-row"
+      >
         {renderRow(row)}
-        <button data-pressable type="button" data-hover-reveal
+        <button
+          data-pressable
+          type="button"
+          data-hover-reveal
           className="absolute top-1/2 right-2.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
           aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
-          title="Archive — remove from sidebar" data-testid="closed-issue-archive"
-          onClick={(event) => { event.preventDefault(); event.stopPropagation(); onArchive(issueRow.issue.id) }}>
+          title="Archive — remove from sidebar"
+          data-testid="closed-issue-archive"
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onArchive(issueRow.issue.id)
+          }}
+        >
           <Archive size={11} aria-hidden="true" />
         </button>
       </div>
@@ -563,9 +586,7 @@ export function ClosedIssueFold<T>({
         />
       </button>
       <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
-        <div className="min-w-0">
-          {renderRows ? renderRows(rows, render) : rows.map(render)}
-        </div>
+        <div className="min-w-0">{renderRows ? renderRows(rows, render) : rows.map(render)}</div>
         {/* THE BULK GESTURE SITS AFTER THE THING IT ACTS ON (POD-1458). The
          * chip used to ride the title row, where the fold's own count and
          * chevron live: a destructive press crowding the one control whose job

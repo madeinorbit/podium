@@ -66,7 +66,8 @@ function offsetAt(layout: Layout, index: number): number {
   return index * (layout.estimateSize + layout.gap) + (layout.corrections[low - 1]?.delta ?? 0)
 }
 
-const sizeAt = (layout: Layout, index: number): number => layout.sizes.get(index) ?? layout.estimateSize
+const sizeAt = (layout: Layout, index: number): number =>
+  layout.sizes.get(index) ?? layout.estimateSize
 
 function itemAt(layout: Layout, offset: number): number {
   if (layout.keys.length === 0) return 0
@@ -113,7 +114,15 @@ export function useBoundedVirtualList({
   const nodesRef = useRef(new Map<string, HTMLElement>())
   const callbacksRef = useRef(new Map<string, RefCallback<HTMLElement>>())
   const observerRef = useRef<ResizeObserver | null>(null)
-  const emptyLayout: Layout = { keys: [], indexes: new Map(), sizes: new Map(), corrections: [], estimateSize, gap, totalSize: 0 }
+  const emptyLayout: Layout = {
+    keys: [],
+    indexes: new Map(),
+    sizes: new Map(),
+    corrections: [],
+    estimateSize,
+    gap,
+    totalSize: 0,
+  }
   const layoutRef = useRef<Layout>(emptyLayout)
   const priorLayoutRef = useRef<Layout>(emptyLayout)
   const [revision, setRevision] = useState(0)
@@ -137,10 +146,12 @@ export function useBoundedVirtualList({
       if (index !== undefined) sizes.set(index, size)
     }
     let delta = 0
-    const corrections = [...sizes].sort(([a], [b]) => a - b).map(([index, size]) => {
-      delta += size - estimateSize
-      return { index, delta }
-    })
+    const corrections = [...sizes]
+      .sort(([a], [b]) => a - b)
+      .map(([index, size]) => {
+        delta += size - estimateSize
+        return { index, delta }
+      })
     return {
       keys,
       indexes: keyIndexes,
@@ -148,7 +159,10 @@ export function useBoundedVirtualList({
       corrections,
       estimateSize,
       gap,
-      totalSize: Math.max(0, keys.length * (estimateSize + gap) + delta - (keys.length > 0 ? gap : 0)),
+      totalSize: Math.max(
+        0,
+        keys.length * (estimateSize + gap) + delta - (keys.length > 0 ? gap : 0),
+      ),
     }
   }, [keys, keyIndexes, estimateSize, gap, revision])
   layoutRef.current = layout
@@ -305,9 +319,12 @@ export function useBoundedVirtualList({
     publishViewport()
   }, [layout, scrollRef, containerRef, publishViewport])
 
-  const focusKey = revealKey === undefined ? pinnedKeys.find((candidate): candidate is string =>
-    Boolean(candidate && layout.indexes.has(candidate)),
-  ) : revealKey
+  const focusKey =
+    revealKey === undefined
+      ? pinnedKeys.find((candidate): candidate is string =>
+          Boolean(candidate && layout.indexes.has(candidate)),
+        )
+      : revealKey
   useLayoutEffect(() => {
     if (!focusKey) return
     const index = layout.indexes.get(focusKey) ?? -1
@@ -364,6 +381,7 @@ export function useBoundedVirtualList({
     items,
     totalSize: layout.totalSize,
     measureRef,
-    offsetForIndex: (index) => index >= keys.length ? layout.totalSize : offsetAt(layout, Math.max(0, index)),
+    offsetForIndex: (index) =>
+      index >= keys.length ? layout.totalSize : offsetAt(layout, Math.max(0, index)),
   }
 }

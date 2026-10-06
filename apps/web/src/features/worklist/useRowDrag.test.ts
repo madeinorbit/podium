@@ -122,13 +122,19 @@ describe('useRowDrag', () => {
     const order = Array.from({ length: 100 }, (_, index) => `i${index}`)
     const drops: RowDrop[] = []
     const source = mount('group:a', order.slice(0, 3))
-    const { result } = renderHook(() => useRowDrag({
-      allowedTargets: () => [], virtualOrder: () => order,
-      onDrop: (drop) => { drops.push(drop) },
-    }))
+    const { result } = renderHook(() =>
+      useRowDrag({
+        allowedTargets: () => [],
+        virtualOrder: () => order,
+        onDrop: (drop) => {
+          drops.push(drop)
+        },
+      }),
+    )
     act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i0'))
     expect(result.current.draggedId).toBe('i0')
-    source.rows[1]!.remove(); source.rows[2]!.remove()
+    source.rows[1]!.remove()
+    source.rows[2]!.remove()
     const next = mount('temporary', order.slice(70, 73))
     for (const row of next.rows) source.container.appendChild(row)
     act(() => pointer('pointermove', 70))
@@ -148,17 +154,24 @@ describe('useRowDrag', () => {
     scroll.style.overflowY = 'auto'
     Object.defineProperties(scroll, { scrollHeight: { value: 4600 }, clientHeight: { value: 138 } })
     stubRect(scroll, 0, 138)
-    document.body.appendChild(scroll); scroll.appendChild(source.container)
+    document.body.appendChild(scroll)
+    scroll.appendChild(source.container)
     const drops: RowDrop[] = []
-    const { result } = renderHook(() => useRowDrag({
-      allowedTargets: () => [], virtualOrder: () => order,
-      onDrop: (drop) => { drops.push(drop) },
-    }))
+    const { result } = renderHook(() =>
+      useRowDrag({
+        allowedTargets: () => [],
+        virtualOrder: () => order,
+        onDrop: (drop) => {
+          drops.push(drop)
+        },
+      }),
+    )
     act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i0'))
     act(() => pointer('pointermove', 137))
     act(() => vi.advanceTimersByTime(100))
     expect(scroll.scrollTop).toBeGreaterThan(0)
-    source.rows[1]!.remove(); source.rows[2]!.remove()
+    source.rows[1]!.remove()
+    source.rows[2]!.remove()
     const next = mount('temporary', order.slice(20, 23))
     for (const row of next.rows) source.container.appendChild(row)
     act(() => pointer('pointermove', 70))
@@ -173,11 +186,19 @@ describe('useRowDrag', () => {
     let order: readonly string[] = ['i1', 'i2', 'i3']
     const drops: RowDrop[] = []
     const source = mount('group:a', ['i1', 'i2'])
-    const { result } = renderHook(() => useRowDrag({ allowedTargets: () => [],
-      virtualOrder: () => order, onDrop: (drop) => { drops.push(drop) } }))
+    const { result } = renderHook(() =>
+      useRowDrag({
+        allowedTargets: () => [],
+        virtualOrder: () => order,
+        onDrop: (drop) => {
+          drops.push(drop)
+        },
+      }),
+    )
     act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i1'))
     order = ['i1', 'inserted', 'i2', 'i3']
-    act(() => pointer('pointermove', 70)); act(() => pointer('pointerup', 70))
+    act(() => pointer('pointermove', 70))
+    act(() => pointer('pointerup', 70))
     expect(drops).toEqual([])
     expect(result.current.draggedId).toBeNull()
   })

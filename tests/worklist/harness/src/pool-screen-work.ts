@@ -130,8 +130,9 @@ export interface ScreenWorkRun {
 /** The drawn neighbourhood is fixed; unrelated rows and closed mission history grow ×4.
  * Use real normalized kernel rows and the real row-source pipeline, never a second pool index. */
 function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
-  const row = referenceState(ctx.engine)
-    .issueProjections.find((issue) => !issue.archived && !issue.deletedAt)!
+  const row = referenceState(ctx.engine).issueProjections.find(
+    (issue) => !issue.archived && !issue.deletedAt,
+  )!
   for (const [id, parentId] of [
     [ROOT, null],
     [CHILD, ROOT],
@@ -163,8 +164,8 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
   // The picked phase seat can belong to a different checkout at each scale.
   // Keep the displayed handoff source identical: otherwise the 1x menu can
   // be blocked while the 4x menu has destinations, despite a fixed neighbourhood.
-  const guardSource = ctx.corpus.repos.find(repo =>
-    repo.machineId === ctx.corpus.machines[0]!.id && repo.worktrees.length > 0,
+  const guardSource = ctx.corpus.repos.find(
+    (repo) => repo.machineId === ctx.corpus.machines[0]!.id && repo.worktrees.length > 0,
   )!.worktrees[0]!.path
   for (const [id, owner] of [
     [SESSION, ROOT],
@@ -295,9 +296,10 @@ async function measureScreenCells(
   // POD-5501's fresh background recipe selects a fixed control mission and
   // opens its native terminal, then updates the first live corpus session.
   // The update is independent of the selected control's pane/mission.
-  const heartbeatId = scene === 'background-terminal'
-    ? ctx.corpus.sessions.find((session) => session.status === 'live')!.sessionId
-    : SESSION
+  const heartbeatId =
+    scene === 'background-terminal'
+      ? ctx.corpus.sessions.find((session) => session.status === 'live')!.sessionId
+      : SESSION
   if (scene === 'background-terminal') referenceState(ctx.engine).setPane('A', asSessionId(SESSION))
   // The real web host enables this before attaching a pilot-on pool.
 
@@ -444,7 +446,11 @@ async function measureScreenCells(
       files: readFiles(pool),
     }))
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
-      readMissionPane(pool, { ...window.get(), mode: 'full', handoff: scene !== 'background-terminal' }),
+      readMissionPane(pool, {
+        ...window.get(),
+        mode: 'full',
+        handoff: scene !== 'background-terminal',
+      }),
     )
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () =>
       readWorkspaceMission(missionView(pool), selected(), selected()),
@@ -473,7 +479,9 @@ async function measureScreenCells(
       explorer: page.explorer(),
     }))
     // These clicks open the launcher palette, not the Tasks filter menu.
-    add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () => readBoardCatalog(pool, false, false))
+    add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
+      readBoardCatalog(pool, false, false),
+    )
     add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),
     )
@@ -675,10 +683,17 @@ async function measureScreenCells(
           referenceState(ctx.engine).navigateToSession(asSessionId(ref)),
         )
       },
-      heartbeat: () => upsert(ctx, 'session', heartbeatId, {
-        ...(ctx.cache.read('session', heartbeatId)!.value as object),
-        lastActiveAt: ctx.stamp(),
-      }, 3),
+      heartbeat: () =>
+        upsert(
+          ctx,
+          'session',
+          heartbeatId,
+          {
+            ...(ctx.cache.read('session', heartbeatId)!.value as object),
+            lastActiveAt: ctx.stamp(),
+          },
+          3,
+        ),
       'machine-flip': () => {
         const id = ctx.corpus.machines[0]!.id
         const machine = ctx.cache.read('machine', id)!.value as { loggedOutHarnesses: string[] }
@@ -724,7 +739,9 @@ async function measureScreenCells(
         const machine = ctx.cache.read('machine', ctx.corpus.machines[0]!.id)!.value as {
           loggedOutHarnesses: string[]
         }
-        const wanted = machine.loggedOutHarnesses.includes(DEFAULT_HARNESS_AGENT) ? 'logged-out' : undefined
+        const wanted = machine.loggedOutHarnesses.includes(DEFAULT_HARNESS_AGENT)
+          ? 'logged-out'
+          : undefined
         if (!session || session === LOADING || Reflect.get(session, 'condition') !== wanted)
           throw new Error('Machine flip did not reach its joined session')
       }

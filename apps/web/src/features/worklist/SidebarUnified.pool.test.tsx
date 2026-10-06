@@ -210,10 +210,16 @@ describe('real sidebar pool cutover', () => {
     const reads = vi.spyOn(sidebarView(pool!), 'row')
     const trees = vi.spyOn(sidebarView(pool!), 'worktree')
     try {
-      await act(async () => { fireEvent.click(button) })
-      await waitFor(() => expect(group.querySelector('[data-testid="project-group-rows"]')).toBeNull())
+      await act(async () => {
+        fireEvent.click(button)
+      })
+      await waitFor(() =>
+        expect(group.querySelector('[data-testid="project-group-rows"]')).toBeNull(),
+      )
       expect(row.isConnected).toBe(false)
-      reads.mockClear(); trees.mockClear(); mode.commits.clear()
+      reads.mockClear()
+      trees.mockClear()
+      mode.commits.clear()
       await act(async () => {
         fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed while folded' })
         fixture.patch('session', 'synthetic-guest-0', { title: 'Guest changed while folded' })
@@ -221,14 +227,31 @@ describe('real sidebar pool cutover', () => {
       await advanceClock(60_000)
       expect(reads.mock.calls.filter(([id]) => id === 'synthetic-11')).toEqual([])
       expect(trees.mock.calls.filter(([path]) => path === '/synthetic/project/guests')).toEqual([])
-      await act(async () => { fireEvent.click(button) })
-      await waitFor(() => expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain('Changed while folded'))
-      expect(group.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain('Guest changed while folded')
-      await act(async () => { fireEvent.click(button) })
+      await act(async () => {
+        fireEvent.click(button)
+      })
+      await waitFor(() =>
+        expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain(
+          'Changed while folded',
+        ),
+      )
+      expect(group.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain(
+        'Guest changed while folded',
+      )
+      await act(async () => {
+        fireEvent.click(button)
+      })
       await waitFor(() => expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBeNull())
-      await act(async () => { fireEvent.click(button) })
-      expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain('Changed while folded')
-    } finally { reads.mockRestore(); trees.mockRestore() }
+      await act(async () => {
+        fireEvent.click(button)
+      })
+      expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain(
+        'Changed while folded',
+      )
+    } finally {
+      reads.mockRestore()
+      trees.mockRestore()
+    }
   })
 
   it.each(
