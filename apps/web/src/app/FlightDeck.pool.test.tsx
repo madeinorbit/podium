@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
@@ -262,7 +263,7 @@ describe('rendered mission pane parity', () => {
         ],
       })
     publishCatalog('before')
-    vi.spyOn(pool.headerViews, 'machines').mockImplementation(() => {
+    vi.spyOn(headerView(pool), 'machines').mockImplementation(() => {
       pool.row('worktree', '/catalog-only')
       return []
     })

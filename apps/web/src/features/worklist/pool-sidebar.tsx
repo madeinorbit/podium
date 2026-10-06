@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
@@ -127,7 +128,7 @@ function slotsFor(sections: SidebarSections): RowTransitionTarget<Slot>[] {
 function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
   if (!needle) return true
   if (slot.kind === 'issue') {
-    const value = pool.sidebar.row(slot.id)
+    const value = sidebarView(pool).row(slot.id)
     return value !== undefined && value !== LOADING && poolIssueHaystack(value).includes(needle)
   }
   const value = pool.row('worktree', slot.id) as SliceWorktree | typeof LOADING | undefined
@@ -140,7 +141,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
   const clear = useRuntimeSelector((s) => s.setSelectedIssueId)
-  const evicted = pool.sidebar.selectionEvicted()
+  const evicted = sidebarView(pool).selectionEvicted()
   useEffect(() => {
     if (evicted) clear(null)
   }, [evicted, clear])
@@ -157,7 +158,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       computed(
         () => {
           if (!pool) return { total: 0, hits: 0 }
-          const live = slotsFor(pool.sidebar.sections(state)).filter(
+          const live = slotsFor(sidebarView(pool).sections(state)).filter(
             (slot) => slot.value.lane === 'pinned' || slot.value.lane === 'open',
           )
           return {
@@ -225,7 +226,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
 }): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
-  const sections = pool.sidebar.sections(state)
+  const sections = sidebarView(pool).sections(state)
   const stableSlots = useRef(new Map<string, Slot>())
   const targets = useMemo(() => {
     const next = slotsFor(sections).map((target) => {
@@ -267,7 +268,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     [pool, targets, needle],
   ).get()
   const issue = (id: string) => {
-    const value = pool.sidebar.row(id)
+    const value = sidebarView(pool).row(id)
     return value === undefined || value === LOADING ? undefined : value
   }
   const { startDrag, dragging } = useRowDrag({
@@ -566,7 +567,7 @@ const PoolFoldedMenu = observer(function PoolFoldedMenu({
   actions: PoolWorkActions
   close: () => void
 }) {
-  const value = pool.sidebar.row(id)
+  const value = sidebarView(pool).row(id)
   return value === undefined || value === LOADING ? null : (
     <FoldedRowMenu
       issue={navigationIssue(value.issue)}
@@ -620,7 +621,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         paint: unknown
       }>(
         () => {
-          const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
+          const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
           const now = pool.clock.trackedNow()
           let paint: unknown
           if (value !== undefined && value !== LOADING) {
@@ -824,7 +825,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   }, shallowEqual)
   const projection = useMemo(
     () =>
-      computed(() => pool.sidebar.worktree(path, state), {
+      computed(() => sidebarView(pool).worktree(path, state), {
         equals: (a, b) =>
           compareStructural(
             a && {

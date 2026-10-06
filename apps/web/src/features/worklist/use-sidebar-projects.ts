@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
@@ -26,7 +27,7 @@ export function useSidebarProjects(): SidebarProject[] {
   const layout = useLayout()
   const read = useCallback(
     (pool: MobxPool) =>
-      pool.sidebar.sections(layout).bands.map((band) => ({
+      sidebarView(pool).sections(layout).bands.map((band) => ({
         key: band.key,
         name: band.label,
         aliases: [...band.aliases],
@@ -55,7 +56,7 @@ export function useSidebarProjectSections(): SidebarSections {
           },
         ),
       })) as SidebarSections['pinnedWorktrees']
-      const projects = pool.sidebar.sections(layout).bands.flatMap((band) => {
+      const projects = sidebarView(pool).sections(layout).bands.flatMap((band) => {
         const lane = lanes.find(
           (row) =>
             row['projectRoot'] && band.aliases.includes(String(row['repoId'] ?? row['repoPath'])),

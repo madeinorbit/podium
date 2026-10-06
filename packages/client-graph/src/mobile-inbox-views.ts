@@ -1,3 +1,4 @@
+import { referenceView } from './issue-reference'
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -162,7 +163,7 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   function chip(token: string, refKind: 'issue' | 'session', prefix: string) {
     const known = pool.queries.hasIssuePrefix(prefix, true)
-    const model = known && refKind === 'issue' ? pool.references.read(token) : null
+    const model = known && refKind === 'issue' ? referenceView(pool).read(token) : null
     const unavailable: IssueReferenceModel | null = known && refKind === 'issue' ? {
       ref: token.trim(), issueId: null, title: null, stage: null,
       availability: 'unavailable', accessibleLabel: `Task ${token.trim()} is unavailable`,
@@ -207,7 +208,7 @@ export function createMobileInboxViews(pool: MobxPool) {
     // Bare aliases match the displayed fallback literally. Unlike PREFIX-N,
     // the legacy route does not parse a zero-padded bare sequence number.
     if (/^#0\d+$/.test(target.issue.trim())) return null
-    const id = pool.references.id(target.issue)
+    const id = referenceView(pool).id(target.issue)
     return id === LOADING ? LOADING : id ? `/issue/${encodeURIComponent(id)}` : null
   }
   function resolveRoute(target: PodiumTarget): string | null | Promise<string | null> {

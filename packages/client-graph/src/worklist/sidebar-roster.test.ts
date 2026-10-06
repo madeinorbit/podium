@@ -1,3 +1,4 @@
+import { sidebarRosterView } from './sidebar-roster'
 /**
  * POD-5423 (review finding 11): an issue publication re-files no session of
  * that issue's history. Whether a session is a roster candidate depends on its
@@ -86,8 +87,8 @@ function measure(scale: number) {
     })
     expect(pool.tables.session.has(history[0]!.sessionId)).toBe(false)
     expect(pool.tables.session.has(elsewhere[0]!.sessionId)).toBe(true)
-    const before = [...pool.sidebarRosters.candidates(LANE)]
-    const sync = vi.spyOn(pool.sidebarRosters as unknown as { sync(id: string): void }, 'sync')
+    const before = [...sidebarRosterView(pool).candidates(LANE)]
+    const sync = vi.spyOn(sidebarRosterView(pool) as unknown as { sync(id: string): void }, 'sync')
     for (const value of [closed, open]) {
       pool.apply({
         type: 'update',
@@ -102,7 +103,7 @@ function measure(scale: number) {
     }
     const synced = sync.mock.calls.length
     sync.mockRestore()
-    return { synced, before, after: [...pool.sidebarRosters.candidates(LANE)] }
+    return { synced, before, after: [...sidebarRosterView(pool).candidates(LANE)] }
   } finally {
     pool.dispose()
   }
@@ -135,16 +136,16 @@ it('derives sidebar ownership inside the applying action without refiling seats'
     { kind: 'issue', id: owner.id, value: owner as never },
     { kind: 'session', id: seat.sessionId, value: seat as never },
   ] })
-  const stop = autorun(() => { pool.sidebarRosters.candidates(LANE) })
-  const file = vi.spyOn(pool.sidebarRosters as unknown as { fileSeat(id: string): void }, 'fileSeat')
+  const stop = autorun(() => { sidebarRosterView(pool).candidates(LANE) })
+  const file = vi.spyOn(sidebarRosterView(pool) as unknown as { fileSeat(id: string): void }, 'fileSeat')
   try {
     expect(pool.graph.one('session', seat.sessionId, 'worktree')).toBe(LANE)
     expect(pool.issueObject(owner.id).placed).toBe(true)
-    expect([...pool.sidebarRosters.candidates(LANE)]).toEqual([])
+    expect([...sidebarRosterView(pool).candidates(LANE)]).toEqual([])
     runInAction(() => {
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: { ...owner, audience: 'agent' } as never }] })
       expect(pool.issueObject(owner.id).placed).toBe(false)
-      expect([...pool.sidebarRosters.candidates(LANE)]).toEqual(['seat'])
+      expect([...sidebarRosterView(pool).candidates(LANE)]).toEqual(['seat'])
     })
     expect(file).not.toHaveBeenCalled()
     stop()

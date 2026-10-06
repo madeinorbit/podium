@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import { type RepoView, reposToViews } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
@@ -7,7 +8,7 @@ import { useMobilePoolProjection } from './mobile-pool'
 const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineWire[] }
 /** Existing resident header membership; entity values come only through pool.row. */
 function readRepositories(pool: MobxPool) {
-  return pool.headerViews.ids('repository').flatMap((id) => {
+  return headerView(pool).ids('repository').flatMap((id) => {
     const row = pool.row('repository', id) as GitRepositoryWire | undefined
     return row && typeof row !== 'symbol' ? [row] : []
   })
@@ -15,15 +16,15 @@ function readRepositories(pool: MobxPool) {
 export function useLaunchInputs(repoPath: string) {
   const read = useCallback(
     (pool: MobxPool) => ({
-      repo: pool.headerViews.repository(repoPath),
-      machines: pool.headerViews.machines(),
+      repo: headerView(pool).repository(repoPath),
+      machines: headerView(pool).machines(),
     }),
     [repoPath],
   )
   return useMobilePoolProjection(read, EMPTY)
 }
 
-const readRepositoryCount = (pool: MobxPool) => pool.headerViews.repositoryCount()
+const readRepositoryCount = (pool: MobxPool) => headerView(pool).repositoryCount()
 export function useLaunchRepositoryCount() {
   return useMobilePoolProjection(readRepositoryCount, 0)
 }

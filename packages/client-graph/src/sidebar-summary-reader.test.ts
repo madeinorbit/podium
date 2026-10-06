@@ -1,3 +1,4 @@
+import { sidebarRosterView } from './worklist/sidebar-roster'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 
@@ -18,7 +19,7 @@ it('keeps a missing cold seat out of the roster without indexing or loading its 
   try {
     expect(pool.tables.session.has(session.sessionId)).toBe(false)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: session.sessionId, value: { ...session, title: 'Changed' } as never }] })
-    expect(pool.sidebarRosters.candidates(path)).toEqual([])
+    expect(sidebarRosterView(pool).candidates(path)).toEqual([])
     // POD-5407: the roster files resident sessions only. A session the rule
     // keeps cold can never be a retained seat, so a missing cold summary
     // stays pending 0 and queues no load.

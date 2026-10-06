@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -295,7 +296,7 @@ export function createShellViews(pool: MobxPool) {
       const attachedId = active?.issueId ?? activeSession?.issueId
       const attached = attachedId ? (issue(attachedId) as Loaded<IssueViewModel>) : containing
       if (attached === LOADING) return LOADING
-      const discovered = active ? pool.header.shippingScope(active.cwd, active.machineId) : undefined
+      const discovered = active ? headerEntities(pool).shippingScope(active.cwd, active.machineId) : undefined
       let scope: ShellDockData['scope'] = discovered
         ? { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
         : null
@@ -314,7 +315,7 @@ export function createShellViews(pool: MobxPool) {
         shipOrders: [],
         shipLanes: [],
         coarseNow: state.coarseNow,
-        shipping: pool.header.shippingCounts(scope?.repoId ?? null),
+        shipping: headerEntities(pool).shippingCounts(scope?.repoId ?? null),
       }
     })
   }

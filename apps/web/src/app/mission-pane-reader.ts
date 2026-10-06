@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import {
   type FlightDeckMode,
   machineViewsFromWire,
@@ -15,8 +16,8 @@ const NO_HOSTS: ReturnType<typeof machineViewsFromWire> = []
 function deckCatalog(pool: MobxPool) {
   return pool.sources.view('missionPaneCatalog', () => {
     const repoViews = cachedKey('MissionPane', 'repos', () => {
-      const scans = pool.headerViews.ids('repository').flatMap((id) => {
-        const scan = pool.headerViews.row('repository', id)
+      const scans = headerView(pool).ids('repository').flatMap((id) => {
+        const scan = headerView(pool).row('repository', id)
         return scan ? [scan] : []
       })
       // The first view at a path, as the whole-list find answered.
@@ -26,7 +27,7 @@ function deckCatalog(pool: MobxPool) {
       return byPath
     })
     const machineViews = cachedKey('MissionPane', 'machines', () =>
-      machineViewsFromWire(pool.headerViews.machines()),
+      machineViewsFromWire(headerView(pool).machines()),
     )
     /** Keyed by `[machineId, repoPath]`: the hosts a mission root can run on. */
     const hosts = cachedKey('MissionPane', 'hosts', (key) => {

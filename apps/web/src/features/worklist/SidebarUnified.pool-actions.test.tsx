@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import {
   type ClientRuntime,
@@ -177,7 +179,7 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?:
     await referenceState(runtime).refreshRepos()
   })
   await waitFor(() => expect(pool).not.toBeNull())
-  await waitFor(() => expect(pool!.sidebar.sections().bands.length).toBeGreaterThan(0))
+  await waitFor(() => expect(sidebarView(pool!).sections().bands.length).toBeGreaterThan(0))
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
   await parity()
   return fixture
@@ -193,7 +195,7 @@ function row(id = TARGET) {
   return document.querySelector<HTMLElement>(`[data-issue-row="${id}"]`)!
 }
 function value(id = TARGET) {
-  const result = pool!.sidebar.row(id)
+  const result = sidebarView(pool!).row(id)
   expect(result).not.toBe(LOADING)
   expect(result).toBeDefined()
   if (result === undefined || result === LOADING) throw new Error('Expected resident row')
@@ -651,7 +653,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
 describe('real pool row mutations and receipts', () => {
   it('backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal', async () => {
     await mount()
-    const original = [...pool!.sidebar.sections().bands[0]!.rowIds]
+    const original = [...sidebarView(pool!).sections().bands[0]!.rowIds]
     const movedId = original.at(-1)!
     const order = [movedId, ...original.slice(0, -1)]
     const patches = planReorderKeys(order, movedId, () => undefined)
@@ -670,10 +672,10 @@ describe('real pool row mutations and receipts', () => {
         return { id: input.id, ...input.patch }
       }),
     ).toEqual(patches)
-    expect(pool!.sidebar.sections().bands[0]!.rowIds).toEqual(order)
+    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(order)
     await parity()
     for (const patch of patches) await refuse(await request('issues.update', patch.id))
-    expect(pool!.sidebar.sections().bands[0]!.rowIds).toEqual(original)
+    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(original)
   })
 
   it.each([
@@ -689,8 +691,8 @@ describe('real pool row mutations and receipts', () => {
     const sourceScope = pinned ? 'group:synthetic-repo' : 'pinned'
     const targetScope = pinned ? 'pinned' : 'group:synthetic-repo'
     const existing = pinned
-      ? [...pool!.sidebar.sections().pinnedIds]
-      : [...pool!.sidebar.sections().bands[0]!.rowIds]
+      ? [...sidebarView(pool!).sections().pinnedIds]
+      : [...sidebarView(pool!).sections().bands[0]!.rowIds]
     const order = [...existing, movedId]
     expect(drag.options!.allowedTargets?.(sourceScope, movedId)).toEqual([targetScope])
     await act(async () => {
@@ -702,10 +704,10 @@ describe('real pool row mutations and receipts', () => {
       id: movedId,
       patch: { pinned, sortKey: expect.any(String) },
     })
-    expect(pool!.sidebar.sections().pinnedIds.includes(movedId)).toBe(pinned)
+    expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
     await parity()
     await refuse(write)
-    expect(pool!.sidebar.sections().pinnedIds.includes(movedId)).toBe(!pinned)
+    expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(!pinned)
   })
 
   it('renames inline on Enter, paints before the receipt and rewinds on refusal', async () => {
@@ -783,11 +785,11 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item('Pin'))
     const write = await request('issues.update')
     expect(write.input).toMatchObject({ patch: { pinned: true } })
-    expect(pool!.sidebar.sections().pinnedIds).toContain(TARGET)
+    expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(true)
     await parity()
     await refuse(write)
-    expect(pool!.sidebar.sections().pinnedIds).not.toContain(TARGET)
+    expect(sidebarView(pool!).sections().pinnedIds).not.toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(false)
   })
 
@@ -802,10 +804,10 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     const tuck = await request('issues.setTucked')
     expect(tuck.input).toMatchObject({ id: TARGET, tucked: true })
-    await waitFor(() => expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain(TARGET))
+    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET))
     await parity()
     await refuse(tuck)
-    expect(pool!.sidebar.sections().bands[0]!.rowIds).toContain(TARGET)
+    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     await accept(await request('issues.setTucked'))
     await act(async () => patchIssue(fixture, TARGET, { tuckedAt: new Date(NOW).toISOString() }))
@@ -815,18 +817,18 @@ describe('real pool row mutations and receipts', () => {
     })
     fireEvent.click(folded)
     await parity()
-    expect(pool!.foldLatch.get()).toBe(true)
+    expect(worklistGroups(pool!).foldLatch.get()).toBe(true)
     for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
       await accept(await request('issues.markRead', (queued.input as { id: string }).id))
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
     fireEvent.click(await screen.findByTestId('bring-back'))
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
-    await waitFor(() => expect(pool!.sidebar.sections().bands[0]!.rowIds).toContain(TARGET))
+    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET))
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     await parity()
     await refuse(bringBack)
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain(TARGET)
+    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET)
   })
 
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
@@ -852,19 +854,19 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await screen.findByTestId('closed-issue-archive'))
     await parity()
     expect(
-      pool!.sidebar.sections().bands[0]!.closedIds,
+      sidebarView(pool!).sections().bands[0]!.closedIds,
       JSON.stringify({
         pending: runtime.outbox.pending(),
-        row: pool!.sidebar.row('synthetic-5'),
+        row: sidebarView(pool!).row('synthetic-5'),
         requests,
       }),
     ).not.toContain('synthetic-5')
     const write = await request('issues.archive', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).not.toContain('synthetic-5')
+    expect(sidebarView(pool!).sections().bands[0]!.closedIds).not.toContain('synthetic-5')
     await parity()
     await refuse(write)
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).toContain('synthetic-5')
+    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain('synthetic-5')
     await waitFor(() =>
       expect(screen.getByTestId('folded-work-row').textContent).toContain('Synthetic task 5'),
     )
@@ -980,9 +982,9 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item('Unpin'))
     const unpin = await request('issues.update')
     expect(unpin.input).toMatchObject({ patch: { pinned: false } })
-    expect(pool!.sidebar.sections().pinnedIds).not.toContain(TARGET)
+    expect(sidebarView(pool!).sections().pinnedIds).not.toContain(TARGET)
     await refuse(unpin)
-    expect(pool!.sidebar.sections().pinnedIds).toContain(TARGET)
+    expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
   })
 
   it('closes from Set status with the existing lifecycle action and rewinds a refusal', async () => {
@@ -1088,11 +1090,11 @@ describe('real pool row mutations and receipts', () => {
         .map((entry) => (entry.input as { id: string }).id)
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).toHaveLength(0)
+    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(0)
     await parity()
     for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
       await refuse(await request('issues.archive', (entry.input as { id: string }).id))
-    expect(pool!.sidebar.sections().bands[0]!.closedIds).toHaveLength(2)
+    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
   })
 
   it('preserves archive and delete confirmation before enqueuing and rewinds both refusals', async () => {
@@ -1132,7 +1134,7 @@ describe('real pool row mutations and receipts', () => {
       }
     })
     await waitFor(() => expect(referenceState(runtime).selectedIssueId).toBeNull())
-    expect(pool!.sidebar.row(TARGET)).toBeUndefined()
+    expect(sidebarView(pool!).row(TARGET)).toBeUndefined()
     expect(requests).toHaveLength(0)
     await parity()
     await act(async () => {

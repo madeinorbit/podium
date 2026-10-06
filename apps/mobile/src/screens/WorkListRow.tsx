@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
@@ -421,7 +422,7 @@ export const PoolWorkRowSlot = memo(
     const shown = useMemo(
       () => computed((): MobileRowPaint | 'loading' | null => {
         if (!pool) return 'loading'
-        const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
+        const value = mobileWorkView(pool).row({ id: item.id, kind: item.kind })
         return typeof value === 'symbol'
           ? 'loading'
           : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
@@ -429,7 +430,7 @@ export const PoolWorkRowSlot = memo(
       [pool, item.id, item.kind],
     )
     const paint = shown.get()
-    const reader = pool?.mobileWork
+    const reader = pool ? mobileWorkView(pool) : undefined
     const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
     const openRow = useCallback(() => {
       const current = reader?.row({ id: item.id, kind: item.kind })

@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { IssueReferences } from '@podium/client-graph/issue-reference'
@@ -201,10 +202,10 @@ describe('per-issue pool references', () => {
     })
     const paints = cold.map(() => vi.fn())
     const stops = cold.map((row, i) =>
-      reaction(() => pool.references.read(`POD-${row.seq}`), paints[i]!, { fireImmediately: true }),
+      reaction(() => referenceView(pool).read(`POD-${row.seq}`), paints[i]!, { fireImmediately: true }),
     )
-    expect(pool.references.read('POD-01')).toBe(LOADING)
-    expect(pool.references.read('POD-999')).toBe(LOADING)
+    expect(referenceView(pool).read('POD-01')).toBe(LOADING)
+    expect(referenceView(pool).read('POD-999')).toBe(LOADING)
     // A relation and a chip can ask for the same row in the same window.
     expect(pool.row('issue', cold[0]!.id)).toBe(LOADING)
     expect(issueIdByRef).not.toHaveBeenCalled()
@@ -212,7 +213,7 @@ describe('per-issue pool references', () => {
     expect(due).toHaveLength(1)
     due.shift()!()
     expect(issueIdByRef).toHaveBeenCalledTimes(1)
-    expect(pool.references.read('POD-999')).toBeNull()
+    expect(referenceView(pool).read('POD-999')).toBeNull()
     expect(due).toHaveLength(0)
     expect(load).toHaveBeenCalledTimes(50)
     expect(paints.every((paint) => paint.mock.calls.at(-1)?.[0]?.availability === 'archived')).toBe(
@@ -240,7 +241,7 @@ describe('per-issue pool references', () => {
       rows: [repo],
     })
     const paint = vi.fn()
-    const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
+    const stop = reaction(() => referenceView(pool).read('POD-1'), paint, { fireImmediately: true })
     due.shift()!()
     expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
     localRow = cold
@@ -272,7 +273,7 @@ describe('per-issue pool references', () => {
       },
     })
     const paint = vi.fn()
-    const stop = reaction(() => pool.references.read('POD-1'), paint, { fireImmediately: true })
+    const stop = reaction(() => referenceView(pool).read('POD-1'), paint, { fireImmediately: true })
     due.shift()!()
     expect(paint.mock.calls.at(-1)?.[0]).toBeNull()
     localRow = cold
@@ -291,15 +292,15 @@ describe('per-issue pool references', () => {
     })
     localRow = undefined
     pool.apply({ type: 'replace', rows: [] })
-    expect(pool.references.read('POD-1')).toBe(LOADING)
+    expect(referenceView(pool).read('POD-1')).toBe(LOADING)
     due.shift()!()
-    expect(pool.references.read('POD-1')).toBeNull()
+    expect(referenceView(pool).read('POD-1')).toBeNull()
     // The scope changes again while a missing demand is awaiting its window.
     pool.apply({ type: 'replace', rows: [] })
     localRow = cold
     pool.apply(scope)
     due.shift()!()
-    expect(pool.references.read('POD-1')).toMatchObject({ availability: 'archived' })
+    expect(referenceView(pool).read('POD-1')).toMatchObject({ availability: 'archived' })
     stop()
     pool.dispose()
   })

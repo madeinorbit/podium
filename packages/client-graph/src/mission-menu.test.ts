@@ -1,3 +1,5 @@
+import { headerView } from './header-views'
+import { headerEntities } from './header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { reposToViews } from '@podium/client-core/values'
@@ -99,7 +101,7 @@ it('loads the sole capable archived sender and updates eligibility after capabil
 
 it('does not demand handoff catalogs or the attached issue when the feature is hidden', () => {
   const { pool, view, load } = fixture(4)
-  const ids = vi.spyOn(pool.headerViews, 'ids'), machines = vi.spyOn(pool.headerViews, 'machines')
+  const ids = vi.spyOn(headerView(pool), 'ids'), machines = vi.spyOn(headerView(pool), 'machines')
   const menu = observe(() => readMissionActionInputs(view, [], 'picked', false))
   try {
     pool.hydrate()
@@ -132,13 +134,13 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
     ] })
     // Raw companion login fields are intentionally absent from MachineWire.
     const sender: HeaderRows['machine'] & { loggedOutHarnesses: string[] } = { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] }
-    pool.header.apply([
+    headerEntities(pool).apply([
       { kind: 'machine', id: 'source', value: sender },
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
       { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
     ])
-    const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(pool.headerViews, 'row'), ids = vi.spyOn(pool.headerViews, 'ids')
+    const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(headerView(pool), 'row'), ids = vi.spyOn(headerView(pool), 'ids')
     let menu!: ReturnType<typeof observe<ReturnType<typeof readMissionActionInputs>>>
     const measured = await measureWork(async () => insideReader('menu', () => {
       menu = observe(() => readMissionActionInputs(view, [], 'picked'))
@@ -162,14 +164,14 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
         const before = publications
         row.mockClear(); repoRow.mockClear()
         const loggedOutSender = { ...sender, loggedOutHarnesses: ['codex'] }
-        pool.header.apply([{ kind: 'machine', id: 'source', value: loggedOutSender }])
+        headerEntities(pool).apply([{ kind: 'machine', id: 'source', value: loggedOutSender }])
         expect(publications).toBe(before)
         expect(row).not.toHaveBeenCalled(); expect(repoRow).not.toHaveBeenCalled()
         expect(value.session).not.toHaveProperty('condition')
         expect(value.session).not.toHaveProperty('machineName')
       } finally { displayed.stop() }
       row.mockClear()
-      pool.header.apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
+      headerEntities(pool).apply([{ kind: 'repository', id: 'other-0', value: { ...others[0]!, branch: 'changed' } }])
       expect(row).not.toHaveBeenCalled()
       const drift = { ...picked, cwd: '/target/src' }
       input.set('session:picked', drift)
@@ -199,7 +201,7 @@ it('distinguishes same-path peers and picks the longest containing source while 
   ] })
   const source: HeaderRows['repository'] = { kind: 'repository', path: '/repo', repoId, machineId: sourceId, worktrees: [] }
   const peer: HeaderRows['repository'] = { ...source, machineId: peerId, worktrees: [{ path }] }
-  pool.header.apply([{ kind: 'repository', id: 'source', value: source }, { kind: 'repository', id: 'peer', value: peer }])
+  headerEntities(pool).apply([{ kind: 'repository', id: 'source', value: source }, { kind: 'repository', id: 'peer', value: peer }])
   const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
   const availability = (all: HeaderRows['repository'][]) => {
     const value = menu.value
@@ -212,26 +214,26 @@ it('distinguishes same-path peers and picks the longest containing source while 
     pool.hydrate()
     expect(availability([source, peer]).blocker).toBe('no-worktree')
     const owned = { ...source, worktrees: [{ path }] }
-    pool.header.apply([{ kind: 'repository', id: 'source', value: owned }])
+    headerEntities(pool).apply([{ kind: 'repository', id: 'source', value: owned }])
     expect(availability([owned, peer]).blocker).toBeUndefined()
     const nestedPath = `${path}/nested`
     const nested: HeaderRows['repository'] = { kind: 'repository', path: nestedPath, repoId: asRepoId('nested'),
       machineId: sourceId, worktrees: [{ path: `${nestedPath}/feature` }] }
-    pool.header.apply([{ kind: 'repository', id: 'nested', value: nested }])
+    headerEntities(pool).apply([{ kind: 'repository', id: 'nested', value: nested }])
     const deeper = { ...picked, cwd: `${nestedPath}/feature/src` }
     input.set('session:picked', deeper)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: deeper }] })
-    expect(pool.header.shippingScope(deeper.cwd, sourceId)?.repoPath).toBe('/repo')
-    expect(pool.header.shippingScope(deeper.cwd, sourceId)?.handoff)
+    expect(headerEntities(pool).shippingScope(deeper.cwd, sourceId)?.repoPath).toBe('/repo')
+    expect(headerEntities(pool).shippingScope(deeper.cwd, sourceId)?.handoff)
       .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
     expect(availability([owned, peer, nested]).blocker).toBeUndefined()
     const wildcard: HeaderRows['repository'] = { ...source, machineId: undefined,
       worktrees: [{ path: `${nestedPath}/feature/unknown` }] }
-    pool.header.apply([{ kind: 'repository', id: 'wildcard', value: wildcard }])
+    headerEntities(pool).apply([{ kind: 'repository', id: 'wildcard', value: wildcard }])
     const underUnknown = { ...deeper, cwd: `${nestedPath}/feature/unknown/src` }
     input.set('session:picked', underUnknown)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: underUnknown }] })
-    expect(pool.header.shippingScope(underUnknown.cwd, sourceId)?.handoff)
+    expect(headerEntities(pool).shippingScope(underUnknown.cwd, sourceId)?.handoff)
       .toEqual({ repoPath: nestedPath, worktreePath: `${nestedPath}/feature` })
     expect(availability([owned, peer, nested, wildcard]).blocker).toBeUndefined()
   } finally { menu.stop() }

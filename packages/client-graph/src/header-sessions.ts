@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
@@ -74,7 +75,7 @@ export class HeaderSessions {
   private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => this.resident(id).working !== null, Object.is)
   private readonly machine = cachedKey('pool.header', 'machineAggregate', (id) => {
     const aggregate = structuredClone(this.coldHosts.get(id as MachineId) ?? EMPTY_HOST_AGGREGATE)
-    for (const sessionId of this.pool.header.members('machine', id, 'sessions')) {
+    for (const sessionId of headerEntities(this.pool).members('machine', id, 'sessions')) {
       const value = this.residentHost(sessionId)
       if (value) adjust(aggregate, value, 1)
     }
@@ -92,7 +93,7 @@ export class HeaderSessions {
   }, compareStructural)
   private readonly roster = computed(() => {
     const values: WorkingSession[] = []
-    for (const id of this.pool.header.sessionOrder.get()) {
+    for (const id of headerEntities(this.pool).sessionOrder.get()) {
       const value = this.resident(id).working
       if (value) values.push(value)
     }
@@ -104,7 +105,7 @@ export class HeaderSessions {
   }, { equals: compareStructural })
   private readonly count = computed(() => {
     let count = 0
-    for (const id of this.pool.header.sessionOrder.get()) if (this.residentWorking(id)) count++
+    for (const id of headerEntities(this.pool).sessionOrder.get()) if (this.residentWorking(id)) count++
     for (const [deadline, members] of this.coldCounts) if (!this.pool.clock.passed(deadline)) count += members
     return count
   })

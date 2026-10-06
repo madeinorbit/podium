@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 /**
  * THE LAUNCH SHEET AFTER THE WIZARD [POD-1354].
  *
@@ -158,7 +159,7 @@ describe('phone launch demand bounds', () => {
     let machinesRead: ReturnType<typeof vi.spyOn> | undefined
     function Capture() {
       pool = useMobilePool()
-      if (pool && !machinesRead) machinesRead = vi.spyOn(pool.headerViews, 'machines')
+      if (pool && !machinesRead) machinesRead = vi.spyOn(headerView(pool), 'machines')
       return null
     }
     const { replica } = await renderWithMobileStore(

@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { recordChipWork } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/values'
@@ -31,7 +32,7 @@ function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
   const read = useCallback(
     (pool: MobxPool) => {
       recordChipWork(owner, 'reads')
-      return pool.references.read(token)
+      return referenceView(pool).read(token)
     },
     [owner, token],
   )

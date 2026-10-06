@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { createHeaderPollingService, type ClientRuntime, type KeyedListChange } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -82,7 +84,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
     try {
       // A whole-scope installation is ingest, outside the scalar update guard.
       await Promise.resolve()
-      expect(pool.header.shippingCounts('repo')).toEqual({
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({
         unfinishedCount: 128 * scale,
         decisionCount: 128 * scale,
       })
@@ -109,7 +111,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       })
       expect(replicaRow.mock.calls).toEqual([['shipOrders', 'o0']])
       expect(replicaRows).not.toHaveBeenCalled()
-      expect(pool.header.shippingCounts('repo')).toEqual({
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({
         unfinishedCount: 128 * scale,
         decisionCount: 128 * scale - 1,
       })
@@ -125,7 +127,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       })
       expect(replicaRow.mock.calls).toEqual([['shipOrders', 'o0']])
       expect(replicaRows).not.toHaveBeenCalled()
-      expect(pool.header.shippingCounts('repo')).toEqual({
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({
         unfinishedCount: 128 * scale - 1,
         decisionCount: 128 * scale - 1,
       })
@@ -136,7 +138,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       })
       expect(replicaRow.mock.calls).toEqual([['shipOrders', 'added']])
       expect(replicaRows).not.toHaveBeenCalled()
-      expect(pool.header.shippingCounts('repo')).toEqual({
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({
         unfinishedCount: 128 * scale,
         decisionCount: 128 * scale,
       })
@@ -144,12 +146,12 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
       // their semantics, and must remove prior keyed deltas as well.
       machines.delete('m0')
       lists.get('machines')!({ ids: new Set(['m0']), order: true })
-      expect(pool.header.get('machine', 'm0')).toBeUndefined()
-      expect(pool.header.orders.get('machine')).toEqual([...machines.keys()])
+      expect(headerEntities(pool).get('machine', 'm0')).toBeUndefined()
+      expect(headerEntities(pool).orders.get('machine')).toEqual([...machines.keys()])
       orders.clear()
       batch({ type: 'replace', reason: 'rescope' })
-      expect(pool.header.tables.shipOrder.size).toBe(0)
-      expect(pool.header.shippingCounts('repo')).toEqual({ unfinishedCount: 0, decisionCount: 0 })
+      expect(headerEntities(pool).tables.shipOrder.size).toBe(0)
+      expect(headerEntities(pool).shippingCounts('repo')).toEqual({ unfinishedCount: 0, decisionCount: 0 })
       const control = await measure('whole machine catalog control', () => {
         new Set(runtime.listIds('machines'))
       })
@@ -240,7 +242,7 @@ it('releases header sessions with the attached history source when the last head
   vi.useFakeTimers()
   const f = pollingFixture(),
     dispose = vi.spyOn(HeaderSessions.prototype, 'dispose'),
-    count = vi.spyOn(f.pool.headerViews, 'workingCount')
+    count = vi.spyOn(headerView(f.pool), 'workingCount')
   const stamp = new Date(0).toISOString()
   const row = { sessionId: 'seat', agentKind: 'codex', cwd: '/header', status: 'live',
     lastActiveAt: stamp, agentState: { phase: 'idle', since: stamp } }
@@ -251,12 +253,12 @@ it('releases header sessions with the attached history source when the last head
     await Promise.resolve()
     expect(count).not.toHaveBeenCalled()
     expect(dispose).not.toHaveBeenCalled()
-    stop = autorun(() => { f.pool.headerViews.workingCount() })
+    stop = autorun(() => { headerView(f.pool).workingCount() })
     const initialHistory = f.history.mock.calls.length
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: {
       ...row, agentState: { phase: 'working', since: stamp },
     } as never }] })
-    expect(f.pool.headerViews.workingCount()).toBe(1)
+    expect(headerView(f.pool).workingCount()).toBe(1)
     expect(f.history).toHaveBeenCalledTimes(initialHistory)
     await Promise.resolve()
     stop()
@@ -265,7 +267,7 @@ it('releases header sessions with the attached history source when the last head
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: row as never }] })
     expect(f.history).toHaveBeenCalledTimes(afterClose)
     expect(dispose).toHaveBeenCalledTimes(1)
-    stop = autorun(() => { expect(f.pool.headerViews.workingCount()).toBe(0) })
+    stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(0) })
     stop()
     expect(dispose).toHaveBeenCalledTimes(2)
   } finally {
@@ -287,14 +289,14 @@ it('consumes cached keyed samples without starting timers or touching the networ
   const timer = vi.spyOn(globalThis, 'setInterval')
   const detach = attachHeaderSource(f.pool, f.runtime)
   try {
-    expect(f.pool.header.received.history).toBe(f.reading)
-    expect(f.pool.header.received.quotas).toEqual([])
+    expect(headerEntities(f.pool).received.history).toBe(f.reading)
+    expect(headerEntities(f.pool).received.quotas).toEqual([])
     expect(timer).not.toHaveBeenCalled()
     expect(f.quota).toHaveBeenCalledTimes(1)
     detach()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.quota).toHaveBeenCalledTimes(2)
-    expect(f.pool.header.received.quotas).toEqual([])
+    expect(headerEntities(f.pool).received.quotas).toEqual([])
   } finally {
     detach()
     f.polling.destroy()
@@ -317,15 +319,15 @@ it('counts quota failures, logs once, keeps the last reading, and recovers on th
   try {
     await Promise.resolve()
     await vi.advanceTimersByTimeAsync(120_000)
-    expect(f.pool.header.received.quotas).toEqual([before])
-    expect(f.pool.header.get('quota', 'before')).toBe(before)
+    expect(headerEntities(f.pool).received.quotas).toEqual([before])
+    expect(headerEntities(f.pool).get('quota', 'before')).toBe(before)
     expect(f.polling.diagnostics.counts.quota).toBe(2)
     expect(f.reportError).toHaveBeenCalledTimes(1)
     expect(f.reportError).toHaveBeenCalledWith('quota', error)
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(f.pool.header.received.quotas).toEqual([after])
-    expect(f.pool.header.get('quota', 'before')).toBeUndefined()
-    expect(f.pool.header.get('quota', 'after')).toBe(after)
+    expect(headerEntities(f.pool).received.quotas).toEqual([after])
+    expect(headerEntities(f.pool).get('quota', 'before')).toBeUndefined()
+    expect(headerEntities(f.pool).get('quota', 'after')).toBe(after)
   } finally {
     stop()
     f.pool.dispose()
@@ -341,7 +343,7 @@ it('removes partially applied quota rows when a later poll replaces them', async
   f.quota.mockResolvedValueOnce([]).mockResolvedValueOnce(rows).mockResolvedValue([after])
   const stop = f.start()
   let fail = true
-  const off = observe(f.pool.header.tables.quota, (change) => {
+  const off = observe(headerEntities(f.pool).tables.quota, (change) => {
     if (change.name === 'b' && fail) {
       fail = false
       throw new Error('header apply failure')
@@ -350,12 +352,12 @@ it('removes partially applied quota rows when a later poll replaces them', async
   try {
     await vi.advanceTimersByTimeAsync(60_000)
     expect(f.pool.diagnostics.counts['header:quota']).toBe(1)
-    expect([...f.pool.header.tables.quota.keys()]).toEqual(['a', 'b'])
-    expect(f.pool.header.received.quotas).toEqual([])
+    expect([...headerEntities(f.pool).tables.quota.keys()]).toEqual(['a', 'b'])
+    expect(headerEntities(f.pool).received.quotas).toEqual([])
     await vi.advanceTimersByTimeAsync(60_000)
-    expect([...f.pool.header.tables.quota.keys()]).toEqual(['c'])
-    expect(f.pool.header.orders.get('quota')).toEqual(['c'])
-    expect(f.pool.header.received.quotas).toEqual([after])
+    expect([...headerEntities(f.pool).tables.quota.keys()]).toEqual(['c'])
+    expect(headerEntities(f.pool).orders.get('quota')).toEqual(['c'])
+    expect(headerEntities(f.pool).received.quotas).toEqual([after])
   } finally {
     off()
     stop()
@@ -378,10 +380,10 @@ it('counts and retries history and lifecycle failures independently', async () =
     await Promise.resolve()
     expect(f.polling.diagnostics.counts).toEqual({ history: 1, lifecycle: 1 })
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(f.pool.header.received.lifecycle).toEqual({})
+    expect(headerEntities(f.pool).received.lifecycle).toEqual({})
     expect(f.lifecycle).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(9 * 60_000)
-    expect(f.pool.header.received.history).toBe(f.reading)
+    expect(headerEntities(f.pool).received.history).toBe(f.reading)
     expect(f.polling.diagnostics.counts).toEqual({ history: 2, lifecycle: 1 })
     expect(f.lifecycle).toHaveBeenCalledTimes(2)
     expect(f.reportError.mock.calls).toEqual([

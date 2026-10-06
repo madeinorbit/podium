@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { type RepoView, reposToViews } from '@podium/client-core/values'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -31,7 +33,7 @@ it('addresses one repository group with flat rows, derivations and element work 
       repoId: target.repoId,
       machineId: 'm2' as HeaderRows['repository']['machineId'],
     })
-    pool.header.apply([
+    headerEntities(pool).apply([
       { kind: 'repository', id: 'target', value: target },
       { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, at) => ({ kind: 'repository' as const, id: `other-${at}`, value })),
@@ -40,13 +42,13 @@ it('addresses one repository group with flat rows, derivations and element work 
     let value: RepoView | undefined,
       paints = 0,
       stop = () => {}
-    const ids = vi.spyOn(pool.headerViews, 'ids')
+    const ids = vi.spyOn(headerView(pool), 'ids')
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, () => runInAction(action)), { pool })
     try {
       const first = await measure('launch repository first demand', () => {
         stop = autorun(() => {
-          value = pool.headerViews.repository(selected.get())
+          value = headerView(pool).repository(selected.get())
           paints++
         })
       })
@@ -54,14 +56,14 @@ it('addresses one repository group with flat rows, derivations and element work 
       expect(first.work.rows).toBe(2)
       const before = paints
       const unrelated = await measure('other repository branch update', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'other-17', value: { ...others[17]!, branch: 'changed' } },
         ]),
       )
       expect(paints).toBe(before)
       expect(unrelated.work.rows).toBe(0)
       const rekey = await measure('other repository origin update', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'other-17',
@@ -71,7 +73,7 @@ it('addresses one repository group with flat rows, derivations and element work 
       )
       expect(paints).toBe(before)
       const branch = await measure('selected repository branch update', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'target', value: { ...target, branch: 'next' } },
         ]),
       )
@@ -90,7 +92,7 @@ it('addresses one repository group with flat rows, derivations and element work 
       )
       expect(value?.machines).toHaveLength(2)
       const linked = await measure('one repository links the selected path', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'other-24',
@@ -100,20 +102,20 @@ it('addresses one repository group with flat rows, derivations and element work 
       )
       expect(value).toBeUndefined()
       const unlink = await measure('remove that linked path', () =>
-        pool.header.apply([{ kind: 'repository', id: 'other-24', value: others[24] }]),
+        headerEntities(pool).apply([{ kind: 'repository', id: 'other-24', value: others[24] }]),
       )
       expect(value?.path).toBe('/target')
       stop()
       const closed = await measure('repository update after consumer closes', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'target', value: { ...target, branch: 'closed' } },
         ]),
       )
       expect(closed.work.rows).toBe(0)
       expect(ids).not.toHaveBeenCalled()
       const control = await measure('planted whole repository launch lookup', () => {
-        const all = pool.headerViews.ids('repository').flatMap((id) => {
-          const row = pool.headerViews.row('repository', id)
+        const all = headerView(pool).ids('repository').flatMap((id) => {
+          const row = headerView(pool).row('repository', id)
           return row ? [row] : []
         })
         expect(reposToViews(all).find((repo) => repo.path === '/target')?.path).toBe('/target')
@@ -179,33 +181,33 @@ it('preserves source order, canonical paths, normalized origins and distinct ori
     repository('/local', { machineId: 'm2' as HeaderRows['repository']['machineId'] }),
   ]
   const ids = rows.map((_, at) => `repo-${at}`)
-  pool.header.apply(rows.map((value, at) => ({ kind: 'repository' as const, id: ids[at]!, value })))
+  headerEntities(pool).apply(rows.map((value, at) => ({ kind: 'repository' as const, id: ids[at]!, value })))
   const check = (order: readonly string[]) => {
-    runInAction(() => pool.header.order('repository', order))
+    runInAction(() => headerEntities(pool).order('repository', order))
     const expected = reposToViews(
       order.flatMap((id) => {
-        const row = pool.headerViews.row('repository', id)
+        const row = headerView(pool).row('repository', id)
         return row ? [row] : []
       }),
     )
     for (const path of ['/first', '/second', '/local', '/absent'])
-      expect(pool.headerViews.repository(path)).toEqual(expected.find((repo) => repo.path === path))
+      expect(headerView(pool).repository(path)).toEqual(expected.find((repo) => repo.path === path))
   }
   try {
     check(ids)
-    expect(pool.headerViews.repository('/second')).toBeUndefined()
+    expect(headerView(pool).repository('/second')).toBeUndefined()
     check([...ids].reverse())
-    expect(pool.headerViews.repository('/first')).toBeUndefined()
+    expect(headerView(pool).repository('/first')).toBeUndefined()
     check(['repo-0', 'repo-2'])
     check([])
     check(ids)
-    pool.header.apply([{ kind: 'repository', id: 'repo-0', value: undefined }])
+    headerEntities(pool).apply([{ kind: 'repository', id: 'repo-0', value: undefined }])
     check(ids.slice(1))
-    expect(pool.headerViews.repository('/second')?.path).toBe('/second')
-    pool.header.clear()
-    expect(pool.headerViews.repository('/second')).toBeUndefined()
-    pool.header.apply([{ kind: 'repository', id: 'new', value: repository('/new') }])
-    expect(pool.headerViews.repository('/new')?.path).toBe('/new')
+    expect(headerView(pool).repository('/second')?.path).toBe('/second')
+    headerEntities(pool).clear()
+    expect(headerView(pool).repository('/second')).toBeUndefined()
+    headerEntities(pool).apply([{ kind: 'repository', id: 'new', value: repository('/new') }])
+    expect(headerView(pool).repository('/new')?.path).toBe('/new')
   } finally {
     pool.dispose()
   }
@@ -216,24 +218,24 @@ it('suppresses linked standalone scans globally and reassigns canonical groups o
   const parent = repository('/parent', { worktrees: [{ path: '/linked' }] })
   const linked = repository('/linked', { originUrl: 'https://example.test/shared' })
   const clone = repository('/clone', { originUrl: linked.originUrl })
-  pool.header.apply([
+  headerEntities(pool).apply([
     { kind: 'repository', id: 'linked', value: linked },
     { kind: 'repository', id: 'clone', value: clone },
     { kind: 'repository', id: 'parent', value: parent },
   ])
   let value: RepoView | undefined
   const stop = autorun(() => {
-    value = pool.headerViews.repository('/clone')
+    value = headerView(pool).repository('/clone')
   })
   try {
     expect(value).toEqual(
       reposToViews([linked, clone, parent]).find((repo) => repo.path === '/clone'),
     )
-    expect(pool.headerViews.repository('/linked')).toBeUndefined()
-    pool.header.apply([{ kind: 'repository', id: 'parent', value: { ...parent, worktrees: [] } }])
+    expect(headerView(pool).repository('/linked')).toBeUndefined()
+    headerEntities(pool).apply([{ kind: 'repository', id: 'parent', value: { ...parent, worktrees: [] } }])
     expect(value).toBeUndefined()
-    expect(pool.headerViews.repository('/linked')?.worktrees).toHaveLength(2)
-    pool.header.apply([
+    expect(headerView(pool).repository('/linked')?.worktrees).toHaveLength(2)
+    headerEntities(pool).apply([
       {
         kind: 'repository',
         id: 'linked',
@@ -241,9 +243,9 @@ it('suppresses linked standalone scans globally and reassigns canonical groups o
       },
     ])
     expect(value?.path).toBe('/clone')
-    pool.header.apply([{ kind: 'repository', id: 'clone', value: { ...clone, path: '/renamed' } }])
+    headerEntities(pool).apply([{ kind: 'repository', id: 'clone', value: { ...clone, path: '/renamed' } }])
     expect(value).toBeUndefined()
-    expect(pool.headerViews.repository('/renamed')?.path).toBe('/renamed')
+    expect(headerView(pool).repository('/renamed')?.path).toBe('/renamed')
   } finally {
     stop()
     pool.dispose()

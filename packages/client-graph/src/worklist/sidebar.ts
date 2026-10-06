@@ -1,3 +1,5 @@
+import { worklistGroups } from './groups'
+import { sidebarRosterView } from './sidebar-roster'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
  * It is never read from worklistSlice, a selector, or browser storage here.
@@ -371,7 +373,7 @@ export class SidebarIndex {
   sections(state: SidebarState = EMPTY_STATE): SidebarSections {
     const key = layoutKey(state)
     return this.sectionViews(key, () => ({
-      pinnedIds: this.pool.groups.pinnedRootIds,
+      pinnedIds: worklistGroups(this.pool).pinnedRootIds,
       bands: this.specs(key, state).order.map((band) => this.bandOf(key, state, band)),
       pinnedFoldKey: 'podium:sidebar:pinned-fold',
       pinnedCollapsed: state.collapsed?.['podium:sidebar:pinned-fold'] === true,
@@ -403,7 +405,7 @@ export class SidebarIndex {
   /** One group's facts the band list reads: never its rows (a lane move changes none of these). */
   private groupFacts(key: string): GroupFacts {
     return this.groupViews(key, () => {
-      const group = this.pool.groups.group(key)
+      const group = worklistGroups(this.pool).group(key)
       const { rowIds, snoozedIds, closedIds } = group.sidebarRows
       const firstOpen = rowIds[0]
       return {
@@ -414,7 +416,7 @@ export class SidebarIndex {
         path:
           firstOpen === undefined
             ? key
-            : (this.pool.groups.placementOf(firstOpen)?.repoPath ?? key),
+            : (worklistGroups(this.pool).placementOf(firstOpen)?.repoPath ?? key),
         folded: snoozedIds.length > 0 || closedIds.length > 0,
         headBand2: group.sidebarMetadata.headBand === 2,
       }
@@ -422,7 +424,7 @@ export class SidebarIndex {
   }
 
   private specValues(state: SidebarState): BandSpecs {
-    const index = this.pool.sidebarRosters
+    const index = sidebarRosterView(this.pool)
     const repos = [...index.projects]
       .map((path) => this.pool.row('worktree', path))
       .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
@@ -457,7 +459,7 @@ export class SidebarIndex {
         repo.repoPath,
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
       )
-    for (const key of this.pool.groups.keys) {
+    for (const key of worklistGroups(this.pool).keys) {
       const facts = this.groupFacts(key)
       if (!facts.shown) continue
       // A registered root was seeded above; its path stays.
@@ -507,8 +509,8 @@ export class SidebarIndex {
     const foldKey = `podium:sidebar:project-fold:${band}`
     const snoozedFoldKey = `podium:sidebar:snoozed-fold:${band}`
     const closedFoldKey = `podium:sidebar:closed-fold:${band}`
-    const rows = spec.group ? this.pool.groups.group(band).sidebarRows : undefined
-    const worktreeIds = spec.roster ? this.pool.sidebarRosters.band(band).ids : NO_IDS
+    const rows = spec.group ? worklistGroups(this.pool).group(band).sidebarRows : undefined
+    const worktreeIds = spec.roster ? sidebarRosterView(this.pool).band(band).ids : NO_IDS
     return {
       key: band,
       label: spec.label,

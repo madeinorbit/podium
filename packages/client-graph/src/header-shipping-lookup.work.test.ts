@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { cwdInWorktree, reposToViews } from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -34,7 +36,7 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       ],
       outboxSize: 0,
     } as HeaderRows['window']
-    pool.header.apply([
+    headerEntities(pool).apply([
       { kind: 'window', id: 'window', value: window },
       { kind: 'repository', id: 'target', value: target },
       { kind: 'repository', id: 'clone', value: clone },
@@ -67,26 +69,26 @@ it('bounds first shipping demand and single-repository updates even when unrelat
     let value = { unfinishedCount: 0, decisionCount: 0 },
       stop = () => {},
       paints = 0
-    const ids = vi.spyOn(pool.headerViews, 'ids')
+    const ids = vi.spyOn(headerView(pool), 'ids')
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, () => runInAction(action)), { pool })
     try {
       const first = await measure('first shipping pane demand', () => {
         stop = autorun(() => {
-          value = pool.headerViews.shipping()
+          value = headerView(pool).shipping()
           paints++
         })
       })
       expect(value).toEqual({ unfinishedCount: 1, decisionCount: 1 })
       const point = await measure('addressed shipping scope', () => {
-        expect(pool.header.shippingScope('/shared/sub', 'unused-17')?.repoId).toBe('wildcard')
-        expect(pool.header.shippingScope('/shared/sub')?.repoId).toBe('target')
-        expect(pool.header.shippingScope('/absent', 'm0')).toBeUndefined()
+        expect(headerEntities(pool).shippingScope('/shared/sub', 'unused-17')?.repoId).toBe('wildcard')
+        expect(headerEntities(pool).shippingScope('/shared/sub')?.repoId).toBe('target')
+        expect(headerEntities(pool).shippingScope('/absent', 'm0')).toBeUndefined()
       })
       expect(point.work.rows).toBe(0)
       const before = paints
       const metadata = await measure('other shared-path repository branch', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'machine-17',
@@ -96,7 +98,7 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(paints).toBe(before)
       const machine = await measure('other shared-path machine changes', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'machine-17',
@@ -109,7 +111,7 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(paints).toBe(before)
       const rekey = await measure('other shared-path repository identity changes', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'machine-18',
@@ -122,7 +124,7 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(paints).toBe(before)
       const selected = await measure('selected machine stops owning the lane', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'target',
@@ -132,17 +134,17 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(value).toEqual({ unfinishedCount: 1, decisionCount: 0 })
       const restored = await measure('selected machine owns the lane again', () =>
-        pool.header.apply([{ kind: 'repository', id: 'target', value: target }]),
+        headerEntities(pool).apply([{ kind: 'repository', id: 'target', value: target }]),
       )
       expect(value).toEqual({ unfinishedCount: 1, decisionCount: 1 })
       const removed = await measure('one other shared-path repository removed', () =>
-        pool.header.apply([{ kind: 'repository', id: 'machine-19', value: undefined }]),
+        headerEntities(pool).apply([{ kind: 'repository', id: 'machine-19', value: undefined }]),
       )
       expect(value).toEqual({ unfinishedCount: 1, decisionCount: 1 })
       expect(ids).not.toHaveBeenCalled()
       stop()
       const closed = await measure('shipping consumer closed', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'repository',
             id: 'target',
@@ -152,8 +154,8 @@ it('bounds first shipping demand and single-repository updates even when unrelat
       )
       expect(closed.work.rows).toBe(0)
       const control = await measure('planted whole-repository shipping scope', () => {
-        const scans = pool.headerViews.ids('repository').flatMap((id) => {
-          const row = pool.headerViews.row('repository', id)
+        const scans = headerView(pool).ids('repository').flatMap((id) => {
+          const row = headerView(pool).row('repository', id)
           return row ? [row] : []
         })
         const result = reposToViews(scans).find((repo) =>

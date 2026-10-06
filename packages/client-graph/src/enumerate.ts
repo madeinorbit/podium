@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 /**
  * POD-4565 (Ma1) — the ENUMERATION MODULE (`fence.json`): the only place in
  * the pool that walks a whole table. The lint fence (`no-table-walk`)
@@ -124,11 +125,11 @@ export function reseed(
  * read only through pool.row; unloaded rows use their declared summaries. */
 export function headerIds(pool: MobxPool, entity: HeaderEntity): string[] {
   return [
-    ...new Set([...(pool.header.orders.get(entity) ?? []), ...pool.header.tables[entity].keys()]),
+    ...new Set([...(headerEntities(pool).orders.get(entity) ?? []), ...headerEntities(pool).tables[entity].keys()]),
   ]
 }
 export function residentSessionIds(pool: MobxPool): string[] {
-  return pool.header.sessionOrder.get()
+  return headerEntities(pool).sessionOrder.get()
 }
 export function allResidentSessions(pool: MobxPool): [string, object][] {
   return [...pool.tables.session.keys()].flatMap((id) => {

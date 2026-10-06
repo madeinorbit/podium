@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import {
   cwdInWorktree,
   reposToViews,
@@ -102,15 +104,15 @@ function fixture(scale: 1 | 4) {
     ],
   })
   const ids = repos.map((_, index) => `scan-${index}`)
-  pool.header.apply([
+  headerEntities(pool).apply([
     { kind: 'window', id: 'window', value: window },
     ...repos.map((value, index) => ({ kind: 'repository', id: ids[index]!, value })),
     ...orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })),
   ] as HeaderRecord[])
-  runInAction(() => pool.header.order('repository', ids))
+  runInAction(() => headerEntities(pool).order('repository', ids))
   let painted = { unfinishedCount: 0, decisionCount: 0 }
   const stop = autorun(() => {
-    painted = pool.headerViews.shipping()
+    painted = headerView(pool).shipping()
   })
   const expected = () => {
     const active = resolveActiveWorktree({ paneA: window.paneA, fileTabs: tabs, sessions: [] })
@@ -143,17 +145,17 @@ function fixture(scale: 1 | 4) {
     painted: () => painted,
     select(id: string | null) {
       window = { ...window, paneA: id as HeaderRows['window']['paneA'] }
-      pool.header.apply([{ kind: 'window', id: 'window', value: window }])
+      headerEntities(pool).apply([{ kind: 'window', id: 'window', value: window }])
     },
     replaceScan(index: number, value: HeaderRows['repository'] | undefined) {
       if (value) repos[index] = value
       else repos.splice(index, 1)
-      pool.header.apply([{ kind: 'repository', id: ids[index]!, value }])
+      headerEntities(pool).apply([{ kind: 'repository', id: ids[index]!, value }])
     },
     reorder() {
       const reordered = [...repos].reverse()
       repos.splice(0, repos.length, ...reordered)
-      runInAction(() => pool.header.order('repository', [...ids].reverse()))
+      runInAction(() => headerEntities(pool).order('repository', [...ids].reverse()))
     },
     dispose() {
       stop()
@@ -236,20 +238,20 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
           humanState: 'needs_you',
         }) as HeaderRows['shipOrder'],
     )
-    f.pool.header.apply(orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })))
+    headerEntities(f.pool).apply(orders.map((value) => ({ kind: 'shipOrder', id: value.id, value })))
     const rows = vi.spyOn(f.pool, 'row')
     let otherCounts = { unfinishedCount: 0, decisionCount: 0 }
     const stopOther = autorun(() => {
-      otherCounts = f.pool.header.shippingCounts('other')
+      otherCounts = headerEntities(f.pool).shippingCounts('other')
     })
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, action), { pool: f.pool })
     const update = (value: HeaderRows['shipOrder'] | undefined) =>
-      f.pool.header.apply([{ kind: 'shipOrder', id: 'count-0', value }])
+      headerEntities(f.pool).apply([{ kind: 'shipOrder', id: 'count-0', value }])
     try {
       const first = await measure('first shipping counts', () => {
         const stop = autorun(() => {
-          expect(f.pool.headerViews.shipping()).toEqual({
+          expect(headerView(f.pool).shipping()).toEqual({
             unfinishedCount: 128 * scale + 1,
             decisionCount: 128 * scale + 1,
           })
@@ -278,7 +280,7 @@ it('maintains shipping counts through one-order edits, moves and removal at 1x/4
       const control = await measure('whole shipping count control', () => {
         const stop = autorun(() => {
           shippingPanelModel(
-            [...f.pool.header.tables.shipOrder.values()] as HeaderRows['shipOrder'][],
+            [...headerEntities(f.pool).tables.shipOrder.values()] as HeaderRows['shipOrder'][],
             [],
             'first',
           )

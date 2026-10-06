@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -21,7 +22,7 @@ export function resolvePoolWorkMenu(
   lane: WorkIssueMenuTarget['lane'] = 'live',
 ): PoolWorkMenuData | null {
   return allowImperativeRead(() => {
-    const value = pool.mobileWork.row({ kind: 'issue', id })
+    const value = mobileWorkView(pool).row({ kind: 'issue', id })
     if (!value || typeof value === 'symbol' || !value.sidebar) return null
     const sessions: SessionView[] = []
     for (const key of pool.queries.ids({

@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { headerView } from '@podium/client-graph/header-views'
 import { configureDevelopmentChecks } from '@podium/mobx-helpers'
 import { configure } from 'mobx'
 import { LOADING } from '@podium/client-graph'
@@ -55,10 +57,10 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
       ],
     })
     const sidebar = vi
-      .spyOn(pool.sidebar, 'row')
+      .spyOn(sidebarView(pool), 'row')
       .mockReturnValue({ issue, deferred: false } as never)
-    vi.spyOn(pool.headerViews, 'ids').mockReturnValue([])
-    vi.spyOn(pool.headerViews, 'machines').mockReturnValue([])
+    vi.spyOn(headerView(pool), 'ids').mockReturnValue([])
+    vi.spyOn(headerView(pool), 'machines').mockReturnValue([])
     vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => {
       throw new Error('all issues')
     })
@@ -125,7 +127,7 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
       { kind: 'session', id: session.sessionId, value: session },
     ],
   })
-  vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue, deferred: false } as never)
+  vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue, deferred: false } as never)
   const row = pool.row.bind(pool)
   vi.spyOn(pool, 'row').mockImplementation((...args) =>
     args[0] === 'session' && args[1] === 'own-seat' ? LOADING : row(...args),

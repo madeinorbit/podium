@@ -1,3 +1,6 @@
+import { headerEntities } from './header-entities'
+import { settingsView } from './settings-views'
+import { headerView } from './header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
@@ -274,7 +277,7 @@ function fixture(scale = 1, bootOnly = false) {
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  pool.header.apply([
+  headerEntities(pool).apply([
     { kind: 'hostMetric', id: 'metric', value: { machineId: 'query-host' } } as never,
   ])
   const mobile = new MobileInboxSource(
@@ -361,8 +364,8 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
   {
     name: 'settings',
     read: (pool) => ({
-      setup: pool.settingsViews.setup(['/query']),
-      count: pool.settingsViews.sessionCount(),
+      setup: settingsView(pool).setup(['/query']),
+      count: settingsView(pool).sessionCount(),
     }),
   },
   { name: 'automation sessions', read: (pool) => automationViews(pool).session('cold-session-0') },
@@ -379,10 +382,10 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
   {
     name: 'web header',
     read: (pool) => ({
-      working: pool.headerViews.working(),
-      occupancy: pool.headerViews.occupancyKey(),
-      shipping: pool.headerViews.shipping(),
-      reclaim: pool.headerViews.reclaimCounts(1),
+      working: headerView(pool).working(),
+      occupancy: headerView(pool).occupancyKey(),
+      shipping: headerView(pool).shipping(),
+      reclaim: headerView(pool).reclaimCounts(1),
     }),
   },
   {

@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
@@ -31,7 +32,7 @@ function fixture() {
       title: 'Archived synthetic task', createdAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
       repoPath: '/synthetic', deps: [] } as never },
   ] })
-  pool.header.apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 3 } }])
+  headerEntities(pool).apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 3 } }])
   const source = new NoticeSource(runtime)
   pool.sources.register(NOTICE_ENTITIES, source)
   const state = () => ({ messageRecords: messages, sessions: data.sessions, pendingInteractions: interactions, outboxDeadLetters: deadLetters, outboxSize: 3 }) as Store

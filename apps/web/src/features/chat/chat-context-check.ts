@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
 
@@ -172,10 +173,10 @@ export function checkChatContext(
       .join('\n'),
     // This diagnostic compares path payloads, while the product's opaque
     // change token is guarded separately by chat-repository-key.test.ts.
-    pool.headerViews
+    headerView(pool)
       .ids('repository')
       .flatMap((id) => {
-        const row = pool.headerViews.row('repository', id)
+        const row = headerView(pool).row('repository', id)
         return row ? [row.path] : []
       })
       .sort()

@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, HeaderInputKey, KeyedListChange } from '@podium/client-core/engine'
 import { observe, runInAction } from 'mobx'
@@ -26,12 +27,12 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
     // A previous apply may have thrown after writing some rows. Reconcile
     // the actual table so its next successful sample removes those leftovers.
-    for (const id of pool.header.tables[entity].keys()) {
+    for (const id of headerEntities(pool).tables[entity].keys()) {
       if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
     }
     runInAction(() => {
-      pool.header.apply(records)
-      pool.header.order(entity, [...next])
+      headerEntities(pool).apply(records)
+      headerEntities(pool).order(entity, [...next])
     })
     known.set(entity, next)
   }
@@ -54,8 +55,8 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       // Live machine rows merge under their feed companions (POD-5661);
       // repositories have no companions and apply directly.
       if (entity === 'machine') pool.ingestLiveMachines(records)
-      else pool.header.apply(records)
-      if (ids) pool.header.order(entity, ids)
+      else headerEntities(pool).apply(records)
+      if (ids) headerEntities(pool).order(entity, ids)
     })
   }
   const windowKeys = HEADER_SCHEMA.window.fields
@@ -87,27 +88,27 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
         const rows = runtime.headerInputs.read('quota')
         if (!rows) return
         replace('quota', rows.map(row => [row.machineId, row]))
-        pool.header.received.quotas = rows
+        headerEntities(pool).received.quotas = rows
       } else if (key === 'history') {
         const reading = runtime.headerInputs.read('history')
         if (!reading) return
         replace('history', [['fleet', reading]])
-        pool.header.received.history = reading
+        headerEntities(pool).received.history = reading
       } else {
         const settings = runtime.headerInputs.read('lifecycle')
         if (!settings) return
         replace('lifecycle', [['hosts', settings]])
-        pool.header.received.lifecycle = settings
+        headerEntities(pool).received.lifecycle = settings
       }
     } catch (error) {
       pool.diagnostics.report(`header:${key}`, error)
     }
   }
   runInAction(() => {
-    for (const [id, row] of allResidentSessions(pool)) pool.header.change('session', id, row)
+    for (const [id, row] of allResidentSessions(pool)) headerEntities(pool).change('session', id, row)
   })
   const offSessions = observe(pool.tables.session, (change) => {
-    pool.header.change(
+    headerEntities(pool).change(
       'session',
       change.name,
       change.type === 'delete'
@@ -138,7 +139,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
         else ids.delete(record.id)
         records.push({ kind: 'shipOrder', id: record.id, value })
       }
-      pool.header.apply(records)
+      headerEntities(pool).apply(records)
     }),
     runtime.onLocals(windowKeys, locals),
     runtime.onList('machines', (change) => keyed('machine', 'machines', change)),

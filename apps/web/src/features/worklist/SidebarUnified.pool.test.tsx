@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
@@ -208,8 +209,8 @@ describe('real sidebar pool cutover', () => {
     const button = group.querySelector('[data-testid="project-group-label"]')!
     const panel = group.querySelector<HTMLElement>('[data-testid="project-group-rows"]')!
     const guest = group.querySelector('[data-session="synthetic-guest-0"]')!
-    const reads = vi.spyOn(pool!.sidebar, 'row')
-    const trees = vi.spyOn(pool!.sidebar, 'worktree')
+    const reads = vi.spyOn(sidebarView(pool!), 'row')
+    const trees = vi.spyOn(sidebarView(pool!), 'worktree')
     try {
       await act(async () => {
         fireEvent.click(button)

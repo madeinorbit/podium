@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 // @vitest-environment happy-dom
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from '@podium/client-graph/react'
@@ -31,7 +32,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
 
 const Row = observer(function Row() {
   const f = state.current!
-  const value = f.pool.sidebar.row(f.id)
+  const value = sidebarView(f.pool).row(f.id)
   if (!value || typeof value === 'symbol') return null
   return <UnifiedIssueRow row={poolIssueRow(value)} display={poolIssueDisplay(value)} now={f.ctx.corpus.fixedNow}
     onSelectIssue={() => {}} onSelectPanelForIssue={() => {}} onOpenIssue={() => {}} onRenameIssue={() => {}} />

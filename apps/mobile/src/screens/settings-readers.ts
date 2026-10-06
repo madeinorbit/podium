@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { settingsView } from '@podium/client-graph/settings-views'
 import type { Store } from '@podium/client-core/engine'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
@@ -39,11 +41,11 @@ export function readSettingsData(pool: MobxPool): SettingsData {
           return loaded(row) ? [row] : []
         })
       : [],
-    hosts: (pool.header.orders.get('hostMetric') ?? []).flatMap((id) => {
+    hosts: (headerEntities(pool).orders.get('hostMetric') ?? []).flatMap((id) => {
       const row = pool.row('hostMetric', id) as HostMetricsWire | undefined
       return row ? [row] : []
     }),
-    sessionCount: pool.settingsViews.sessionCount(),
+    sessionCount: settingsView(pool).sessionCount(),
     issueCount: loaded(diagnostics) ? diagnostics.issueCount : 0,
     conversationCount: loaded(diagnostics) ? diagnostics.conversationCount : 0,
     cursor: loaded(diagnostics) ? diagnostics.cursor : null,

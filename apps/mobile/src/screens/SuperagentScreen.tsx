@@ -1,3 +1,4 @@
+import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { useModelCatalog } from '@podium/client-core/react'
 import type { Conversation } from '@podium/client-core/conversation'
 import type { SuperagentSliceValue } from '@podium/client-core/values'
@@ -74,7 +75,7 @@ function usePoolQuestion(id: SessionId | undefined) {
   return useMobilePoolProjection(read, undefined)
 }
 function usePoolTranscriptSession(id: SessionId | undefined) {
-  const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
+  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).session(id), [id])
   return useMobilePoolProjection(read, undefined)
 }
 

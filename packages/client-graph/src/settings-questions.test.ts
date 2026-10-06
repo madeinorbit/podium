@@ -1,3 +1,4 @@
+import { settingsView } from './settings-views'
 import { dedupeSessionsByResume } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/client-core/values'
@@ -34,11 +35,11 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
       fallback = session('fallback', { cwd: '/shown/sub', lastActiveAt: '2025-01-01T00:00:00Z', agentKind: 'grok' })
     const f = fixture([target, fallback, ...Array.from({ length: 128 * scale }, (_, n) => session(`foreign-${n}`))])
     const rows = vi.spyOn(f.pool, 'row'), ids = vi.spyOn(f.pool.queries, 'ids'),
-      roster = vi.spyOn(f.pool.settingsViews, 'sessions'), keys = vi.spyOn(f.pool.tables.session, 'keys')
+      roster = vi.spyOn(settingsView(f.pool), 'sessions'), keys = vi.spyOn(f.pool.tables.session, 'keys')
     const view = createPoolProjection(f.pool, pool => ({
-      setup: pool.settingsViews.setup(['/shown', '/absent']),
-      present: pool.settingsViews.sessionPresent('target'),
-      count: pool.settingsViews.sessionCount(),
+      setup: settingsView(pool).setup(['/shown', '/absent']),
+      present: settingsView(pool).sessionPresent('target'),
+      count: settingsView(pool).sessionCount(),
     })), paint = vi.fn()
     let stop = () => {}
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })
@@ -88,11 +89,11 @@ it('preserves source-order defaults, shell/headless usage, archived history and 
   const check = () => {
     const effective = dedupeSessionsByResume(rows.map(row => row.value) as unknown as SessionView[])
     const expected = createRepositoryUsageSelector()(effective), paths = [...expected.keys(), '/invalid', '/negative', '/missing']
-    const setup = f.pool.settingsViews.setup(paths)
+    const setup = settingsView(f.pool).setup(paths)
     expect(setup.defaultAgent).toBe(resolveDefaultAgent(undefined, effective))
     expect(setup.usage).toEqual(expected)
-    expect(f.pool.settingsViews.sessionCount()).toBe(effective.length)
-    for (const row of rows) expect(f.pool.settingsViews.sessionPresent(row.id)).toBe(effective.some(value => value.sessionId === row.id))
+    expect(settingsView(f.pool).sessionCount()).toBe(effective.length)
+    for (const row of rows) expect(settingsView(f.pool).sessionPresent(row.id)).toBe(effective.some(value => value.sessionId === row.id))
   }
   try {
     check()
@@ -103,8 +104,8 @@ it('preserves source-order defaults, shell/headless usage, archived history and 
     rows = [rows[1]!, rows[0]!, ...rows.slice(2)]
     f.publish({ type: 'replace', rows }); check()
     f.publish({ type: 'replace', rows: [] })
-    expect(f.pool.settingsViews.sessionCount()).toBe(0)
-    expect(f.pool.settingsViews.setup(['/shown'])).toMatchObject({ usage: new Map(), defaultAgent: 'claude-code' })
+    expect(settingsView(f.pool).sessionCount()).toBe(0)
+    expect(settingsView(f.pool).setup(['/shown'])).toMatchObject({ usage: new Map(), defaultAgent: 'claude-code' })
   } finally { f.pool.dispose() }
 })
 
@@ -119,7 +120,7 @@ it('orders visible automation targets with path maxima and no session catalog at
       listRow: (name: string, id: string) => name === 'repos' ? repos.get(id) : undefined,
       readLocal: () => 'sessions', onList: () => () => {}, onLocals: () => () => {},
     } as unknown as SettingsOwner)
-    const rows = vi.spyOn(f.pool, 'row'), roster = vi.spyOn(f.pool.settingsViews, 'sessions'), ids = vi.spyOn(f.pool.queries, 'ids')
+    const rows = vi.spyOn(f.pool, 'row'), roster = vi.spyOn(settingsView(f.pool), 'sessions'), ids = vi.spyOn(f.pool.queries, 'ids')
     const view = createPoolProjection(f.pool, pool => automationViews(pool).targets()), paint = vi.fn()
     let stop = () => {}
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })

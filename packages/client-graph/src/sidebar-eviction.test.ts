@@ -1,3 +1,4 @@
+import { sidebarView } from './worklist/sidebar'
 import { expect, it } from 'vitest'
 import { MobxPool } from './pool'
 
@@ -23,10 +24,10 @@ it('keeps an observed eviction pending across repeated render reads until select
     })
     // Eviction history is maintained on selection/publication; no render read seeds it.
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'selected', value: undefined }] })
-    const reads = Array.from({ length: 2 }, () => pool.sidebar.selectionEvicted())
+    const reads = Array.from({ length: 2 }, () => sidebarView(pool).selectionEvicted())
     expect(reads).toEqual([true, true])
     pool.applyLocals({ selectedIssueId: null, coarseNow: 0 }, new Set(['selectedIssueId']))
-    expect(pool.sidebar.selectionEvicted()).toBe(false)
+    expect(sidebarView(pool).selectionEvicted()).toBe(false)
   } finally {
     pool.dispose()
   }

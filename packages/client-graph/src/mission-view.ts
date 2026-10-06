@@ -1,3 +1,6 @@
+import { settingsHasFirstTask } from './settings-views'
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1557,7 +1560,7 @@ export function readWorkspaceMission(view: MissionViewReader, selectedId: string
   if (focused === LOADING) return LOADING
   const missionOnScreen = view.selectedRoot(selectedId)
   if (missionOnScreen === LOADING) return LOADING
-  const hasAnyTask = view.pool.hasFirstTask
+  const hasAnyTask = settingsHasFirstTask(view.pool)
   if (hasAnyTask === LOADING) return LOADING
   return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask: Boolean(hasAnyTask), loading: false as boolean }
 }
@@ -1590,12 +1593,12 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const subject = handoffEnabled ? session ?? (handoff && 'session' in handoff ? handoff.session : undefined) : undefined
   // Handoff needs its containing lane and the issue's drift fallback. Other
   // worktrees in the same repository are hidden and remain unread.
-  const source = subject ? view.pool.header.shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
+  const source = subject ? headerEntities(view.pool).shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
   const anchorPath = source && source.worktreePath === source.repoPath && selected[0]?.worktreePath
-  const anchorScope = anchorPath ? view.pool.header.shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
+  const anchorScope = anchorPath ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
   const anchor = anchorScope?.worktreePath === anchorPath && anchorScope?.worktreePath !== source?.worktreePath ? anchorScope : undefined
-  const repos = source ? view.pool.header.repositoryGroup(source.repoPath).flatMap(id => {
-    const repo = view.pool.headerViews.row('repository', id)
+  const repos = source ? headerEntities(view.pool).repositoryGroup(source.repoPath).flatMap(id => {
+    const repo = headerView(view.pool).row('repository', id)
     if (!repo) return []
     const worktrees = [source, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.worktreePath !== repo.path &&
       (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
@@ -1607,9 +1610,9 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
     repos.some(repo => repo.repoId) && repos.some(repo => repo.worktrees.length > 0)
   // The sender is never a target. Exclude its address before observing any
   // payload so its login/capability changes cannot wake this menu.
-  const machines = needsTargets ? view.pool.headerViews.ids('machine').flatMap(id => {
+  const machines = needsTargets ? headerView(view.pool).ids('machine').flatMap(id => {
     if (id === subject?.machineId) return []
-    const machine = view.pool.headerViews.row('machine', id)
+    const machine = headerView(view.pool).row('machine', id)
     return machine ? [machine] : []
   }) : []
   return { issues: selected, allIssues: selected, sessions: handoff && 'session' in handoff ? [handoff.session] : [], repos,

@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 // @vitest-environment happy-dom
 
 import type { HeaderRows } from '@podium/client-graph/header-schema'
@@ -43,22 +45,22 @@ it('the actual offline indicator hook reads only displayed machines and releases
       machine(`history-${at}`, false, now - 2 * week),
     )
     const target = machine('target', false, now - week + 1000)
-    pool.header.apply(
+    headerEntities(pool).apply(
       [...online, ...history].map((value) => ({ kind: 'machine', id: value.id, value })),
     )
     const row = vi.spyOn(pool, 'row'),
-      all = vi.spyOn(pool.headerViews, 'ids')
+      all = vi.spyOn(headerView(pool), 'ids')
     const view = renderHook(() => usePoolOfflineMachines())
     try {
       expect(view.result.current).toEqual([])
       expect(row).not.toHaveBeenCalled()
-      act(() => pool.header.apply([{ kind: 'machine', id: 'target', value: target }]))
+      act(() => headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: target }]))
       expect(view.result.current).toEqual([target])
       const first = row.mock.calls.length
       expect(row.mock.calls).toEqual([['machine', 'target']])
       row.mockClear()
       act(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'machine',
             id: history[17]!.id,
@@ -71,7 +73,7 @@ it('the actual offline indicator hook reads only displayed machines and releases
       expect(view.result.current).toEqual([])
       expect(row).not.toHaveBeenCalled()
       act(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'machine', id: 'target', value: { ...target, name: 'Expired target' } },
         ]),
       )
@@ -84,7 +86,7 @@ it('the actual offline indicator hook reads only displayed machines and releases
       view.unmount()
       row.mockClear()
       act(() => {
-        pool.header.apply([{ kind: 'machine', id: 'target', value: target }])
+        headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: target }])
         pool.clock.advance(now + 2000)
       })
       expect(row).not.toHaveBeenCalled()
@@ -114,12 +116,12 @@ it('asks for only the default or named metric and suspends all closed hook deman
           sampledAt: '2026-10-05T07:00:00Z',
         }) as HeaderRows['hostMetric'],
     )
-    pool.header.apply(rows.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })))
-    pool.header.order(
+    headerEntities(pool).apply(rows.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })))
+    headerEntities(pool).order(
       'hostMetric',
       rows.map((_, index) => `m${index}`),
     )
-    const all = vi.spyOn(pool.headerViews, 'ids')
+    const all = vi.spyOn(headerView(pool), 'ids')
     const row = vi.spyOn(pool, 'row')
     const view = renderHook(({ id }: { id?: MachineId }) => usePoolPanelMetric(id), {
       initialProps: {},
@@ -133,14 +135,14 @@ it('asks for only the default or named metric and suspends all closed hook deman
       const addressed = row.mock.calls.length
       row.mockClear()
       act(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'hostMetric', id: 'm2', value: { ...rows[2]!, hostname: 'Unrelated' } },
         ]),
       )
       expect(view.result.current).toBe(rows[1])
       expect(row).not.toHaveBeenCalled()
       const updated = { ...rows[1]!, hostname: 'Selected' }
-      act(() => pool.header.apply([{ kind: 'hostMetric', id: 'm1', value: updated }]))
+      act(() => headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm1', value: updated }]))
       expect(view.result.current).toBe(updated)
       const changed = row.mock.calls.length
       row.mockClear()
@@ -151,7 +153,7 @@ it('asks for only the default or named metric and suspends all closed hook deman
       view.unmount()
       row.mockClear()
       act(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'hostMetric',
             id: 'missing',

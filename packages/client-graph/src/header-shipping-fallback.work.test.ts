@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
@@ -41,7 +43,7 @@ const window = (path: string, issueId?: string): HeaderRows['window'] =>
     outboxSize: 0,
   }) as HeaderRows['window']
 function header(pool: MobxPool): void {
-  pool.header.apply([
+  headerEntities(pool).apply([
     { kind: 'window', id: 'window', value: window('/shared/src/file') },
     ...['target', 'runner', 'ancestor'].flatMap((repoId, at) =>
       Array.from({ length: at + 1 }, (_, index) => ({
@@ -95,7 +97,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
     try {
       const first = await measure('shipping fallback first demand', () => {
         stop = autorun(() => {
-          value = pool.headerViews.shipping()
+          value = headerView(pool).shipping()
           paints++
         })
       })
@@ -104,7 +106,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
         row.mock.calls.filter(([entity, , mode]) => entity === 'issue' && mode === 'summary'),
       ).toEqual([['issue', 'target', 'summary']])
       const repeated = await measure('shipping fallback repeat', () => {
-        expect(pool.headerViews.shipping()).toEqual(counts(1, 1))
+        expect(headerView(pool).shipping()).toEqual(counts(1, 1))
       })
       const before = paints
       const unrelated = await measure('unrelated issue title', () =>
@@ -144,13 +146,13 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       )
       expect(value).toEqual(counts(2, 0))
       const boundary = await measure('non-containing sibling path', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'window', id: 'window', value: window('/shared-sibling/file') },
         ]),
       )
       expect(value).toEqual(counts(0, 0))
       const explicit = await measure('explicit issue beats path fallback', () =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'window', id: 'window', value: window('/shared/src/file', 'ancestor') },
         ]),
       )
@@ -262,7 +264,7 @@ it('uses cold containing-issue facts and follows addressed eligibility and repla
   header(pool)
   const ids = vi.spyOn(pool.queries, 'ids')
   const seen: ReturnType<typeof counts>[] = []
-  const stop = autorun(() => seen.push(pool.headerViews.shipping()))
+  const stop = autorun(() => seen.push(headerView(pool).shipping()))
   const publish = (event: RowSourceEvent) => {
     source.apply(event)
     pool.apply(event)

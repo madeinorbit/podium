@@ -1,3 +1,4 @@
+import { referenceView } from './issue-reference'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
@@ -45,9 +46,9 @@ it('keeps facade creation, first chip and named updates flat with cold and resid
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool: f.pool })
     let stop = () => {}
     try {
-      const creation = await measure('reference facade construction', () => { void f.pool.references })
+      const creation = await measure('reference facade construction', () => { void referenceView(f.pool) })
       expect(row).not.toHaveBeenCalled()
-      const paint = vi.fn(), view = createPoolProjection(f.pool, pool => pool.references.read(' POD-01 '))
+      const paint = vi.fn(), view = createPoolProjection(f.pool, pool => referenceView(pool).read(' POD-01 '))
       const first = await measure('reference first chip', () => {
         expect(view.getSnapshot()).toMatchObject({ issueId: 'target', ref: 'POD-1', availability: 'archived' })
         stop = view.subscribe(paint)
@@ -77,18 +78,18 @@ it('keeps facade creation, first chip and named updates flat with cold and resid
 })
 
 it('releases unresolved chips before hydration and never revives them on a late answer or scope reset', () => {
-  const f = fixture(1, false), view = createPoolProjection(f.pool, pool => pool.references.read('POD-999'))
+  const f = fixture(1, false), view = createPoolProjection(f.pool, pool => referenceView(pool).read('POD-999'))
   try {
     const stop = view.subscribe(() => {})
     expect(view.getSnapshot()).toBe(LOADING)
     stop()
-    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(referenceView(f.pool).hasRequest('POD-999')).toBe(false)
     expect(f.pool.hydrate()).toBe(0)
     expect(f.authority).not.toHaveBeenCalled()
-    f.pool.references.resolved('POD-999', 'target')
-    f.pool.references.resetUnresolved()
+    referenceView(f.pool).resolved('POD-999', 'target')
+    referenceView(f.pool).resetUnresolved()
     expect(f.pool.hydrate()).toBe(0)
-    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(referenceView(f.pool).hasRequest('POD-999')).toBe(false)
     expect(f.load).not.toHaveBeenCalled()
   } finally { f.pool.dispose() }
 })
@@ -96,35 +97,35 @@ it('releases unresolved chips before hydration and never revives them on a late 
 it('queues an unresolved reference only after observation, outside the read', async () => {
   const f = fixture(1, false)
   try {
-    expect(f.pool.references.id('POD-999')).toBe(LOADING)
+    expect(referenceView(f.pool).id('POD-999')).toBe(LOADING)
     await Promise.resolve()
-    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(referenceView(f.pool).hasRequest('POD-999')).toBe(false)
     expect(f.pool.hydrate()).toBe(0)
     let requestedDuringRead = false
     const stop = autorun(() => {
-      f.pool.references.id('POD-999')
-      requestedDuringRead ||= f.pool.references.hasRequest('POD-999')
+      referenceView(f.pool).id('POD-999')
+      requestedDuringRead ||= referenceView(f.pool).hasRequest('POD-999')
     })
     expect(requestedDuringRead).toBe(false)
     await Promise.resolve()
-    expect(f.pool.references.hasRequest('POD-999')).toBe(true)
+    expect(referenceView(f.pool).hasRequest('POD-999')).toBe(true)
     stop()
-    expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+    expect(referenceView(f.pool).hasRequest('POD-999')).toBe(false)
     expect(f.pool.hydrate()).toBe(0)
   } finally { f.pool.dispose() }
 })
 
 it('cancels observed reference demand before its microtask or after pool disposal', async () => {
   const f = fixture(1, false)
-  const stop = autorun(() => { f.pool.references.id('POD-999') })
+  const stop = autorun(() => { referenceView(f.pool).id('POD-999') })
   stop()
   await Promise.resolve()
-  expect(f.pool.references.hasRequest('POD-999')).toBe(false)
+  expect(referenceView(f.pool).hasRequest('POD-999')).toBe(false)
   expect(f.pool.hydrate()).toBe(0)
-  const off = autorun(() => { f.pool.references.id('POD-998') })
+  const off = autorun(() => { referenceView(f.pool).id('POD-998') })
   f.pool.dispose()
   await Promise.resolve()
-  expect(f.pool.references.hasRequest('POD-998')).toBe(false)
+  expect(referenceView(f.pool).hasRequest('POD-998')).toBe(false)
   expect(f.authority).not.toHaveBeenCalled()
   off()
 })
@@ -133,20 +134,20 @@ it('uses canonical identity, first bare alias ownership and separate live/all pr
   const f = fixture(1, false)
   try {
     f.publish({ type: 'update', rows: [issue('POD-1', 8), repo('deleted-repo', 'DEL'), issue('deleted', 1, { repoId: 'deleted-repo', deletedAt: stamp }), repo('empty', 'EMPTY'), issue('z', 7, { repoId: undefined }), issue('a', 7, { repoId: undefined })] })
-    expect(f.pool.references.id('POD-01')).toBe('target')
-    expect(f.pool.references.id('#007')).toBe('a')
+    expect(referenceView(f.pool).id('POD-01')).toBe('target')
+    expect(referenceView(f.pool).id('#007')).toBe('a')
     expect(f.pool.queries.hasIssuePrefix('DEL')).toBe(false)
     expect(f.pool.queries.hasIssuePrefix('DEL', true)).toBe(true)
     expect(f.pool.queries.hasIssuePrefix('EMPTY', true)).toBe(false)
     f.publish({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: undefined }] })
-    expect(f.pool.references.id('#7')).toBe('z')
+    expect(referenceView(f.pool).id('#7')).toBe('z')
     const view = createPoolProjection(f.pool, pool => ({ live: pool.queries.hasIssuePrefix('NEW'), all: pool.queries.hasIssuePrefix('NEW', true) }))
     const paint = vi.fn(), stop = view.subscribe(paint)
     expect(view.getSnapshot()).toEqual({ live: false, all: false })
     f.publish({ type: 'update', rows: [repo('target-repo', 'NEW')] })
     expect(view.getSnapshot()).toEqual({ live: true, all: true })
     expect(paint).toHaveBeenCalledTimes(1)
-    expect(f.pool.references.id('NEW-1')).toBe('target')
+    expect(referenceView(f.pool).id('NEW-1')).toBe('target')
     f.publish({ type: 'update', rows: [repo('target-repo', 'POD')] })
     expect(view.getSnapshot()).toEqual({ live: false, all: false })
     stop()

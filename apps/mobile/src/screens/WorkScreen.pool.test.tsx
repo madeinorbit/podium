@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
@@ -709,7 +710,7 @@ describe('mobile WorkScreen pool consumer', () => {
       feed.publish('sessions', [replacement])
     })
     await waitFor(() => {
-      const current = state.pool!.mobileWork.row(item)
+      const current = mobileWorkView(state.pool!).row(item)
       expect(current && typeof current !== 'symbol' ? current.navigation?.id : null).toBe(
         replacement.sessionId,
       )

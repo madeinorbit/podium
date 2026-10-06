@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   deriveGitStamp,
@@ -168,7 +169,7 @@ export class MobileSearchSections {
     // labels (`repo · branch`) are already short strings: one row read per
     // worktree, no paint, bounded by the worktree count rather than issues.
     const worktreeMatches = (ref: MobileWorkSection['data'][number]): boolean => {
-      const value = pool.mobileWork.row({ id: ref.id, kind: 'worktree' })
+      const value = mobileWorkView(pool).row({ id: ref.id, kind: 'worktree' })
       if (!value || typeof value === 'symbol') return false
       return value.label.toLowerCase().includes(needle)
     }

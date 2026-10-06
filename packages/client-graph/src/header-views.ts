@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -56,22 +57,22 @@ export function createHeaderViews(pool: MobxPool) {
   function offlineMachines(): HeaderRows['machine'][] {
     offline ??= createQueryResult<HeaderRows['machine']>({
       name: 'header.offlineMachines',
-      ids: () => pool.header.offlineMachineIds(pool.clock.peekNow()),
-      has: (id) => pool.header.hasOfflineMachine(id, pool.clock.peekNow()),
+      ids: () => headerEntities(pool).offlineMachineIds(pool.clock.peekNow()),
+      has: (id) => headerEntities(pool).hasOfflineMachine(id, pool.clock.peekNow()),
       read: (id) => row('machine', id),
-      order: (id) => pool.header.offlineMachineOrder(id),
+      order: (id) => headerEntities(pool).offlineMachineOrder(id),
       subscribe(changed) {
-        const stopSource = pool.header.subscribeOfflineMachines(changed)
+        const stopSource = headerEntities(pool).subscribeOfflineMachines(changed)
         const stopClock = reaction(
           () => {
             const now = pool.clock.peekNow()
-            const { previous, next } = pool.header.offlineMachineBoundaries(now)
+            const { previous, next } = headerEntities(pool).offlineMachineBoundaries(now)
             if (previous !== undefined) pool.clock.passed(previous)
             if (next !== undefined) pool.clock.passed(next)
             return now
           },
           (now, before) => {
-            for (const id of pool.header.crossedOfflineMachineIds(before, now)) changed(id)
+            for (const id of headerEntities(pool).crossedOfflineMachineIds(before, now)) changed(id)
           },
         )
         return () => {
@@ -355,7 +356,7 @@ export function createHeaderViews(pool: MobxPool) {
       let repoId: string | null = null,
         scanned = false
       if (active) {
-        const scope = pool.header.shippingScope(active.cwd, active.machineId)
+        const scope = headerEntities(pool).shippingScope(active.cwd, active.machineId)
         if (scope) {
           repoId = scope.repoId
           scanned = true
@@ -366,14 +367,14 @@ export function createHeaderViews(pool: MobxPool) {
           repoId = id ? (issueSummary(id)?.repoId ?? null) : null
         }
       }
-      return pool.header.shippingCounts(repoId)
+      return headerEntities(pool).shippingCounts(repoId)
     })
   }
   function reclaimCounts(afterDays: number) {
     return memo(`reclaim:${afterDays}`, () => {
       const metrics = headerIds(pool, 'hostMetric')
       const sole =
-        metrics.length === 1 ? pool.header.one('hostMetric', metrics[0]!, 'machine') : undefined
+        metrics.length === 1 ? headerEntities(pool).one('hostMetric', metrics[0]!, 'machine') : undefined
       const occupied = occupancyKey().split('\n').filter(Boolean)
       const result: Record<string, number> = {}
       if (!metrics.length) return result
@@ -398,18 +399,18 @@ export function createHeaderViews(pool: MobxPool) {
     folded,
     shipping,
     reclaimCounts,
-    repositoryCount: () => pool.header.count('repository'),
+    repositoryCount: () => headerEntities(pool).count('repository'),
     repository: (path: string) =>
       memo(`repository:${path}`, () => {
-        const scans = pool.header.repositoryGroup(path).flatMap((id) => {
+        const scans = headerEntities(pool).repositoryGroup(path).flatMap((id) => {
           const scan = row('repository', id)
           return scan ? [scan] : []
         })
         return reposToViews(scans)[0]
       }),
-    idleCapUnmetCount: () => pool.header.idleCapUnmetCount(),
+    idleCapUnmetCount: () => headerEntities(pool).idleCapUnmetCount(),
     panelMetric: (machineId: MachineId | undefined) => {
-      const id = machineId ?? pool.header.firstId('hostMetric')
+      const id = machineId ?? headerEntities(pool).firstId('hostMetric')
       return id ? row('hostMetric', id) : undefined
     },
     ids: (entity: HeaderEntity) => headerIds(pool, entity),

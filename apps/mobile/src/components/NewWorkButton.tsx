@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
@@ -64,8 +66,8 @@ const EMPTY_INPUTS = {
 }
 /** Only displayed machine/project rows. History defaults are scalar questions. */
 function readLaunchInputs(pool: MobxPool) {
-  const machines = pool.headerViews.machines()
-  const scans = pool.header.repositoryRootIds().flatMap((id) => {
+  const machines = headerView(pool).machines()
+  const scans = headerEntities(pool).repositoryRootIds().flatMap((id) => {
     const row = pool.row('repository', id) as GitRepositoryWire | undefined
     return row && typeof row !== 'symbol' ? [row] : []
   })

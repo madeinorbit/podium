@@ -1,3 +1,4 @@
+import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -200,7 +201,7 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
   const pool = enabled.seen.findLast(pool => pool !== null) as MobxPool
-  const roster = vi.spyOn(pool.settingsViews, 'sessions'), count = vi.spyOn(pool.settingsViews, 'sessionCount')
+  const roster = vi.spyOn(settingsView(pool), 'sessions'), count = vi.spyOn(settingsView(pool), 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)
     enabled.data.publishMachines()

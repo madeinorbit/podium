@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type {
@@ -163,7 +164,7 @@ export function WorkScreen() {
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
-  const readSections = useCallback((graph: MobxPool) => graph.mobileWork.sections(layout), [layout])
+  const readSections = useCallback((graph: MobxPool) => mobileWorkView(graph).sections(layout), [layout])
   const split = useMobilePoolProjection(readSections, EMPTY_MOBILE_SPLIT)
   const { issueCount, pinnedCount, attentionCount } = split
   const [searchOpen, setSearchOpen] = useState(false)
@@ -179,7 +180,7 @@ export function WorkScreen() {
     (graph: MobxPool) =>
       searchMobileSections(
         graph,
-        graph.mobileWork.sections(layout).sections,
+        mobileWorkView(graph).sections(layout).sections,
         query,
         searchSections,
       ),
@@ -431,7 +432,7 @@ const PoolFoldRow = memo(function PoolFoldRow({
 }) {
   const read = useCallback(
     (pool: MobxPool) => {
-      const value = pool.mobileWork.row({ id, kind: 'issue' })
+      const value = mobileWorkView(pool).row({ id, kind: 'issue' })
       if (!value || typeof value === 'symbol' || !value.sidebar) return null
       const issue = value.sidebar.issue as unknown as IssueNavigationModel
       return {

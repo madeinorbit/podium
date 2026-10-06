@@ -1,3 +1,4 @@
+import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
@@ -65,7 +66,7 @@ export function useThreadConversation(
       drafts,
       headless: true,
       streamSessionId: readSid,
-      readSession: () => pool?.sessionPanes.session(readSid()),
+      readSession: () => (pool ? sessionPaneView(pool).session(readSid()) : undefined),
       readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
       initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
       hub: owner.hub,

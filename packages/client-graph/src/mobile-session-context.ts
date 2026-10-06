@@ -1,3 +1,4 @@
+import { sessionPaneView } from './session-pane'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, type MachineWire } from '@podium/model/browser'
@@ -66,11 +67,11 @@ export function createMobileSessionReader(pool: MobxPool) {
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>
       id === undefined ? undefined : pool.machineHomeName(id),
-    machines: () => pool.sessionPanes.machines(),
+    machines: () => sessionPaneView(pool).machines(),
     spawnPending(id: string | undefined): Loaded<boolean> {
       if (id === undefined) return false
       const row = pool.row('sessionPaneWindow', 'window')
-      return !row || row === LOADING ? LOADING : !pool.sessionPanes.spawnConfirmed(id)
+      return !row || row === LOADING ? LOADING : !sessionPaneView(pool).spawnConfirmed(id)
     },
     spawnPrompt(id: string | undefined): Loaded<string> {
       if (id === undefined) return undefined

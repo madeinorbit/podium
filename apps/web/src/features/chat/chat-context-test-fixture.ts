@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -85,9 +86,9 @@ export async function createChatContextFixture(resumeTwins = false) {
     ...issues.map(row => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ...rawSessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
   ] })
-  pool.header.apply([{ kind: 'machine', id: 'chat-machine', value: state.machines[0]! },
+  headerEntities(pool).apply([{ kind: 'machine', id: 'chat-machine', value: state.machines[0]! },
     { kind: 'repository', id: '/synthetic/project', value: state.repos[0]! }])
-  pool.header.order('machine', ['chat-machine']); pool.header.order('repository', ['/synthetic/project'])
+  headerEntities(pool).order('machine', ['chat-machine']); headerEntities(pool).order('repository', ['/synthetic/project'])
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(owner))
   pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(owner))
   const exitSource = await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(owner))

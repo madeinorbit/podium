@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
@@ -28,11 +29,11 @@ export function readIssueMenuPoolInputs(
     else if (row) sessions.push(row)
   }
   if (pending) return LOADING
-  const repos = pool.headerViews.ids('repository').flatMap((id) => {
-    const repo = pool.headerViews.row('repository', id)
+  const repos = headerView(pool).ids('repository').flatMap((id) => {
+    const repo = headerView(pool).row('repository', id)
     return repo ? [repo] : []
   })
-  return { sessions, repos, machines: pool.headerViews.machines() }
+  return { sessions, repos, machines: headerView(pool).machines() }
 }
 
 /** Mounted on menu open; the content never borrows store reader inputs. */

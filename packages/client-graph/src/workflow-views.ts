@@ -1,3 +1,4 @@
+import { settingsView } from './settings-views'
 import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/values'
 import type { WorkflowRunWire } from '@podium/protocol'
 import type { MobxPool } from './pool'
@@ -23,7 +24,7 @@ export function workflowSubject(pool: MobxPool, run: WorkflowRunWire): RunSubjec
   // The session summary applies the existing resume-twin rule and source-order
   // tie break. A raw keyed session read would expose a suppressed parked twin.
   const present = run.subjectKind === 'session'
-    ? pool.settingsViews.sessionPresent(run.subjectId)
+    ? settingsView(pool).sessionPresent(run.subjectId)
     : pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary')
   if (present === LOADING) return LOADING
   return runSubjectReference(run, id => present ? { id } : undefined)

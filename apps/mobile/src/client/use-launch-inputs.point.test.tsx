@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
@@ -30,7 +32,7 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
       originUrl: `https://example.test/project-${at}`,
       worktrees: [],
     }))
-    pool.header.apply([
+    headerEntities(pool).apply([
       ...repos.map((value, at) => ({ kind: 'repository' as const, id: `r${at}`, value })),
       {
         kind: 'machine',
@@ -38,8 +40,8 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
         value: { id: 'm0', name: 'Only host', online: true } as MachineWire,
       },
     ])
-    const ids = vi.spyOn(pool.headerViews, 'ids')
-    const keys = vi.spyOn(pool.header.tables.repository, 'keys')
+    const ids = vi.spyOn(headerView(pool), 'ids')
+    const keys = vi.spyOn(headerEntities(pool).tables.repository, 'keys')
     let view:
       | ReturnType<typeof renderHook<ReturnType<typeof useLaunchInputs>, { path: string }>>
       | undefined
@@ -60,13 +62,13 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
       expect(view!.result.current.repo?.path).toBe('/repo/0')
       expect(view!.result.current.machines).toHaveLength(1)
       const unrelated = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r17', value: { ...repos[17]!, branch: 'changed' } },
         ]),
       )
       expect(unrelated.work.rows).toBe(0)
       const changed = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r0', value: { ...repos[0]!, branch: 'selected' } },
         ]),
       )
@@ -77,7 +79,7 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
       expect(view!.result.current.repo).toBeUndefined()
       view!.unmount()
       const closed = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r23', value: { ...repos[23]!, branch: 'closed' } },
         ]),
       )

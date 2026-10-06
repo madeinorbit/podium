@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
@@ -555,9 +556,9 @@ it('keeps the first source alias owner and hands it to the next owner on evictio
   })
   pool.apply({ type: 'replace', rows: [row('z'), row('a')] })
   try {
-    expect(pool.references.id('#8')).toBe('a')
+    expect(referenceView(pool).id('#8')).toBe('a')
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'a', value: undefined }] })
-    expect(pool.references.id('#8')).toBe('z')
+    expect(referenceView(pool).id('#8')).toBe('z')
   } finally {
     pool.dispose()
   }

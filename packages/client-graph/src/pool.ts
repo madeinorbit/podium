@@ -1,11 +1,10 @@
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
-import { sessionPaneView } from './session-pane'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
   type SetupSession,
 } from './settings-schema'
 import { attachSettingsSource, type SettingsOwner } from './settings-source'
-import { readSetupSession, settingsHasFirstTask, settingsView } from './settings-views'
+import { readSetupSession } from './settings-views'
 import {
   mergePoolSummaries,
   type PoolSourceRows,
@@ -82,8 +81,7 @@ import {
   type HeaderEntity,
   isHeaderEntity,
 } from './header-schema'
-import { headerView } from './header-views'
-import { referenceView, referenceViewIfPresent } from './issue-reference'
+import { referenceViewIfPresent } from './issue-reference'
 import {
   type EntityModel,
   type IssueModel,
@@ -120,7 +118,6 @@ import {
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
-import { mobileWorkView } from './worklist/mobile'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import { SeatVerdicts } from './worklist/seat-verdicts'
 import { sidebarView } from './worklist/sidebar'
@@ -234,22 +231,14 @@ export interface LazyMembers {
 export class MobxPool {
   /** Failure counters and replacement recovery status for this principal. */
   readonly diagnostics: FeedDiagnostics
-  /** Temporary compatibility accessors while consumers move to screen modules. */
-  get sidebar() { return sidebarView(this) }
-  get mobileWork() { return mobileWorkView(this) }
-  get sidebarRosters() { return sidebarRosterView(this) }
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
   readonly sources = new PoolSources()
-  get sessionPanes() { return sessionPaneView(this) }
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
   private readonly sourcePositionVersion: IObservableValue<number> | undefined
-  get settingsViews() { return settingsView(this) }
   /** The source index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
-  get header() { return headerEntities(this) }
-  get headerViews() { return headerView(this) }
   readonly tables: PoolTables
   readonly queries: ReaderQueries
   readonly relations: RelationReader
@@ -272,10 +261,6 @@ export class MobxPool {
   readonly rollupInputs: RollupInputs
   /** The visible collection and its order. */
   readonly worklist: VisibleCollection
-  /** The groups and closed folds over that order. */
-  get groups() { return worklistGroups(this) }
-  /** `SliceLocals.selectedIssueWasFolded` (the R-GROUP 5 latch). */
-  get foldLatch(): IObservableValue<boolean> { return this.groups.foldLatch }
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
   /**
@@ -312,10 +297,6 @@ export class MobxPool {
   private readonly joinedRows = new WeakMap<object, object>()
   private companionMachineRows = observable.map<string, Record<string, unknown>>()
   private disposed = false
-
-  /** A reference borrows the source's keyed identity answer and one named
-   * model. Constructing this facade retains no resident-table observers. */
-  get references() { return referenceView(this) }
 
   requestReference(ref: string): void {
     if (!this.disposed) this.residency?.requestReference(ref)
@@ -541,7 +522,7 @@ export class MobxPool {
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
       issue: (id) => this.issueObject(id),
-      fileGroups: (id, filing) => this.groups.file(id, filing),
+      fileGroups: (id, filing) => worklistGroups(this).file(id, filing),
     })
     worklistGroups(this, locals.selectedIssueWasFolded === true)
     // Every issue in memory is a filing candidate: taken when its row enters
@@ -606,7 +587,7 @@ export class MobxPool {
     absent: AbsentRead = 'load',
   ): Loaded<object> {
     if (entity === 'setupSession') return readSetupSession(this, id)
-    if (isHeaderEntity(entity)) return this.header.get(entity, id)
+    if (isHeaderEntity(entity)) return headerEntities(this).get(entity, id)
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
     const core = entity as EntityName
     if (core === 'repo') {
@@ -654,11 +635,6 @@ export class MobxPool {
     return server
   }
 
-  /** Whether the feed carries any issue with no `deletedAt`, archived and
-   * draft rows included: the cold index's count (POD-5407), set at each
-   * publication. Getter cost is independent of both hot and cold history. */
-  get hasFirstTask(): Loaded<boolean> { return settingsHasFirstTask(this) }
-
   get undeletedIssueCount(): number { return this.issueCount.get() }
 
   /** Source ordering is tracked independently from the named row payload. */
@@ -682,7 +658,7 @@ export class MobxPool {
   }
 
   rosterCandidates(path: string): Iterable<string> {
-    return this.sidebarRosters.candidates(path)
+    return sidebarRosterView(this).candidates(path)
   }
 
   /**
@@ -806,7 +782,7 @@ export class MobxPool {
       if (!companion) return record
       return { ...record, value: { ...(record.value as Record<string, unknown>), ...companion } }
     })
-    this.header.apply(merged as never)
+    headerEntities(this).apply(merged as never)
   }
 
   /**
@@ -907,7 +883,7 @@ export class MobxPool {
     return runInAction(() => {
       for (const [ref, id] of identities) referenceViewIfPresent(this)?.resolved(ref, id)
       const rows = residency.install(this.target, batch, out)
-      this.sidebarRosters.flush()
+      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       return rows
     })
@@ -949,14 +925,14 @@ export class MobxPool {
       // order converges.
       const mergedMachineRows = machineRows.map((record) => {
         if (record.value === undefined || typeof record.value !== 'object') return record
-        const live = this.header.get('machine', record.id)
+        const live = headerEntities(this).get('machine', record.id)
         if (!live || typeof live !== 'object') return record
         return {
           ...record,
           value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
         }
       })
-      if (mergedMachineRows.length) this.header.apply(mergedMachineRows as never)
+      if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
@@ -1000,7 +976,7 @@ export class MobxPool {
       // as the members group does (hot or cold).
       for (const record of event.type === 'replace' ? [] : event.rows) {
         if (record.kind === 'session') {
-          this.sidebarRosters.queueSession(record.id)
+          sidebarRosterView(this).queueSession(record.id)
           this.seatVerdicts.queueSession(record.id)
         }
         if (record.kind === 'issue') {
@@ -1009,7 +985,7 @@ export class MobxPool {
             referenceViewIfPresent(this)?.arrived(record.value as SliceIssue)
         }
       }
-      this.sidebarRosters.flush()
+      sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       this.queries.publish(event)
     })
@@ -1041,16 +1017,16 @@ export class MobxPool {
     if (!selection && !latch && !clock) return
     runInAction(() => {
       if (selection && locals.selectedIssueWasFolded === undefined) {
-        this.foldLatch.set(
+        worklistGroups(this).foldLatch.set(
           locals.selectedIssueId !== null &&
-            this.groups.placementOf(locals.selectedIssueId)?.closed === true,
+            worklistGroups(this).placementOf(locals.selectedIssueId)?.closed === true,
         )
       }
       if (selection) this.select(locals.selectedIssueId)
-      if (latch) this.foldLatch.set(locals.selectedIssueWasFolded === true)
+      if (latch) worklistGroups(this).foldLatch.set(locals.selectedIssueWasFolded === true)
       if (clock) {
         this.clock.advance(locals.coarseNow)
-        this.sidebarRosters.advanceClock(locals.coarseNow)
+        sidebarRosterView(this).advanceClock(locals.coarseNow)
         this.seatVerdicts.advanceClock(locals.coarseNow)
       }
     })

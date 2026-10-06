@@ -1,3 +1,5 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { headerView } from '@podium/client-graph/header-views'
 import type { IssueViewModel } from '@podium/client-core/replica'
 /** Pool-only regressions for the final green mobile slice controls.
  * The literal counts, titles, paths, shared clock and machine refusals are
@@ -94,11 +96,11 @@ function WorklistProbe() {
 }
 
 function readRows(pool: MobxPool) {
-  return pool.mobileWork
+  return mobileWorkView(pool)
     .sections()
     .sections.flatMap((section) =>
       section.data.flatMap((ref) => {
-        const row = pool.mobileWork.row(ref)
+        const row = mobileWorkView(pool).row(ref)
         return row && typeof row !== 'symbol' ? [row.label] : []
       }),
     )
@@ -210,5 +212,5 @@ it('updates pool host metrics without waking stable action owners', async () => 
 })
 
 function readMetrics(pool: MobxPool) {
-  return pool.headerViews.metrics()
+  return headerView(pool).metrics()
 }

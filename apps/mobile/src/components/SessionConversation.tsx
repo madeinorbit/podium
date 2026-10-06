@@ -1,3 +1,4 @@
+import { sessionPaneView } from '@podium/client-graph/session-pane'
 import {
   type Conversation,
   PHONE_WARM_CONVERSATIONS,
@@ -205,7 +206,7 @@ export function SessionConversation(
     (drafts) => ({
       sessionId,
       drafts,
-      readSession: () => pool?.sessionPanes.session(sessionId),
+      readSession: () => (pool ? sessionPaneView(pool).session(sessionId) : undefined),
       hub: owner.hub,
       connection: hubConnection(owner.hub),
       scheduler: {
@@ -292,7 +293,7 @@ export function SessionConversation(
             .then((answer) => answer.records),
         deliver: async (turn) => {
           try {
-            const session = pool?.sessionPanes.session(sessionId)
+            const session = (pool ? sessionPaneView(pool).session(sessionId) : undefined)
             const composer = composerState({
               session: session ?? props.session,
               headless: false,

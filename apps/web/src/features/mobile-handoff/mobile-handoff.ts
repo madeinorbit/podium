@@ -1,3 +1,4 @@
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import { workspaceFetch } from '@/lib/workspace-request'
 
 /**
@@ -174,7 +175,7 @@ export function useFocusedHandoffSessionId(): string | null {
   return useWorklistPoolProjection(read, null)
 }
 
-const readHasFirstTask = (pool: MobxPool): boolean => pool.hasFirstTask === true
+const readHasFirstTask = (pool: MobxPool): boolean => settingsHasFirstTask(pool) === true
 
 export function useHasFirstTask(): boolean {
   return useWorklistPoolProjection(readHasFirstTask, false)

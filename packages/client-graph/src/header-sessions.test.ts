@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
 import {
@@ -76,7 +78,7 @@ function fixture(coldCount = 0) {
   expect(pool.coldIndex().count('session') - pool.tables.session.size).toBe(coldCount)
   // The old aggregate uses the header source's resident-only machine edges.
   const stopEdges = observe(pool.tables.session, (change) =>
-    pool.header.change(
+    headerEntities(pool).change(
       'session',
       change.name,
       change.type === 'delete'
@@ -86,7 +88,7 @@ function fixture(coldCount = 0) {
   )
   runInAction(() => {
     for (const [id, value] of rows)
-      if (pool.tables.session.has(id)) pool.header.change('session', id, value)
+      if (pool.tables.session.has(id)) headerEntities(pool).change('session', id, value)
   })
   // POD-5432: a pending change arrives as the row the transaction log painted
   // (the server row in `rows` stays), and its rollback as the server row.
@@ -147,7 +149,7 @@ describe('incremental header sessions', () => {
     expect(f.pool.queries.ids({ kind: 'headerSessions' })).toContain('cold-0')
     expect(f.pool.tables.session.has('cold-0')).toBe(false)
     let references: (string | undefined)[] = []
-    const stop = autorun(() => { references = f.pool.headerViews.working().map(value => value.displayRef) })
+    const stop = autorun(() => { references = headerView(f.pool).working().map(value => value.displayRef) })
     try {
       expect(references).toEqual(['HEAD-1-A'])
       f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: REF_REPO,
@@ -163,7 +165,7 @@ describe('incremental header sessions', () => {
     for (const scale of [1, 4] as const) {
       const f = fixture(128 * scale)
       for (const id of f.rows.keys()) f.change(id, { status: 'live', agentState: state('working') })
-      f.pool.header.apply([
+      headerEntities(f.pool).apply([
         {
           kind: 'history',
           id: 'fleet',
@@ -180,15 +182,15 @@ describe('incremental header sessions', () => {
       ])
       // Establish header demand outside the measurement. A count reads
       // resident flags and cold deadline totals, never the roster values.
-      const warm = autorun(() => { f.pool.headerViews.workingCount() })
-      expect(f.pool.headerViews.workingCount()).toBe(32 + 128 * scale)
+      const warm = autorun(() => { headerView(f.pool).workingCount() })
+      expect(headerView(f.pool).workingCount()).toBe(32 + 128 * scale)
       const roster = vi.spyOn(HeaderSessions.prototype, 'working')
       let count = 0,
         paints = 0,
         stop = () => {}
       const read = () => {
-        count = f.pool.headerViews.workingCount()
-        expect(f.pool.headerViews.history()?.buckets.at(-1)?.count).toBe(count)
+        count = headerView(f.pool).workingCount()
+        expect(headerView(f.pool).history()?.buckets.at(-1)?.count).toBe(count)
         paints++
       }
       const measure = (name: string, action: () => void) =>
@@ -198,8 +200,8 @@ describe('incremental header sessions', () => {
           stop = autorun(read)
         })
         const repeat = await measure('repeat header count', () => {
-          f.pool.headerViews.workingCount()
-          f.pool.headerViews.history()
+          headerView(f.pool).workingCount()
+          headerView(f.pool).history()
         })
         const beforeRename = paints
         const renamed = await measure('working title changed', () =>
@@ -220,7 +222,7 @@ describe('incremental header sessions', () => {
         expect(paints).toBe(beforeRename + 1)
         expect(roster).not.toHaveBeenCalled()
         const control = await measure('whole roster count control', () => {
-          expect(f.pool.headerViews.working().length).toBe(30 + 128 * scale)
+          expect(headerView(f.pool).working().length).toBe(30 + 128 * scale)
         })
         expect(roster).toHaveBeenCalledOnce()
         expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
@@ -250,21 +252,21 @@ describe('incremental header sessions', () => {
   it('reads resident and cold contributions inside the applying action', () => {
     const f = fixture(1)
     const stop = autorun(() => {
-      f.pool.headerViews.working()
-      f.pool.headerViews.workingCount()
-      f.pool.headerViews.aggregate(HOSTS[0])
+      headerView(f.pool).working()
+      headerView(f.pool).workingCount()
+      headerView(f.pool).aggregate(HOSTS[0])
     })
     try {
       runInAction(() => {
         f.change('resident-0', { agentState: state('working') })
-        expect(f.pool.headerViews.workingCount()).toBe(1)
-        expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['resident-0'])
-        expect(f.pool.headerViews.aggregate(HOSTS[0]).phases.working).toBe(1)
+        expect(headerView(f.pool).workingCount()).toBe(1)
+        expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['resident-0'])
+        expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(1)
         f.change('cold-0', { status: 'live', agentState: state('working') })
         expect(f.pool.tables.session.has('cold-0')).toBe(false)
-        expect(f.pool.headerViews.workingCount()).toBe(2)
-        expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['cold-0', 'resident-0'])
-        expect(f.pool.headerViews.aggregate(HOSTS[0]).phases.working).toBe(2)
+        expect(headerView(f.pool).workingCount()).toBe(2)
+        expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['cold-0', 'resident-0'])
+        expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(2)
       })
     } finally { stop(); f.dispose() }
   })
@@ -274,10 +276,10 @@ describe('incremental header sessions', () => {
     const dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
     const cold = vi.spyOn(HeaderSessions.prototype as unknown as { cold(id: string): void }, 'cold')
     try {
-      expect(f.pool.headerViews.workingCount()).toBe(0)
+      expect(headerView(f.pool).workingCount()).toBe(0)
       expect(dispose).toHaveBeenCalledTimes(1)
-      const first = autorun(() => { f.pool.headerViews.workingCount() })
-      const second = autorun(() => { f.pool.headerViews.aggregate(HOSTS[0]) })
+      const first = autorun(() => { headerView(f.pool).workingCount() })
+      const second = autorun(() => { headerView(f.pool).aggregate(HOSTS[0]) })
       first()
       expect(dispose).toHaveBeenCalledTimes(1)
       second()
@@ -287,7 +289,7 @@ describe('incremental header sessions', () => {
       f.change('resident-0', { agentState: state('working') })
       f.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + 1000 }, new Set(['coarseNow']))
       expect(cold).not.toHaveBeenCalled()
-      const stop = autorun(() => { expect(f.pool.headerViews.workingCount()).toBe(2) })
+      const stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(2) })
       stop()
       expect(dispose).toHaveBeenCalledTimes(3)
     } finally { cold.mockRestore(); dispose.mockRestore(); f.dispose() }
@@ -298,7 +300,7 @@ describe('incremental header sessions', () => {
     f.change('cold-0', { status: 'live', agentState: state('working') })
     let working: ReturnType<typeof f.pool.headerViews.working> = []
     const stop = autorun(() => {
-      working = f.pool.headerViews.working()
+      working = headerView(f.pool).working()
     })
     try {
       f.paint('cold-0', { title: 'Pending title', name: 'Pending name' })
@@ -328,7 +330,7 @@ describe('incremental header sessions', () => {
     const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
     let working: string[] = []
     const stop = autorun(() => {
-      working = f.pool.headerViews.working().map((row) => row.sessionId)
+      working = headerView(f.pool).working().map((row) => row.sessionId)
     })
     try {
       expect(working).toEqual([])
@@ -350,7 +352,7 @@ describe('incremental header sessions', () => {
     const f = fixture(coldCount)
     let working: string[] = []
     const stop = autorun(() => {
-      working = f.pool.headerViews.working().map((row) => row.sessionId)
+      working = headerView(f.pool).working().map((row) => row.sessionId)
     })
     const count = visits(f.pool)
     const check = (id: string, change: () => void) => {
@@ -391,8 +393,8 @@ describe('incremental header sessions', () => {
     let first = EMPTY_HOST_AGGREGATE,
       second = EMPTY_HOST_AGGREGATE
     const stop = autorun(() => {
-      first = f.pool.headerViews.aggregate(HOSTS[0])
-      second = f.pool.headerViews.aggregate(HOSTS[1])
+      first = headerView(f.pool).aggregate(HOSTS[0])
+      second = headerView(f.pool).aggregate(HOSTS[1])
     })
     const count = visits(f.pool)
     const check = (id: string, change: () => void) => {
@@ -431,15 +433,15 @@ describe('incremental header sessions', () => {
   it('preserves legacy values and canonical roster order through status, phase, archive, machine, hydration, removal and replacement', () => {
     const f = fixture(2)
     const stop = autorun(() => {
-      f.pool.headerViews.working()
-      for (const id of HOSTS) f.pool.headerViews.aggregate(id)
+      headerView(f.pool).working()
+      for (const id of HOSTS) headerView(f.pool).aggregate(id)
     })
     const parity = () => {
       const rows = [...f.rows.values()]
       const expected = rows
         .filter((row) => isAgentConfirmedComputing(row, f.pool.clock.current))
         .sort((a, b) => (a.sessionId < b.sessionId ? -1 : 1))
-      expect(f.pool.headerViews.working()).toEqual(
+      expect(headerView(f.pool).working()).toEqual(
         expected.map(({ sessionId, title, name, displayRef, agentKind }) => ({
           sessionId,
           title,
@@ -449,8 +451,8 @@ describe('incremental header sessions', () => {
         })),
       )
       const hosts = createHostSessionAggregatesSelector()(rows)
-      for (const id of HOSTS) expect(f.pool.headerViews.aggregate(id)).toEqual(hosts.forMachine(id))
-      expect(f.pool.headerViews.aggregate(undefined)).toEqual(EMPTY_HOST_AGGREGATE)
+      for (const id of HOSTS) expect(headerView(f.pool).aggregate(id)).toEqual(hosts.forMachine(id))
+      expect(headerView(f.pool).aggregate(undefined)).toEqual(EMPTY_HOST_AGGREGATE)
     }
     try {
       parity()
@@ -499,7 +501,7 @@ describe('incremental header sessions', () => {
       f.rows.set('a', session('a', { agentState: state('compacting') }))
       f.replace()
       parity()
-      expect(f.pool.headerViews.working().map((row) => row.sessionId)).toEqual(['a', 'z'])
+      expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['a', 'z'])
     } finally {
       stop()
       f.dispose()
@@ -516,7 +518,7 @@ describe('incremental header sessions', () => {
     })
     let ids: string[] = []
     const stop = autorun(() => {
-      ids = f.pool.headerViews.working().map((row) => row.sessionId)
+      ids = headerView(f.pool).working().map((row) => row.sessionId)
     })
     const count = visits(f.pool)
     const tick = (ms: number) =>
@@ -548,8 +550,8 @@ describe('incremental header sessions', () => {
     let ids: string[] = [],
       count = 0
     const stop = autorun(() => {
-      ids = f.pool.headerViews.working().map((row) => row.sessionId)
-      count = f.pool.headerViews.aggregate(HOSTS[0]).count
+      ids = headerView(f.pool).working().map((row) => row.sessionId)
+      count = headerView(f.pool).aggregate(HOSTS[0]).count
     })
     try {
       f.paint('resident-0', { agentState: state('working') })
@@ -560,7 +562,7 @@ describe('incremental header sessions', () => {
       f.rebase('resident-0')
       expect(count).toBe(32)
       stop()
-      f.pool.headerViews.clear()
+      headerView(f.pool).clear()
       const reads = visits(f.pool)
       try {
         f.paint('resident-0', { archived: true })
@@ -572,7 +574,7 @@ describe('incremental header sessions', () => {
       } finally {
         reads.restore()
       }
-      expect(f.pool.headerViews.aggregate(HOSTS[0]).count).toBe(31)
+      expect(headerView(f.pool).aggregate(HOSTS[0]).count).toBe(31)
     } finally {
       stop()
       f.dispose()

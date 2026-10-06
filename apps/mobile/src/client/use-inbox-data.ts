@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import type { IssueReferenceModel } from '@podium/client-core/values'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import type { MobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
@@ -35,8 +36,8 @@ const EMPTY_LINK = {
 type Pool = Parameters<typeof mobileInboxViews>[0]
 const readInbox = (pool: Pool) => mobileInboxViews(pool)?.inbox() ?? EMPTY_INBOX
 const readQueue = (pool: Pool) => mobileInboxViews(pool)?.screening() ?? EMPTY_QUEUE
-const readMachines = (pool: Pool) => pool.headerViews.machines()
-const readHosts = (pool: Pool) => pool.headerViews.metrics()
+const readMachines = (pool: Pool) => headerView(pool).machines()
+const readHosts = (pool: Pool) => headerView(pool).metrics()
 
 /** Readers stay mounted while the existing pool attaches. */
 export function useInboxData(): InboxData {

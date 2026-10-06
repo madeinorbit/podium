@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire, MessageRecordWire } from '@podium/model'
@@ -150,7 +151,7 @@ export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
 export function chatRepositoryKey(pool: MobxPool): string {
   // This opaque key only drives a path-change effect. The header owner
   // maintains the revision from changed path contributions at ingestion.
-  const revision = pool.header.repositoryPathsRevision()
+  const revision = headerEntities(pool).repositoryPathsRevision()
   return revision === 0 ? '' : String(revision)
 }
 

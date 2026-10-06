@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -35,7 +37,7 @@ it('bounds the actual offline header window across online fleet and expired hist
     const expired = Array.from({ length: 128 * scale }, (_, at) =>
       machine(`expired-${at}`, false, NOW - 2 * WEEK),
     )
-    pool.header.apply([
+    headerEntities(pool).apply([
       ...online.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
       ...expired.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
       ...online.map((value) => ({
@@ -48,14 +50,14 @@ it('bounds the actual offline header window across online fleet and expired hist
     let answer: HeaderRows['machine'][] = [],
       paints = 0,
       stop = () => {}
-    const ids = vi.spyOn(pool.headerViews, 'ids')
+    const ids = vi.spyOn(headerView(pool), 'ids')
     const measure = (name: string, action: () => void) =>
       measureWork(async () => insideReader(name, () => runInAction(action)), { pool })
-    const apply = (records: HeaderRecord[]) => pool.header.apply(records)
+    const apply = (records: HeaderRecord[]) => headerEntities(pool).apply(records)
     try {
       const first = await measure('first offline header window', () => {
         stop = autorun(() => {
-          answer = pool.headerViews.offlineMachines()
+          answer = headerView(pool).offlineMachines()
           paints++
         })
       })
@@ -166,11 +168,11 @@ it('bounds the actual offline header window across online fleet and expired hist
       expect(closed.work.rows).toBe(0)
       const control = await measure('former whole-fleet offline lookup', () => {
         const sampledIds = new Set(
-          pool.headerViews
+          headerView(pool)
             .ids('hostMetric')
-            .map((id) => pool.header.one('hostMetric', id, 'machine')),
+            .map((id) => headerEntities(pool).one('hostMetric', id, 'machine')),
         )
-        pool.headerViews.ids('machine').flatMap((id) => {
+        headerView(pool).ids('machine').flatMap((id) => {
           const value = pool.row('machine', id) as HeaderRows['machine'] | undefined
           if (
             !value ||
@@ -242,30 +244,30 @@ it('preserves all eligibility rules, source order, metric reassignment and repla
   ]
   let answer: HeaderRows['machine'][] = []
   const stop = autorun(() => {
-    answer = pool.headerViews.offlineMachines()
+    answer = headerView(pool).offlineMachines()
   })
   try {
-    pool.header.apply(
+    headerEntities(pool).apply(
       [base, b, ...excluded].map((value) => ({ kind: 'machine', id: value.id, value })),
     )
     expect(answer).toEqual([base, b])
-    runInAction(() => pool.header.order('machine', ['missing', 'b', 'b']))
+    runInAction(() => headerEntities(pool).order('machine', ['missing', 'b', 'b']))
     expect(answer).toEqual([b, base])
-    runInAction(() => pool.header.order('machine', []))
+    runInAction(() => headerEntities(pool).order('machine', []))
     expect(answer).toEqual([base, b])
-    pool.header.apply([{ kind: 'hostMetric', id: 'sample', value: metric('a') }])
+    headerEntities(pool).apply([{ kind: 'hostMetric', id: 'sample', value: metric('a') }])
     expect(answer).toEqual([b])
-    pool.header.apply([{ kind: 'hostMetric', id: 'sample', value: metric('b') }])
+    headerEntities(pool).apply([{ kind: 'hostMetric', id: 'sample', value: metric('b') }])
     expect(answer).toEqual([base])
-    pool.header.apply([{ kind: 'machine', id: 'a', value: undefined }])
-    pool.header.apply([
+    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: undefined }])
+    headerEntities(pool).apply([
       { kind: 'machine', id: 'a', value: base },
       { kind: 'hostMetric', id: 'sample', value: undefined },
     ])
     expect(answer).toEqual([b, base])
-    runInAction(() => pool.header.clear())
+    runInAction(() => headerEntities(pool).clear())
     expect(answer).toEqual([])
-    pool.header.apply([{ kind: 'machine', id: 'a', value: base }])
+    headerEntities(pool).apply([{ kind: 'machine', id: 'a', value: base }])
     expect(answer).toEqual([base])
   } finally {
     stop()

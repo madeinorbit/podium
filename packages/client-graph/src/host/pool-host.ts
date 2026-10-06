@@ -103,7 +103,7 @@ export function createPoolHost({
       tables: pool.tables,
       relations: pool.graph,
       worklist: pool.worklist,
-      groups: pool.groups,
+      groups: pool.sources.peekView('worklist.groups')!,
       clock: pool.clock,
       residency: pool.residency,
     }

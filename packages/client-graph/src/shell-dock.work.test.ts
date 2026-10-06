@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId, asShipOrderId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -107,11 +108,11 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
         gitIssue: { id: f.issues[1]!.id },
         mailIssueId: f.issues[1]!.id,
       })
-      const order = await measure(() => f.pool.header.apply([{
+      const order = await measure(() => headerEntities(f.pool).apply([{
         kind: 'shipOrder', id: f.order.id, value: { ...f.order, humanState: 'waiting' },
       }]))
       expect(views.shipping()).toEqual({ unfinishedCount: f.count + 3, decisionCount: f.count })
-      const repo = await measure(() => f.pool.header.apply([{
+      const repo = await measure(() => headerEntities(f.pool).apply([{
         kind: 'repository', id: JSON.stringify(['shell-machine', '/synthetic/project']),
         value: { ...f.state().repos[0]!, repoId: 'other-scope' as HeaderRows['repository']['repoId'] },
       }]))
@@ -124,7 +125,7 @@ it('bounds dock and shipping reader work at 1x/4x candidate, worktree and order 
       expect(views.dock()).toHaveProperty('mailIssueId', 'containing-0')
       const before = output.length
       row.mockClear()
-      const unrelated = await measure(() => f.pool.header.apply([{
+      const unrelated = await measure(() => headerEntities(f.pool).apply([{
         kind: 'shipOrder', id: f.order.id, value: { ...f.order, humanState: 'shipped' },
       }]))
       expect(output).toHaveLength(before)

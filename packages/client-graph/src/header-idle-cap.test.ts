@@ -1,3 +1,5 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import type { MachineId } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
@@ -19,7 +21,7 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
           idleCapUnmet: index === 0 ? 2 : 0,
         }) as HeaderRows['hostMetric'],
     )
-    pool.header.apply(
+    headerEntities(pool).apply(
       metrics.map((value, index) => ({ kind: 'hostMetric', id: `m${index}`, value })),
     )
     const measure = (action: () => void) =>
@@ -32,52 +34,52 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
     try {
       const first = await measure(() => {
         stop = autorun(() => {
-          value = pool.headerViews.idleCapUnmetCount()
+          value = headerView(pool).idleCapUnmetCount()
           paints++
         })
       })
       expect(value).toBe(2)
       const repeat = await measure(() => {
-        expect(pool.headerViews.idleCapUnmetCount()).toBe(2)
+        expect(headerView(pool).idleCapUnmetCount()).toBe(2)
       })
       const before = paints
       const unchanged = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'hostMetric', id: 'm2', value: { ...metrics[2]!, hostname: 'Unrelated sample' } },
         ]),
       )
       expect(paints).toBe(before)
       const changed = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: 4 } },
         ]),
       )
       expect(value).toBe(4)
       expect(paints).toBe(before + 1)
       const removed = await measure(() =>
-        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: undefined }]),
+        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: undefined }]),
       )
       expect(value).toBe(0)
       const returned = await measure(() =>
-        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
+        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
       )
       expect(value).toBe(2)
       const noCount = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'hostMetric', id: 'm0', value: { ...metrics[0]!, idleCapUnmet: undefined } },
         ]),
       )
       expect(value).toBe(0)
       stop()
       const closed = await measure(() =>
-        pool.header.apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
+        headerEntities(pool).apply([{ kind: 'hostMetric', id: 'm0', value: metrics[0] }]),
       )
       const reopen = await measure(() => {
-        expect(pool.headerViews.idleCapUnmetCount()).toBe(2)
+        expect(headerView(pool).idleCapUnmetCount()).toBe(2)
       })
       const control = await measure(() => {
         expect(
-          pool.headerViews.metrics().reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0),
+          headerView(pool).metrics().reduce((sum, host) => sum + (host.idleCapUnmet ?? 0), 0),
         ).toBe(2)
       })
       expect(control.work.rows).toBe(128 * scale)
@@ -94,8 +96,8 @@ it('maintains the fleet idle cap scalar with flat first-use and per-host update 
       }
       for (const result of Object.values(actions)) expect(result.work.rows).toBe(0)
       samples.push({ scale, actions, control })
-      runInAction(() => pool.header.clear())
-      expect(pool.headerViews.idleCapUnmetCount()).toBe(0)
+      runInAction(() => headerEntities(pool).clear())
+      expect(headerView(pool).idleCapUnmetCount()).toBe(0)
     } finally {
       stop()
       pool.dispose()
@@ -111,25 +113,25 @@ it('keeps replacement, missing samples, repeated IDs and atomic contribution mov
   const metric = (count?: number) =>
     ({ hostname: 'host', idleCapUnmet: count }) as HeaderRows['hostMetric']
   try {
-    pool.header.apply([
+    headerEntities(pool).apply([
       { kind: 'hostMetric', id: 'a', value: metric(2) },
       { kind: 'hostMetric', id: 'b', value: metric(3) },
       { kind: 'hostMetric', id: 'no-count', value: metric() },
     ])
-    expect(pool.headerViews.idleCapUnmetCount()).toBe(5)
+    expect(headerView(pool).idleCapUnmetCount()).toBe(5)
     const values: number[] = []
-    const stop = autorun(() => values.push(pool.headerViews.idleCapUnmetCount()))
+    const stop = autorun(() => values.push(headerView(pool).idleCapUnmetCount()))
     try {
-      pool.header.apply([
+      headerEntities(pool).apply([
         { kind: 'hostMetric', id: 'a', value: undefined },
         { kind: 'hostMetric', id: 'new-a', value: metric(2) },
         { kind: 'hostMetric', id: 'b', value: metric(1) },
         { kind: 'hostMetric', id: 'b', value: metric(4) },
       ])
       expect(values).toEqual([5, 6])
-      pool.header.apply([{ kind: 'hostMetric', id: 'missing', value: undefined }])
+      headerEntities(pool).apply([{ kind: 'hostMetric', id: 'missing', value: undefined }])
       expect(values).toEqual([5, 6])
-      runInAction(() => pool.header.clear())
+      runInAction(() => headerEntities(pool).clear())
       expect(values).toEqual([5, 6, 0])
     } finally {
       stop()

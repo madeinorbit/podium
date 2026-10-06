@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/store'
 import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/values'
@@ -30,7 +31,7 @@ export function PoolSidebarRail(): JSX.Element | null {
 
 const PoolRail = observer(function PoolRail({ pool }: { pool: MobxPool }): JSX.Element {
   const layout = usePoolLayoutState()
-  const sections = pool.sidebar.sections(layout)
+  const sections = sidebarView(pool).sections(layout)
   const actions = usePoolUnifiedWork(pool)
   const { startNewTask } = useNewTask({ bindChord: true })
   const setPaletteOpen = useRuntimeSelector((s) => s.setPaletteOpen)
@@ -175,8 +176,8 @@ const PoolRailTile = observer(function PoolRailTile({
         paint: unknown
       }>(
         () => {
-          const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
-          const tree = kind === 'worktree' ? pool.sidebar.worktree(id) : undefined
+          const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
+          const tree = kind === 'worktree' ? sidebarView(pool).worktree(id) : undefined
           let count = 0
           if (value !== undefined && value !== LOADING) {
             const model = pool.issue(id)!

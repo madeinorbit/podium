@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { recordChipWork } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -26,7 +27,7 @@ function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
       watch(ref, paint) {
         const view = createPoolProjection(pool, (pool) => {
           recordChipWork(owner, 'reads')
-          return pool.references.read(ref)
+          return referenceView(pool).read(ref)
         })
         paintValue(view.getSnapshot())
         function paintValue(model: ReturnType<typeof view.getSnapshot>): void {

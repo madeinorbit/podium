@@ -1,3 +1,4 @@
+import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import { countIssueBoard } from '@podium/client-core/perf'
@@ -662,11 +663,11 @@ export function createIssueBoardSource(
       }
       return {
         issues, allIssues, sessions: [...seats.values()],
-        repos: pool.headerViews.ids('repository').flatMap(id => {
-          const row = pool.headerViews.row('repository', id)
+        repos: headerView(pool).ids('repository').flatMap(id => {
+          const row = headerView(pool).row('repository', id)
           return row ? [row] : []
         }),
-        machines: pool.headerViews.machines(),
+        machines: headerView(pool).machines(),
       }
     })
   }

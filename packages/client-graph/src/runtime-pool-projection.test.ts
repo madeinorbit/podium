@@ -1,3 +1,4 @@
+import { referenceView } from './issue-reference'
 import { compareStructural, computed, getObserverTree } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -198,7 +199,7 @@ it('reads a lazy addressed reference once when subscribing before the first snap
     { kind: 'worktree', id: '/r', value: { path: '/r', repoId: 'r', prefix: 'POD', repoPath: '/r', repoName: 'Fixture' } as never },
     { kind: 'issue', id: 'one', value: issue as never },
   ] })
-  const read = vi.fn((current: MobxPool) => current.references.read('POD-1'))
+  const read = vi.fn((current: MobxPool) => referenceView(current).read('POD-1'))
   const view = createPoolProjection(f.pool, read)
   const wake = vi.fn()
   cleanups.push(view.subscribe(wake))

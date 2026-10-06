@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
@@ -226,8 +227,8 @@ beforeEach(() => {
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session', id: row.sessionId, value: row as never })),
   })
-  f.pool.header.apply(state.machines.map((row) => ({ kind: 'machine', id: row.id, value: row })))
-  f.pool.header.order(
+  headerEntities(f.pool).apply(state.machines.map((row) => ({ kind: 'machine', id: row.id, value: row })))
+  headerEntities(f.pool).order(
     'machine',
     state.machines.map((row) => row.id),
   )

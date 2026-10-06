@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
@@ -352,15 +353,15 @@ describe('keyed adapter inputs (POD-5433)', () => {
       // Synchronous on purpose: a new machine set also starts the runtime's
       // repo refresh, and the scenario's discovery answers with no machines.
       f.ctx.hub.emit('machines', machines)
-      const kept = f.pool.header.get('machine', second)
+      const kept = headerEntities(f.pool).get('machine', second)
       expect(kept).toBeDefined()
       f.ctx.hub.emit(
         'machines',
         machines.map((row, at) => (at === 0 ? { ...row, name: 'Renamed host' } : { ...row })),
       )
-      expect(f.pool.header.get('machine', first)).toMatchObject({ name: 'Renamed host' })
+      expect(headerEntities(f.pool).get('machine', first)).toMatchObject({ name: 'Renamed host' })
       // A fresh but equal row keeps its identity: no reader of it wakes.
-      expect(f.pool.header.get('machine', second)).toBe(kept)
+      expect(headerEntities(f.pool).get('machine', second)).toBe(kept)
     } finally {
       f.dispose()
     }

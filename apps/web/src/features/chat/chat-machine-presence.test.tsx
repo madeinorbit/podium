@@ -1,3 +1,5 @@
+import { headerView } from '@podium/client-graph/header-views'
+import { headerEntities } from '@podium/client-graph/header-entities'
 // @vitest-environment happy-dom
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -32,7 +34,7 @@ vi.mock('./use-chat-context', () => ({
   useChatSession: (id: string | undefined) => (id === f.session?.sessionId ? f.session : undefined),
   useChatSessionExitKind: () => undefined,
   useChatMachines: () => {
-    const read = useMemo(() => (pool: MobxPool) => pool.headerViews.machines(), [])
+    const read = useMemo(() => (pool: MobxPool) => headerView(pool).machines(), [])
     const view = useMemo(() => createPoolProjection(f.pool!, read), [read])
     return useSyncExternalStore(view.subscribe, view.getSnapshot)
   },
@@ -71,7 +73,7 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
           online: true,
         }) as MachineWire,
     )
-    pool.header.apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
+    headerEntities(pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
     const measure = (action: () => void) =>
       measureWork(
         async () => {
@@ -96,13 +98,13 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       expect(first.work.rows).toBe(1)
       expect(view!.result.current.presenceOfflineMachineName).toBeNull()
       const unrelated = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'machine', id: 'm1', value: { ...machines[1]!, online: false } },
         ]),
       )
       expect(unrelated.work.rows).toBe(0)
       const changed = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'machine', id: 'm0', value: { ...machines[0]!, online: false } },
         ]),
       )
@@ -111,7 +113,7 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       const hidden = await measure(() => view!.rerender({ active: false }))
       expect(hidden.work.rows).toBe(0)
       const closed = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'machine',
             id: 'm0',
@@ -131,7 +133,7 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       expect(view!.result.current.presenceOfflineMachineName).toBeNull()
       view!.unmount()
       const detached = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           {
             kind: 'machine',
             id: 'missing',

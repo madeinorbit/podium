@@ -1,3 +1,4 @@
+import { settingsView } from '@podium/client-graph/settings-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -182,17 +183,17 @@ describe('declared settings readers', () => {
       session('a-hot', 'claude-code'),
     ])
     expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
-    expect(pool.settingsViews.setup().defaultAgent).toBe('codex')
+    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
     expect(load).not.toHaveBeenCalled()
     expect(pool.row('setupSession', 'z-cold')).not.toHaveProperty('title')
     const next = { ...feed.get('z-cold')!, title: 'not a summary field' }
     feed.set('z-cold', next)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'z-cold', value: next }] })
-    expect(pool.settingsViews.setup().defaultAgent).toBe('codex')
+    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
     expect(pool.row('session', 'z-cold')).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledTimes(1)
-    expect(pool.settingsViews.setup().defaultAgent).toBe('codex')
+    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
   })
 
   it('compares catalog, tab, resume twins, usage, agent and demanded preferences with no differences', async () => {
@@ -215,8 +216,8 @@ describe('declared settings readers', () => {
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
     expect(result.positions).toBeGreaterThan(3)
     expect(f.load).not.toHaveBeenCalled()
-    expect(f.pool.settingsViews.sessionPresent('older')).toBe(false)
-    expect(f.pool.settingsViews.sessionPresent('newer')).toBe(true)
+    expect(settingsView(f.pool).sessionPresent('older')).toBe(false)
+    expect(settingsView(f.pool).sessionPresent('newer')).toBe(true)
     f.publish({ settingsTab: 'updates', repos: [], machines: [] })
     f.owner.ui.set('podium.sounds.enabled', 'true')
     await Promise.resolve()

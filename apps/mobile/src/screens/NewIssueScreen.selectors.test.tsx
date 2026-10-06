@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { readStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, StoreStatsProfiler } from '@podium/client-core/react'
@@ -85,10 +86,10 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
       rows: sessions.map((session) => ({ kind: 'session', id: session.sessionId, value: session })),
     })
     expect(fixture.pool.tables.session.size, 'historical sessions stay cold').toBe(0)
-    fixture.pool.header.apply(
+    headerEntities(fixture.pool).apply(
       repositories.map((value) => ({ kind: 'repository', id: value.path, value })),
     )
-    fixture.pool.header.order(
+    headerEntities(fixture.pool).order(
       'repository',
       repositories.map((value) => value.path),
     )
@@ -100,7 +101,7 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
           name: `Unrelated ${index}`,
         }) as MachineWire,
     )
-    fixture.pool.header.apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
+    headerEntities(fixture.pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
     fixture.sessions = sessions.map(
       (session) =>
         new Proxy(session, {
@@ -180,7 +181,7 @@ it('keeps new-task repository order and open, keystroke and machine-update work 
               target: { value: 'A task' },
             })
           } else {
-            fixture.pool!.header.apply([
+            headerEntities(fixture.pool!).apply([
               {
                 kind: 'machine',
                 id: machines[0]!.id,
@@ -226,8 +227,8 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
   const results = []
   {
     fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    fixture.pool.header.apply([{ kind: 'repository', id: '/before', value: repo('/before') }])
-    fixture.pool.header.order('repository', ['/before'])
+    headerEntities(fixture.pool).apply([{ kind: 'repository', id: '/before', value: repo('/before') }])
+    headerEntities(fixture.pool).order('repository', ['/before'])
     const owner = { start() {}, dispose() {}, destroy() {} }
     const trpc = { settings: { get: { query: async () => ({}) } } } as unknown as MobileTrpc
     const store = createSubscriptionStore(
@@ -274,8 +275,8 @@ it('isolates NewIssueScreen from unrelated publishes while still painting reposi
         { ...store.getSnapshot(), repos: [repo('/before'), repo('/after')] },
         new Set(['repos']),
       )
-      fixture.pool!.header.apply([{ kind: 'repository', id: '/after', value: repo('/after') }])
-      fixture.pool!.header.order('repository', ['/before', '/after'])
+      headerEntities(fixture.pool!).apply([{ kind: 'repository', id: '/after', value: repo('/after') }])
+      headerEntities(fixture.pool!).order('repository', ['/before', '/after'])
     })
     const relevant = readStoreStats().runtimes[0]!
     expect(view.getByRole('radio', { name: 'Repository after' })).toBeTruthy()

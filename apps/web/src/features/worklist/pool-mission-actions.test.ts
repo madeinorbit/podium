@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { configureDevelopmentChecks } from '@podium/mobx-helpers'
 import { configure } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -26,7 +27,7 @@ it('selects a spin-off pane through the cached mission with zero legacy mission 
     { kind: 'session', id: sender.sessionId, value: sender }, { kind: 'session', id: pane.sessionId, value: pane },
     { kind: 'session', id: unrelatedPane.sessionId, value: unrelatedPane },
   ] })
-  const row = vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<typeof pool.sidebar.row>, symbol>>)
+  const row = vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<ReturnType<typeof sidebarView>['row']>, symbol>>)
   const store = { paneA: null, fileTabs: [], batchGesture: (fn: () => void) => fn(),
     navigateWorkspace: vi.fn(() => false), markIssueRead: vi.fn(async () => {}) }
   const runtime = { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1]
@@ -71,7 +72,7 @@ it('keeps issue and session slice order for tied panes after relation buckets mo
     ] })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: older.sessionId, value: { ...older, issueId: second.id } }] })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: older.sessionId, value: older }] })
-    const row = vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<typeof pool.sidebar.row>, symbol>>)
+    const row = vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<ReturnType<typeof sidebarView>['row']>, symbol>>)
     try {
       const work = createPoolWorkActions(pool, runtime, vi.fn())
       work.selectIssue(root.id)
@@ -93,7 +94,7 @@ it('selects one mission without visiting unrelated resident keys at 1x/4x', asyn
         ...Array.from({ length: scale * 128 }, (_, i) => ({ kind: 'issue' as const, id: `foreign-${i}`, value: { ...root, id: `foreign-${i}`, seq: i + 2 } })),
         ...Array.from({ length: scale * 128 }, (_, i) => ({ kind: 'session' as const, id: `foreign-seat-${i}`, value: { ...pane, sessionId: `foreign-seat-${i}`, issueId: `foreign-${i}` } })),
       ] })
-      const row = vi.spyOn(pool.sidebar, 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<typeof pool.sidebar.row>, symbol>>)
+      const row = vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue: root, unsnoozed: false } as NonNullable<Exclude<ReturnType<ReturnType<typeof sidebarView>['row']>, symbol>>)
       const actions = createPoolWorkActions(pool, { access: store } as unknown as Parameters<typeof createPoolWorkActions>[1], vi.fn())
       actions.selectIssue(root.id)
       const issueKeys = vi.spyOn(pool.tables.issue, 'keys').mockImplementation(() => { throw new Error('whole resident issue keys') })

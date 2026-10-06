@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import type { MachineId, MachineWire } from '@podium/model/browser'
@@ -16,60 +17,60 @@ export function useHeaderActions() {
 }
 
 const readStatus = (pool: MobxPool) => ({
-  workingCount: pool.headerViews.workingCount(),
-  issue: pool.headerViews.selectedIssue(),
+  workingCount: headerView(pool).workingCount(),
+  issue: headerView(pool).selectedIssue(),
 })
 const EMPTY_STATUS = { workingCount: 0, issue: undefined }
 export function useHeaderStatus() {
   return useWorklistPoolProjection(readStatus, EMPTY_STATUS)
 }
 
-const readWorking = (pool: MobxPool) => pool.headerViews.working()
+const readWorking = (pool: MobxPool) => headerView(pool).working()
 const EMPTY_WORKING: ReturnType<typeof readWorking> = []
 export function usePoolWorkingSessions() {
   return useWorklistPoolProjection(readWorking, EMPTY_WORKING)
 }
 
-const readView = (pool: MobxPool) => pool.headerViews.row('window', 'window')?.view ?? 'workspace'
+const readView = (pool: MobxPool) => headerView(pool).row('window', 'window')?.view ?? 'workspace'
 export function useHeaderView() {
   return useWorklistPoolProjection(readView, 'workspace' as Store['view'])
 }
 
-const readMetrics = (pool: MobxPool) => pool.headerViews.metrics()
+const readMetrics = (pool: MobxPool) => headerView(pool).metrics()
 const EMPTY_METRICS: ReturnType<typeof readMetrics> = []
 export function usePoolHeaderMetrics() {
   return useWorklistPoolProjection(readMetrics, EMPTY_METRICS)
 }
-const readIdleCapUnmet = (pool: MobxPool) => pool.headerViews.idleCapUnmetCount()
+const readIdleCapUnmet = (pool: MobxPool) => headerView(pool).idleCapUnmetCount()
 export function usePoolIdleCapUnmetCount() {
   return useWorklistPoolProjection(readIdleCapUnmet, 0)
 }
-const readQuotas = (pool: MobxPool) => pool.headerViews.quotas()
+const readQuotas = (pool: MobxPool) => headerView(pool).quotas()
 const EMPTY_QUOTAS: ReturnType<typeof readQuotas> = []
 export function usePoolHeaderQuotas() {
   return useWorklistPoolProjection(readQuotas, EMPTY_QUOTAS)
 }
-const readConnection = (pool: MobxPool) => pool.headerViews.connection()
+const readConnection = (pool: MobxPool) => headerView(pool).connection()
 export function usePoolHeaderConnection() {
   return useWorklistPoolProjection(readConnection, undefined)
 }
-const readMachineIds = (pool: MobxPool) => pool.headerViews.ids('hostMetric')
+const readMachineIds = (pool: MobxPool) => headerView(pool).ids('hostMetric')
 const EMPTY_IDS: string[] = []
 export function usePoolMetricIds() {
   return useWorklistPoolProjection(readMachineIds, EMPTY_IDS)
 }
 export function usePoolMetric(id: string) {
-  const read = useMemo(() => (pool: MobxPool) => pool.headerViews.row('hostMetric', id), [id])
+  const read = useMemo(() => (pool: MobxPool) => headerView(pool).row('hostMetric', id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 export function usePoolPanelMetric(machineId: MachineId | undefined) {
   const read = useMemo(
-    () => (pool: MobxPool) => pool.headerViews.panelMetric(machineId),
+    () => (pool: MobxPool) => headerView(pool).panelMetric(machineId),
     [machineId],
   )
   return useWorklistPoolProjection(read, undefined)
 }
-const readMachines = (pool: MobxPool) => pool.headerViews.machines()
+const readMachines = (pool: MobxPool) => headerView(pool).machines()
 const EMPTY_MACHINES: ReturnType<typeof readMachines> = []
 export function usePoolMachines() {
   return useWorklistPoolProjection(readMachines, EMPTY_MACHINES)
@@ -83,7 +84,7 @@ export function usePoolMachine(id: string | undefined) {
   return useWorklistPoolProjection(read, undefined)
 }
 export function usePoolHostAggregate(id: MachineId | undefined) {
-  const read = useMemo(() => (pool: MobxPool) => pool.headerViews.aggregate(id), [id])
+  const read = useMemo(() => (pool: MobxPool) => headerView(pool).aggregate(id), [id])
   return useWorklistPoolProjection(read, {
     count: 0,
     idleSplit: { idle: 0, parkable: 0, protected: 0 },
@@ -92,7 +93,7 @@ export function usePoolHostAggregate(id: MachineId | undefined) {
 }
 export function usePoolReclaimCounts(afterDays: number) {
   const read = useMemo(
-    () => (pool: MobxPool) => pool.headerViews.reclaimCounts(afterDays),
+    () => (pool: MobxPool) => headerView(pool).reclaimCounts(afterDays),
     [afterDays],
   )
   return useWorklistPoolProjection(read, {})
@@ -108,7 +109,7 @@ export function usePoolSessionLabels(ids: readonly string[]) {
           .split('\n')
           .filter(Boolean)
           .map((id) => {
-            const value = pool.headerViews.session(id)
+            const value = headerView(pool).session(id)
             return [id, typeof value === 'object' && value ? value : undefined]
           }),
       ),
@@ -117,21 +118,21 @@ export function usePoolSessionLabels(ids: readonly string[]) {
   return useWorklistPoolProjection(read, {})
 }
 
-const readOffline = (pool: MobxPool) => pool.headerViews.offlineMachines()
+const readOffline = (pool: MobxPool) => headerView(pool).offlineMachines()
 export function usePoolOfflineMachines() {
   return useWorklistPoolProjection(readOffline, EMPTY_MACHINES)
 }
-const readOutbox = (pool: MobxPool) => pool.headerViews.row('window', 'window')?.outboxSize ?? 0
+const readOutbox = (pool: MobxPool) => headerView(pool).row('window', 'window')?.outboxSize ?? 0
 export function useHeaderOutboxSize() {
   return useWorklistPoolProjection(readOutbox, 0)
 }
 
-const readHistory = (pool: MobxPool) => pool.headerViews.history()
+const readHistory = (pool: MobxPool) => headerView(pool).history()
 export function usePoolConcurrencyHistory() {
   return useWorklistPoolProjection(readHistory, null)
 }
 const readLifecycle = (pool: MobxPool) => {
-  const settings = pool.headerViews.row('lifecycle', 'hosts')
+  const settings = headerView(pool).row('lifecycle', 'hosts')
   return settings ? { hibernation: settings.hibernation, worktreeGc: settings.worktreeGc } : null
 }
 export function usePoolLifecycleSettings() {

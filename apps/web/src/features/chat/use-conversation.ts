@@ -1,3 +1,4 @@
+import { sessionPaneView } from '@podium/client-graph/session-pane'
 import {
   Conversation, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
@@ -64,7 +65,7 @@ export class WebConversation extends Conversation {
       if (offline === false && previous === true) void this.transcript.refresh({ disclose: true }).catch(() => {})
     })
   }
-  get session(): SessionView | undefined { return this.pool.sessionPanes.session(this.sessionId) }
+  get session(): SessionView | undefined { return sessionPaneView(this.pool).session(this.sessionId) }
   get thread() { return this.mount.superThread ? loaded(this.pool.row('superThread', this.mount.superThread.threadId)) : undefined }
   get backend() {
     const model = this.backendPick.model ?? this.thread?.model ?? 'auto'
@@ -94,7 +95,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const store = runtime.access
   const { hub, trpc, replica } = store
   const presentation = new ConversationPresentation()
-  const readSession = () => pool.sessionPanes.session(sessionId)
+  const readSession = () => sessionPaneView(pool).session(sessionId)
   const readReader = () => loaded(pool.row('chatContextReader', 'reader'))
   const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
   const heldValues = computed(() => loaded(pool.row('chatHeld', sessionId))?.sends ?? [], { equals: compareShallow })

@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
@@ -145,7 +146,7 @@ export function createPoolWorkActions(
       beginSwitch({ sessionId: asSessionId(target), issueId })
   }
   const selectIssue = (id: string, paneSession?: SessionId): void => {
-    const clicked = pool.sidebar.row(id)
+    const clicked = sidebarView(pool).row(id)
     if (clicked === undefined || clicked === LOADING) return
     const mission = missions(pool)
     const rootId = mission.rootFor(id)
@@ -244,7 +245,7 @@ export function createPoolWorkActions(
     setIssueTucked: (id: string, tucked: boolean) =>
       runtime.access.setIssueTucked(id, tucked),
     resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {
-      const value = pool.sidebar.row(id)
+      const value = sidebarView(pool).row(id)
       if (!value || value === LOADING)
         return { single: [], all: [], poolInputs: value === LOADING ? LOADING : readIssueMenuPoolInputs(pool, []) }
       // The menu acts on this issue. Its membership and direct children are

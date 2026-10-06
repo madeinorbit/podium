@@ -1,3 +1,4 @@
+import { headerEntities } from './header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -27,8 +28,8 @@ function fixture(attachLog = true) {
   const spawnPrompts = observable.map<string, string | null>([['pane-11', null]])
   if (attachLog) pool.attachTransactions({ mutate: vi.fn(), spawnPrompts } as never)
   pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })) })
-  pool.header.apply(machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
-  pool.header.order('machine', machines.map(row => row.id))
+  headerEntities(pool).apply(machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
+  headerEntities(pool).order('machine', machines.map(row => row.id))
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
   return { sessions, machines, pool, load, listeners, spawnPrompts,
     state: () => state, change(patch: Partial<Store>) { state = { ...state, ...patch }; for (const f of listeners) f() },
@@ -75,9 +76,9 @@ it('reports a wrong status, model, queued wake, host and mode by position withou
       expect(JSON.stringify(result)).not.toContain('wrong-model')
     }
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: row.sessionId, value: row as never }] })
-    f.pool.header.apply([{ kind: 'machine', id: 'machine-a', value: { ...f.machines[0]!, online: false } }])
+    headerEntities(f.pool).apply([{ kind: 'machine', id: 'machine-a', value: { ...f.machines[0]!, online: false } }])
     expect(checkSessionPanes(f.pool, f.state()).first?.section).toBe(2)
-    f.pool.header.apply([{ kind: 'machine', id: 'machine-a', value: f.machines[0]! }])
+    headerEntities(f.pool).apply([{ kind: 'machine', id: 'machine-a', value: f.machines[0]! }])
     const changed = { ...f.state(), panelMode: { [row.sessionId]: 'native' as const } }
     expect(checkSessionPanes(f.pool, changed).first?.section).toBe(1)
   } finally { f.pool.dispose() }

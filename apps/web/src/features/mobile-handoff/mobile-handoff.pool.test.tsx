@@ -1,3 +1,4 @@
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -68,21 +69,21 @@ describe('declared pool first-task value', () => {
   ] as const)('preserves the predicate for %s-only data without loading cold rows', (_name, patch, expected) => {
     const { pool, load } = makePool([issue(patch)])
     const model = vi.spyOn(pool, 'issueObject')
-    expect(pool.hasFirstTask).toBe(expected)
+    expect(settingsHasFirstTask(pool)).toBe(expected)
     expect(load).not.toHaveBeenCalled()
     expect(model).not.toHaveBeenCalled()
     if (_name === 'archived' || _name === 'deleted') expect(pool.tables.issue.size).toBe(0)
   })
 
   it('returns false for an empty pool', () => {
-    expect(makePool([]).pool.hasFirstTask).toBe(false)
+    expect(settingsHasFirstTask(makePool([]).pool)).toBe(false)
   })
 
   it('reads the maintained value without walking resident or cold history', () => {
     const { pool } = makePool([issue(), issue({ id: 'second-task' })], false)
     const read = vi.spyOn(pool, 'row')
     const coldIds = vi.spyOn(pool.residency ?? { ids: () => [] }, 'ids')
-    expect(pool.hasFirstTask).toBe(true)
+    expect(settingsHasFirstTask(pool)).toBe(true)
     expect(read).not.toHaveBeenCalled()
     expect(coldIds).not.toHaveBeenCalled()
   })
@@ -93,13 +94,13 @@ describe('declared pool first-task value', () => {
     vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
     source.set(archived.id, archived)
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: archived }] })
-    expect(pool.hasFirstTask).toBe(LOADING)
-    expect(pool.hasFirstTask).toBe(LOADING)
+    expect(settingsHasFirstTask(pool)).toBe(LOADING)
+    expect(settingsHasFirstTask(pool)).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
     expect(schedule).toHaveBeenCalledOnce()
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledOnce()
-    expect(pool.hasFirstTask).toBe(true)
+    expect(settingsHasFirstTask(pool)).toBe(true)
   })
 
   it('tracks cold summary changes, eviction, and replacement without retaining a task', () => {

@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Demo uses the same pool host and provider-owned fixture replica as the
  * product. These literal counts and connectivity expectations are the final
  * green demo controls, with only their legacy read arm retired. */
@@ -64,7 +65,7 @@ function DemoProbe() {
 }
 
 function readRowCount(pool: MobxPool) {
-  return pool.mobileWork
+  return mobileWorkView(pool)
     .sections()
     .sections.reduce((count, section) => count + section.data.length, 0)
 }

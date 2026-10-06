@@ -1,3 +1,6 @@
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
+import { sessionPaneView } from './session-pane'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
 import { createMobileSessionReader } from './mobile-session-context'
@@ -11,9 +14,9 @@ it('reads only the conversation machine and keeps first demand and updates flat 
       id, online, name: id, hostname: id, lastSeenAt: '2020-01-01',
       availability: { epoch: 'one', server: false, daemon: online, supervisor: true },
     } as never })
-    pool.header.apply([machine('target'), ...Array.from({ length: 128 * scale }, (_, n) => machine(`foreign-${n}`))])
+    headerEntities(pool).apply([machine('target'), ...Array.from({ length: 128 * scale }, (_, n) => machine(`foreign-${n}`))])
     const reader = createMobileSessionReader(pool), row = vi.spyOn(pool, 'row')
-    const ids = vi.spyOn(pool.headerViews, 'ids'), list = vi.spyOn(pool.sessionPanes, 'machines')
+    const ids = vi.spyOn(headerView(pool), 'ids'), list = vi.spyOn(sessionPaneView(pool), 'machines')
     const view = createPoolProjection(pool, () => reader.machine('target')), paint = vi.fn()
     const measure = (name: string, action: () => void) => measureWork(async () => insideReader(name, action), { pool })
     let stop = () => {}
@@ -27,17 +30,17 @@ it('reads only the conversation machine and keeps first demand and updates flat 
       })
       expect(row.mock.calls).toEqual([['machine', 'target']])
       row.mockClear()
-      const unrelated = await measure('phone unrelated machine', () => pool.header.apply([machine('foreign-0', false)]))
+      const unrelated = await measure('phone unrelated machine', () => headerEntities(pool).apply([machine('foreign-0', false)]))
       expect(row).not.toHaveBeenCalled(); expect(paint).not.toHaveBeenCalled()
-      const target = await measure('phone target machine offline', () => pool.header.apply([machine('target', false)]))
+      const target = await measure('phone target machine offline', () => headerEntities(pool).apply([machine('target', false)]))
       expect(row.mock.calls).toEqual([['machine', 'target']])
       expect(view.getSnapshot()).toMatchObject({ online: false })
       expect(paint).toHaveBeenCalledTimes(1)
-      const removed = await measure('phone target machine removed', () => pool.header.apply([{ kind: 'machine', id: 'target', value: undefined }]))
+      const removed = await measure('phone target machine removed', () => headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: undefined }]))
       expect(view.getSnapshot()).toBeUndefined()
       expect(paint).toHaveBeenCalledTimes(2)
       stop(); row.mockClear(); paint.mockClear()
-      const closed = await measure('phone removed conversation', () => pool.header.apply([machine('target')]))
+      const closed = await measure('phone removed conversation', () => headerEntities(pool).apply([machine('target')]))
       expect(row).not.toHaveBeenCalled(); expect(paint).not.toHaveBeenCalled()
       expect(ids).not.toHaveBeenCalled(); expect(list).not.toHaveBeenCalled()
       return Object.fromEntries(Object.entries({ absent, first, unrelated, target, removed, closed }).map(([name, value]) => [name, value.work]))

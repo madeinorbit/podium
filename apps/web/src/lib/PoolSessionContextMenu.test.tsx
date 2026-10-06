@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
@@ -115,7 +116,7 @@ function open(scale: number) {
       ...seats.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
     ],
   })
-  pool.header.apply([
+  headerEntities(pool).apply([
     {
       kind: 'repository',
       id: 'menu-repository',

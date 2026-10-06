@@ -1,3 +1,4 @@
+import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
@@ -13,28 +14,28 @@ const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   reposLoaded: false,
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
-  const read = useCallback((pool: MobxPool) => pool.sessionPanes.session(id), [id])
+  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
-const machinesRead = (pool: MobxPool) => pool.sessionPanes.machines()
+const machinesRead = (pool: MobxPool) => sessionPaneView(pool).machines()
 export function usePaneMachines(): MachineWire[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }
 function windowRead(pool: MobxPool) {
-  return pool.sessionPanes.window()
+  return sessionPaneView(pool).window()
 }
 export function usePoolPaneWindow() {
   return useWorklistPoolProjection(windowRead, EMPTY_WINDOW)
 }
 export function usePaneSpawnConfirmed(id: SessionId) {
-  const read = useCallback((pool: MobxPool) => pool.sessionPanes.spawnConfirmed(id), [id])
+  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).spawnConfirmed(id), [id])
   return useWorklistPoolProjection(read, false)
 }
 export function usePanePanelModes() {
   return usePoolPaneWindow().panelMode
 }
 export function useDockPaneInputs(cwd: string, pending: string | null) {
-  const read = useCallback((pool: MobxPool) => pool.sessionPanes.dock(cwd, pending), [cwd, pending])
+  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).dock(cwd, pending), [cwd, pending])
   return useWorklistPoolProjection(read, {
     mapped: undefined,
     session: undefined,
@@ -46,7 +47,7 @@ export function useDockPaneInputs(cwd: string, pending: string | null) {
 }
 export function usePaneOwnership(session: SessionView | undefined) {
   const read = useCallback(
-    (pool: MobxPool) => pool.sessionPanes.ownership(session, issueColorHex),
+    (pool: MobxPool) => sessionPaneView(pool).ownership(session, issueColorHex),
     [session],
   )
   return useWorklistPoolProjection(read, {

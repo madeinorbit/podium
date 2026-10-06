@@ -1,3 +1,5 @@
+import { sidebarView } from './sidebar'
+import { worklistGroups } from './groups'
 import { keyedComputed } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
  * worklist derivation, second runtime, row copies or new filing reactions. */
@@ -72,7 +74,7 @@ export class MobileWorkIndex {
       return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issueRow(issue)
     }
     if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
-    const row = this.pool.sidebar.worktree(ref.id)
+    const row = sidebarView(this.pool).worktree(ref.id)
     if (row === undefined) return undefined
     if (row.pending > 0) return LOADING
     return mobileWorktreeValues(ref.id, row.worktree.repoName, row.worktree.branch, row.sessions, row.activityAt)
@@ -108,12 +110,12 @@ interface MobileLane {
 class MobileSectionsView {
   // TODO(POD-5575): fresh native band/row records still need structural equality.
   private readonly header = keyedComputed(() => debugName(() => 'pool.mobileWork.header'), (key: string) => {
-    const value = this.pool.sidebar.band(this.state, key)
+    const value = sidebarView(this.pool).band(this.state, key)
     return { label: value?.label ?? '', worktreeIds: value?.worktreeIds ?? EMPTY_IDS }
   }, { equals: compareStructural })
-  private readonly openRows = keyedComputed(() => debugName(() => 'pool.mobileWork.openRows'), (key: string) => this.pool.groups.rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural })
-  private readonly snoozedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.snoozedRows'), (key: string) => this.pool.groups.rootSnoozed.lane(key).slice(), { equals: compareStructural })
-  private readonly closedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.closedRows'), (key: string) => this.pool.groups.rootClosed.lane(key).slice(), { equals: compareStructural })
+  private readonly openRows = keyedComputed(() => debugName(() => 'pool.mobileWork.openRows'), (key: string) => worklistGroups(this.pool).rootOpen.lane(key).map(id => ref(id)), { equals: compareStructural })
+  private readonly snoozedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.snoozedRows'), (key: string) => worklistGroups(this.pool).rootSnoozed.lane(key).slice(), { equals: compareStructural })
+  private readonly closedRows = keyedComputed(() => debugName(() => 'pool.mobileWork.closedRows'), (key: string) => worklistGroups(this.pool).rootClosed.lane(key).slice(), { equals: compareStructural })
   private readonly allRows = keyedComputed(() => debugName(() => 'pool.mobileWork.allRows'), (key: string) => [...this.openRows(key), ...this.header(key).worktreeIds.map(id => ref(id, 'worktree'))], { equals: compareStructural })
   private readonly split = keyedComputed(() => debugName(() => 'pool.mobileWork.split'), (key: string) => {
     const live: MobileWorkRef[] = [], attention: MobileWorkRef[] = []
@@ -144,7 +146,7 @@ class MobileSectionsView {
   readonly value: IComputedValue<MobileWorkSections>
 
   constructor(private readonly pool: MobxPool, private readonly state: MobileWorkState) {
-    const pinnedData = computed(() => pool.groups.pinnedRootIds.map(id => ref(id)), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedData') })
+    const pinnedData = computed(() => worklistGroups(pool).pinnedRootIds.map(id => ref(id)), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedData') })
     const pinnedSection = computed(() => band('pinned', 'Pinned', 'pinned', pinnedData.get()), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedSection') })
     const pinnedAttention = computed(() => pinnedData.get().filter(row => this.waiting(row).asking)
       .map(row => ({ ...row, listKey: `needs-you:${row.id}` })), { equals: compareStructural, name: debugName(() => 'pool.mobileWork.pinnedAttention') })
@@ -168,7 +170,7 @@ class MobileSectionsView {
 
   /** The band keys alone (POD-5423): a lane move inside a band re-runs none of the bands' views. */
   private projectKeys(): readonly string[] {
-    return this.pool.sidebar.bandKeys(this.state)
+    return sidebarView(this.pool).bandKeys(this.state)
   }
 
   private waiting(row: MobileWorkRef): { asking: boolean; pending: number } {
@@ -177,7 +179,7 @@ class MobileSectionsView {
       if (issue === undefined) return { asking: false, pending: this.pool.row('issue', row.id) === LOADING ? 1 : 0 }
       return { asking: mobileWaitingCount(issue.aggregate, issue.finished === true) > 0, pending: issue.aggregate.pending }
     }
-    const value = this.pool.mobileWork.row(row)
+    const value = mobileWorkView(this.pool).row(row)
     return { asking: value !== undefined && value !== LOADING && value.waitingCount > 0, pending: value === LOADING ? 1 : 0 }
   }
 

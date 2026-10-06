@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 // @vitest-environment happy-dom
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
@@ -36,7 +37,7 @@ it('bounds the actual always-mounted repository change hook at first use and upd
           worktrees: [],
         }) as HeaderRows['repository'],
     )
-    pool.header.apply(rows.map((value, index) => ({ kind: 'repository', id: `r${index}`, value })))
+    headerEntities(pool).apply(rows.map((value, index) => ({ kind: 'repository', id: `r${index}`, value })))
     const reader = createChatContextReader(pool)
     pool.sources.register(['chatContextReader'], { read: () => reader, dispose() {} })
     const row = vi.spyOn(pool, 'row')
@@ -55,19 +56,19 @@ it('bounds the actual always-mounted repository change hook at first use and upd
       })
       expect(view!.result.current).toBe('1')
       const metadata = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r2', value: { ...rows[2]!, branch: 'other' } },
         ]),
       )
       expect(view!.result.current).toBe('1')
       const path = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r0', value: { ...rows[0]!, path: '/changed' } },
         ]),
       )
       expect(view!.result.current).toBe('2')
       const move = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'r0', value: undefined },
           { kind: 'repository', id: 'new-r0', value: { ...rows[0]!, path: '/changed' } },
         ]),
@@ -75,7 +76,7 @@ it('bounds the actual always-mounted repository change hook at first use and upd
       expect(view!.result.current).toBe('2')
       view!.unmount()
       const detached = await measure(() =>
-        pool.header.apply([
+        headerEntities(pool).apply([
           { kind: 'repository', id: 'new-r0', value: { ...rows[0]!, path: '/hidden' } },
         ]),
       )
