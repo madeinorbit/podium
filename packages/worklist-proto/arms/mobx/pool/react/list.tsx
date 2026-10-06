@@ -1,3 +1,5 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { PoolRowSlot } from '@podium/client-graph/react'
 /**
  * POD-4565 (Ma1), POD-4569 (Mb1), POD-4570 (Mb2) — the pool's web list: the
@@ -131,7 +133,7 @@ const PoolLane = observer(function PoolLane({
   lane: Lane
   groupKey: string
 }): ReactElement {
-  const ids = laneIds(pool.groups, lane, groupKey)
+  const ids = laneIds(worklistGroups(pool), lane, groupKey)
   return (
     <>
       {lane === 'pinned' && ids.length > 0 ? <div key="pinned">{PINNED_TITLE}</div> : null}
@@ -163,7 +165,7 @@ function drawGroup(
     <Fragment key={`group:${groupKey}`}>
       <div>
         <PoolGroupHeader
-          groups={pool.groups}
+          groups={worklistGroups(pool)}
           groupKey={groupKey}
           folded={folded}
           onToggle={onToggle}
@@ -194,7 +196,7 @@ function drawItem(
   if (item.kind === 'pinned') return PINNED_TITLE
   return (
     <PoolGroupHeader
-      groups={pool.groups}
+      groups={worklistGroups(pool)}
       groupKey={item.key}
       folded={folded.has(item.key)}
       onToggle={onToggle}
@@ -337,8 +339,8 @@ export class WindowPlan {
 
 export const PoolList = observer(function PoolList({ pool }: { pool: MobxPool }): ReactElement {
   // Measure the real section payload in this existing list observer.
-  void pool.sidebar.sections()
-  const groups = pool.groups
+  void sidebarView(pool).sections()
+  const groups = worklistGroups(pool)
   // Every layout reads the keys (the first, unmeasured render too).
   const keys = groups.keys
   const scrollRef = useRef<HTMLDivElement | null>(null)

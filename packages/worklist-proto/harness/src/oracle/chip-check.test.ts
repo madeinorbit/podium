@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
 import { knownIds } from '@podium/client-graph/enumerate'
@@ -20,7 +21,7 @@ describe('pool chip replay', () => {
         feeds.flush()
         const ids = knownIds(handle.pool, 'issue')
         for (let round = 0; round < 128; round++) {
-          const values = ids.map((id) => handle.pool.references.readById(id))
+          const values = ids.map((id) => referenceView(handle.pool).readById(id))
           if (!values.some((value) => value === LOADING)) {
             expect(values.length).toBe(ids.length)
             expectPoolOutput(values, phase)

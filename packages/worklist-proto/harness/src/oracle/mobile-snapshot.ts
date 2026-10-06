@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Pool-only synthetic outputs frozen by the last green pilot parity run. */
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -13,7 +14,7 @@ function comparable(value: MobileRowValues): Record<string, unknown> {
 }
 
 function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
-  const value = pool.mobileWork.row(ref)
+  const value = mobileWorkView(pool).row(ref)
   if (value === LOADING) return { id: ref.id, pending: true, fields: { loading: true } }
   if (value === undefined) return { id: ref.id, fields: { absent: true } }
   // Include the actual native formatter in the preserved output.
@@ -23,7 +24,7 @@ function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
 }
 
 export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}): SidebarSnapshot {
-  const split = pool.mobileWork.sections(state)
+  const split = mobileWorkView(pool).sections(state)
   let pending = split.pending
   const cache = new Map<string, CheckRow>()
   const row = (ref: MobileWorkRef): CheckRow => {

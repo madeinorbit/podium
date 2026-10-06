@@ -298,7 +298,7 @@ describe('incremental header sessions', () => {
   it('reads painted fields of a working cold session without hydrating it', () => {
     const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })
-    let working: ReturnType<typeof f.pool.headerViews.working> = []
+    let working: ReturnType<ReturnType<typeof headerView>['working']> = []
     const stop = autorun(() => {
       working = headerView(f.pool).working()
     })

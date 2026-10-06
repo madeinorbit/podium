@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
@@ -615,7 +616,7 @@ describe.each([
       const pool = pooled.pool
       // A mounted sidebar: the layout and each visible row's displayed cells.
       const stop = autorun(() => {
-        void pool.groups.layout
+        void worklistGroups(pool).layout
         for (const id of visibleOrderOf(pool)) {
           const model = pool.issue(id)
           void model?.title
@@ -776,7 +777,7 @@ describe.each([
       cleanups.push(() => pooled.dispose())
       const pool = pooled.pool
       const stop = autorun(() => {
-        void pool.groups.layout
+        void worklistGroups(pool).layout
         for (const id of visibleOrderOf(pool)) {
           const model = pool.issue(id)
           void model?.title

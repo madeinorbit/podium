@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /** POD-4953: the current real sidebar, as its rows and sections read it.
  * Only this oracle imports the legacy derivations. Product code never does.
  */
@@ -115,7 +116,7 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
   const differences: string[] = []
   for (const row of derivation.slice.work) {
     if (row.kind !== 'worktree') continue
-    const value = pool.sidebar.worktree(row.worktree.path, state)
+    const value = sidebarView(pool).worktree(row.worktree.path, state)
     if (!value) { differences.push(`${row.worktree.path}: roster absent`); continue }
     const partition = partitionStaleSessions(row.worktree.sessions, now)
     for (const [field, actual, expected] of [
@@ -149,7 +150,7 @@ export function poolStatusLine(value: SidebarRowValues, activityAt: number, now:
 export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: readonly UnifiedIssueRow[], now: number): string[] {
   const differences: string[] = []
   for (const row of rows) {
-    const value = pool.sidebar.row(row.issue.id)
+    const value = sidebarView(pool).row(row.issue.id)
     if (value === undefined || value === LOADING) { differences.push(`${row.issue.id}: sidebar absent/loading`); continue }
     const expected = legacySidebarRow(row, derivation, now), actual = sidebarComparable(value)
     for (const field of Object.keys(expected)) {

@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /**
  * POD-5423 (review finding 10): the sidebar's sections are one view per pool
  * and layout VALUE, built from one cached band per key. Two callers holding
@@ -59,7 +60,7 @@ async function run(bands: number) {
   const seen: SidebarSections[] = []
   const stops = [{ collapsed: {} }, { collapsed: {} }].map((layout, at) =>
     autorun(() => {
-      seen[at] = pool.sidebar.sections(layout)
+      seen[at] = sidebarView(pool).sections(layout)
     }),
   )
   const views = census.snapshot().entries.filter((entry) => entry.kind === 'computed').length

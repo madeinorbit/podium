@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 /** Capture-only control: the pre-delta header algorithms, with their original
  * memo boundaries. Injected by header-session-speed.ts; never app-imported. */
 import type { SessionView } from '@podium/client-core/session-values'
@@ -26,7 +27,7 @@ export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
     aggregate: (machineId: MachineId | undefined) => {
       const result = structuredClone(EMPTY_HOST_AGGREGATE)
       if (!machineId) return result
-      const members = pool.header.members('machine', machineId, 'sessions').map(id => pool.model('session', id)?.headerHost)
+      const members = headerEntities(pool).members('machine', machineId, 'sessions').map(id => pool.model('session', id)?.headerHost)
       for (const id of coldSessionIds(pool)) {
         const summary = coldSummary(id)
         if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(coldSummary(id))))

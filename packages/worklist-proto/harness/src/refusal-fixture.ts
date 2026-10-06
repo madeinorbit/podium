@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Focused recovery proof over the production kernel queue and pool writer. */
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
@@ -35,8 +37,8 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
   const id = ctx.targets.visibleRootId
   const stop = autorun(() => {
     pool.row('issue', id)
-    pool.sidebar.row(id)
-    pool.mobileWork.row({ kind: 'issue', id })
+    sidebarView(pool).row(id)
+    mobileWorkView(pool).row({ kind: 'issue', id })
   })
   for (let round = 0; round < 20 && pool.hydrate(); round++) {}
   stop()

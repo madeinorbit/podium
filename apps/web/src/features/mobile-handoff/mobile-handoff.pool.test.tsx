@@ -132,7 +132,7 @@ describe('declared pool first-task value', () => {
 
   it('does not recompute task existence on selection or an unrelated heartbeat', () => {
     const { pool } = makePool([issue()])
-    const read = vi.spyOn(pool, 'hasFirstTask', 'get')
+    const read = vi.spyOn(pool, 'undeletedIssueCount', 'get')
     const projection = createPoolProjection(pool, (owner) => owner.hasFirstTask)
     const stop = projection.subscribe(() => {})
     read.mockClear()

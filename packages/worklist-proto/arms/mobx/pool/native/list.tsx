@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { PoolRowSlot } from '@podium/client-graph/react'
 /**
  * POD-4565 (Ma1), POD-4569 (Mb1), POD-4570 (Mb2) — the pool's native list
@@ -108,7 +109,7 @@ const PoolNativeList = observer(function PoolNativeList({
 }: {
   pool: MobxPool
 }): ReactElement {
-  const groups = pool.groups
+  const groups = worklistGroups(pool)
   const [plan] = useState(() => new NativeSections())
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
   const toggle = useCallback((key: string) => {

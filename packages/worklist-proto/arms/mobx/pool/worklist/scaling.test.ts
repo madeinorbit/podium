@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
  * POD-4686, POD-4757 — each change's work follows the change, at 1x and 4x,
@@ -106,8 +107,8 @@ function corpusIssue(r: Rig, id: string): SliceIssue {
 
 /** The group key whose lanes hold `id`, or null (tracked reads: call inside `tracked`). */
 function groupOf(pool: MobxPool, id: string): string | null {
-  for (const key of pool.groups.keys) {
-    const group = pool.groups.group(key)
+  for (const key of worklistGroups(pool).keys) {
+    const group = worklistGroups(pool).group(key)
     if (group.rowIds.includes(id) || group.closedIds.includes(id)) return key
   }
   return null
@@ -137,7 +138,7 @@ function stageTarget(pool: MobxPool): string {
       }
       const key = groupOf(pool, id)
       if (key === null) continue
-      const group = pool.groups.group(key)
+      const group = worklistGroups(pool).group(key)
       const size = group.rowIds.length + group.closedIds.length
       if (best === null || size > best.size) best = { id, size }
     }
@@ -235,11 +236,11 @@ function observeGroups(pool: MobxPool): { stop(): void } {
   const watch = (name: string, fn: () => unknown): void => {
     stops.push(reaction(() => whole(fn()), () => {}, { name: `audit.${name}` }))
   }
-  watch('keys', () => pool.groups.keys)
-  watch('pinnedIds', () => pool.groups.pinnedIds)
-  watch('latchedOpenId', () => pool.groups.latchedOpenId)
-  for (const key of tracked(() => pool.groups.keys)) {
-    const group = pool.groups.group(key)
+  watch('keys', () => worklistGroups(pool).keys)
+  watch('pinnedIds', () => worklistGroups(pool).pinnedIds)
+  watch('latchedOpenId', () => worklistGroups(pool).latchedOpenId)
+  for (const key of tracked(() => worklistGroups(pool).keys)) {
+    const group = worklistGroups(pool).group(key)
     for (const lane of LANES) watch(`${lane}:${key}`, () => group[lane])
   }
   return {
@@ -307,7 +308,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         // Out of the open lane, into the fold, and at most a move in the
         // group's members and in the visible order: one row, whatever the scale.
         expect(splices, 'lane splices').toBeLessThanOrEqual(6)
-        const groupCount = tracked(() => pool.groups.keys.length)
+        const groupCount = tracked(() => worklistGroups(pool).keys.length)
         expect(sorted, 'sorted elements (the group keys, the row family)').toBeLessThan(
           groupCount + 16,
         )
@@ -317,7 +318,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)
         expect(evals.get('latchedOpenId') ?? 0, 'latch executions').toBe(0)
         expectOnlyGroup(evals, key)
-        expect(tracked(() => pool.groups.group(key).closedIds.includes(target))).toBe(true)
+        expect(tracked(() => worklistGroups(pool).group(key).closedIds.includes(target))).toBe(true)
         writeResult(`mobx-scaling-4686-${scale}x-stage`, {
           scale,
           at: 'stageMove',
@@ -355,7 +356,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
             }
             const key = groupOf(pool, id)
             if (key === null) continue
-            const group = pool.groups.group(key)
+            const group = worklistGroups(pool).group(key)
             if (group.rowIds.length + group.closedIds.length >= 2) return { id, key }
           }
           return null
@@ -378,7 +379,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         })
         // Out of the visible order, its group's members and its open lane.
         expect(splices, 'lane splices').toBe(3)
-        const groupCount = tracked(() => pool.groups.keys.length)
+        const groupCount = tracked(() => worklistGroups(pool).keys.length)
         expect(sorted, 'sorted elements').toBeLessThan(groupCount + 16)
         const evals = auditOf(runs)
         expect(evals.get('pinnedIds') ?? 0, 'pinnedIds executions').toBe(0)

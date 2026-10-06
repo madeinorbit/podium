@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
  * POD-4567 (Ma3) — residency on the 1x corpus through a replay feed, reads
@@ -347,7 +348,7 @@ describe('bootstrap', () => {
     // visible hot ones. Mb2 (POD-4570): in grouped order (pinned, then each
     // group's open lane and closed fold).
     const visibleHot = tracked(() => {
-      const order = sliceOrderOf(pool.groups.layout)
+      const order = sliceOrderOf(worklistGroups(pool).layout)
       return [
         ...order.pinnedIds,
         ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),

@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -17,9 +19,9 @@ export function startHeaderCheck(runtime: ClientRuntime<PodiumClientApi>, pool: 
     if (disposed) return
     try {
       const result = runInAction(() => checkHeader(pool, referenceState(runtime), {
-        metrics: runtime.hostMetrics.getSnapshot(), quotas: pool.header.received.quotas,
-        history: pool.header.received.history, lifecycle: pool.header.received.lifecycle,
-        connection: runtime.hub.connectionHealth(), afterDays: pool.headerViews.row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,
+        metrics: runtime.hostMetrics.getSnapshot(), quotas: headerEntities(pool).received.quotas,
+        history: headerEntities(pool).received.history, lifecycle: headerEntities(pool).received.lifecycle,
+        connection: runtime.hub.connectionHealth(), afterDays: headerView(pool).row('lifecycle', 'hosts')?.worktreeGc?.afterDays ?? 14,
       }))
       checks++
       report({ state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks,

@@ -1,3 +1,4 @@
+import { headerView } from '@podium/client-graph/header-views'
 /** Diagnostic-only side-by-side value check. Values stay in this process;
  * reports contain comparison positions and field names, never payloads. */
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
@@ -33,7 +34,7 @@ function sections(values: Record<string, unknown>, pending = 0): SidebarSnapshot
 }
 
 export function poolHeaderSnapshot(pool: MobxPool, inputs: Pick<HeaderCheckInputs, 'afterDays'>): SidebarSnapshot {
-  const view = pool.headerViews, folded = view.folded(), metrics = view.metrics()
+  const view = headerView(pool), folded = view.folded(), metrics = view.metrics()
   return sections({
     view: view.row('window', 'window')?.view ?? 'workspace',
     working: roster(view.working()), selected: selected(typeof view.selectedIssue() === 'symbol' ? undefined : view.selectedIssue() as Exclude<ReturnType<typeof view.selectedIssue>, symbol>),

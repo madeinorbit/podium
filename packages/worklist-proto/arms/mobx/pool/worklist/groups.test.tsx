@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
@@ -139,7 +140,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
   const expected = snapshotFromStore(store, locals)
   const oracle = expected.order
   const kept = waitingKept(ctx, oracle)
-  const live = tracked(() => sliceOrderOf(pool.groups.layout))
+  const live = tracked(() => sliceOrderOf(worklistGroups(pool).layout))
   expect(orderDiff(live, oracle), `${at}: groups against the oracle`).toBeNull()
   const flat = visibleIssueRows(legacyDerivationFromStore(store, locals.coarseNow), locals).map(
     (row) => row.issue.id,
@@ -168,8 +169,8 @@ function lanes(pool: MobxPool): Map<string, readonly (readonly string[])[]> {
   return tracked(
     () =>
       new Map(
-        pool.groups.keys.map((key) => {
-          const group = pool.groups.group(key)
+        worklistGroups(pool).keys.map((key) => {
+          const group = worklistGroups(pool).group(key)
           return [key, [[group.label], group.rowIds, group.closedIds]] as const
         }),
       ),
@@ -290,10 +291,10 @@ describe('groups and closed folds (Mb2)', () => {
     // re-runs on every read, so the layout counter would count the reads.
     const observe = reaction(
       () => [
-        pool.groups.layout,
-        ...pool.groups.keys.map((key) => [
-          pool.groups.group(key).rowIds,
-          pool.groups.group(key).closedIds,
+        worklistGroups(pool).layout,
+        ...worklistGroups(pool).keys.map((key) => [
+          worklistGroups(pool).group(key).rowIds,
+          worklistGroups(pool).group(key).closedIds,
         ]),
       ],
       () => {},
@@ -302,8 +303,8 @@ describe('groups and closed folds (Mb2)', () => {
       settle(pool)
       const where = (id: string) =>
         tracked(() => {
-          for (const key of pool.groups.keys) {
-            const group = pool.groups.group(key)
+          for (const key of worklistGroups(pool).keys) {
+            const group = worklistGroups(pool).group(key)
             if (group.rowIds.includes(id))
               return { key, lane: 'open', at: group.rowIds.indexOf(id) }
             if (group.closedIds.includes(id)) return { key, lane: 'closed' }
@@ -321,7 +322,7 @@ describe('groups and closed folds (Mb2)', () => {
       )
       expect(grace, 'a grace-folded row in the fixture').toBeDefined()
       expect(dismissed, 'a dismissed row in the fixture').toBeDefined()
-      const snapshotOrder = () => tracked(() => sliceOrderOf(pool.groups.layout))
+      const snapshotOrder = () => tracked(() => sliceOrderOf(worklistGroups(pool).layout))
       const baseline = snapshotOrder()
       const coarseNow = referenceState(ctx.engine).coarseNow
       const select = (id: string, wasFolded?: boolean) =>
@@ -339,7 +340,7 @@ describe('groups and closed folds (Mb2)', () => {
       const latched = where(grace!.id)
       expect(latched?.lane).toBe('open')
       // At its rank: every open neighbour before it ranks before it.
-      const open = tracked(() => pool.groups.group(latched!.key).rowIds)
+      const open = tracked(() => worklistGroups(pool).group(latched!.key).rowIds)
       const rank = tracked(() => visibleOrderOf(pool))
       for (let i = 1; i < open.length; i += 1) {
         expect(rank.indexOf(open[i - 1]!)).toBeLessThan(rank.indexOf(open[i]!))
@@ -462,8 +463,8 @@ describe('the windowed web list (Mb2)', () => {
       // Scroll to the end: the window moves, the last rows draw.
       const list = el.querySelector('[data-pool-list]') as HTMLElement
       const lastId = tracked(() => {
-        const keys = pool.groups.keys
-        const last = pool.groups.group(keys[keys.length - 1]!)
+        const keys = worklistGroups(pool).keys
+        const last = worklistGroups(pool).group(keys[keys.length - 1]!)
         return last.closedIds.at(-1) ?? last.rowIds.at(-1)
       })
       expect(el.querySelector(`[data-issue-row="${lastId}"]`)).toBeNull()
@@ -483,7 +484,7 @@ describe('the windowed web list (Mb2)', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
       })
       const folding = tracked(() =>
-        pool.groups.keys.find((key) => pool.groups.group(key).closedIds.length > 0),
+        worklistGroups(pool).keys.find((key) => worklistGroups(pool).group(key).closedIds.length > 0),
       )
       expect(folding).toBeDefined()
       const header = el.querySelector(`[data-group="${folding}"] button`) as HTMLButtonElement
@@ -493,7 +494,7 @@ describe('the windowed web list (Mb2)', () => {
       expect(el.querySelector(`[data-group="${folding}"]`)?.getAttribute('data-folded')).toBe(
         'true',
       )
-      const closedCount = tracked(() => pool.groups.group(folding!).closedIds.length)
+      const closedCount = tracked(() => worklistGroups(pool).group(folding!).closedIds.length)
       const totalAfter = (list.firstElementChild as HTMLElement).style.height
       expect(Number.parseFloat(totalBefore) - Number.parseFloat(totalAfter)).toBe(
         closedCount * ROW_HEIGHT,

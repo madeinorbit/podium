@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Small synthetic sidebar parity reductions. No operator records. */
@@ -214,7 +215,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
     check: () => runInAction(() => checkSidebar(handle.pool, store)),
     row: (id: string) =>
       runInAction(() => {
-        const actual = handle.pool.sidebar.row(id)
+        const actual = sidebarView(handle.pool).row(id)
         if (actual === undefined || actual === LOADING)
           throw new Error('Synthetic row absent/loading')
         const derivation = legacyDerivationFromStore(store, NOW)
@@ -226,7 +227,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
       }),
     sections: () =>
       runInAction(() => ({
-        actual: handle.pool.sidebar.sections(),
+        actual: sidebarView(handle.pool).sections(),
         expected: legacySidebarSections(
           legacyDerivationFromStore(store, NOW),
           {},

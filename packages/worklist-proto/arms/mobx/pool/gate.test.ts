@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4565 (Ma1) — the correctness gate (L4b, `shared/src/gen/check.ts`) on
@@ -433,7 +434,7 @@ function checked(
       if (attach.length > 0) throw new Error(`attach (snapshot ${wrapper.snapshots}): ${attach.join('; ')}`)
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
-        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
         () => {},
         { name: 'gate.observer' },
       )

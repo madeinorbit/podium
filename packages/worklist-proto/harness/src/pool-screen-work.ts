@@ -1,3 +1,9 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { headerView } from '@podium/client-graph/header-views'
+import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { settingsView } from '@podium/client-graph/settings-views'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** All app-wide pool readers, retained as their consumers retain them. No timers or walls are judged. */
 
@@ -357,38 +363,38 @@ async function measureScreenCells(
       if (!only || only.has(name)) readers.push({ name, consumers, read })
     }
     add('sidebar.sections', ['PoolSidebar', 'PoolSidebarRail', 'useSidebarProjectSections'], () =>
-      pool.sidebar.sections(layout),
+      sidebarView(pool).sections(layout),
     )
     const worktree = pool.tables.worktree.keys().next().value!
-    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => pool.sidebar.row(selected()))
+    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => sidebarView(pool).row(selected()))
     add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
-      pool.sidebar.worktree(worktree, layout),
+      sidebarView(pool).worktree(worktree, layout),
     )
-    add('sidebar.selection', ['PoolSidebar'], () => pool.sidebar.selectionEvicted())
+    add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionEvicted())
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
-      pool.mobileWork.sections(layout),
+      mobileWorkView(pool).sections(layout),
     )
     const search = new MobileSearchSections()
     add('mobile-work.search', ['PoolWorkScreen'], () =>
-      searchMobileSections(pool, pool.mobileWork.sections(layout).sections, '', search),
+      searchMobileSections(pool, mobileWorkView(pool).sections(layout).sections, '', search),
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () =>
-      pool.mobileWork.row({ kind: 'issue', id: selected() }),
+      mobileWorkView(pool).row({ kind: 'issue', id: selected() }),
     )
-    add('header.folded', ['FoldedFlightDeckBar'], () => pool.headerViews.folded())
-    add('header.shipping', ['useShippingCounts'], () => pool.headerViews.shipping())
+    add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
+    add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())
     add('header.fleet', ['FleetOverview', 'ReclaimPanel'], () => ({
-      aggregate: pool.headerViews.aggregate(undefined),
-      history: pool.headerViews.history(),
-      metrics: pool.headerViews.metrics(),
-      machines: pool.headerViews.machines(),
-      quotas: pool.headerViews.quotas(),
-      offline: pool.headerViews.offlineMachines(),
-      reclaim: pool.headerViews.reclaimCounts(30),
-      working: pool.headerViews.working(),
-      selected: pool.headerViews.selectedIssue(),
-      session: pool.headerViews.session(SESSION),
-      occupancy: pool.headerViews.occupancyKey(),
+      aggregate: headerView(pool).aggregate(undefined),
+      history: headerView(pool).history(),
+      metrics: headerView(pool).metrics(),
+      machines: headerView(pool).machines(),
+      quotas: headerView(pool).quotas(),
+      offline: headerView(pool).offlineMachines(),
+      reclaim: headerView(pool).reclaimCounts(30),
+      working: headerView(pool).working(),
+      selected: headerView(pool).selectedIssue(),
+      session: headerView(pool).session(SESSION),
+      occupancy: headerView(pool).occupancyKey(),
     }))
     add('shell.chrome', ['AppBody', 'AppShell'], () => shell.chrome())
     add('shell.dock', ['AppShell'], () => shell.dock())
@@ -491,28 +497,28 @@ async function measureScreenCells(
       continuity: noticeContinuity(pool),
     }))
     add('session-pane', ['AgentPanel', 'DockTerminal'], () => ({
-      session: pool.sessionPanes.session(SESSION),
-      machines: pool.sessionPanes.machines(),
-      window: pool.sessionPanes.window(),
-      dock: pool.sessionPanes.dock('/synthetic', null),
-      confirmed: pool.sessionPanes.spawnConfirmed(SESSION),
-      ownership: pool.sessionPanes.ownership(
-        pool.sessionPanes.session(SESSION),
+      session: sessionPaneView(pool).session(SESSION),
+      machines: sessionPaneView(pool).machines(),
+      window: sessionPaneView(pool).window(),
+      dock: sessionPaneView(pool).dock('/synthetic', null),
+      confirmed: sessionPaneView(pool).spawnConfirmed(SESSION),
+      ownership: sessionPaneView(pool).ownership(
+        sessionPaneView(pool).session(SESSION),
         (color) => color ?? undefined,
       ),
     }))
     add('settings', ['SettingsView', 'SettingsScreen', 'NewIssueScreen', 'WorkflowForm'], () => ({
-      setup: pool.settingsViews.setup(['/synthetic']),
-      count: pool.settingsViews.sessionCount(),
-      present: pool.settingsViews.sessionPresent(SESSION),
+      setup: settingsView(pool).setup(['/synthetic']),
+      count: settingsView(pool).sessionCount(),
+      present: settingsView(pool).sessionPresent(SESSION),
     }))
     add('preferences', ['SettingsView', 'SettingsScreen', 'WorkScreen'], () =>
       pool.row('preference', 'podium:sidebar:pinned-fold'),
     )
     add('references', ['IssueChipLiveness', 'RefChip', 'RefMiniview'], () => ({
-      token: pool.references.read('#999999'),
-      id: pool.references.id('#999999'),
-      byId: pool.references.readById(ROOT),
+      token: referenceView(pool).read('#999999'),
+      id: referenceView(pool).id('#999999'),
+      byId: referenceView(pool).readById(ROOT),
     }))
     const automations = automationViews(pool)
     add('automations', ['AutomationsView', 'SpecsView', 'AutomationForm'], () => ({

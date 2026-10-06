@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
  * POD-4942 — probes for the post-rework review of the MobX pool
@@ -63,9 +64,9 @@ function paintWindow(pool: MobxPool): () => void {
   stops.push(
     autorun(() => {
       ids.length = 0
-      for (const id of pool.groups.pinnedIds) ids.push(id)
-      for (const key of pool.groups.keys) {
-        const group = pool.groups.group(key)
+      for (const id of worklistGroups(pool).pinnedIds) ids.push(id)
+      for (const key of worklistGroups(pool).keys) {
+        const group = worklistGroups(pool).group(key)
         void group.label
         for (const id of group.rowIds) ids.push(id)
         for (const id of group.closedIds) ids.push(id)

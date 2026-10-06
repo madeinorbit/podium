@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Frozen mobile pool outputs, native identity and observed generated changes. */
 import { reaction } from 'mobx'
 import { createHash } from 'node:crypto'
@@ -54,7 +55,7 @@ describe('mobile pool values', () => {
     let retained = 0
     let identityFailure: unknown
     const inspectNative = (scenario: string) => {
-      const native = handle.pool.mobileWork.sections(nativeState).sections
+      const native = mobileWorkView(handle.pool).sections(nativeState).sections
       const before = previous
       previous = native
       if (before) for (const section of native) {
@@ -87,21 +88,21 @@ describe('mobile pool values', () => {
         // loads trigger the eager mark-read after the selection write settled.
         await settled(ctx)
         feeds.flush(); settle(handle.pool)
-        expect(tracked(() => handle.pool.mobileWork.row({ id: ctx.targets.visibleRootId, kind: 'issue' })))
+        expect(tracked(() => mobileWorkView(handle.pool).row({ id: ctx.targets.visibleRootId, kind: 'issue' })))
           .toMatchObject({ unread: false })
       }
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
       for (const searching of [false, true]) {
-        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => handle.pool.mobileWork.sections().orderingSections.map(section => section.key))]
+        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).sections().orderingSections.map(section => section.key))]
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
         const result = tracked(() => poolMobileSnapshot(handle.pool, state))
         expect(result.pending, `${scenario}, searching=${searching}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`${scenario}, searching=${searching}`)
         checks.push({ scenario, searching, sections: result.sections.length, pending: result.pending })
       }
-      const first = tracked(() => handle.pool.mobileWork.sections().orderingSections.flatMap(section => section.data)[0]!)
-      const value = tracked(() => handle.pool.mobileWork.row(first))
+      const first = tracked(() => mobileWorkView(handle.pool).sections().orderingSections.flatMap(section => section.data)[0]!)
+      const value = tracked(() => mobileWorkView(handle.pool).row(first))
       expect(value).not.toBe(LOADING)
       expect(Object.keys(value!).sort()).toEqual([...MOBILE_ROW_FIELDS].sort())
     }
@@ -124,7 +125,7 @@ describe('mobile pool values', () => {
       await run.apply({ kind: 'offerChange', sessionId: 'mobile-asker', offer: true })
       await run.apply({ kind: 'issueFacts', id, variant: 0 })
       locals.flush(); run.feed().flush(); settle(handle.pool)
-      const split = tracked(() => handle.pool.mobileWork.sections())
+      const split = tracked(() => mobileWorkView(handle.pool).sections())
       expect(split.sections[0]!.key).toBe('pinned')
       expect(split.sections.find(section => section.key === 'pinned')!.data).toContainEqual({ id, kind: 'issue', listKey: id })
       expect(split.sections.find(section => section.key === 'needs-you')!.data).toContainEqual({ id, kind: 'issue', listKey: `needs-you:${id}` })
@@ -148,12 +149,12 @@ describe('mobile pool values', () => {
       const session = run.ctx.cache.read('session', sessionId)!.value as Record<string, unknown>
       upsert(run.ctx, 'session', sessionId, { ...session, busy: false, agentState: undefined })
       run.feed().flush(); locals.flush(); settle(handle.pool)
-      expect(tracked(() => handle.pool.mobileWork.row(ref))).toMatchObject({ draftOnly: true, draftQuiet: true, unread: false, navigation: { kind: 'session', id: sessionId } })
-      const stop = reaction(() => handle.pool.mobileWork.row(ref), () => {}, { fireImmediately: true })
+      expect(tracked(() => mobileWorkView(handle.pool).row(ref))).toMatchObject({ draftOnly: true, draftQuiet: true, unread: false, navigation: { kind: 'session', id: sessionId } })
+      const stop = reaction(() => mobileWorkView(handle.pool).row(ref), () => {}, { fireImmediately: true })
       try {
         await run.apply({ kind: 'phaseChange', sessionId, phase: 'idle' })
         locals.flush(); settle(handle.pool)
-        expect(tracked(() => handle.pool.mobileWork.row(ref))).toMatchObject({ draftOnly: true, draftQuiet: false })
+        expect(tracked(() => mobileWorkView(handle.pool).row(ref))).toMatchObject({ draftOnly: true, draftQuiet: false })
         expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green draft output')
       } finally { stop() }
@@ -175,17 +176,17 @@ describe('mobile pool values', () => {
       const ids = handle.pool.residency!.ids('issue').slice(0, 2)
       expect(ids).toHaveLength(2)
       const before = scheduled
-      expect(tracked(() => ids.map(id => handle.pool.mobileWork.row({ id, kind: 'issue' })))).toEqual([LOADING, LOADING])
+      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))).toEqual([LOADING, LOADING])
       expect(hydrate).not.toHaveBeenCalled()
       expect(scheduled - before).toBeLessThanOrEqual(1)
       for (let window = 0; window < 64; window += 1) {
-        tracked(() => ids.map(id => handle.pool.mobileWork.row({ id, kind: 'issue' })))
+        tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))
         if (handle.pool.hydrate() === 0) break
       }
-      expect(tracked(() => ids.map(id => handle.pool.mobileWork.row({ id, kind: 'issue' })))).not.toContain(LOADING)
+      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))).not.toContain(LOADING)
       replay.push({ type: 'update', rows: [{ kind: 'issue', id: ids[0]!, value: undefined }] })
-      expect(tracked(() => handle.pool.mobileWork.row({ id: ids[0]!, kind: 'issue' }))).toBeUndefined()
-      expect(tracked(() => handle.pool.mobileWork.row({ id: 'never-known', kind: 'issue' }))).toBeUndefined()
+      expect(tracked(() => mobileWorkView(handle.pool).row({ id: ids[0]!, kind: 'issue' }))).toBeUndefined()
+      expect(tracked(() => mobileWorkView(handle.pool).row({ id: 'never-known', kind: 'issue' }))).toBeUndefined()
     } finally { hydrate.mockRestore(); handle.dispose() }
   })
 

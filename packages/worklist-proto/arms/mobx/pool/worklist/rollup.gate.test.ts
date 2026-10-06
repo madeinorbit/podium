@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4571 (Mb3) — the correctness gate (L4b, `shared/src/gen/check.ts`)
  * with the ORACLE on, every step. The pool's gate (`../gate.test.ts`) runs
@@ -64,7 +65,7 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
       const handle = base.create(source, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       const stop = reaction(
-        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
         () => {},
         { name: 'gate.observer' },
       )

@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-5423 (review finding 8, the structural guard): work follows the screen,
  * not memory. The app's pool (`createRuntimeWorklistPool`) with no list on
@@ -62,20 +64,20 @@ async function phases(scale: FixtureScale) {
     census = startCensus()
     let sections: unknown
     const stop = autorun(() => {
-      sections = pool.sidebar.sections()
+      sections = sidebarView(pool).sections()
     })
     while (pool.hydrate() > 0) {}
     const mounted = tally(census.snapshot())
-    const read = runInAction(() => pool.groups.layout)
+    const read = runInAction(() => worklistGroups(pool).layout)
     stop()
     const unmounted = tally(census.snapshot())
     census.stop()
-    const emptied = runInAction(() => pool.groups.layout)
+    const emptied = runInAction(() => worklistGroups(pool).layout)
 
     const release = pool.worklist.retain()
-    const held = runInAction(() => pool.groups.layout)
+    const held = runInAction(() => worklistGroups(pool).layout)
     release()
-    const released = runInAction(() => pool.groups.layout)
+    const released = runInAction(() => worklistGroups(pool).layout)
     return { idle, mounted, unmounted, candidates, sections, read, emptied, held, released }
   } finally {
     census.stop()

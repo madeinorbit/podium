@@ -91,7 +91,7 @@ it('observes only painted prefix presence across creation, deletion, rename and 
 it('keeps first paint, repaint, activation and updates flat at 1x/4x with cold and resident histories', async () => {
   async function measured(scale: 1 | 4, resident: boolean) {
     const f = fixture(scale, resident), row = vi.spyOn(f.pool, 'row')
-    const references = vi.spyOn(f.pool, 'references', 'get'), ids = vi.spyOn(f.pool.queries, 'ids')
+    const references = vi.spyOn(f.pool.sources, 'view'), ids = vi.spyOn(f.pool.queries, 'ids')
     const reader = createTerminalReferences(f.pool), paint = vi.fn(), stop = reader.subscribe(paint)
     expect(row).not.toHaveBeenCalled()
     function viewport(token: string | null) {
@@ -134,7 +134,7 @@ it('keeps first paint, repaint, activation and updates flat at 1x/4x with cold a
       expect(reader.resolveStage('POD-1')).toBeNull()
       expect(reader.isKnownPrefix('POD')).toBe(false)
       expect(row).not.toHaveBeenCalled()
-      expect(references).not.toHaveBeenCalled(); expect(ids).not.toHaveBeenCalled()
+      expect(references.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0); expect(ids).not.toHaveBeenCalled()
       return Object.fromEntries(Object.entries({ firstPaint, repaint, activation, unrelated, target, offscreen, hidden, empty }).map(([key, value]) => [key, value.work]))
     } finally { stop(); reader.dispose(); row.mockRestore(); references.mockRestore(); ids.mockRestore(); f.pool.dispose() }
   }

@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
 import { createWorklistPool } from '@podium/client-graph/create'
@@ -546,7 +547,7 @@ describe('sidebar differential replay', () => {
           locals.flush()
           settle(handle.pool)
           const store = referenceState(run.ctx.engine)
-          const keys = tracked(() => handle.pool.groups.keys)
+          const keys = tracked(() => worklistGroups(handle.pool).keys)
           const state: SidebarState = {
             pinnedRepos: store.pins.repos,
             pinnedWorktrees: store.pins.worktrees,

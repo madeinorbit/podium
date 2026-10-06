@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only live bootstrap on ludovico. Auth, rows, paths and texts stay in
  * this process. Only counts, positions and opaque IDs may leave it. */
@@ -76,8 +77,8 @@ async function main() {
   const handle = createRuntimeWorklistPool(runtime as Parameters<typeof createRuntimeWorklistPool>[0], { summaries: SESSION_PANE_SUMMARIES })
   const pool = handle.pool
   pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime as never))
-  pool.header.apply(state.machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
-  pool.header.order('machine', state.machines.map(row => row.id))
+  headerEntities(pool).apply(state.machines.map(row => ({ kind: 'machine', id: row.id, value: row })))
+  headerEntities(pool).order('machine', state.machines.map(row => row.id))
   try {
     let result = checkSessionPanes(pool, state, undefined, issues)
     for (let round = 0; result.pending && round < 64; round++) {

@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 import { loadingNavigationProvider } from '@podium/client-core/engine'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
@@ -545,7 +546,7 @@ export async function runFenceStep(
   // include the same complete oracle surface, never only the old RowView.
   const pool = (mounted.handle as Partial<{ pool: MobxPool }>).pool
   const content =
-    pool?.sidebar === undefined
+    (pool ? sidebarView(pool) : undefined) === undefined
       ? undefined
       : () => {
           const locals = engineLocals(ctx)

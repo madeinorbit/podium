@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /**
  * POD-5423 (review finding 9): one session heartbeat re-derives its own row's
  * attention and moves the activity number up the nest; it never re-runs an
@@ -76,7 +77,7 @@ async function run(siblings: number) {
   })
   const drawn = new Map<string, unknown>()
   const stop = autorun(() => {
-    for (const id of CHAIN) drawn.set(id, pool.sidebar.row(id))
+    for (const id of CHAIN) drawn.set(id, sidebarView(pool).row(id))
   })
   try {
     const before = runInAction(() => CHAIN.map((id) => pool.issue(id)?.nestParent))

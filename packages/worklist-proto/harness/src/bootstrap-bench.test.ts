@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4934 — the bootstrap bench both pool arms run through, in the node
  * lane: bootstrap wall, retained heap after bootstrap, and first-paint time,
@@ -101,7 +102,7 @@ function paintMobx(pool: MobxPool): () => void {
     autorun(
       () => {
         items.length = 0
-        const groups = pool.groups
+        const groups = worklistGroups(pool)
         for (const id of groups.pinnedIds) items.push({ kind: 'row', id })
         for (const key of groups.keys) {
           const group = groups.group(key)
@@ -120,7 +121,7 @@ function paintMobx(pool: MobxPool): () => void {
       stops.push(
         autorun(
           () => {
-            const group = pool.groups.group(item.key)
+            const group = worklistGroups(pool).group(item.key)
             void group.label
             void group.rowIds.length
             void group.closedIds.length

@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /**
  * POD-5423 (review finding 8): an issue's members group never walks the
  * issue's session history on a click or a single-row change. A heartbeat (the
@@ -138,7 +139,7 @@ async function run(scale: number) {
       issue.rosterIds,
       issue.openOwn,
       issue.visible,
-      pool.sidebar.row(ROOT),
+      sidebarView(pool).row(ROOT),
     ]
   })
   try {

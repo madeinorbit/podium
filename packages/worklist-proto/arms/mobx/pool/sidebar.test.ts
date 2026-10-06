@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { issueInput } from '@podium/client-graph/shared/issue-input'
@@ -42,8 +43,8 @@ function settleSidebar(pool: MobxPool): void {
   for (let window = 0; window < 64; window += 1) {
     snapshotPool(pool)
     tracked(() => {
-      for (const id of visibleOrderOf(pool)) pool.sidebar.row(id)
-      pool.sidebar.sections()
+      for (const id of visibleOrderOf(pool)) sidebarView(pool).row(id)
+      sidebarView(pool).sections()
     })
     if (pool.hydrate() === 0) return
   }
@@ -97,7 +98,7 @@ describe('real sidebar oracle (POD-4953)', () => {
             referenceState(ctx.engine).pins,
             variant,
           )
-          const gotSections = tracked(() => handle.pool.sidebar.sections(state))
+          const gotSections = tracked(() => sidebarView(handle.pool).sections(state))
           const expectedSections = legacySidebarSections(
             derivation,
             state,
@@ -199,30 +200,30 @@ describe('real sidebar oracle (POD-4953)', () => {
         .slice(0, 2)
       expect(cold).toHaveLength(2)
       const before = scheduled
-      expect(tracked(() => cold.map((id) => pool.sidebar.row(id)))).toEqual([LOADING, LOADING])
+      expect(tracked(() => cold.map((id) => sidebarView(pool).row(id)))).toEqual([LOADING, LOADING])
       expect(scheduled - before).toBeLessThanOrEqual(1)
       expect(pool.hydrate()).toBeGreaterThanOrEqual(2)
       for (let window = 0; window < 64; window += 1) {
-        tracked(() => cold.map((id) => pool.sidebar.row(id)))
+        tracked(() => cold.map((id) => sidebarView(pool).row(id)))
         if (pool.hydrate() === 0) break
       }
-      expect(tracked(() => cold.map((id) => pool.sidebar.row(id)))).not.toContain(LOADING)
+      expect(tracked(() => cold.map((id) => sidebarView(pool).row(id)))).not.toContain(LOADING)
       locals.set({ selectedIssueId: 'never-seen', coarseNow: corpus.fixedNow })
       locals.flush()
-      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
+      expect(tracked(() => sidebarView(pool).selectionEvicted())).toBe(false)
       const id = tracked(() => visibleOrderOf(pool)[0]!)
       locals.set({ selectedIssueId: id, coarseNow: corpus.fixedNow })
       locals.flush()
-      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
+      expect(tracked(() => sidebarView(pool).selectionEvicted())).toBe(false)
       replay.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
       // POD-5437 (83df844916, repeated-read probe 2a84baadce): the eviction
       // signal persists until the selection moves, so every reader sees it
       // until the clear-selection commits. A one-shot read here pinned the bug.
-      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(true)
-      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(true)
+      expect(tracked(() => sidebarView(pool).selectionEvicted())).toBe(true)
+      expect(tracked(() => sidebarView(pool).selectionEvicted())).toBe(true)
       locals.set({ selectedIssueId: null, coarseNow: corpus.fixedNow })
       locals.flush()
-      expect(tracked(() => pool.sidebar.selectionEvicted())).toBe(false)
+      expect(tracked(() => sidebarView(pool).selectionEvicted())).toBe(false)
     } finally {
       handle.dispose()
     }
@@ -245,15 +246,15 @@ describe('real sidebar oracle (POD-4953)', () => {
       await run.apply({ kind: 'clockTick', ms: 25 * 60 * 60_000 })
       select(id)
       expect(
-        tracked(() => handle.pool.sidebar.sections().bands.some((b) => b.rowIds.includes(id))),
+        tracked(() => sidebarView(handle.pool).sections().bands.some((b) => b.rowIds.includes(id))),
       ).toBe(true)
       select(null)
       expect(
-        tracked(() => handle.pool.sidebar.sections().bands.some((b) => b.closedIds.includes(id))),
+        tracked(() => sidebarView(handle.pool).sections().bands.some((b) => b.closedIds.includes(id))),
       ).toBe(true)
       select(id)
       expect(
-        tracked(() => handle.pool.sidebar.sections().bands.some((b) => b.closedIds.includes(id))),
+        tracked(() => sidebarView(handle.pool).sections().bands.some((b) => b.closedIds.includes(id))),
       ).toBe(true)
       await run.apply({ kind: 'newDraftIssue', id: 'sidebar-vessel', title: '' })
       await run.apply({
@@ -264,10 +265,10 @@ describe('real sidebar oracle (POD-4953)', () => {
       })
       select('sidebar-vessel')
       expect(
-        tracked(() => handle.pool.sidebar.active('sidebar-vessel', { paneA: 'other-pane' })),
+        tracked(() => sidebarView(handle.pool).active('sidebar-vessel', { paneA: 'other-pane' })),
       ).toBe(false)
       expect(
-        tracked(() => handle.pool.sidebar.active('sidebar-vessel', { paneA: 'vessel-seat' })),
+        tracked(() => sidebarView(handle.pool).active('sidebar-vessel', { paneA: 'vessel-seat' })),
       ).toBe(true)
     } finally {
       handle.dispose()
@@ -343,7 +344,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       feeds.flush()
       snapshotPool(handle.pool)
       const derivation = legacyDerivationFromStore(referenceState(ctx.engine), now)
-      const value = tracked(() => handle.pool.sidebar.worktree(lane.path))
+      const value = tracked(() => sidebarView(handle.pool).worktree(lane.path))
       expect(value?.sessions.filter((s) => s.sessionId.startsWith('roster-guest-'))).toHaveLength(8)
       expect(value?.issues.map((issue) => issue.id)).toContain('roster-owner')
       expect(value!.stale.length).toBeGreaterThan(0)
@@ -356,7 +357,7 @@ describe('real sidebar oracle (POD-4953)', () => {
       const stop = reaction(
         () => {
           sectionReads += 1
-          return handle.pool.sidebar.sections()
+          return sidebarView(handle.pool).sections()
         },
         () => {},
         { fireImmediately: true },
@@ -380,7 +381,7 @@ describe('real sidebar oracle (POD-4953)', () => {
         })
         feeds.flush()
         expect(sectionReads, 'roster payload and activity do not rebuild sections').toBe(before)
-        const roster = tracked(() => handle.pool.sidebar.worktree(lane.path))
+        const roster = tracked(() => sidebarView(handle.pool).worktree(lane.path))
         expect(roster?.sessions.find((s) => s.sessionId === 'owned-roster-guest')?.title).toBe(
           'Renamed guest',
         )
@@ -429,13 +430,13 @@ describe('real sidebar oracle (POD-4953)', () => {
     const handle = harnessMobxPoolArm.create(replay.source, locals.source)
     const values: unknown[] = []
     const stop = reaction(
-      () => handle.pool.sidebar.sections(),
+      () => sidebarView(handle.pool).sections(),
       (value) => values.push(value),
       { fireImmediately: true },
     )
     try {
       const band = () =>
-        tracked(() => handle.pool.sidebar.sections().bands.find((b) => b.key === lane.repoId))!
+        tracked(() => sidebarView(handle.pool).sections().bands.find((b) => b.key === lane.repoId))!
       expect(band().worktreeIds).toEqual([lane.path])
       locals.set({ coarseNow: corpus.fixedNow + 25 * 60 * 60_000 })
       locals.flush()
@@ -467,8 +468,8 @@ describe('real sidebar random-change gate (POD-4953)', () => {
       const observe = () =>
         reaction(
           () => ({
-            rows: visibleOrderOf(handle.pool).map((id) => handle.pool.sidebar.row(id)),
-            sections: handle.pool.sidebar.sections(state),
+            rows: visibleOrderOf(handle.pool).map((id) => sidebarView(handle.pool).row(id)),
+            sections: sidebarView(handle.pool).sections(state),
           }),
           () => {},
           { fireImmediately: true },
@@ -509,7 +510,7 @@ describe('real sidebar random-change gate (POD-4953)', () => {
             `seed ${seed}, step ${index} ${JSON.stringify(step.change)}; ${errors.length} differences`,
           ).toEqual([])
           expect(
-            tracked(() => handle.pool.sidebar.sections(state)),
+            tracked(() => sidebarView(handle.pool).sections(state)),
             `seed ${seed}, step ${index}: sections`,
           ).toEqual(
             legacySidebarSections(derivation, state, local.selectedIssueId, false, local.coarseNow),

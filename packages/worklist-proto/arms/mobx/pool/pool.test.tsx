@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
  * POD-4565 (Ma1) — the pool's ingest, lifecycle and locals, on the 1x corpus
@@ -437,7 +438,7 @@ describe('dispose', () => {
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
     expect(r.listeners()).toBe(2)
-    expect(getObserverTree(pool.groups, 'keys').observers?.length ?? 0).toBeGreaterThan(0)
+    expect(getObserverTree(worklistGroups(pool), 'keys').observers?.length ?? 0).toBeGreaterThan(0)
     expect(tracked(() => visibleOrderOf(pool).length)).toBeGreaterThan(0)
 
     await act(async () => {
@@ -451,7 +452,7 @@ describe('dispose', () => {
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
-    expect(getObserverTree(pool.groups, 'keys').observers ?? []).toEqual([])
+    expect(getObserverTree(worklistGroups(pool), 'keys').observers ?? []).toEqual([])
     expect(tracked(() => visibleOrderOf(pool))).toEqual([])
     expect(tracked(() => pool.issue(models[0]!.id))).toBeUndefined()
     // A row view is a cached group on its issue, dropped once unobserved; one

@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-5407 — the heap census of per-cold-row structures (POD-5417 finding
  * 14): outside the row source's cold index, the pool keeps nothing per cold
@@ -133,7 +134,7 @@ async function census(
   const { pool } = handle
   // The first paint, kept alive as the mounted list keeps it.
   const stop = reaction(
-    () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), pool.groups.layout],
+    () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
     () => {},
   )
   try {

@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4760 + POD-4944 + POD-4945 — the MobX pool's harness adapter: helpers
  * that exist only for the test harness, on top of the pool's public product
@@ -188,10 +189,10 @@ function layoutIds(layout: Layout): string[] {
  * usable inside derivations.
  */
 export function visibleOrderOf(pool: MobxPool): readonly string[] {
-  const layout = pool.groups.layout
+  const layout = worklistGroups(pool).layout
   const ids = layoutIds(layout)
   const ranks = new Map<string, ReturnType<typeof pool.groups.rankOf>>()
-  for (const id of ids) ranks.set(id, pool.groups.rankOf(id))
+  for (const id of ids) ranks.set(id, worklistGroups(pool).rankOf(id))
   return ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
 }
 
@@ -211,7 +212,7 @@ export function visibleOrderOf(pool: MobxPool): readonly string[] {
 export function snapshotPool(pool: MobxPool): SliceSnapshot {
   for (let round = 0; ; round += 1) {
     const snapshot = tracked(() => {
-      const layout = pool.groups.layout
+      const layout = worklistGroups(pool).layout
       const rowsById: SliceSnapshot['rowsById'] = {}
       for (const id of visibleOrderOf(pool)) {
         const view = rowViewOf(pool.issue(id))

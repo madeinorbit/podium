@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /**
@@ -228,8 +230,8 @@ function paintWindow(pool: MobxPool): () => void {
     autorun(
       () => {
         items.length = 0
-        void pool.sidebar.sections()
-        const groups = pool.groups
+        void sidebarView(pool).sections()
+        const groups = worklistGroups(pool)
         for (const id of groups.pinnedIds) items.push({ kind: 'row', id })
         for (const key of groups.keys) {
           const group = groups.group(key)
@@ -248,7 +250,7 @@ function paintWindow(pool: MobxPool): () => void {
       stops.push(
         autorun(
           () => {
-            const group = pool.groups.group(item.key)
+            const group = worklistGroups(pool).group(item.key)
             void group.label
             void group.rowIds.length
             void group.closedIds.length

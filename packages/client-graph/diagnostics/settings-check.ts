@@ -1,3 +1,4 @@
+import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Fixture and private-replay comparison using the sidebar contract. Expected
  * values exist only in this process; reports retain counts and positions. */
@@ -21,8 +22,8 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   const catalog = pool.row('settingsCatalog', 'catalog')
   const window = pool.row('settingsWindow', 'window')
   const expectedUsage = createRepositoryUsageSelector()(state.sessions)
-  const setup = pool.settingsViews.setup([...expectedUsage.keys()])
-  const sessions = pool.settingsViews.sessions()
+  const setup = settingsView(pool).setup([...expectedUsage.keys()])
+  const sessions = settingsView(pool).sessions()
   let pending = Number(catalog === LOADING) + Number(window === LOADING) + setup.pending
   const rows = (values: readonly (readonly [string, object])[]): CheckRow[] =>
     values.map(([id, value]) => ({ id, fields: { value } }))

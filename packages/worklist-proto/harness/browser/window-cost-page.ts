@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * Price the installed virtualizer's count-change cache in Chromium, using
  * the actual pool's 1x/4x lanes. This is isolated from the arm timing bundle.
@@ -43,7 +44,7 @@ async function run(): Promise<object> {
   const handle = harnessMobxPoolArm.create(source.source, locals.source, undefined, { schedule: () => () => {} })
   try {
     const capture = (): { plan: WindowPlan; groups: WorklistGroups } => tracked(() => {
-      const groups = handle.pool.groups
+      const groups = worklistGroups(handle.pool)
       const keys = groups.keys
       const pinnedIds = groups.pinnedIds
       const lanes = new Map(keys.map((key) => {

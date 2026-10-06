@@ -500,7 +500,7 @@ it('resolves a cold terminal reference without building either conversation cata
   const onOpen = vi.fn()
   const enabled = await mount('conversation', false, onOpen)
   const counts = chatContextReadStats(enabled.pool())
-  const references = vi.spyOn(enabled.pool(), 'references', 'get')
+  const references = vi.spyOn(enabled.pool().sources, 'view')
   await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
   await waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1))
   expect(onOpen.mock.calls[0]![0]).toMatchObject({ id: 'synthetic-1' })
@@ -512,7 +512,7 @@ it('resolves a cold terminal reference without building either conversation cata
     referenceSessionReads: 0,
   })
   expect(enabled.errors).toEqual([])
-  expect(references).not.toHaveBeenCalled()
+  expect(references.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0)
   references.mockRestore()
 }, 30_000)
 

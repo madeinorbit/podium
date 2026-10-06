@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-4757 (H1) — a group's label is read from its head member, tracked.
  *
@@ -43,8 +44,8 @@ describe('group label (POD-4757 H1)', () => {
     try {
       // A group keyed by its repo id, and its head (the rank-first member).
       const found = tracked(() => {
-        for (const key of pool.groups.keys) {
-          const group = pool.groups.group(key)
+        for (const key of worklistGroups(pool).keys) {
+          const group = worklistGroups(pool).group(key)
           const head = [...group.rowIds, ...group.closedIds].find(
             (id) => pool.knownIssue(id)?.rank === group.headRank,
           )
@@ -55,7 +56,7 @@ describe('group label (POD-4757 H1)', () => {
       })
       expect(found, 'a group keyed by repo id').not.toBeNull()
       const { key, head } = found!
-      const group = pool.groups.group(key)
+      const group = worklistGroups(pool).group(key)
       const labels: string[] = []
       const stop = reaction(
         () => group.label,
@@ -68,13 +69,13 @@ describe('group label (POD-4757 H1)', () => {
         const moved: SliceIssue = { ...head, repoPath: '/elsewhere/renamed-checkout' }
         replay.push({ type: 'update', rows: [{ kind: 'issue', id: head.id, value: moved }] })
         // Nothing moved: same key, same order, same lanes, no lane touched.
-        expect(tracked(() => pool.groups.keys.includes(key))).toBe(true)
+        expect(tracked(() => worklistGroups(pool).keys.includes(key))).toBe(true)
         expect(tracked(() => visibleOrderOf(pool))).toEqual(orderBefore)
         expect(tracked(() => [[...group.rowIds], [...group.closedIds]])).toEqual(lanesBefore)
         // The header follows its head.
         expect(labels.at(-1)).toBe('renamed-checkout')
         expect(tracked(() => group.label)).toBe('renamed-checkout')
-        expect(tracked(() => pool.groups.layout.groups.find((g) => g.key === key)?.label)).toBe(
+        expect(tracked(() => worklistGroups(pool).layout.groups.find((g) => g.key === key)?.label)).toBe(
           'renamed-checkout',
         )
       } finally {

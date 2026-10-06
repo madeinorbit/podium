@@ -1,3 +1,4 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
 import {
@@ -82,7 +83,7 @@ const fixture = {
   ready: () => ready,
   state: () => {
     const store = referenceState(runtime!)
-    const sections = pool!.sidebar.sections()
+    const sections = sidebarView(pool!).sections()
     return {
       selected: store.selectedIssueId,
       pane: store.paneA,
@@ -114,7 +115,7 @@ const fixture = {
     )
   },
   title: (id: string) => {
-    const row = pool!.sidebar.row(id)
+    const row = sidebarView(pool!).row(id)
     return row === undefined || row === LOADING ? null : row.title
   },
   close: (id: string) => {

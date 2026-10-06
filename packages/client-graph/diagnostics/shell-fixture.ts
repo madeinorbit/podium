@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Synthetic rows only. Used by the focused tests and browser fixture. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -64,16 +65,16 @@ export function shellFixture(count = 40) {
     const keepRepos = new Set(state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
     const keepMachines = new Set<string>(state.machines.map(value => value.id))
     const keepOrders = new Set<string>(state.shipOrders.map(value => value.id))
-    pool.header.apply([
-      ...[...pool.header.tables.repository.keys()].filter(id => !keepRepos.has(id)).map(id => ({ kind: 'repository' as const, id, value: undefined })),
-      ...[...pool.header.tables.machine.keys()].filter(id => !keepMachines.has(id)).map(id => ({ kind: 'machine' as const, id, value: undefined })),
-      ...[...pool.header.tables.shipOrder.keys()].filter(id => !keepOrders.has(id)).map(id => ({ kind: 'shipOrder' as const, id, value: undefined })),
+    headerEntities(pool).apply([
+      ...[...headerEntities(pool).tables.repository.keys()].filter(id => !keepRepos.has(id)).map(id => ({ kind: 'repository' as const, id, value: undefined })),
+      ...[...headerEntities(pool).tables.machine.keys()].filter(id => !keepMachines.has(id)).map(id => ({ kind: 'machine' as const, id, value: undefined })),
+      ...[...headerEntities(pool).tables.shipOrder.keys()].filter(id => !keepOrders.has(id)).map(id => ({ kind: 'shipOrder' as const, id, value: undefined })),
       ...state.repos.map(value => ({ kind: 'repository' as const, id: JSON.stringify([value.machineId ?? '', value.path]), value })),
       ...state.machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
       ...state.shipOrders.map(value => ({ kind: 'shipOrder' as const, id: value.id, value })),
     ])
-    pool.header.order('repository', state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
-    pool.header.order('machine', state.machines.map(value => value.id)); pool.header.order('shipOrder', state.shipOrders.map(value => value.id))
+    headerEntities(pool).order('repository', state.repos.map(value => JSON.stringify([value.machineId ?? '', value.path])))
+    headerEntities(pool).order('machine', state.machines.map(value => value.id)); headerEntities(pool).order('shipOrder', state.shipOrders.map(value => value.id))
   }
   syncHeader()
   const source = new ShellSource(runtime)

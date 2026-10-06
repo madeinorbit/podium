@@ -1,3 +1,5 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -285,7 +287,7 @@ async function show(name = 'acceptance-alice', rebuild = false) {
         tables: graph.tables,
         relations: graph.graph,
         worklist: graph.worklist,
-        groups: graph.groups,
+        groups: worklistGroups(graph),
         clock: graph.clock,
         residency: graph.residency,
       }))
@@ -417,7 +419,7 @@ const fixture = {
     const s = referenceState(owner!)
     const keys = [
       'podium:sidebar:pinned-fold',
-      ...graph.sidebar
+      ...sidebarView(graph)
         .sections()
         .bands.flatMap((band) => [band.foldKey, band.snoozedFoldKey, band.closedFoldKey]),
     ]

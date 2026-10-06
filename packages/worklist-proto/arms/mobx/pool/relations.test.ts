@@ -1,3 +1,4 @@
+import { sidebarRosterView } from '@podium/client-graph/worklist/sidebar-roster'
 /**
  * POD-4566 (Ma2) — the pool's relations, maintained from the declared schema
  * (`relations.ts`), held to a from-scratch resolution (`scanRelations`,
@@ -1288,7 +1289,7 @@ it('a root starts the nesting walk when it gains a parent, including a cycle', (
 
 it('an empty issue roster follows a later session and owner visibility changes', () => {
   const r = rig([lane('/repo'), issue('I1', { audience: 'agent' })])
-  const candidates = () => tracked(() => [...r.pool.sidebarRosters.candidates('/repo')])
+  const candidates = () => tracked(() => [...sidebarRosterView(r.pool).candidates('/repo')])
   try {
     expect(candidates()).toEqual([])
     r.push(session('S1', { issueId: 'I1', cwd: '/repo' }))

@@ -1,3 +1,4 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
 /**
  * POD-4565 (Ma1) — the round-three MobX pool on the native renderer:
@@ -97,7 +98,7 @@ describe('mobx pool on the native renderer', () => {
       expect(drawnIds.length).toBeGreaterThan(0)
       expect(drawnIds.length).toBeLessThan(visible)
       const grouped = tracked(() => {
-        const order = sliceOrderOf(handle.pool.groups.layout)
+        const order = sliceOrderOf(worklistGroups(handle.pool).layout)
         return [
           ...order.pinnedIds,
           ...order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),

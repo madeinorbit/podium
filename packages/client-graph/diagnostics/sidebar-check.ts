@@ -1,3 +1,5 @@
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /** Diagnostic-only differential. It never observes, hydrates or mutates the pool.
  * Both sides use one store publication, one clock and one caller-owned layout.
  * Reports contain locations and IDs, never titles, questions or row values.
@@ -159,7 +161,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
   const issue = (id: string): CheckRow => {
     let value = issues.get(id)
     if (!value) {
-      const row = pool.sidebar.row(id)
+      const row = sidebarView(pool).row(id)
       if (row === LOADING) pending += 1
       value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
         ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.issue(id)?.activityAt ?? 0, pool.clock.current, (seat) => pool.row('session', seat)),
@@ -169,7 +171,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
     return value
   }
   const worktree = (path: string): CheckRow => {
-    const row = pool.sidebar.worktree(path, state)
+    const row = sidebarView(pool).worktree(path, state)
     if (!row) return { id: path, fields: { absent: true } }
     pending += row.pending
     const ownerIds = new Set(row.sessions.flatMap(session => session.issueId ? [session.issueId] : []))
@@ -178,16 +180,16 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
       owners: [...ownerIds].map(id => ownerComparable(row.issues.find(owner => owner.id === id))),
     } }
   }
-  const sections = sectionSnapshot(pool.sidebar.sections(state), issue, worktree)
-  const layout = pool.groups.layout
+  const sections = sectionSnapshot(sidebarView(pool).sections(state), issue, worktree)
+  const layout = worklistGroups(pool).layout
   const ids = [...layout.pinnedIds, ...layout.groups.flatMap(group => [...group.rowIds, ...group.closedIds])]
-  const ranks = new Map(ids.map(id => [id, pool.groups.rankOf(id)!]))
+  const ranks = new Map(ids.map(id => [id, worklistGroups(pool).rankOf(id)!]))
   ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
   sections.push({ key: 'all-visible', fields: {}, rows: ids.map(issue) })
   return { sections, pending }
 }
 
 export function checkSidebar(pool: MobxPool, store: Store<PodiumClientApi>, state: SidebarState = {}, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
-  const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: pool.foldLatch.get() }
+  const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: worklistGroups(pool).foldLatch.get() }
   return compareSidebarSnapshots(legacySidebarSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals, state), poolSidebarSnapshot(pool, state), onDifference)
 }

@@ -1,3 +1,7 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
+import { settingsView } from '@podium/client-graph/settings-views'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /** Synthetic rows only. The driver inspects actual MobX name_ edges in V8. */
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -37,10 +41,10 @@ const stops = [autorun(() => {
     void issue.presence
     void pool.model('session', `heap-session-${i}`)!.retention
   }
-  void pool.header
-  void pool.headerViews.selectedIssue()
-  void pool.settingsViews.setup()
-  void pool.sidebar.sections()
+  void headerEntities(pool)
+  void headerView(pool).selectedIssue()
+  void settingsView(pool).setup()
+  void sidebarView(pool).sections()
   pool.clock.reached(now + 60_000)
 })]
 

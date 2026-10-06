@@ -1,3 +1,5 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
@@ -55,8 +57,8 @@ async function fixture(scale: 1 | 4 = 1) {
     quotas: [],
     connection: health as never,
     afterDays: 14,
-    lifecycle: handle.pool.header.received.lifecycle,
-    history: handle.pool.header.received.history,
+    lifecycle: headerEntities(handle.pool).received.lifecycle,
+    history: headerEntities(handle.pool).received.history,
   })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {
@@ -118,7 +120,7 @@ describe('header pool values', () => {
       referenceState(f.ctx.engine).setSelectedIssueId(id)
       await Promise.resolve()
       f.parity('normalized draft')
-      expect(f.pool.headerViews.folded()).toMatchObject({
+      expect(headerView(f.pool).folded()).toMatchObject({
         root: undefined,
         live: 0,
         loading: false,
@@ -200,12 +202,12 @@ describe('header pool values', () => {
         b++
       }),
       autorun(() => {
-        f.pool.headerViews.working()
-        f.pool.headerViews.aggregate(first)
-        f.pool.headerViews.occupancyKey()
-        f.pool.headerViews.shipping()
-        f.pool.headerViews.folded()
-        f.pool.headerViews.reclaimCounts(14)
+        headerView(f.pool).working()
+        headerView(f.pool).aggregate(first)
+        headerView(f.pool).occupancyKey()
+        headerView(f.pool).shipping()
+        headerView(f.pool).folded()
+        headerView(f.pool).reclaimCounts(14)
         status++
       }),
     ]
@@ -224,7 +226,7 @@ describe('header pool values', () => {
       // A membership delta still removes the metric and its inverse edge.
       f.ctx.hub.emit('hostMetrics', [metric(second, 'fixed')])
       expect(f.pool.row('hostMetric', first)).toBeUndefined()
-      expect(f.pool.header.members('machine', first, 'metrics')).toEqual([])
+      expect(headerEntities(f.pool).members('machine', first, 'metrics')).toEqual([])
     } finally {
       for (const stop of stops) stop()
       f.dispose()
@@ -238,7 +240,7 @@ describe('header pool values', () => {
     f.ctx.hub.emit('hostMetrics', [metric(machine, 'fixed')])
     let count = 0
     const stop = autorun(() => {
-      count = f.pool.headerViews.reclaimCounts(14)[machine] ?? 0
+      count = headerView(f.pool).reclaimCounts(14)[machine] ?? 0
     })
     const initial = count
     const id = 'cold-header-added'
@@ -278,20 +280,20 @@ describe('header pool values', () => {
     const f = await fixture()
     try {
       f.parity()
-      const actual = f.pool.headerViews.row('connection', 'server')!
-      f.pool.header.apply([{ kind: 'connection', id: 'server', value: { ...actual, rttMs: 999 } }])
+      const actual = headerView(f.pool).row('connection', 'server')!
+      headerEntities(f.pool).apply([{ kind: 'connection', id: 'server', value: { ...actual, rttMs: 999 } }])
       expect(
         runInAction(() => checkHeader(f.pool, referenceState(f.ctx.engine), f.inputs())).differences,
       ).toBeGreaterThan(0)
-      f.pool.header.apply([{ kind: 'connection', id: 'server', value: f.inputs().connection }])
+      headerEntities(f.pool).apply([{ kind: 'connection', id: 'server', value: f.inputs().connection }])
       const ids = f.inputs().metrics.map((row) => row.machineId ?? row.hostname)
-      runInAction(() => f.pool.header.order('hostMetric', [...ids].reverse()))
+      runInAction(() => headerEntities(f.pool).order('hostMetric', [...ids].reverse()))
       expect(
         runInAction(() => checkHeader(f.pool, referenceState(f.ctx.engine), f.inputs())).first
           ?.section,
       ).toBe('metrics')
-      runInAction(() => f.pool.header.order('hostMetric', ids))
-      f.pool.header.apply([
+      runInAction(() => headerEntities(f.pool).order('hostMetric', ids))
+      headerEntities(f.pool).apply([
         { kind: 'hostMetric', id: 'extra', value: metric('extra' as MachineId, 'fixed') },
       ])
       expect(

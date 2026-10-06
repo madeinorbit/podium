@@ -141,7 +141,7 @@ it('keeps fresh link reads, unrelated publications and nonempty prefix renames f
       ...Array.from({ length: 128 * scale }, (_, n) => session(`history-${n}`, { displayRef: `POD-${n + 2}-A` })),
     ]
     const f = fixture(rows), views = shellViews(f.pool)
-    const ids = vi.spyOn(f.pool.queries, 'ids'), refs = vi.spyOn(f.pool, 'references', 'get')
+    const ids = vi.spyOn(f.pool.queries, 'ids'), refs = vi.spyOn(f.pool.sources, 'view')
     const stops: (() => void)[] = []
     let targetRuns = 0
     try {
@@ -162,7 +162,7 @@ it('keeps fresh link reads, unrelated publications and nonempty prefix renames f
         f.publish({ type: 'update', rows: [repo('repo', 'NEW')] })
       }), { pool: f.pool })
       expect(f.pool.queries.linkedIssueId('NEW-1')).toBe('target')
-      expect(ids).not.toHaveBeenCalled(); expect(refs).not.toHaveBeenCalled()
+      expect(ids).not.toHaveBeenCalled(); expect(refs.mock.calls.filter(([key]) => key === 'references')).toHaveLength(0)
       return { reads: reads.work, unrelated: unrelated.work, rename: rename.work }
     } finally { for (const stop of stops) stop(); ids.mockRestore(); refs.mockRestore(); f.pool.dispose() }
   }

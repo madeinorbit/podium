@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Private bootstrap stays on ludovico. Export counts/positions only. Device
  * drafts, held sends and scoped threads are covered by the synthetic proofs. */
@@ -68,9 +69,9 @@ async function main() {
   await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () => createSessionExitSource(runtime))
   const source = new ChatContextSource(runtime as never, pool)
   pool.sources.register(CHAT_CONTEXT_ENTITIES, source)
-  pool.header.apply([...state.machines.map(row => ({ kind: 'machine' as const, id: row.id, value: row })),
+  headerEntities(pool).apply([...state.machines.map(row => ({ kind: 'machine' as const, id: row.id, value: row })),
     ...repos.map(row => ({ kind: 'repository' as const, id: row.path, value: row as never }))])
-  pool.header.order('machine', state.machines.map(row => row.id)); pool.header.order('repository', repos.map(row => row.path))
+  headerEntities(pool).order('machine', state.machines.map(row => row.id)); headerEntities(pool).order('repository', repos.map(row => row.path))
   const ids = [...new Set([...sessions.slice(0, 12).map(row => row.sessionId), ...messages.map(row => row.sessionId), ...interactions.map(row => row.sessionId)])]
   try {
     let result = checkChatContext(pool, state, issues, ids, ['', 'POD', 'task', '1'])

@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 /** Operator rows never leave ludovico. Read only the local database, with a
  * bounded busy timeout; no credentials, RPC, backend or exported payloads. */
 import { createRequire } from 'node:module'
@@ -58,7 +59,7 @@ try {
   const pool = new MobxPool({ coarseNow: Date.now(), selectedIssueId: null }, undefined,
     { summaries: NOTICE_SUMMARIES, load: (_entity, id) => sessions.find(row => row.sessionId === id) as never })
   pool.apply({ type: 'replace', rows: sessions.map(row => ({ kind: 'session', id: row.sessionId, value: row as never })) })
-  pool.header.apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0 } }])
+  headerEntities(pool).apply([{ kind: 'window', id: 'window', value: { view: 'workspace', paneA: null, fileTabs: [], outboxSize: 0 } }])
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(runtime))
   const state = { sessions, messageRecords: messages, pendingInteractions: interactions, outboxDeadLetters: [], outboxSize: 0 } as unknown as Store
   const sessionIds = [...new Set(interactions.map(row => row.sessionId))]
