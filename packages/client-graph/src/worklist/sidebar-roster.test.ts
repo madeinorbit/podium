@@ -8,6 +8,7 @@ import { sidebarRosterView } from './sidebar-roster'
 import { expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
 import { MobxPool } from '../pool'
+import { insideReader, measureWork } from '../../../worklist-proto/harness/src/work-meter'
 
 const NOW = Date.parse('2026-10-03T12:00:00Z')
 const LANE = '/synthetic/lane'
@@ -153,4 +154,73 @@ it('derives sidebar ownership inside the applying action without refiling seats'
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: owner as never }] })
     expect(file).not.toHaveBeenCalled()
   } finally { file.mockRestore(); stop(); pool.dispose() }
+})
+
+/** Most resident paths have represented owners, so only the unowned path is
+ * drawn. Evicting one owner adds its path without revisiting the other paths. */
+async function evictionWork(scale: number, plant = false) {
+  const group = '/synthetic/group'
+  const paths = Array.from({ length: 32 * scale }, (_, n) => `/synthetic/seat-${String(n).padStart(3, '0')}`)
+  const unowned = '/synthetic/unowned'
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const issues = paths.map((path, n) => ({
+    id: `owner-${n}`, seq: n + 1, title: `Owner ${n}`, repoPath: group,
+    worktreePath: path, stage: 'in_progress', audience: 'human',
+    createdAt: new Date(NOW).toISOString(), updatedAt: new Date(NOW).toISOString(),
+  }))
+  pool.apply({ type: 'replace', rows: [
+    ...[...paths, unowned].map(path => ({ kind: 'worktree' as const, id: path,
+      value: { path, repoPath: group, repoName: 'Group' } as never })),
+    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value: value as never })),
+    ...[...paths, unowned].map((cwd, n) => ({ kind: 'session' as const, id: `seat-${n}`,
+      value: { sessionId: `seat-${n}`, cwd, issueId: issues[n]?.id ?? null,
+        agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() } as never })),
+  ] })
+  const roster = sidebarRosterView(pool)
+  const original = roster.band.bind(roster)
+  const planted = plant ? vi.spyOn(roster, 'band').mockImplementation(key => ({
+    ...original(key),
+    ids: [...paths, unowned].filter(path => [...roster.candidates(path)].length > 0),
+  })) : undefined
+  let band!: ReturnType<typeof roster.band>
+  const stop = autorun(() => { band = roster.band(group) })
+  try {
+    expect(band.ids).toEqual([unowned])
+    const removed = await measureWork(async () => insideReader('sidebar eviction', () => {
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
+    }), { pool })
+    expect(band.ids).toEqual([paths[0], unowned])
+    const restored = await measureWork(async () => insideReader('sidebar restore', () => {
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: issues[0] as never }] })
+    }), { pool })
+    expect(band.ids).toEqual([unowned])
+    // Additional seats change the path's roster, but not group membership.
+    const before = band
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'another-unowned',
+      value: { sessionId: 'another-unowned', cwd: unowned, issueId: null,
+        agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() } as never }] })
+    if (!plant) expect(band).toBe(before)
+    stop()
+    runInAction(() => {
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
+      // An imperative read inside the action still sees the current facts.
+      expect(roster.band(group).ids).toEqual([paths[0], unowned])
+    })
+    return { removed: removed.work.elements, restored: restored.work.elements }
+  } finally { stop(); planted?.mockRestore(); pool.dispose() }
+}
+
+function assertAddressedRoster(first: Awaited<ReturnType<typeof evictionWork>>, second: Awaited<ReturnType<typeof evictionWork>>) {
+  expect(second.removed, 'eviction work grows with unrelated paths').toBeLessThanOrEqual(first.removed)
+  expect(second.restored, 'restore work grows with unrelated paths').toBeLessThanOrEqual(first.restored)
+}
+
+it('keeps observed group IDs addressed across eviction, restore and roster churn', async () => {
+  assertAddressedRoster(await evictionWork(1), await evictionWork(4))
+})
+
+it('rejects a planted whole-group path filter on eviction', async () => {
+  const first = await evictionWork(1, true)
+  const second = await evictionWork(4, true)
+  expect(() => assertAddressedRoster(first, second)).toThrow(/work grows with unrelated paths/)
 })
