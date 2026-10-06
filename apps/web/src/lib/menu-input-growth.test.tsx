@@ -3,14 +3,17 @@ import { MobxPool, LOADING, type MobxPool as Pool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { asIssueId, asMachineId, asRepoId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useCallback } from 'react'
+import { observer } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideArm, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { PoolIssueContextMenu } from '@/features/issues/issue-menu-pool-inputs'
+import { createPoolWorkActions } from '@/features/worklist/use-pool-unified-work'
 import { makeIssue } from './test-issue'
 import { PoolSessionContextMenu } from './PoolSessionContextMenu'
 
@@ -95,11 +98,18 @@ function MissionIssueMenu({ issue }: { issue: ReturnType<typeof makeIssue> }) {
     anchor={anchor} onClose={noop} poolInputs={values} />
 }
 
+const SidebarIssueMenu = observer(function SidebarIssueMenu({ issue }: { issue: ReturnType<typeof makeIssue> }) {
+  const data = createPoolWorkActions(f.pool!, { access: {} } as never, noop).resolveMenuData(issue.id)
+  return data.poolInputs === LOADING ? null : <IssueContextMenu issues={data.single} allIssues={data.all}
+    anchor={anchor} onClose={noop} poolInputs={data.poolInputs} />
+})
+
 it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () => {
   const report = []
-  for (const kind of ['issue', 'mission-issue', 'session'] as const) {
+  for (const kind of ['issue', 'sidebar-issue', 'mission-issue', 'session'] as const) {
     for (const scale of [1, 4]) {
       const { pool, issue } = fixture(scale)
+      if (kind === 'sidebar-issue') vi.spyOn(sidebarView(pool), 'row').mockReturnValue({ issue, deferred: false } as never)
       f.pool = pool
       const windows: Record<string, unknown> = {}
       const probe = async (name: string, action: () => void) => {
@@ -115,6 +125,7 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       await probe('menu-open', () => {
         render(kind === 'session' ? <PoolSessionContextMenu sessionId={sessionId} anchor={anchor} onClose={noop} onRename={noop} />
           : kind === 'issue' ? <PoolIssueContextMenu issues={[issue]} allIssues={[issue]} anchor={anchor} onClose={noop} />
+          : kind === 'sidebar-issue' ? <SidebarIssueMenu issue={issue} />
           : <MissionIssueMenu issue={issue} />)
       })
       const handoff = await screen.findByRole('menuitem', { name: /^Handoff/ })
