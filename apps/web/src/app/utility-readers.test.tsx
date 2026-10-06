@@ -7,6 +7,7 @@ import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { TranscriptLog } from '@podium/client-core/conversation'
+import type { TranscriptPage } from '@podium/client-core/transcript'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { asIssueId, asSessionId, asUserId, type SessionId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
@@ -123,7 +124,7 @@ function setup() {
     history: vi.fn(async () => ({
       sessions: { [session.sessionId]: [{ at: session.createdAt, phase: 'working' }] },
     })),
-    transcript: vi.fn(async () => ({
+    transcript: vi.fn(async (): Promise<TranscriptPage> => ({
       items: [{ id: 'prompt', role: 'user', text: 'Synthetic prompt' }],
       hasMore: false,
     })),
