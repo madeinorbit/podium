@@ -130,6 +130,27 @@ afterEach(() => {
 })
 
 describe('HostConnection: which request an ERR refuses', () => {
+  it('an ignored Windows signal reports a diagnostic without refusing a concurrent status', async () => {
+    const host = await fakeHost((frames, sock) => {
+      if (frames.length !== 2) return
+      expect(frames.map((f) => f.type)).toEqual([HostFrame.SIGNAL, HostFrame.STATUS])
+      sock.write(err(HostErr.UNSUPPORTED_SIGNAL, 'signal unsupported on Windows; ignored'))
+      const status = Buffer.alloc(24)
+      status[0] = 1
+      status[22] = 1
+      sock.write(encodeHostFrame(HostFrame.STATUS_REPLY, status))
+    })
+    cleanups.push(host.close)
+    const conn = connectHost(host.path)
+    cleanups.push(() => conn.destroy())
+    await conn.welcome
+    const errors: string[] = []
+    conn.onError((e) => errors.push(e.message))
+    conn.signal(28)
+    expect((await conn.status()).alive).toBe(true)
+    expect(errors).toEqual(['signal unsupported on Windows; ignored'])
+  })
+
   it('an ERR naming a write rejects exactly that write; earlier writes and a resize are untouched', async () => {
     const host = await fakeHost((frames, sock) => {
       // Once write 1, write 2 and the resize are all in: refuse write 2 by id,

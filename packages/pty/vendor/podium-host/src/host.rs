@@ -655,7 +655,7 @@ impl Host {
                     // Report the ignored request so the daemon logs it; never kill.
                     self.refuse(
                         ci,
-                        proto::ERR_BAD_FRAME,
+                        proto::ERR_UNSUPPORTED_SIGNAL,
                         "signal unsupported on Windows; ignored",
                     );
                 }

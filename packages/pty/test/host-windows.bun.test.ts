@@ -324,9 +324,10 @@ describe.skipIf(!windows)('Windows durable host', () => {
     s.connection.onError((e) => errors.push(e.message))
     for (const signal of [1, 18, 28]) {
       s.connection.signal(signal)
+      // STATUS is pending while the diagnostic arrives: SIGNAL cannot consume it.
+      expect((await s.connection.status()).alive).toBe(true)
       await until(() => errors.length > 0, 'unsupported signal reported')
       expect(errors.shift()).toContain('ignored')
-      expect((await s.connection.status()).alive).toBe(true)
     }
     s.connection.signal(2)
     await until(() => s.connection.exited !== undefined, 'pipe interrupt terminates')

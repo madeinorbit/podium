@@ -90,7 +90,7 @@ export const HostFeature = { SCREEN: 1 } as const
  * where the C host queues without limit. An ERR that refuses a WRITE may carry
  * that write's u32 id after the message (the Rust host always sends it).
  */
-export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5 } as const
+export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5, UNSUPPORTED_SIGNAL: 7 } as const
 
 /** `fromSeq` meaning "from the tail: replay nothing". */
 export const HOST_TAIL = 0xffff_ffff_ffff_ffffn
@@ -410,6 +410,12 @@ export class HostConnection {
         const code = p.readUInt16BE(0)
         const n = p.readUInt32BE(2)
         const err = new HostError(code, p.subarray(6, 6 + n).toString('utf8'))
+        // SIGNAL has no request id or response slot. Its Windows diagnostic
+        // must never reject a concurrent resize, status or accepted write.
+        if (code === HostErr.UNSUPPORTED_SIGNAL) {
+          for (const cb of [...this.errCbs]) cb(err)
+          return
+        }
         // A refused WRITE names itself: reject exactly that write. Without the
         // id, an ERR is matched to the oldest pending request, which is wrong
         // when writes the host accepted are still pending (queued, WRITTEN not
