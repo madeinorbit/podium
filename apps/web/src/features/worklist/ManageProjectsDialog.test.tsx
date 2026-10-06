@@ -10,7 +10,15 @@ vi.mock('@/app/store', () => ({
     select({
       setSidebarSettings: saveOrder,
       sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] },
+      pins: { repos: [], worktrees: [] },
     }),
+}))
+
+vi.mock('./use-sidebar-projects', () => ({
+  useSidebarProjects: () => [
+    { key: 'repo-a', name: 'Alpha', aliases: ['repo-a', '/a'] },
+    { key: 'repo-b', name: 'Beta', aliases: ['repo-b', '/b'] },
+  ],
 }))
 
 afterEach(() => {
