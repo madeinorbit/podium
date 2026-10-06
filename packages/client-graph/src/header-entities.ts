@@ -167,6 +167,7 @@ export function createHeaderEntities() {
     idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
     repositoryGroup: (path: string) => repositories.group(path),
+    repositoryRootIds: () => repositories.rootIds(),
     shippingScope: (cwd: string, machineId?: string) => repositories.shippingScope(cwd, machineId),
     offlineMachineIds: function* (now: number): Generator<string> {
       let value = offlineOrder.firstBounded(-now, 'atMost')

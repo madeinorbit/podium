@@ -120,6 +120,37 @@ function pickFirstClaudeModel() {
 }
 
 describe('phone launch demand bounds', () => {
+  it.each([1, 4])('reads only root scan rows at %sx linked-worktree history', async (scale) => {
+    let pool: MobxPool | null = null
+    function Capture() {
+      pool = useMobilePool()
+      return null
+    }
+    const path = '/home/dev/podium'
+    const root = {
+      ...repo(path),
+      worktrees: Array.from({ length: 32 * scale }, (_, n) => ({ path: `${path}/wt-${n}` })),
+    }
+    const linked = root.worktrees.map((tree) => ({ ...repo(tree.path), worktrees: [] }))
+    await renderWithMobileStore(
+      <><Capture /><NewWorkButton /></>,
+      { repos: [root, ...linked], machines: READY },
+    )
+    const attached = pool as MobxPool | null
+    if (!attached) throw new Error('Pool did not attach')
+    const rows = vi.spyOn(attached, 'row')
+    fireEvent.click(screen.getByLabelText('New work'))
+    await screen.findByLabelText('Start in podium')
+    expect(rows.mock.calls.filter(([kind]) => kind === 'repository')).toHaveLength(1)
+    rows.mockClear()
+    await act(async () => {
+      attached.header.apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
+        value: { ...linked[0]!, branch: 'unshown' } }])
+    })
+    expect(rows.mock.calls.filter(([kind]) => kind === 'repository')).toHaveLength(0)
+    expect(screen.getByLabelText('Start in podium')).toBeDefined()
+  })
+
   it.each([
     1, 4,
   ])('keeps catalogs and machine reads closed at %sx history, and opens without session rows', async (scale) => {

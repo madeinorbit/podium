@@ -65,7 +65,7 @@ const EMPTY_INPUTS = {
 /** Only displayed machine/project rows. History defaults are scalar questions. */
 function readLaunchInputs(pool: MobxPool) {
   const machines = pool.headerViews.machines()
-  const scans = pool.headerViews.ids('repository').flatMap((id) => {
+  const scans = pool.header.repositoryRootIds().flatMap((id) => {
     const row = pool.row('repository', id) as GitRepositoryWire | undefined
     return row && typeof row !== 'symbol' ? [row] : []
   })

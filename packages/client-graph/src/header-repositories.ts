@@ -1,5 +1,5 @@
 import { normalizeOriginUrl } from '@podium/model/browser'
-import { compareStructural, observable } from 'mobx'
+import { compareStructural, computed, observable } from 'mobx'
 import type { HeaderRows } from './header-schema'
 import { createKeyedAnswer, type KeyedAnswer } from './query-result'
 
@@ -30,6 +30,9 @@ export function createHeaderRepositoryRelations() {
   const facts = observable.map<string, Identity>(undefined, { deep: false })
   const paths = observable.map<string, KeyedAnswer<RankedId>>(undefined, { deep: false })
   const groups = observable.map<string, KeyedAnswer<RankedId>>(undefined, { deep: false })
+  const roots = observable.map<string, readonly RankedId[]>(undefined, { deep: false })
+  const rootIds = computed(() => [...roots.values()].flat()
+    .sort((a, b) => a.rank - b.rank).map(value => value.id), { equals: compareStructural })
   const linked = observable.map<string, number>(undefined, { deep: false })
   const scopeAnswers = new Map<string, KeyedAnswer<Scope>>()
   const firstScopes = observable.map<string, Scope>(undefined, { deep: false })
@@ -68,9 +71,14 @@ export function createHeaderRepositoryRelations() {
       const ids = eligible(group),
         first = ids[0]
       if (first === undefined) {
+        roots.delete(group)
         scopeMembers.delete(group)
         continue
       }
+      // Launch choices draw root checkouts, never the standalone scan rows
+      // for their linked worktrees. Maintain that membership with this group.
+      const nextRoots = ids.map(id => ({ id, rank: rank(id) }))
+      if (!compareStructural(roots.get(group), nextRoots)) roots.set(group, nextRoots)
       const repoId = ids.map((id) => facts.get(id)!.repoId).find((id) => id !== undefined) ?? null
       const order = rank(first),
         members: { key: string; id: string }[] = []
@@ -172,6 +180,7 @@ export function createHeaderRepositoryRelations() {
       }
       return EMPTY
     },
+    rootIds: () => rootIds.get(),
     flush,
     shippingScope(
       cwd: string,
@@ -221,6 +230,7 @@ export function createHeaderRepositoryRelations() {
       facts.clear()
       paths.clear()
       groups.clear()
+      roots.clear()
       linked.clear()
       positions = undefined
       arrival = 0
