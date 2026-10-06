@@ -74,6 +74,12 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         }) as MachineWire,
     )
     headerEntities(pool).apply(machines.map((value) => ({ kind: 'machine', id: value.id, value })))
+    // Direct applies bypass the keyed delivery that sets the fleet order in
+    // production; publish it so the section under test sees the live fleet.
+    headerEntities(pool).order(
+      'machine',
+      machines.map((value) => value.id),
+    )
     const measure = (action: () => void) =>
       measureWork(
         async () => {
@@ -142,6 +148,10 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
         ]),
       )
       expect(detached.work.rows).toBe(0)
+      headerEntities(pool).order('machine', [
+        ...machines.map((value) => value.id),
+        asMachineId('missing'),
+      ])
       const control = await measureWork(
         async () => {
           const legacy = createPoolProjection(pool, (current) => headerView(current).machines())
