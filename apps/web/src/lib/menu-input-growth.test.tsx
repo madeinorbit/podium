@@ -81,6 +81,7 @@ function fixture(scale: number) {
       value: { kind: 'repository' as const, path: `/other-${i}`, machineId: sourceId, worktrees: [] } })),
     ...['source', 'target', 'other-target'].map(id => ({ kind: 'machine' as const, id, value: machine(id) })),
   ])
+  headerEntities(pool).order('machine', ['source', 'target', 'other-target'])
   pools.push(pool)
   return { pool, issue }
 }
