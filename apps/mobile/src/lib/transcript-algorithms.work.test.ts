@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
-import { insideReader, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { buildMobileTranscript, matchMobileTranscript } from './transcript-feed'
 
 /** The snapshot algorithm is the negative control for the retained model work. */

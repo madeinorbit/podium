@@ -1,7 +1,7 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import type { TranscriptComputeWorkerRequest, TranscriptWorkerResponse } from './transcript-compute.worker'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })

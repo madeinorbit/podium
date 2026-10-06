@@ -1,7 +1,7 @@
 import { reaction } from 'mobx'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '../replica/contract'
 import type { TranscriptPage } from '../transcript/contracts'
 import { TranscriptLog, type TranscriptChange } from './transcript-log'
