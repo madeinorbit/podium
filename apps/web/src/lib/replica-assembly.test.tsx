@@ -80,6 +80,7 @@ describe('web shared assembly adapter', () => {
     expect(result.current.status).toBe('kernel')
     expect(openAssembly).toHaveBeenCalledOnce()
     unmount()
+    await act(async () => {})
     expect(dispose).toHaveBeenCalledOnce()
   })
 
@@ -152,8 +153,9 @@ describe('web shared assembly adapter', () => {
         }),
       { initialProps: { who: principal } },
     )
+    await vi.waitFor(() => expect(openAssembly).toHaveBeenCalledTimes(1))
     await act(async () => opens[0]?.(first))
-    expect(result.current.status).toBe('kernel')
+    await vi.waitFor(() => expect(result.current.status).toBe('kernel'))
     rerender({ who: other })
     await vi.waitFor(() => expect(openAssembly).toHaveBeenCalledTimes(2))
     expect(result.current.status).toBe('kernel')
