@@ -33,7 +33,7 @@ const handoffMutate = vi.fn(async () => ({ ok: true }))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({
-    getSnapshot: () => ({
+    access: {
       trpc: { sessions: { handoff: { mutate: handoffMutate } } },
       markIssueRead: vi.fn(),
       markIssueUnread: vi.fn(),
@@ -46,7 +46,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
       get machines() {
         throw new Error('Task menu read legacy machines')
       },
-    }),
+    },
   }),
 }))
 vi.mock('@/app/store', () => ({

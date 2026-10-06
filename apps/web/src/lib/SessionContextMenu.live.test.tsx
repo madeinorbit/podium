@@ -21,7 +21,7 @@ const handoffMutate = vi.fn(async () => ({ ok: true }))
 
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({
-    getSnapshot: () => ({
+    access: {
       setPinned: vi.fn(),
       setSnooze: vi.fn(),
       clearSnooze: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('@podium/client-core/react', () => ({
       get issues() {
         throw new Error('Menu read legacy issues')
       },
-    }),
+    },
   }),
 }))
 vi.mock('@/app/store', () => ({
