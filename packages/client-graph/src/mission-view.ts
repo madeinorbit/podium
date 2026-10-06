@@ -650,11 +650,12 @@ export class MissionViewReader {
    * derived pane instead of rebuilding it (review finding 2). */
   values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     if (!id) return EMPTY_MISSION_VIEW
-    const rootId = this.rootFor(id)
-    if (rootId === LOADING) return LOADING
-    if (!rootId) return EMPTY_MISSION_VIEW
-    const root = this.rootValue(rootId)
-    if (!root) return EMPTY_MISSION_VIEW
+    // The root goes through selectedRoot so a screen's override (the phone
+    // opens archived roots and waits on known cold rows) still applies.
+    const root = this.selectedRoot(id)
+    if (root === undefined) return EMPTY_MISSION_VIEW
+    const rootId = root === LOADING ? this.rootFor(id) : root.id
+    if (typeof rootId !== 'string') return LOADING
     const deck = this.deck(rootId, mode)
     // These independent questions are needed by the same pane. Observe each
     // before propagating LOADING, so their requests share the 50 ms window.
