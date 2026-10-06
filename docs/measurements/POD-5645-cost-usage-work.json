@@ -1,0 +1,185 @@
+{
+  "issue": "POD-5645",
+  "date": "2026-10-06",
+  "host": "flatblock",
+  "pilotBase": "1c0aae9c7a",
+  "baselineProbe": "43a9728554",
+  "productCandidate": "9861eed98b",
+  "method": "Mounted production readers and real polling hooks with the real StoreProvider over a test runtime. Proxy arrays count source-index visits; pricing and projection functions are unchanged. Input snapshot construction is outside each measured reader window. These are focused work counts, not latency or a full performance census.",
+  "requestedOutput": {
+    "missionRollupUsd": 10,
+    "taskRows": 6,
+    "usageBuckets": 24,
+    "chartHours": 168
+  },
+  "history": {
+    "oneX": 80,
+    "fourX": 320,
+    "kind": "Undisplayed mission transcript rows plus unrelated archived resident sessions"
+  },
+  "baseline": {
+    "MissionCostChip": {
+      "mountTranscriptReads": [
+        80,
+        320
+      ],
+      "oneNewTranscriptAnswerReads": [
+        81,
+        321
+      ]
+    },
+    "useMissionCost": {
+      "mountTranscriptReads": [
+        80,
+        320
+      ],
+      "oneNewTranscriptAnswerReads": [
+        81,
+        321
+      ]
+    }
+  },
+  "fixed": {
+    "MissionCostChip": {
+      "mountTranscriptReads": [
+        0,
+        0
+      ],
+      "oneNewTranscriptAnswerReads": [
+        0,
+        0
+      ],
+      "displayedRollupUsdAfterAnswer": 15,
+      "openedPopoverCohortReads": [
+        6,
+        6
+      ]
+    },
+    "useMissionCost": {
+      "mountTranscriptReads": [
+        0,
+        0
+      ],
+      "oneNewTranscriptAnswerReads": [
+        0,
+        0
+      ],
+      "ownUsdAfterAnswer": 5,
+      "rollupUsdAfterAnswer": 15,
+      "usdPerReplyAfterAnswer": 0.2
+    },
+    "useTaskCost": {
+      "requestedTranscriptReadsAtMount": [
+        80,
+        320
+      ],
+      "requestedTranscriptReadsAfterAnswer": [
+        81,
+        321
+      ],
+      "cohortRowReadsAtMount": [
+        6,
+        6
+      ],
+      "scope": "The full detail view requests these session rows; no repair is warranted for that growth."
+    },
+    "useTaskCosts": {
+      "requestedTaskSourceVisitsAtMount": [
+        12,
+        12
+      ],
+      "requestedTaskSourceVisitsAfterFreshAnswer": [
+        12,
+        12
+      ],
+      "scope": "Six displayed rows are visited once for the cohort and once for pricing; fresh RPC arrays are used."
+    },
+    "UsageView": {
+      "requestedBucketReadsAtMount": [
+        24,
+        24
+      ],
+      "requestedBucketReadsAfterOneBucketAnswer": [
+        25,
+        25
+      ],
+      "requestedTaskSourceVisitsAtMount": [
+        12,
+        12
+      ],
+      "requestedTaskSourceVisitsAfterFreshAnswer": [
+        12,
+        12
+      ]
+    },
+    "UsageTasks": {
+      "requestedTaskViewReadsAtMount": [
+        6,
+        6
+      ],
+      "displayedTaskRows": [
+        6,
+        6
+      ]
+    },
+    "allMountedReaders": {
+      "residentHistoryReads": [
+        0,
+        0
+      ],
+      "sourceRowReadsOnSessionPublication": [
+        0,
+        0
+      ],
+      "sourceRowReadsOnHeartbeat": [
+        0,
+        0
+      ],
+      "runtimeSubscriptions": [
+        0,
+        0
+      ]
+    }
+  },
+  "change": "Only useMissionCost omits session detail from its existing memoized, per-issue server-aggregate projection. Full task detail, cohort, server aggregation and models are unchanged. No new model fields, deep comparison, reaction-maintained data or client aggregate cache.",
+  "validation": {
+    "focused": {
+      "command": "bun run test:file -- apps/web/src/features/cost/cost-usage.work.test.tsx",
+      "tests": 2,
+      "result": "green",
+      "peakProcessRssKiB": 281924
+    },
+    "fullTypecheck": {
+      "command": "bun run typecheck",
+      "tasks": 29,
+      "successful": 29,
+      "cached": 26,
+      "result": "green",
+      "peakProcessRssKiB": 3414552
+    },
+    "leanGate": {
+      "command": "bun run test",
+      "files": 4,
+      "collectedFiles": 1825,
+      "executedTests": 154,
+      "result": "lean gate green",
+      "peakProcessRssKiB": 1070784
+    },
+    "interactionScan": {
+      "command": "bun scripts/check-interaction-scans.ts",
+      "fingerprints": 2386,
+      "occurrences": 2387,
+      "ratchetErrors": 0,
+      "classificationChange": false
+    },
+    "webBuild": {
+      "command": "cd apps/web && bun run build",
+      "result": "green",
+      "peakProcessRssKiB": 1263600
+    },
+    "structuralCensus": {
+      "command": "bun run speed:structural",
+      "result": "pending meter:flatblock lease"
+    }
+  }
+}
