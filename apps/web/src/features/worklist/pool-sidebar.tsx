@@ -107,7 +107,7 @@ export function usePoolLayoutState(): SidebarState {
   return useMemo(() => layout, [layout])
 }
 
-function slotsFor(sections: SidebarSections): RowTransitionTarget<Slot>[] {
+function slotsFor(sections: SidebarSections, orderByScope?: Map<string, readonly string[]>): RowTransitionTarget<Slot>[] {
   const slots: RowTransitionTarget<Slot>[] = []
   const add = (
     id: string,
@@ -123,6 +123,7 @@ function slotsFor(sections: SidebarSections): RowTransitionTarget<Slot>[] {
     })
   for (const id of sections.pinnedIds) add(id, 'issue', 'pinned', 'pinned', 'Pinned')
   for (const band of sections.bands) {
+    orderByScope?.set(`group:${band.key}`, band.rowIds)
     for (const id of band.rowIds) add(id, 'issue', 'open', band.key, band.label)
     for (const id of band.worktreeIds) add(id, 'worktree', 'open', band.key, band.label)
     for (const id of band.snoozedIds) add(id, 'issue', 'snoozed', band.key, band.label)
@@ -248,30 +249,24 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const actions = usePoolUnifiedWork(pool)
   const sections = sidebarView(pool).sections(state)
   const stableSlots = useRef(new Map<string, Slot>())
-  const targets = useMemo(() => {
-    const next = slotsFor(sections).map((target) => {
+  const { targets, slotById, orderByScope } = useMemo(() => {
+    const slotById = new Map<string, Slot>()
+    const orderByScope = new Map<string, readonly string[]>()
+    orderByScope.set('pinned', sections.pinnedIds)
+    const next = slotsFor(sections, orderByScope).map((target) => {
       const key = `${target.key}:${target.placement}`
       const previous = stableSlots.current.get(key)
       const value = previous && compareStructural(previous, target.value) ? previous : target.value
       stableSlots.current.set(key, value)
+      slotById.set(value.id, value)
       return { ...target, value }
     })
     const keys = new Set(next.map((target) => `${target.key}:${target.placement}`))
     for (const key of stableSlots.current.keys())
       if (!keys.has(key)) stableSlots.current.delete(key)
-    return next
+    return { targets: next, slotById, orderByScope }
   }, [sections])
   const { items, settle, discardExit } = useRowTransitions(targets)
-  // Membership owns these indexes. Selection, heartbeat, scroll and drag frames
-  // reuse them; a gesture never rebuilds the complete order from its DOM window.
-  const targetById = useMemo(() => {
-    const targetById = new Map<string, RowTransitionTarget<Slot>>()
-    for (const target of targets) {
-      targetById.set(target.value.id, target)
-    }
-    return targetById
-  }, [targets])
-  const bandByKey = useMemo(() => new Map(sections.bands.map((band) => [band.key, band])), [sections])
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
@@ -288,14 +283,14 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       return
     }
     if (revealedSelection.current === selectedId) return
-    const selected = targetById.get(selectedId)
+    const selected = slotById.get(selectedId)
     if (!selected) return
     revealedSelection.current = selectedId
     const key =
-      selected.value.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.value.groupKey)
+      selected.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.groupKey)
     if (collapsed.has(key)) toggle(key)
     // Selection is the reveal request; folding the current selection stays folded.
-  }, [selectedId, targetById, collapsed, toggle])
+  }, [selectedId, slotById, collapsed, toggle])
   const search = useMemo(
     () =>
       computed(
@@ -318,7 +313,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     return value === undefined || value === LOADING ? undefined : value
   }
   const { startDrag, dragging, draggedId } = useRowDrag({
-    virtualOrder: (scope) => scope === 'pinned' ? sections.pinnedIds : bandByKey.get(scope.slice('group:'.length))?.rowIds ?? NO_DRAG_ROWS,
+    virtualOrder: (scope) => orderByScope.get(scope) ?? NO_DRAG_ROWS,
     allowedTargets: (scope, id) => {
       const value = issue(id)
       return scope === 'pinned'
