@@ -54,7 +54,7 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
 
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { RowView } from '@podium/client-graph/shared/row-view'
-import { observable, reaction, runInAction } from 'mobx'
+import { getObserverTree, observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -279,9 +279,21 @@ interface ChainCell {
 async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCell> {
   return withMounted(create, async (ctx, mounted, handle, flush) => {
     const chain = findChain(handle.pool)
+    if (process.env.POD_ANCESTOR_TRACE === '1') {
+      console.info('[ancestor trace before]', JSON.stringify({ chain,
+        sessionObservers: getObserverTree(handle.pool.tables.session, chain.sessionId),
+        rows: chain.rows.map(id => ({ id, text: document.querySelector(`[data-issue-row="${id}"]`)?.textContent })),
+      }))
+    }
     mounted.log.reset()
     mounted.reads.reset()
     const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, questionOn(chain))
+    if (process.env.POD_ANCESTOR_TRACE === '1') {
+      console.info('[ancestor trace after]', JSON.stringify({ result,
+        sessionObservers: getObserverTree(handle.pool.tables.session, chain.sessionId),
+        rows: chain.rows.map(id => ({ id, text: document.querySelector(`[data-issue-row="${id}"]`)?.textContent })),
+      }))
+    }
     if (parity) {
       assertCommits(result)
       checkParity(ctx, handle, 'depth 4')
