@@ -253,9 +253,10 @@ export async function poolScreenCellsAt(
   scale: FixtureScale,
   onCell?: (cell: ScreenWorkCell) => void,
   /** Mount only these readers: a focused gate for one screen's fix. The
-   * full guard mounts every reader, as the app does. */
+   * full diagnostic guard retains readers from every screen. */
   only?: ReadonlySet<string>,
   actions: readonly ScreenAction[] = SCREEN_ACTIONS,
+  scene?: 'background-terminal',
 ): Promise<ScreenWorkRun> {
   // POD-5466: installed before the engine starts, so every timer the app
   // schedules, the startup ones included, is tagged and can be settled.
@@ -263,7 +264,7 @@ export async function poolScreenCellsAt(
   try {
     const ctx = await startScenarioEngine(scale, { ownRows: true })
     try {
-      return await measureScreenCells(ctx, scale, ledger, onCell, only, actions)
+      return await measureScreenCells(ctx, scale, ledger, onCell, only, actions, scene)
     } finally {
       ctx.engine.destroy()
     }
@@ -286,10 +287,18 @@ async function measureScreenCells(
   onCell?: (cell: ScreenWorkCell) => void,
   only?: ReadonlySet<string>,
   selectedActions: readonly ScreenAction[] = SCREEN_ACTIONS,
+  scene?: 'background-terminal',
 ): Promise<ScreenWorkRun> {
   const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
   progress('kernel ready')
   const ref = seedNeighbourhood(ctx, scale)
+  // POD-5501's fresh background recipe selects a fixed control mission and
+  // opens its native terminal, then updates the first live corpus session.
+  // The update is independent of the selected control's pane/mission.
+  const heartbeatId = scene === 'background-terminal'
+    ? ctx.corpus.sessions.find((session) => session.status === 'live')!.sessionId
+    : SESSION
+  if (scene === 'background-terminal') referenceState(ctx.engine).setPane('A', asSessionId(SESSION))
   // The real web host enables this before attaching a pilot-on pool.
 
   const handle = createRuntimeWorklistPool(ctx.engine, {
@@ -433,7 +442,7 @@ async function measureScreenCells(
       files: readFiles(pool),
     }))
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
-      readMissionPane(pool, { ...window.get(), mode: 'full', handoff: true }),
+      readMissionPane(pool, { ...window.get(), mode: 'full', handoff: scene !== 'background-terminal' }),
     )
     add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () =>
       readWorkspaceMission(missionView(pool), selected(), selected()),
@@ -622,6 +631,8 @@ async function measureScreenCells(
       if (pool.tables.worktree.has(worktree)) keys.push(`worktree:${worktree}`)
       for (const id of [SESSION, OTHER_SESSION])
         if (ctx.cache.read('session', id)) keys.push(`session:${id}`)
+      if (scene === 'background-terminal' && !keys.includes(`session:${heartbeatId}`))
+        keys.push(`session:${heartbeatId}`)
       const state = window.get()
       for (const id of [state.paneA, state.split ? state.paneB : null]) {
         if (id && ctx.cache.read('session', id) && !keys.includes(`session:${id}`))
@@ -662,7 +673,10 @@ async function measureScreenCells(
           referenceState(ctx.engine).navigateToSession(asSessionId(ref)),
         )
       },
-      heartbeat: () => seatPatch({ lastActiveAt: ctx.stamp() }),
+      heartbeat: () => upsert(ctx, 'session', heartbeatId, {
+        ...(ctx.cache.read('session', heartbeatId)!.value as object),
+        lastActiveAt: ctx.stamp(),
+      }, 3),
       'machine-flip': () => {
         const id = ctx.corpus.machines[0]!.id
         const machine = ctx.cache.read('machine', id)!.value as { loggedOutHarnesses: string[] }
@@ -679,7 +693,8 @@ async function measureScreenCells(
     const proveAction = (action: ScreenAction) => {
       const state = referenceState(ctx.engine)
       const issue = pool.row('issue', ROOT)
-      const session = pool.row('session', SESSION)
+      const sessionId = action === 'heartbeat' ? heartbeatId : SESSION
+      const session = pool.row('session', sessionId)
       if (action === 'select' && state.selectedIssueId !== CHILD)
         throw new Error('Selection click did not select its row')
       if (action === 'pane-switch' && state.paneA !== SESSION)
@@ -700,7 +715,7 @@ async function measureScreenCells(
         (!session ||
           session === LOADING ||
           Reflect.get(session, 'lastActiveAt') !==
-            Reflect.get(ctx.cache.read('session', SESSION)!.value as object, 'lastActiveAt'))
+            Reflect.get(ctx.cache.read('session', sessionId)!.value as object, 'lastActiveAt'))
       )
         throw new Error('Heartbeat did not reach its session')
       if (action === 'machine-flip') {
