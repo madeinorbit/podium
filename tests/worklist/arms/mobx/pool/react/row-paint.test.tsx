@@ -115,10 +115,10 @@ it.each(fields)('redraws the harness ancestor for displayed $name', ({ path }) =
   finally { row.dispose() }
 })
 
-it('redraws when the last formal child changes fromChildren/statusFromChildren with equal totals', () => {
+it.each(['fromChildren', 'statusFromChildren'] as const)('redraws when the last formal child changes %s with equal totals', field => {
   const base = payload()
-  const next = { ...base, fromChildren: false, statusFromChildren: false }
-  expect(poolIssuePaint(next).display.statusLine).not.toBe(poolIssuePaint(base).display.statusLine)
+  const next = { ...base, [field]: false }
+  expect(next.progress).toEqual(base.progress)
   const row = mount(base)
   try { row.change(next); expect(row.commits).toHaveBeenCalledTimes(1) }
   finally { row.dispose() }

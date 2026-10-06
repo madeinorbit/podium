@@ -34,7 +34,11 @@ export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElemen
     // than its navigation snapshot; equal paint stops ancestor propagation.
     return computed(() => {
       const value = sidebarValues(row, pool)
-      return value === LOADING || value === undefined ? value : JSON.stringify(poolIssuePaint(value))
+      return value === LOADING || value === undefined ? value : JSON.stringify({
+        paint: poolIssuePaint(value),
+        fromChildren: value.fromChildren,
+        statusFromChildren: value.statusFromChildren,
+      })
     }, { name: `IssueModel@${row.id}.sidebarPaint` })
   }, [row])
   void sidebar?.get()

@@ -53,6 +53,9 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
 
 
 import type { MobxPool } from '@podium/client-graph/pool'
+import { sidebarValues } from '@podium/client-graph/worklist/sidebar'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { poolIssuePaint } from '../../../../../../apps/web/src/features/worklist/pool-row-data'
 import type { RowView } from '@podium/client-graph/shared/row-view'
 import { getObserverTree, observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
@@ -469,7 +472,15 @@ describe('row roll-ups (Mb3)', () => {
       for (const entry of FENCE_SCENARIOS) {
         mounted.log.reset()
         mounted.reads.reset()
+        const parentTrace = () => tracked(() => {
+          const value = sidebarValues(handle.pool.issueObject('i635'), handle.pool)
+          return value === LOADING || value === undefined ? value : {
+            paint: poolIssuePaint(value), fromChildren: value.fromChildren, statusFromChildren: value.statusFromChildren,
+          }
+        })
+        const parentBefore = process.env.POD_ANCESTOR_TRACE === '1' && entry.scenario === 'parentReassignment' ? parentTrace() : undefined
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
+        if (parentBefore !== undefined) console.info('[ancestor reparent trace]', JSON.stringify({ before: parentBefore, after: parentTrace(), result }))
         assertCommits(result)
         // Reads are recorded, not held to a fixed budget: whether they grow
         // with the data is the work-per-change check's (POD-4746).
