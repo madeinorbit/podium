@@ -8,7 +8,7 @@
  * pool's tables, engine and views but never the reverse.
  */
 
-import { runInAction } from 'mobx'
+import { runInAction, untracked } from 'mobx'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { relationLinks } from '@podium/client-graph/shared/links'
@@ -516,11 +516,38 @@ function rebuild(
   for (const record of source.snapshot('session')) ingestRecord(target, record, out)
   for (const record of issues) ingestRecord(target, record, out)
   for (const record of source.snapshot('worktree')) ingestRecord(target, record, out)
+  // POD-5754: ingest the canonical repo projections last so they win over
+  // worktree lanes (the live pool's repo rows carry the projection's prefix
+  // and canonical path; lanes alone have neither). Without this the rebuild's
+  // repo table holds a lane (last wins: /repo-016, no prefix) while the live
+  // pool holds the projection (/repo-000, POD), so displayRefs lose their
+  // prefixes and group labels diverge. Read untracked like the pool's own
+  // position reader: a check, not a derivation.
+  const repoRecords = untracked(() => source.snapshot('repo'))
+  for (const record of repoRecords) ingestRecord(target, record, out)
 
   const { coarseNow, selectedIssueId } = locals.get()
+  // POD-5754: the feed carries normalized join keys only (POD-5485 derives
+  // companion fields on read): an issue holds `repoId`, its `repoPath` comes
+  // from the repo row, exactly as the live pool's `joinedFields` reads it
+  // (`read('repo', repoId)?.repoPath ?? ''`). The rebuild holds the same
+  // tables, so it joins the same way; without this a visible row with no
+  // denormalized path crashes `repoLabelOf` while the live pool labels ''.
+  const joinedIssue = (id: string): SliceIssue | undefined => {
+    const raw = tables.issue.get(id) as SliceIssue | undefined
+    if (raw === undefined || raw.repoPath !== undefined) return raw
+    const repoId = (raw as { readonly repoId?: unknown }).repoId
+    const repoPath =
+      typeof repoId === 'string'
+        ? ((tables.repo.get(repoId) as { readonly repoPath?: unknown } | undefined)?.repoPath as
+            | string
+            | undefined) ?? ''
+        : ''
+    return { ...raw, repoPath }
+  }
   const inputs: ViewInputs = {
     links: relationLinks(scanRelations(tables)),
-    issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
+    issue: joinedIssue,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     sessionActivity: (id) => activityMsOf(tables.session.get(id) as SliceSession | undefined),
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
