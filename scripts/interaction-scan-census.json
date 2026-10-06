@@ -40451,12 +40451,12 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/workingAgents",
       "rule": "helper-consumer",
-      "tokens": "ac9e3af3df3f2d23420fdad44b4d3f398616829dda4992d9d9cc873b1fc0a0ff",
+      "tokens": "1286d9f61c50432fc10f90df00557762be70c2732913a543968ea07c47b686d7",
       "gate": [],
       "origin": [
         "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
       ],
-      "fingerprint": "398baf7b0fd39aec43f00d16512e3f5a93a70b48b7f6db093d4155fdb1777c92",
+      "fingerprint": "f2aac026f91a007ee2691405d519c3fea5b7d26284d5be9806036902b2433e13",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
