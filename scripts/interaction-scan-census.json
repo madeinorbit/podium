@@ -174,118 +174,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositories",
-      "rule": "consume:flatMap",
-      "tokens": "eb2c29ffadd0f35bc7e98b8bd6a4fe7230d4bf75f812df7fd3f91df1ae6bf79b",
-      "gate": [],
-      "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "6de24743033c0784b7d00e81e90791f10e4d4a8e55db93604858332230b540c2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositories",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositories",
-      "rule": "reader-summary",
-      "tokens": "dd9d288ad7525d6dec251904228d50c6d37061a6812429cb0a1e16be95f41eb9",
-      "gate": [],
-      "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "2c07b63cc1032197d9a7dcbf549103b7339bcda6615b1018c160d956b504b4d2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositories",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositoryPaths/repos",
-      "rule": "helper-consumer",
-      "tokens": "b40a04c211decff92df05571ff9e7feeebf027de2f7869cca65763b45da7f35e",
-      "gate": [],
-      "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "adbcbb24a7a58151085d471c94b372d10d6dee37bbb0e4e22c7cf1e2ad7a9b83",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositoryPaths/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositoryPaths/repos",
-      "rule": "reader-summary",
-      "tokens": "f159a4f7f655c2425d401713ef023c308a900953e22c05ba089d053cabd52897",
-      "gate": [],
-      "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "57363b0c10772f8217a4ac15a118c5d09af5a13a247e394194fab8f29ecb0ac6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositoryPaths/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositoryPaths/repos/map:callback/at/roots",
-      "rule": "spread",
-      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
-      "gate": [],
-      "origin": [
-        "72fbec6d37ac1957eb46851d3fa44b4d5726cdfaa7064108635b2339641ceb04"
-      ],
-      "fingerprint": "2d85a0c20c8946fa67e836ddb5de1c3b3580abbbd1d3e5717ad772bf8883bb01",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositoryPaths/repos/map:callback/at/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-launch-inputs.ts",
-      "holder": "readRepositoryPaths/repos/map:callback/at/roots",
-      "rule": "consume:map",
-      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
-      "gate": [],
-      "origin": [
-        "72fbec6d37ac1957eb46851d3fa44b4d5726cdfaa7064108635b2339641ceb04"
-      ],
-      "fingerprint": "470e68e7a493ab73b2b718ae8c7a5f32d77a26d04fe907ae64d8e51f97b5b327",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readRepositoryPaths/repos/map:callback/at/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/client/use-session-context.ts",
       "holder": "issuesRead/callback",
       "rule": "zero-arg:issues",
@@ -597,48 +485,6 @@
       "trigger": "Invocation of LaunchConfigurationFields/machineOptions/useMemo:callback/explicit",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
-      "holder": "LaunchConfigurationFields/modelOptions/useMemo:callback/group",
-      "rule": "helper-consumer",
-      "tokens": "484644174af767ac25df43d453802cc0432acfcf0e8b49f6ed1dc47715c67d82",
-      "gate": [
-        "exit:then:cca0b1bb5ff7ddbf732465743af42bb104182fa1e3bd47c2e853a70ccfe76863"
-      ],
-      "origin": [
-        "543699ca92e6576c9b880c6f49af2cb67a29d9ff67f61637a87b8a80c2ec6f3a",
-        "82010feb9df101f75b67cdc6682a486be22f856a985280de6f4e5f5a5ff95b32"
-      ],
-      "fingerprint": "2eb51f708f46848e6e046d3895f124db7cd3224173389a51142ac9543676760f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of LaunchConfigurationFields/modelOptions/useMemo:callback/group",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Transitive launch fleet/model collection work exposed by the addressed repository hookup. This entry preserves required repair debt; the repository fix does not establish bounds for that work.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
-      "holder": "LaunchConfigurationFields/modelOptions/useMemo:callback/group",
-      "rule": "reader-summary",
-      "tokens": "531b3913715375e902f95fb85279fbe1774c808f3513d0c279c48bce6af7d3e6",
-      "gate": [
-        "exit:then:cca0b1bb5ff7ddbf732465743af42bb104182fa1e3bd47c2e853a70ccfe76863"
-      ],
-      "origin": [
-        "543699ca92e6576c9b880c6f49af2cb67a29d9ff67f61637a87b8a80c2ec6f3a",
-        "82010feb9df101f75b67cdc6682a486be22f856a985280de6f4e5f5a5ff95b32"
-      ],
-      "fingerprint": "9e4e15af9c3db67747fadb4d9bb127e8c958c257b98c6ef8c283a4a1fb28ac17",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of LaunchConfigurationFields/modelOptions/useMemo:callback/group",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Transitive launch fleet/model collection work exposed by the addressed repository hookup. This entry preserves required repair debt; the repository fix does not establish bounds for that work.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -955,246 +801,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/visibleRepos/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "8404f1dc64af3f96e2290cbb51339bc81e0203a8506d09389f937e237fdb44a7",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "76f7da2b2e767cb3a35e3f65685f696fe749f19376c9d66b39891dfea5dbe1e2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/visibleRepos/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/allProjects/map:callback/worktrees",
-      "rule": "consume:map",
-      "tokens": "4574b11c6a779913aafb47752b1ec77ea6b799cf378207bd6b7ab556e2ceae16",
-      "gate": [],
-      "origin": [
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "038131a6873e8cb58b9e13ecf6f712e3c1204122f8685bacb0b6e6322c0f3e8e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/allProjects/map:callback/worktrees",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/lastUsedByRepo",
-      "rule": "materialize:Map",
-      "tokens": "040efa0261aa564e418bd9b2d3af5e715bd77d772b625ec1d0475684d06b80f2",
-      "gate": [],
-      "origin": [
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "27794529a850bb01894cc5aa007356f9825d432db92344ce9226aacd47f52dd3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/lastUsedByRepo",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/lastUsedByRepo",
-      "rule": "consume:map",
-      "tokens": "217c2f4cd6e7e63d82c8fb7fe70d1199ba0226ec4b9a0fe180a0dcf31dedb8ec",
-      "gate": [],
-      "origin": [
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "ec1ad1336ebbf1e1810824a13b4a57b1b2bb8b2ab106b4aef8b54571355ea526",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/lastUsedByRepo",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/lastUsedByRepo/map:callback/roots",
-      "rule": "spread",
-      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
-      "gate": [],
-      "origin": [
-        "eb9278eb21e5e097ffe6a702f0fea70be0a298d65ac34ac55ccffae4285d2994"
-      ],
-      "fingerprint": "12024a4356ae4739a80036b96c0a673fad19ca3917ab3a128d15fa9c6baf6fcd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/lastUsedByRepo/map:callback/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/lastUsedByRepo/map:callback/roots",
-      "rule": "consume:map",
-      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
-      "gate": [],
-      "origin": [
-        "eb9278eb21e5e097ffe6a702f0fea70be0a298d65ac34ac55ccffae4285d2994"
-      ],
-      "fingerprint": "53c48f7b1de9f4c9240e06c5b7a4c0f14305c009166940d11974fbabbaacf3da",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/lastUsedByRepo/map:callback/roots",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/projects",
-      "rule": "consume:map",
-      "tokens": "cdd8ff635dda8f215815acbece3c7a76166840e0e7ccb80900602eb83c27a19d",
-      "gate": [],
-      "origin": [
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "2d6338712717a1bcf4bde1e59a14718c6305190f9dc9186b61c4c50e34cb2691",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/projects",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/projects/map:callback/worktrees",
-      "rule": "consume:filter",
-      "tokens": "4adf682441a5bc30c4279b70956ef452a0f4dbc38b813af5a14c45e1b91b5ceb",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666"
-      ],
-      "fingerprint": "882a0e542bb1bd6ffa17b2ef4be42bfe5bd2c0a409c5f3cb9f9120ff1d48a1ad",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/projects/map:callback/worktrees",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/repos",
-      "rule": "spread",
-      "tokens": "e528ee92e21aa56032dce9dd3b2fa6f3f6e8cd9ee15e8cf6c99dc2f205f90794",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "00c61883788e81b0c4f449907d530ff7a7b639f181a156680a633d64ee0eca87",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/repos",
-      "rule": "consume:sort",
-      "tokens": "9780c91ed729adea73ab466af1c17b15490ecbf8df60d95177485d3464256264",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "3c838e99583cf35cfcb5fdfde41f4840f50ae90712db1a3ceaa0b8e24ef649b9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/repos",
-      "rule": "consume:filter",
-      "tokens": "66a8bde8e3d88af8943117e6a8da057bb40e570da316cf95cc95d9da5746cbfc",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "850eb3c84444821cfa8457a0c4b6ec5b7bb4402071fbab1a72208cfe359b013f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/repos",
-      "rule": "spread",
-      "tokens": "03a12d9967ccc5d6f5f7fdccd43e3cdae2c91860f79f11fb0801e50ca846cca7",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "85617b44d875c468ecd2eebb668c411e24ae62080040fd24e8179123f5e729a3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Captured collection reaches readLaunchInputs/repos",
-      "bound": "No proven named-demand or cardinality cap for this captured collection path.",
-      "reason": "spread is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
-      "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "readLaunchInputs/repos/flatMap:callback",
-      "rule": "consume:filter",
-      "tokens": "38a4c7f25cb7457cd96b2ae79d919cb212d1a6be34cbfbd2f1ef2ae73cd873e6",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "631a11bb02265f7cf3fe08f4bad96f9c8db499a2f86977d223d7a6ab65369875",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of readLaunchInputs/repos/flatMap:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/components/TaskSheet.tsx",
       "holder": "SheetHead/hasCloseBlockers",
       "rule": "reader-summary",
@@ -1488,27 +1094,6 @@
       "trigger": "Invocation of mostRelevantSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/lib/new-work.ts",
-      "holder": "reposOnMachine",
-      "rule": "consume:filter",
-      "tokens": "8d5f64a29208edbf7e8970419a49939c8cd1c02652d652e1f131261006926542",
-      "gate": [
-        "exit:then:52c5d8a28ffc76ac1d36c2d296378d2095cbdd2491ed093913619a8bb4692df6"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "1499ce3a676343fa10af8cb1efa46d5f704a37396a95edd588ee7f5f725df58a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of reposOnMachine",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1869,54 +1454,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of MissionScreen/hasCloseBlockers",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
-      "holder": "NewIssueScreen",
-      "rule": "consume:map",
-      "tokens": "d8968c15f904d03bb78177ea219c480c4da68c80b0ac7c4966173bd22a15ddff",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "456d20cba5556e00ea4b348b14b71a92b666fe6d2680c6f1aca46f4fbdadb825",
-        "72fbec6d37ac1957eb46851d3fa44b4d5726cdfaa7064108635b2339641ceb04",
-        "90941eedc492e7c0a849a059dc0a43ae9b205aa5d48b3f7b98ee487c22b322b9",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "a2f1e01e2d7fc4b1617829f80b3ebd170ad1bdb2eacc7be3a55d23e83fb38676",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewIssueScreen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/NewIssueScreen.tsx",
-      "holder": "NewIssueScreen/repositoryPaths",
-      "rule": "reader-summary",
-      "tokens": "d2629227fe297e4f5ab2bbbdc08aa0bdb4eef3dc0d1da16ca3c35e53ecc35bbf",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "456d20cba5556e00ea4b348b14b71a92b666fe6d2680c6f1aca46f4fbdadb825",
-        "72fbec6d37ac1957eb46851d3fa44b4d5726cdfaa7064108635b2339641ceb04",
-        "90941eedc492e7c0a849a059dc0a43ae9b205aa5d48b3f7b98ee487c22b322b9",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "e7226f724ce844b673b4f505d9a132a4185d9f03900a76047cce7cccef889359",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewIssueScreen/repositoryPaths",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -4990,24 +4527,6 @@
       "trigger": "Invocation of MissionCostBreakdown",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/NewPanelMenu.tsx",
-      "holder": "NewPanelMenuBody/repoView/useMemo:callback/found/find:callback",
-      "rule": "consume:some",
-      "tokens": "bdefda85505e3608fa6bf7259f808f26d30f0f7030569fb137b9f89540d6d25c",
-      "gate": [],
-      "origin": [
-        "ccdd3158cb03140345c108e2fd2e363a3f482982d6c716a5a2cda81da2392079"
-      ],
-      "fingerprint": "ca13bd04c965c62a0ad46b73235338bd500362303912d1125434cdf41720cda4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewPanelMenuBody/repoView/useMemo:callback/found/find:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -21102,34 +20621,12 @@
       "file": "packages/client-core/src/values/compose/machines/placement.ts",
       "holder": "spawnTargetForRepo/chosen",
       "rule": "consume:find",
-      "tokens": "b0bb12cdbea68a86357768f5faa74afc7b5d3b6812b2e24363509031c2eb0d6f",
-      "gate": [
-        "then:eef775ab02f9774191f9a99b61e9376732b0c59aa92d0969cb268d7daafc009d"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "990dbd39472af679c5100b97e8483e3afa3de928974bd3774bb99a6a200446a5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of spawnTargetForRepo/chosen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/machines/placement.ts",
-      "holder": "spawnTargetForRepo/chosen",
-      "rule": "consume:find",
       "tokens": "f8cc187038378c334397ba166709f30b9da6c609fcd647e6710c594f23f216ac",
       "gate": [],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "3d1d889142bad9738033276913e90cd7f7b6ca634bce8c72c2c051c6e6b955d1"
       ],
-      "fingerprint": "b4885713e6f92f0b86f2916966ab4ca5e23fe2de81d9ab09518eb60ef8e43ed8",
+      "fingerprint": "ceae4b0ecc3bffb60e55818514450769f624b370854977bc8a79634883613dd0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21150,67 +20647,6 @@
         "67b87af3c71f641c5c930b854167e6708817bae757ec0b06ec24c32b4c028376"
       ],
       "fingerprint": "c68eaf79f958e10a9b082349f6ffce1692074d5b26916cbcc96d3d426433a30b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of spawnTargetForRepo/chosen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/machines/placement.ts",
-      "holder": "spawnTargetForRepo/chosen",
-      "rule": "consume:find",
-      "tokens": "f8cc187038378c334397ba166709f30b9da6c609fcd647e6710c594f23f216ac",
-      "gate": [],
-      "origin": [
-        "3d1d889142bad9738033276913e90cd7f7b6ca634bce8c72c2c051c6e6b955d1"
-      ],
-      "fingerprint": "ceae4b0ecc3bffb60e55818514450769f624b370854977bc8a79634883613dd0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of spawnTargetForRepo/chosen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/machines/placement.ts",
-      "holder": "spawnTargetForRepo/chosen",
-      "rule": "consume:find",
-      "tokens": "3cdeb964318368798a9a53dcb9e9ae1da03bcf3ac39da8ae4f11e134f7828539",
-      "gate": [
-        "then:eef775ab02f9774191f9a99b61e9376732b0c59aa92d0969cb268d7daafc009d",
-        "??:b0bb12cdbea68a86357768f5faa74afc7b5d3b6812b2e24363509031c2eb0d6f"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "d02df6e34c73619ab3159ae326ccc4048ce4d91865e3f81d97475e066e172cff",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of spawnTargetForRepo/chosen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/machines/placement.ts",
-      "holder": "spawnTargetForRepo/chosen",
-      "rule": "consume:find",
-      "tokens": "4aa0201992c49330e8705e4ef6e71cebbff587c49b955af7e2105ce8c68370cd",
-      "gate": [
-        "??:f8cc187038378c334397ba166709f30b9da6c609fcd647e6710c594f23f216ac"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "fingerprint": "f49756b97ef6d8921ca6f2c974f8d253c3a6fc72da5eedee1fe1f7044f89de35",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -33783,42 +33219,6 @@
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/launch/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "2930dc6d3647a32adb61c86a9522a7f13cf9fd3cba62d106cb25470ca3f1bcdb",
-      "gate": [],
-      "origin": [
-        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
-      ],
-      "fingerprint": "77dfd1186904ade0fe501d2779cd74a2ced4011ad257004d4d1b93a89487faab",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/launch/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/palette/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "0d3b3df27ff2e7989eaee73e5c6891b4a110ca5e1473d31868edf85d2a18a23f",
-      "gate": [],
-      "origin": [
-        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
-      ],
-      "fingerprint": "2d82bdfaf64c635872ccaadaa1c07df9673131bd173169b1a5a11cdc85089d4a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/palette/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/placement/computed:callback",
       "rule": "loop:for-of",
       "tokens": "26db962a2c81ea91c8bc8533e1a2168aac18c9ca2481146b6e74182229371208",
@@ -34039,13 +33439,12 @@
       "gate": [
         "exit:then:3f64f996e34841ae319ffdde41e5a12a5253f289d8f0d5cd97297f3a866f5e67",
         "exit:then:4b7ca142213b8e09a8e361bad273cbc6a5d4a6d4e5e1a184c3844686f4f62f45",
-        "then:6cc7d6d7283fb81929ccce72f00803e934f2a80f2a2e37a88543a6771e60fb8c",
         "exit:then:55ddc42df8a26a5b3104c329b3ad44e839a55eeaa44bb670d7b882b255882889"
       ],
       "origin": [
-        "0a95df1be1016227fd58310bf13cf21f170b1f481c32aebefc8697a2a429d90d"
+        "6ea4a7e2fa7f05b25400873637057e321733e846c85c2b424ee1e981e557b7d9"
       ],
-      "fingerprint": "d9c0b365fe5b3078a0394882bff73012a603ce3d756288ed9a13dba232ea6f4e",
+      "fingerprint": "57a7f84810be261f52f46155772acb88ac82ef9147dc885dcb4b25e0c170d6da",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45590,26 +44989,6 @@
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
-      "fingerprint": "a31ae04e36e184b7562cf2e933f9d0e7ca910f6adc054df067a7e1c73e73d1e9",
-      "file": "apps/mobile/src/client/mobile-pool.ts",
-      "holder": "useMobilePoolProjection",
-      "rule": "reader-summary",
-      "tokens": "dc23d861eab8781d165fffdc44460474d6398b7edf88363074ed0cbe0def7857",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useMobilePoolProjection",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "7cb5d6bf4efb25ef3181f92e30b7616a1abab06fd15ce7f6d14dde74ebe85374",
       "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
       "holder": "LaunchConfigurationFields/store",
       "rule": "reader-summary",
@@ -45623,6 +45002,7 @@
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
+      "fingerprint": "7cb5d6bf4efb25ef3181f92e30b7616a1abab06fd15ce7f6d14dde74ebe85374",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45632,321 +45012,6 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
-      "fingerprint": "cc6a1f48975491a76e5897796fff8002ef57342c08e8f907d807743ee32f8430",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher",
-      "rule": "consume:map",
-      "tokens": "50ebe1bbe5562f852e0c606dc63a8ecacf82e4a51f99e8dd01f925d81578982f",
-      "gate": [
-        "then:09e14e8fdb95b67cf39ec4e89ce0b850b11e1a86a5f92e233e15e11d7db03418",
-        "else:ac653ee39cea11b0980aaa7ea1a27df03e66dcf58a182b6f0d251e29b1ac8a56"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "26f47c28e59bf51b16bcd03ad49cd111f2688e63a62b15ff6644c5e961003858",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher",
-      "rule": "reader-summary",
-      "tokens": "02e4c09d5f70f206fa57f32f315c57cccd0c6c75a45a58c09fb2d86eb5428a5d",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "456d20cba5556e00ea4b348b14b71a92b666fe6d2680c6f1aca46f4fbdadb825",
-        "8e0f81a318944ccf22d8410e9c59c1dcfbf06fc5699cc1434b55526a403ac2c2",
-        "90941eedc492e7c0a849a059dc0a43ae9b205aa5d48b3f7b98ee487c22b322b9",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20",
-        "eb9278eb21e5e097ffe6a702f0fea70be0a298d65ac34ac55ccffae4285d2994",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "86c029207c406ed8163d4cb2f3aaa724ad16c75755aac2f101322d385f998c93",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/callback",
-      "rule": "helper-consumer",
-      "tokens": "18bc186bd7b9559ec8dd6fe1b36612126ff6bc9c51b42c0e2f54a5ff528340f3",
-      "gate": [
-        "then:6df8a74f7555e9dc453b0d46a3c045c7933d51c2e7e14da720345ec8ca9f38b3",
-        "&&:c2f3cadfe824cd6d75f40e14f91cfa2ed64b2c0517c6455200d9fe208aeda065"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "0466133860724883e89cf8ade63da7d73edb509b65dd2246ca4821d1dc138d91",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/launchTarget/callback",
-      "rule": "helper-consumer",
-      "tokens": "54bd11a5f312544b687ac98235fc68ce4a4e90a8b3aacf5b022674ac1d978229",
-      "gate": [
-        "else:1e63a2a84ade5b112e861b5e674bd0d0ccb8951754e1e3c17bfdaf69027b5b7f"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/launchTarget/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "232733356f3385b55e7937f7a8c24f21aba9bc1d307732038c62ade9e8b775c4",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/launchTarget/callback",
-      "rule": "reader-summary",
-      "tokens": "f9a21193e32e34a726082a69d43acb349fd9038309550ab5bfd44a31152bd454",
-      "gate": [
-        "else:1e63a2a84ade5b112e861b5e674bd0d0ccb8951754e1e3c17bfdaf69027b5b7f"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/launchTarget/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "02ccc3b87e29b2b75ae3e8f2b9f63c8f3bd64c8016e9329110fb9b46a5de23a6",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/launchTarget/callback/targetMachine",
-      "rule": "helper-consumer",
-      "tokens": "e7a46a2fe4f827858c677c07ce0fd458d63fbb57b65feef5a16f378f31655fec",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/launchTarget/callback/targetMachine",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "f46dca6181d4defec5d0bcdbed6868ed93189e7433408123906d5ab17dc81eb8",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/launchTarget/callback/targetMachine",
-      "rule": "reader-summary",
-      "tokens": "e9482606068716a8bd34c4a6e129fb63d2ec410e07e48274864d6f330d4e33bc",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/launchTarget/callback/targetMachine",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "fae5373ca461721ed35973c17bd252ad1d813d47b304aaf91c3d39c4cf0943db",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/options",
-      "rule": "consume:map",
-      "tokens": "4b9f1095b45cd1bdcd9af5febe9d918ca1be60116e23830e371f2039eec16e49",
-      "gate": [
-        "then:6df8a74f7555e9dc453b0d46a3c045c7933d51c2e7e14da720345ec8ca9f38b3",
-        "then:d830831e9a98b01fb23ea5ee7d0772efbfea658013cddcf2aa13b910ea38e486"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/options",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "77f9ef56471d69fdd97a13d3fef24b4c8d53fd68d22827fbe0947f54584258b8",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/resolveSpawnMachine/callback",
-      "rule": "helper-consumer",
-      "tokens": "96b48a50dfd42eb781f294ca8dd10149c6594a44015e5bd3685320f569c9c98e",
-      "gate": [
-        "exit:then:82c5ccf58644ab84cfb3a3cc80b398bbb49e2d663c2cedfe55be46620251041a"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/resolveSpawnMachine/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "77591ee4faa066544fe4ba0fe1b631c2d03f822828ed7a975860672b8c857e5f",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/resolveSpawnMachine/callback",
-      "rule": "reader-summary",
-      "tokens": "a90ab0088927925dee8fad148a89dd959c9f31245b0532e6d2007ff48e2ddff6",
-      "gate": [
-        "exit:then:82c5ccf58644ab84cfb3a3cc80b398bbb49e2d663c2cedfe55be46620251041a"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/resolveSpawnMachine/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "8a9ead050d488cb0f321117627e1a882e7e7319e59295b4ca7cbe3acdabe6af5",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/selectedRepo",
-      "rule": "consume:find",
-      "tokens": "9b39bb51eaf9658ffacf41e7ee492a9531097a6938ecdf42a1125ed3f4876ab0",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/selectedRepo",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "e849be0c786c98683408cd9f8225383dac2d22fc43396a7b35b5227a444d264a",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/selectedTarget",
-      "rule": "helper-consumer",
-      "tokens": "3677781e6f95bc22e891ecd4f0e79473ad3b73c2e98f1ed68a6bd29a97af6b69",
-      "gate": [
-        "then:c2f3cadfe824cd6d75f40e14f91cfa2ed64b2c0517c6455200d9fe208aeda065"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/selectedTarget",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "524c6828d3dd3e6e087675850c8462f952478cfe6ada6af806dc90d38fe8e024",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/selectedTarget",
-      "rule": "reader-summary",
-      "tokens": "4cffd331ad1628d0accc5a1f0e52a4859f6ef9389354673e49c63b2dfe6528e7",
-      "gate": [
-        "then:c2f3cadfe824cd6d75f40e14f91cfa2ed64b2c0517c6455200d9fe208aeda065"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/selectedTarget",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "61681cf983273081b2b2cd221f9d179e281a2fd3f01056d743eb3e3db7fc519c",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "NewWorkLauncher/visibleRepos/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "2dcbb780341cc42dc02965b19033fc246911d0ed0535fc2fc8f943f74887743d",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of NewWorkLauncher/visibleRepos/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "3ab24e49dea2b444ceee56b1dbbc532e0f31f9a705a0c43fe136d85de3498b80",
-      "file": "apps/mobile/src/components/NewWorkButton.tsx",
-      "holder": "usePoolLaunchInputs",
-      "rule": "reader-summary",
-      "tokens": "a8374609defec019b9e20552a43490c54551eef76f641ee4d15003c38cf8133a",
-      "gate": [],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePoolLaunchInputs",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "f171b0a19d0cf7dc38c190beaab1c316bc247fa04b58c6b95ccd6119f6138ec7",
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
@@ -45957,6 +45022,7 @@
         "3867b12a3065faa4384a2fe935624b5db4eef30898c33bb8fc7a22b6d96dbc2e",
         "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
       ],
+      "fingerprint": "f171b0a19d0cf7dc38c190beaab1c316bc247fa04b58c6b95ccd6119f6138ec7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45966,155 +45032,703 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "1813603921340e9f10536302901f810c279db38a03b4fa225186d853ca9aea80",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/capable",
-      "rule": "consume:filter",
-      "tokens": "1c96baa1a0640acb12a86afce4a8458e7e6f7e101e24bdb5924efa95b96006ca",
+      "file": "apps/mobile/src/components/LaunchConfigurationFields.tsx",
+      "holder": "LaunchConfigurationFields/modelOptions/useMemo:callback",
+      "rule": "helper-consumer",
+      "tokens": "29a45e8140ac645a26626aaacf233b989dde99a04354f27888f865b63dc2fbea",
       "gate": [
-        "exit:then:f6d097ed5bd53ed1567408cc3c9a6053ba783dabb9f6d00e5134ecf280308c24",
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
+        "exit:then:cca0b1bb5ff7ddbf732465743af42bb104182fa1e3bd47c2e853a70ccfe76863"
       ],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "543699ca92e6576c9b880c6f49af2cb67a29d9ff67f61637a87b8a80c2ec6f3a",
+        "82010feb9df101f75b67cdc6682a486be22f856a985280de6f4e5f5a5ff95b32"
       ],
+      "fingerprint": "9d7087b6d6ec0efbd0b64bf0d27b01ba849299d2bdabeeb8e3239df02c21f53e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
+      "bound": "Only the selected agent model list and its Auto choice; unrelated harness models are not projected.",
+      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
+      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+    },
+    {
+      "file": "apps/mobile/src/lib/agent-models.ts",
+      "holder": "modelOptions/descriptor",
+      "rule": "helper-consumer",
+      "tokens": "be19e8ef776ed03b0a2099411ffd4690c580593f12e71b33d45cb1d596b82a0f",
+      "gate": [],
+      "origin": [
+        "543699ca92e6576c9b880c6f49af2cb67a29d9ff67f61637a87b8a80c2ec6f3a",
+        "82010feb9df101f75b67cdc6682a486be22f856a985280de6f4e5f5a5ff95b32"
+      ],
+      "fingerprint": "8be9e062bb2c12c25024ab9262936847f7b9136d99068c4620ecdf25207dff9b",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
+      "bound": "Only the selected agent model list and its Auto choice; unrelated harness models are not projected.",
+      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
+      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "useCommandFixture/fixture/useMemo:callback/update",
+      "rule": "enumerate:keys",
+      "tokens": "f322553837f70d35073af8eb0eb6ae5da1f6a5698e4611a8e36e88a6a66f7fcd",
+      "gate": [],
+      "origin": [
+        "d418927b10a0a280037b706dee704787c4f12a38eb4d82ecea53e4f401109a2f"
+      ],
+      "fingerprint": "6ac6cf5241130f59adc307ff14d4f4758cd1fe75c27c34a29ade1d7715319ee8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/capable",
+      "trigger": "Component fixture update",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "Test fixture reconciles the input repository and machine catalog; this is not a production reader repair.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "387dcda4a0639a0cff68cb58da88e620fdb716161329f52c56132561e9562117",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/online",
-      "rule": "consume:filter",
-      "tokens": "8f8b601d5c83daaaef7485d1b3a3d592a01cbc87dd6719df48d82c50f29fcc6b",
-      "gate": [
-        "exit:then:0e83d14afb05b031f8d29e93daa0869f38a5f77d128a465b5c071cd3115b796d",
-        "exit:then:f6d097ed5bd53ed1567408cc3c9a6053ba783dabb9f6d00e5134ecf280308c24",
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
-      ],
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "useCommandFixture/fixture/useMemo:callback/update",
+      "rule": "loop:for-of",
+      "tokens": "629b7227f280c7ba81b96b16dc324a557b193ad3442fcdb30a3ce44c757402f7",
+      "gate": [],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "9ce5a28d5fb25beb3666175a00a4a817fa5d92643535cd4d501f9dbc547e68ec",
+        "a0ad60d4f016ea117f522b8c8418085b3b3eeb017ca333c2cf7f290c36e32dbd"
       ],
+      "fingerprint": "7ea97a8ecedbb3b6f8483c0f4f6a127112ec0bbb046c08279bd559883717e422",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/online",
+      "trigger": "Component fixture update",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "Test fixture reconciles the input repository and machine catalog; this is not a production reader repair.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "9d992e8299399f0d66530070663a287ad24986de7a271b4d753274cd7b9c0604",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/online",
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "useCommandFixture/fixture/useMemo:callback/update",
+      "rule": "enumerate:keys",
+      "tokens": "14f252cce0dd6ec213e4c729914d16ff4f1dace25b85642b989a4e787a23283b",
+      "gate": [],
+      "origin": [
+        "a0ad60d4f016ea117f522b8c8418085b3b3eeb017ca333c2cf7f290c36e32dbd"
+      ],
+      "fingerprint": "ac29a9f21b96f7978eb9419a1865fc8028b30d40733bdc3373bf0ac01619ec62",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Component fixture update",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "Test fixture reconciles the input repository and machine catalog; this is not a production reader repair.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "useCommandFixture/fixture/useMemo:callback/update",
+      "rule": "loop:for-of",
+      "tokens": "9c16feb9074ea8a74608010c647a7a9fbeebb25a3d929d3dd70c4b2db37ecd0d",
+      "gate": [],
+      "origin": [
+        "d418927b10a0a280037b706dee704787c4f12a38eb4d82ecea53e4f401109a2f",
+        "f96a6a513c26a181e828901a10ab8f4d2c260a5e959c390af0899f7e7280c4bd"
+      ],
+      "fingerprint": "da7cf3aa9858aba59e417fd222a9f7e9623da0a89f0c159376be5a909634267e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Component fixture update",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "Test fixture reconciles the input repository and machine catalog; this is not a production reader repair.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/palette/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "b1088f4d3fab1e7e3125c725ac2fe95f890fa98970ac43f7430412910411996f",
+      "gate": [],
+      "origin": [
+        "6ea4a7e2fa7f05b25400873637057e321733e846c85c2b424ee1e981e557b7d9"
+      ],
+      "fingerprint": "256fb15e235c69e989e62c4380409a939fc00eebbb4aac84b48874b833d39a1b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createCommandLaunchViews/palette/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/activityAt/keyedComputed:callback/roots",
       "rule": "consume:map",
-      "tokens": "ffb02766e6e9f1ef9fcd6f6cb1d9e76b73b22814fbe36ef8cdc0481b4b675401",
-      "gate": [
-        "exit:then:0e83d14afb05b031f8d29e93daa0869f38a5f77d128a465b5c071cd3115b796d",
-        "exit:then:f6d097ed5bd53ed1567408cc3c9a6053ba783dabb9f6d00e5134ecf280308c24",
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
-      ],
+      "tokens": "3fb55f6bd4e8e758465242c9d5b543b07ba0d4f8d03ac08cfa3391b059288cd0",
+      "gate": [],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
       ],
+      "fingerprint": "948d721f103f040e6fa3a7a0efe876e7c0b800cb79c52e207b155963d3232143",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/online",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
     },
     {
-      "fingerprint": "1951cb6484febbb7f457a09873a2ce670c1568b7566d0e71873f1a670de7dc70",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/useGranted",
-      "rule": "consume:filter",
-      "tokens": "f7c3898cd06ff79ff649315728f934cd46f79ff0ff2243f15eec4a55491cd3d4",
-      "gate": [
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
-      ],
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/activityRoots",
+      "rule": "reader-summary",
+      "tokens": "d560e5ab9b8717559b0acf22923ec12a2b428c6814022f1d7d532b12b2754844",
+      "gate": [],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
       ],
+      "fingerprint": "bf7e221cbf89bb6e7f41dfa689abf7b58e49e64c5d2007cc1f67d26436215f4a",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/useGranted",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
     },
     {
-      "fingerprint": "7633982ec90497164fce1b7bfa9c96653e779ca14d8dbc26f18849b66ae552ef",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/withRepoViews",
-      "rule": "consume:filter",
-      "tokens": "e0fa2a8da3a12a1405d962c846dcae9aad42df7129eb8dd5ee84c763dd941bf8",
-      "gate": [
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
-      ],
-      "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
-      ],
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/withRepoViews",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "fingerprint": "4ebdc073bfc74c1ba0e9b3ff8d7496eddf65bb51b31e9c58159f1c3ef8f2e285",
-      "file": "packages/client-core/src/values/compose/machines/authority.ts",
-      "holder": "resolveSpawnTargetMachine/withRepoViews",
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/activityRoots/keyedComputed:callback",
       "rule": "consume:map",
-      "tokens": "bc57c667e7da55b356fce793d1c139463dd7ee6e2daa995a0f932aa651444aa9",
+      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
       "gate": [
-        "exit:then:e888b36124b1f1a5f449616af696d1500bacfc93ee77ee24f41043b890ab4c4b"
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
       ],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
       ],
+      "fingerprint": "a22cf5c20860b1343146a637fa7bdfaf86a77244c99596d916621f010439593b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/activityRoots/keyedComputed:callback",
+      "rule": "spread",
+      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+      ],
+      "fingerprint": "d6277d7cce766ac9b88a0180703ffe44a1e81556f4a1ed7a2366e4fc9cb5912f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/catalogRoots",
+      "rule": "reader-summary",
+      "tokens": "c086cbb577e4892c87f8691fd3600c3e77c94b22d000c7574ae6d9a3649242fa",
+      "gate": [],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "7c69c78a91a479fb9cdc0a6398f3037d8340e66c97979390f36a0974bd786f1c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/catalogRoots/keyedComputed:callback",
+      "rule": "spread",
+      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "5f2842ee55eced11b5c3b2d2f0021e157cbaee7dbeee4817c08c0efaddbd47ff",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/catalogRoots/keyedComputed:callback",
+      "rule": "consume:map",
+      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "9c8d537e3009fc26ad30a1bee8a9c38faa105889c437f012a318ea390ad2e7ac",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/catalogUsage/keyedComputed:callback/roots",
+      "rule": "consume:map",
+      "tokens": "e7d58e8af57b49de95afb185b114af31801742d329cbe9b57b6089ee6dd5eb47",
+      "gate": [],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "eb6800571a20c9bb9e06237876b37a23d43718d6326261a449617d63024cd885",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/project",
+      "rule": "reader-summary",
+      "tokens": "1ea777082cb46c2f324d0bad72bc5c42487412afdcb151a9d20b83dc79714aa1",
+      "gate": [],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "c3ff791c48e29c5849354741f0b62d186be919693b34864720a595bb5a39f82d",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
+      "bound": "The open launcher displayed repository option set. Ordering visits candidate IDs/references and cached usage, without rebuilding other group payloads.",
+      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
+      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/project/keyedComputed:callback/worktrees",
+      "rule": "consume:flatMap",
+      "tokens": "894f486bb16160efb19d23a03c215814358a32a24a65365ebde38fe4f7c8b45c",
+      "gate": [
+        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
+      ],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "d1c3eea9e865a3d0b762e807b90e3af38b193c32cda3e8ca2ddb4a1d451ba7ec",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
+      "bound": "One addressed repository group and its worktree roots. Metadata rebuilds that group only; usage reuses its cached roots.",
+      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
+      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback",
+      "rule": "consume:sort",
+      "tokens": "b9264be3dd6df700bbb1ed47093fc9ff8d4d3d96cc2fc4a7b917a4d66da9a08b",
+      "gate": [],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "e9ce7331a211014617f1737a23cdf2f643b46b47c362a971fe2bd11e29681679",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "Displayed repository choices, IDs and activity scalars.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback",
+      "rule": "consume:map",
+      "tokens": "9f7dbf9e448849f8137bb1aa04bd491439db5ff3b2b1acd5b2f3e718ea6763e4",
+      "gate": [],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "fce8c9df6e706a04ae7d14d9957490712b3ee8bca837acd324aced0aaf369e1f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "Displayed repository choices, IDs and activity scalars.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback/values/flatMap:callback/repo",
+      "rule": "reader-summary",
+      "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
+      "gate": [],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "6900b7489b6152328f7171333865fd76a36afe3b0cafbf1ae3603b4942b91233",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "Displayed repository choices, IDs and activity scalars.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projects/computed:callback/flatMap:callback",
+      "rule": "reader-summary",
+      "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
+      "gate": [],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "3eaaaedf7a8c4d1052b866fe7d37d49a15803a15ff32123c411ef31a2f8d404e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "Displayed repository choices, IDs and activity scalars.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/rootKey/keyedComputed:callback",
+      "rule": "spread",
+      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "2f06c25911be97e12dce387807475dce69f1537db4abd72a6cf53a76c18e7119",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/rootKey/keyedComputed:callback",
+      "rule": "consume:map",
+      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "93aa4ad9e86fbca923325a8e15a2be55232517aa22ba366f662b12a5b7a59fa4",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported open launcher choice, catalog or activity update",
+      "bound": "One addressed repository group and its worktree roots.",
+      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
+      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/usage/keyedComputed:callback/roots",
+      "rule": "reader-summary",
+      "tokens": "2be52f3293bcc8b41f0c1b54f79e525360b6bb4ffe203972c5325a211e75d509",
+      "gate": [],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "567544235993c9e29ab137c8b2d971cd12ca15cff17208edc4c38c6eb12e369d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5640",
+      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
+      "bound": "One addressed repository group and its worktree roots. Metadata rebuilds that group only; usage reuses its cached roots.",
+      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
+      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+      ],
+      "fingerprint": "0318e9b75a3a0c187137b2f295a968c8d673d68b1dfcb031d59adf6b67d1e0a6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of resolveSpawnTargetMachine/withRepoViews",
+      "trigger": "Invocation of keyedComputed/read/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "fingerprint": "ed4169311370f60a6265e5c5536bead3650e466fbdf8d45ea88eae676e4c1373",
-      "file": "packages/client-core/src/values/compose/machines/placement.ts",
-      "holder": "spawnTargetForRepo/machinePath",
-      "rule": "consume:find",
-      "tokens": "2813c369dec9a7f6b5af963c374b6b6c140ccddc61e7016d752a1426354cecb3",
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
       "gate": [
-        "then:eef775ab02f9774191f9a99b61e9376732b0c59aa92d0969cb268d7daafc009d"
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "35425d61be0b077152d1309692f3e1aba053126d2716ed82062ab8af9b645666",
-        "d7902cf8647f06a294994eb04bc4586ba0f2df75b3c302b8669d268d5b2f0b20"
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
       ],
+      "fingerprint": "712263d18093be2ba673ee08b05b74bbf2d6d98813c9039b6dfa7c44aedb233e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of spawnTargetForRepo/machinePath",
+      "trigger": "Invocation of keyedComputed/read/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "77b496c426028d5d196ebaf054af794563404689a78dfd633fa29e03f7a5e1d2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "de4f9928c59668092788fc458eb12251608b54ceabf3bc2f21078d742bb4fc7c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+      ],
+      "fingerprint": "7e74f265bb834b33fee749b542abfdbb0b97db3791ca7d43d18330209b084708",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "cb0df3e10ccad99d8d3d6149c945bb76eef7404021e2dbeea148556dc5a28966",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "f4208b2845ec172fc82c17d55a54c83fed947a8cdb343180deeb9558ed546c5d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "fabe1aadfae98b814161bc59b8b35213805420c494a68d4bbd025ca21fe6d36d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+      ],
+      "fingerprint": "a09cfb19d3361e8e2a21161f234a668c0963504314364690e8b820663d40af21",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+      ],
+      "fingerprint": "b742fc319d4e47a7843ff1565f2940282c094ced2d58ff5ceb8b06b7bc6b4a1b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+      ],
+      "fingerprint": "c60dd9bfeda751588120ec1783f59ac7e4d1ec9273b7e23f488f035ccb543da4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+      ],
+      "fingerprint": "db4780d6cefaabe8c83ff73306bfc32cf8d5de40c925ad0aae51b96b2b9927f6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
