@@ -54,7 +54,7 @@ function fixture() {
       source: { read: async () => ({ items, hasMore: false }), subscribe: () => () => {} } },
     sends: { createDeliveryId: () => 'test-send', deliver: async () => ({ state: 'sent' }) },
     onTranscriptChange: change => presentation.changed(change),
-  }, { sessionPanes: { session: () => undefined } } as never, { drafts } as never, {}, presentation)
+  }, { sources: { view: () => ({ session: () => undefined }) } } as never, { drafts } as never, {}, presentation)
   owners.push({ conversation, drafts })
   const chat = {
     conversation,
