@@ -100,7 +100,6 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
 
 vi.mock('./store', () => ({
   useRuntimeSelector: (selector: (store: typeof state) => unknown) => selector(state),
-  useReplicaIssues: () => state.issues,
 }))
 
 // The explorer owns which task is showing and what the trail says (POD-743);

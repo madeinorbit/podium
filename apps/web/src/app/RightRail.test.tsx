@@ -8,7 +8,6 @@ const shippingOrders = vi.hoisted(() => ({ value: [] as unknown[] }))
 const portfolioRepos = vi.hoisted(() => ({ value: [] as unknown[] }))
 const activePane = vi.hoisted(() => ({ value: null as string | null }))
 vi.mock('./store', () => ({
-  useReplicaIssues: () => portfolioIssues.value,
   useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
     selector({
       paneA: activePane.value,

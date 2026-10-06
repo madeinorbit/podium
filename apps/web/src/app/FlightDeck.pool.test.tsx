@@ -60,9 +60,6 @@ const state = vi.hoisted(() => ({
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state),
-  useReplicaIssues: () => {
-    throw new Error('Pool pane read legacy issue models')
-  },
   useSessionDraft: () => '',
 }))
 vi.mock('@podium/client-core/react', async (original) => ({

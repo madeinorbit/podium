@@ -188,7 +188,6 @@ vi.mock('./store', () => ({
       replica: harness.replica,
       trpc: harness.trpc,
     }),
-  useReplicaIssues: () => harness.issues,
   useSessionDraft: () => '',
 }))
 

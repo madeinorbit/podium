@@ -69,8 +69,6 @@ vi.mock('./store', async () => {
   const actual = await vi.importActual<typeof import('./store')>('./store')
   return {
     ...actual,
-    useReplicaIssues: () => fixture.issues,
-    useSlice: () => ({ sections: { pinnedWorktrees: [], pinnedRepos: [], repos: [] } }),
     useRuntimeSelector: (selector: (store: unknown) => unknown) =>
       selector({ ...fixture.store, issues: fixture.issues, sessions: fixture.sessions, paneA: fixture.paneA }),
   }

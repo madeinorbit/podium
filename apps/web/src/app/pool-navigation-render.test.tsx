@@ -26,9 +26,6 @@ const binding = vi.hoisted(() => ({
 const workspaceOwner = withKeyedInputs({ getSnapshot: () => binding.state, subscribe: () => () => {} })
 vi.mock('./store', () => ({
   useRuntimeSelector: (select: (state: EngineState) => unknown) => select(binding.state),
-  useReplicaIssues: () => {
-    throw new Error('Workspace read legacy issue collection')
-  },
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => binding.pool,

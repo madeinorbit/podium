@@ -36,7 +36,6 @@ type Counter = { gets: number; ownKeys: number }
 const bench = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => bench.store.issues ?? [],
   useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
     selector(bench.store),
 }))

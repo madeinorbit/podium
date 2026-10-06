@@ -161,7 +161,6 @@ vi.mock('./store', () => ({
         },
       }),
     ),
-  useReplicaIssues: () => replicaIssues,
 }))
 
 // The original strip/layout fixtures now enter through the pool query. The
