@@ -39458,44 +39458,44 @@
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace",
+      "holder": "attachHeaderSource/replace/runInAction:callback",
       "rule": "loop:for-of",
       "tokens": "130bbf2093a1460750003371fc1623790fdfbca636455707929b7a5a4bf1a18b",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "2c898642e978a249939a85068045458b6ef22a227632e082072549d42751cbf6",
-        "deaff70d34d539061214782a4a86f84c226908a1bb4fc2943ca88d26196f6dea"
+        "714316d65e0616c6a4147d1f22171cfecf2b74c5d3cee1e2bec6484d005a1b24",
+        "d12ab473d2c3a5361ba31f59eaeee323040f4916a4a6b6643ecf49a81e99bfdc"
       ],
-      "fingerprint": "3d1fc14c9128931324c4314dd63d792e25c8001c5f036ac20018b4269de25621",
+      "fingerprint": "6989aaa9bc58ce278dbd8c98241d33cd4864fd9a91973f5d4c8e8a2beec9cb35",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5540",
       "trigger": "Full header snapshot arrival: initial attachment/rescope, metrics or connection snapshots, and quota/history/lifecycle API responses.",
       "bound": "Existing IDs in one header entity table plus the received snapshot IDs. Ordinary keyed machine, repository and shipping-order deltas bypass replace.",
       "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history.",
-      "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope."
+      "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope. header-attachment-strict.test.ts: attaches the header source under the strict trap and reconciles a stale connection row without untracked reads."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",
-      "holder": "attachHeaderSource/replace",
+      "holder": "attachHeaderSource/replace/runInAction:callback",
       "rule": "enumerate:keys",
       "tokens": "c83439069c1910e1aa89962adeae30d38850cd8c101d54bfd4f2cddbe54b915c",
       "gate": [
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "2c898642e978a249939a85068045458b6ef22a227632e082072549d42751cbf6"
+        "714316d65e0616c6a4147d1f22171cfecf2b74c5d3cee1e2bec6484d005a1b24"
       ],
-      "fingerprint": "83eac74d623dcd3ee9ca19f6ea84b107bf7243917d698b29cad54de801b866a3",
+      "fingerprint": "07fea34a0474436cfbabb0e4b1e4e9eb7cd63ad7f183c35c666c354e86275d0f",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5540",
       "trigger": "Full header snapshot arrival: initial attachment/rescope, metrics or connection snapshots, and quota/history/lifecycle API responses.",
       "bound": "Existing IDs in one header entity table plus the received snapshot IDs. Ordinary keyed machine, repository and shipping-order deltas bypass replace.",
       "reason": "Reconcile authoritative snapshot membership against actual table keys, including leftovers from a prior partial apply. This replaces the previous known-ID membership walk; it does not enumerate issue or session history.",
-      "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope."
+      "guard": "packages/client-graph/src/header-source.test.ts: removes partially applied quota rows when a later poll replaces them; reads only changed header keys between 1x/4x and preserves removal and rescope. header-attachment-strict.test.ts: attaches the header source under the strict trap and reconciles a stale connection row without untracked reads."
     },
     {
       "file": "packages/client-graph/src/header-source.ts",

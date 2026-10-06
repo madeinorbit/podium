@@ -25,12 +25,14 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
     if (disposed) return
     const next = new Set(entries.map(([id]) => id))
     const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
-    // A previous apply may have thrown after writing some rows. Reconcile
-    // the actual table so its next successful sample removes those leftovers.
-    for (const id of headerEntities(pool).tables[entity].keys()) {
-      if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
-    }
     runInAction(() => {
+      // A previous apply may have thrown after writing some rows. Reconcile
+      // the actual table so its next successful sample removes those leftovers.
+      // The keys() read is observable state: it stays inside this action so
+      // the strict diagnostic trap (observableRequiresReaction) stays quiet.
+      for (const id of headerEntities(pool).tables[entity].keys()) {
+        if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
+      }
       headerEntities(pool).apply(records)
       headerEntities(pool).order(entity, [...next])
     })
