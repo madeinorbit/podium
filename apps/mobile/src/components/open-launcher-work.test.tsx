@@ -19,6 +19,7 @@ vi.mock('./Screen', () => ({
   HeaderButton: ({ label, onPress }: { label: string; onPress: () => void }) => <button onClick={onPress} aria-label={label} />,
 }))
 vi.mock('./BottomSheet', () => ({ BottomSheet: ({ onClose, children, head }: { onClose: () => void; children: ReactNode; head: ReactNode }) => <div><button aria-label="Dismiss launcher" onClick={onClose} />{head}{children}</div> }))
+vi.mock('./ActionSheet', () => ({ ActionSheet: ({ actions, onClose }: { actions: { label: string; onPress: () => void; disabled?: boolean }[]; onClose: () => void }) => <div>{actions.map(action => <button key={action.label} aria-label={action.label} disabled={action.disabled} onClick={() => { action.onPress(); onClose() }} />)}</div> }))
 const { NewWorkButton } = await import('./NewWorkButton')
 const { NewIssueScreen } = await import('../screens/NewIssueScreen')
 
@@ -31,7 +32,7 @@ function fixture(scale: number) {
     inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
   })) as MachineWire[]
   const repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
-    path: `/project/p${String(at).padStart(3, '0')}`, originUrl: `https://example.invalid/p${at}`,
+    path: `/project/p${String(at).padStart(3, '0')}`, originUrl: `https://example.invalid/p${String(at).padStart(3, '0')}`,
     machineId: at % 2 ? 'remote' : 'mine', branch: 'main',
     worktrees: Array.from({ length: 8 }, (_, tree) => ({ path: `/project/p${String(at).padStart(3, '0')}/wt-${tree}`, branch: 'topic' })),
   })) as GitRepositoryWire[]
@@ -72,24 +73,18 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     cells.push(await measured('open', () => surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true)))
     if (surface === 'NewWorkButton') {
       expect(screen.getByLabelText('Start in p000')).toBeTruthy()
-      cells.push(await measured('repository-choice', () => {
-        fireEvent.click(screen.getByLabelText('Project, p000'))
-        fireEvent.click(screen.getByLabelText('p002'))
-      }))
+      cells.push(await measured('repository-picker', () => fireEvent.click(screen.getByLabelText('Project, p000'))))
+      cells.push(await measured('repository-choice', () => fireEvent.click(screen.getByLabelText('p002'))))
       expect(screen.getByLabelText('Start in p002')).toBeTruthy()
-      cells.push(await measured('machine-choice', () => {
-        fireEvent.click(screen.getByLabelText('Machine, mine'))
-        fireEvent.click(screen.getByLabelText('remote'))
-      }))
+      cells.push(await measured('machine-picker', () => fireEvent.click(screen.getByLabelText('Machine, mine'))))
+      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))))
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     } else {
       expect(screen.getByRole('radio', { name: 'Repository p000' })).toBeTruthy()
       cells.push(await measured('repository-choice', () => fireEvent.click(screen.getByRole('radio', { name: 'Repository p001' }))))
       expect(screen.getByRole('radio', { name: 'Repository p001' }).getAttribute('aria-checked')).toBe('true')
-      cells.push(await measured('machine-choice', () => {
-        fireEvent.click(screen.getByLabelText('Machine, Auto'))
-        fireEvent.click(screen.getByLabelText('remote'))
-      }))
+      cells.push(await measured('machine-picker', () => fireEvent.click(screen.getByLabelText('Machine, Auto'))))
+      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))))
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     }
     cells.push(await measured('catalog', () => {
