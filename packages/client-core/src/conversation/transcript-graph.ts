@@ -336,8 +336,9 @@ export class TranscriptGraph {
       // reply span. Re-index only that span, rather than sorting the transcript.
       const prompts = ordered.filter(item => item.role === 'user').map(item => item.id)
       if (beforeHead) {
-        const firstHeld = this.orderedIds[ordered.length]
-        if (firstHeld && this.items.get(firstHeld)?.role === 'user') prompts.push(firstHeld)
+        let at = ordered.length
+        while (at < this.orderedIds.length && this.items.get(this.orderedIds[at]!)?.role === 'user')
+          prompts.push(this.orderedIds[at++]!)
       }
       for (const id of prompts) this.liftPrompt(id, dirty)
       const sorted = ids.sort((a, b) => this.rank(a) - this.rank(b))
@@ -524,28 +525,41 @@ export class TranscriptGraph {
   }
 
   private repairRows(dirty: ReadonlySet<string>): void {
-    const visited = new Set<string>()
+    const broken = new Set<TranscriptToolRun>()
     for (const id of dirty) {
-      if (this.repairToolRow(id)) continue
+      const owner = this.rowByBlock.get(id)
+      if (owner && typeof owner !== 'string' &&
+        (!this.isEmitted(id) || !isBatchableTool(this.items.get(id)!))) broken.add(owner)
+    }
+    for (const id of dirty) {
+      if (this.repairToolRow(id, broken)) continue
       const point = this.insertionPoint(this.blockIds, id)
       let start = Math.max(0, Math.min(point, this.blockIds.length - 1))
       if (this.blockIds.length === 0) continue
-      while (start > 0 && isBatchableTool(this.items.get(this.blockIds[start]!)!) &&
-        isBatchableTool(this.items.get(this.blockIds[start - 1]!)!)) start--
       let end = start + 1
-      if (isBatchableTool(this.items.get(this.blockIds[start]!)!))
-        while (end < this.blockIds.length && isBatchableTool(this.items.get(this.blockIds[end]!)!)) end++
-      const first = this.blockIds[start]!
-      if (visited.has(first)) continue
-      visited.add(first)
-      const members = this.blockIds.slice(start, end)
       const oldRows = new Set<string>()
-      const removedRow = this.rowOwner(id)
-      if (removedRow) oldRows.add(removedRow)
-      for (const member of members) {
-        const row = this.rowOwner(member)
-        if (row) oldRows.add(row)
+      const addOld = (row: string | undefined) => {
+        if (!row || oldRows.has(row)) return
+        oldRows.add(row)
+        for (const member of this.rowMembers.get(row) ?? []) {
+          const at = this.insertionPoint(this.blockIds, member)
+          if (this.blockIds[at] === member) { start = Math.min(start, at); end = Math.max(end, at + 1) }
+        }
       }
+      addOld(this.rowOwner(id))
+      // Closing over the previous and current run boundaries handles a split,
+      // merge or newly paired orphan. Only this affected run is rebuilt.
+      let previousStart = -1, previousEnd = -1
+      while (start !== previousStart || end !== previousEnd) {
+        previousStart = start; previousEnd = end
+        while (start > 0 && isBatchableTool(this.items.get(this.blockIds[start]!)!) &&
+          isBatchableTool(this.items.get(this.blockIds[start - 1]!)!)) start--
+        while (end < this.blockIds.length && isBatchableTool(this.items.get(this.blockIds[end - 1]!)!) &&
+          isBatchableTool(this.items.get(this.blockIds[end]!)!)) end++
+        for (let at = start; at < end; at++) addOld(this.rowOwner(this.blockIds[at]!))
+      }
+      const members = this.blockIds.slice(start, end)
+      const first = members[0]!
       const previous = this.rowMembers.get(first)
       const oldShapes = this.rowShapes.get(first)
       if (oldRows.size === 1 && oldRows.has(first) && previous?.length === members.length &&
@@ -563,20 +577,27 @@ export class TranscriptGraph {
         this.rowShapes.delete(old)
         this.failuresByRow.delete(old)
       }
-      const ownedMembers = observable.array<string>(members, { deep: false })
-      this.rowMembers.set(first, ownedMembers)
-      this.rowShapes.set(first, members.map(member => this.shapes.get(member)!))
-      let failures = 0
-      for (const member of members) if (this.failed.has(member)) failures++
-      this.failuresByRow.set(first, failures)
-      const tools = isBatchableTool(this.items.get(first)!)
-      const run = tools ? new TranscriptToolRun(ownedMembers, id => this.block(id), id => this.rank(id)) : undefined
-      if (run) this.runs.set(first, run)
-      for (const member of members) this.rowByBlock.set(member, run ?? first)
-      this.skeletons.set(first, run ? this.toolSkeleton(run) : this.row(first)!)
-      this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
+      let at = 0
+      while (at < members.length) {
+        const first = members[at]!
+        const tools = isBatchableTool(this.items.get(first)!)
+        let end = at + 1
+        if (tools) while (end < members.length && isBatchableTool(this.items.get(members[end]!)!)) end++
+        const ownedMembers = observable.array<string>(members.slice(at, end), { deep: false })
+        this.rowMembers.set(first, ownedMembers)
+        this.rowShapes.set(first, ownedMembers.map(member => this.shapes.get(member)!))
+        let failures = 0
+        for (const member of ownedMembers) if (this.failed.has(member)) failures++
+        this.failuresByRow.set(first, failures)
+        const run = tools ? new TranscriptToolRun(ownedMembers, id => this.block(id), id => this.rank(id)) : undefined
+        if (run) this.runs.set(first, run)
+        for (const member of ownedMembers) this.rowByBlock.set(member, run ?? first)
+        this.skeletons.set(first, run ? this.toolSkeleton(run) : this.row(first)!)
+        this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
+        this.updateSummary(first)
+        at = end
+      }
       this.orderVersion++
-      this.updateSummary(first)
     }
   }
 
@@ -675,7 +696,7 @@ export class TranscriptGraph {
   }
 
   /** Add/change one child of an existing quiet run without walking its members. */
-  private repairToolRow(id: string): boolean {
+  private repairToolRow(id: string, broken: ReadonlySet<TranscriptToolRun>): boolean {
     const item = this.items.get(id)
     if (!item || !isBatchableTool(item) || !this.isEmitted(id)) return false
     const own = this.rowByBlock.get(id)
@@ -689,6 +710,7 @@ export class TranscriptGraph {
     }
     if (groups.size !== 1) return false
     const run = groups.values().next().value!
+    if (broken.has(run)) return false
     const before = run.ids[0]!
     const members = this.rowMembers.get(before)!
     const at = this.insertionPoint(members, id)
