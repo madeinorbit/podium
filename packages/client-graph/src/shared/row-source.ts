@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { isFinished } from './predicates'
 import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
@@ -33,23 +34,6 @@ import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSource, RowSourceEvent } from './source'
-
-/** Shallow equality over own enumerable keys (Object.is per value). */
-function shallowEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true
-  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false
-  const ka = Object.keys(a)
-  const kb = Object.keys(b)
-  if (ka.length !== kb.length) return false
-  for (const k of ka) {
-    if (
-      !Object.hasOwn(b, k) ||
-      !Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
-    )
-      return false
-  }
-  return true
-}
 
 type AnyRow = { [k: string]: unknown }
 

@@ -1,6 +1,6 @@
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   artifactKind,
   artifactUrl,

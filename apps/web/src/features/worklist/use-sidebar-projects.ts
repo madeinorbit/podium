@@ -1,7 +1,7 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { SidebarProject, SidebarSections } from '@podium/client-core/values'
 import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'

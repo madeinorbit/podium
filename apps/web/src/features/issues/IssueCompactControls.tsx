@@ -1,6 +1,6 @@
 import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   discoveredPlacement,
   issueNeedsHuman,

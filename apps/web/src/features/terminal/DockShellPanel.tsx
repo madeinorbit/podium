@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'

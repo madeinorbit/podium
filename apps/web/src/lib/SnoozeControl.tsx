@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'

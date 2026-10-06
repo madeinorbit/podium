@@ -1,6 +1,6 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'

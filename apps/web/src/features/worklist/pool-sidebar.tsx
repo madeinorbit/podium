@@ -2,7 +2,7 @@ import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   type IssueNavigationModel,
   issueClosedFoldAt,

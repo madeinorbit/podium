@@ -24,7 +24,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * The startScreen fetch and the panelMode write both live here rather than in
  * `AgentPanel` so that the component holds no arbitration state at all.
  */
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   effectivePanelMode,
   PANEL_MODE_DEFAULT_KEY,

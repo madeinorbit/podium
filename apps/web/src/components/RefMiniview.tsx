@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'

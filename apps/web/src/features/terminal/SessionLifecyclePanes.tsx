@@ -14,7 +14,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * every one of these says what happened and offers the way back.
  */
 
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { exitedRecovery } from '@podium/client-core/values'
 import type { SessionId} from '@podium/model/browser'
 import { Moon, RotateCcw, WifiOff } from 'lucide-react'

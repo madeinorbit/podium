@@ -1,5 +1,5 @@
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   agentCapabilityRejection,
   isMachineOfflineForLiveTerminal,

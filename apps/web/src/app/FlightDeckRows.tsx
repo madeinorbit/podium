@@ -2,7 +2,7 @@ import type { FlightDeckView } from './FlightDeck'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_FOLDS_KEY,

@@ -23,7 +23,7 @@
  * which project the composer opens on.
  */
 
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   FIRST_TASK_ACTIVATION_DRAFT_KEY,
   SUPERAGENT_MODE_KEY,

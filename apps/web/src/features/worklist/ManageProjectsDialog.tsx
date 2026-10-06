@@ -1,4 +1,4 @@
-import { shallowEqual } from '@podium/client-core/store'
+import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'

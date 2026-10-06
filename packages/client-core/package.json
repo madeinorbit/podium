@@ -60,10 +60,10 @@
       "types": "./src/outbox-recovery-copy.ts",
       "import": "./src/outbox-recovery-copy.ts"
     },
-    "./store": {
-      "@podium/source": "./src/store.ts",
-      "types": "./src/store.ts",
-      "import": "./src/store.ts"
+    "./shallow-equal": {
+      "@podium/source": "./src/shallow-equal.ts",
+      "types": "./src/shallow-equal.ts",
+      "import": "./src/shallow-equal.ts"
     },
     "./values": {
       "@podium/source": "./src/values/index.ts",
