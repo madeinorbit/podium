@@ -1,4 +1,5 @@
 import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
+import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import type { JSX, ReactNode } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -153,6 +154,17 @@ it('preserves saved notice, interaction and recovery output', () => {
   openNotices()
   expect(container.textContent).toMatchSnapshot('last green notices and recovery')
   expect(mock.selectors).not.toHaveBeenCalled()
+})
+
+it('says when older notices stay in their chats', () => {
+  const base = mock.rows.getMockImplementation()!
+  mock.rows.mockImplementation((entity: string, id: string) => {
+    if (entity === 'noticeAttention') return { count: NOTICE_MESSAGE_WINDOW + 1, newest: 'notice-message-2' }
+    return base(entity, id)
+  })
+  act(() => root.render(<MessageNoticeIndicator />))
+  openNotices()
+  expect(container.textContent).toContain(`Showing the newest ${NOTICE_MESSAGE_WINDOW}`)
 })
 
 it('reads only the count with the list closed and releases list reads after opening a chat', async () => {
