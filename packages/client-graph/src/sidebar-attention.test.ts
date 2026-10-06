@@ -1,8 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
-import { sidebarView } from './worklist/sidebar'
-import { sidebarAttention, sidebarNested } from './worklist/sidebar-attention'
+import { sidebarAttention, sidebarNested, sidebarView } from './worklist/sidebar'
 
 const stamp = '2026-10-05T12:00:00Z'
 const old = '2026-01-01T00:00:00Z'

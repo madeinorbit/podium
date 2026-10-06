@@ -1,5 +1,3 @@
-import { sidebarView } from './sidebar'
-import { sidebarActivityAt, sidebarAttention } from './sidebar-attention'
 import { worklistGroups } from './groups'
 import { keyedComputed } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
@@ -9,7 +7,7 @@ import type { MobxPool } from '../pool'
 import type { IssueModel } from '../models'
 import { debugName } from '../debug-name'
 import { LOADING, type Loaded } from './rollup'
-import { sidebarIssueRow, type SidebarState } from './sidebar'
+import { sidebarActivityAt, sidebarAttention, sidebarIssueRow, sidebarView, type SidebarState } from './sidebar'
 import { mobileIssueValues, mobileWaitingCount, mobileWorktreeValues, type MobileRowValues } from './mobile-row'
 
 export interface MobileWorkState extends SidebarState {
