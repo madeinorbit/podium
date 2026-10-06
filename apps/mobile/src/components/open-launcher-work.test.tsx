@@ -1,0 +1,106 @@
+import type { MobxPool } from '@podium/client-graph/pool'
+import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import { useState, type ReactNode } from 'react'
+import { afterEach, expect, it, vi } from 'vitest'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
+import { useMobilePool } from '../client/mobile-pool'
+import { renderWithMobileStore } from '../client/test-support'
+
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
+}))
+vi.mock('expo-router', () => ({ usePathname: () => '/work', useRouter: () => ({ back() {}, push() {}, replace() {} }) }))
+vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
+vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
+vi.mock('./Screen', () => ({
+  Screen: ({ children }: { children: ReactNode }) => <>{children}</>,
+  HeaderButton: ({ label, onPress }: { label: string; onPress: () => void }) => <button onClick={onPress} aria-label={label} />,
+}))
+vi.mock('./BottomSheet', () => ({ BottomSheet: ({ onClose, children, head }: { onClose: () => void; children: ReactNode; head: ReactNode }) => <div><button aria-label="Dismiss launcher" onClick={onClose} />{head}{children}</div> }))
+const { NewWorkButton } = await import('./NewWorkButton')
+const { NewIssueScreen } = await import('../screens/NewIssueScreen')
+
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+function fixture(scale: number) {
+  const machines = ['mine', 'remote'].map(id => ({ id, name: id, hostname: id, online: true,
+    serviceAssignment: { server: false, agentExecution: true },
+    availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
+    inventory: { os: 'linux', arch: 'x64', tools: [], agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
+  })) as MachineWire[]
+  const repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
+    path: `/project/p${String(at).padStart(3, '0')}`, originUrl: `https://example.invalid/p${at}`,
+    machineId: at % 2 ? 'remote' : 'mine', branch: 'main',
+    worktrees: Array.from({ length: 8 }, (_, tree) => ({ path: `/project/p${String(at).padStart(3, '0')}/wt-${tree}`, branch: 'topic' })),
+  })) as GitRepositoryWire[]
+  const sessions = Array.from({ length: 128 * scale }, (_, at) => ({ sessionId: `s${at}`, agentKind: 'codex', status: 'live', archived: false,
+    cwd: repos[at % repos.length]!.path, machineId: repos[at % repos.length]!.machineId,
+    createdAt: '2026-10-01T00:00:00Z', lastActiveAt: '2026-10-01T00:00:00Z',
+  })) as SessionMeta[]
+  return { machines, repos, sessions }
+}
+
+it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 1x/4x', async surface => {
+  const samples = []
+  for (const scale of [1, 4]) {
+    const data = fixture(scale)
+    let pool: MobxPool | null = null
+    let show!: () => void
+    function Host() {
+      pool = useMobilePool()
+      const [open, setOpen] = useState(false)
+      show = () => setOpen(true)
+      return surface === 'NewWorkButton' ? <NewWorkButton /> : open ? <NewIssueScreen /> : null
+    }
+    const app = await renderWithMobileStore(<Host />, data)
+    const attached = pool as MobxPool | null
+    if (!attached) throw new Error('Mobile pool missing')
+    async function measured(action: string, fn: () => unknown) {
+      const result = await measureWork(async () => insideReader(`mobile.${surface}.${action}`, async () => {
+        await act(async () => { await fn() })
+        for (let at = 0; at < 20; at++) {
+          let loaded = 0
+          await act(async () => { loaded = attached!.hydrate() })
+          if (!loaded) break
+        }
+      }), { pool: attached! })
+      return { action, ...result.work }
+    }
+    const cells = []
+    cells.push(await measured('open', () => surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show()))
+    if (surface === 'NewWorkButton') {
+      expect(screen.getByLabelText('Start in p000')).toBeTruthy()
+      cells.push(await measured('repository-choice', () => {
+        fireEvent.click(screen.getByLabelText('Project, p000'))
+        fireEvent.click(screen.getByLabelText('p002'))
+      }))
+      expect(screen.getByLabelText('Start in p002')).toBeTruthy()
+      cells.push(await measured('machine-choice', () => {
+        fireEvent.click(screen.getByLabelText('Machine, mine'))
+        fireEvent.click(screen.getByLabelText('remote'))
+      }))
+      expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
+    } else {
+      expect(screen.getByRole('radio', { name: 'Repository p000' })).toBeTruthy()
+      cells.push(await measured('repository-choice', () => fireEvent.click(screen.getByRole('radio', { name: 'Repository p001' }))))
+      expect(screen.getByRole('radio', { name: 'Repository p001' }).getAttribute('aria-checked')).toBe('true')
+      cells.push(await measured('machine-choice', () => {
+        fireEvent.click(screen.getByLabelText('Machine, Auto'))
+        fireEvent.click(screen.getByLabelText('remote'))
+      }))
+      expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
+    }
+    cells.push(await measured('catalog', () => {
+      data.repos[0] = { ...data.repos[0]!, branch: 'updated' }
+      return app.runtime.access.refreshRepos()
+    }))
+    cells.push(await measured('usage', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' }], [])))
+    cells.push(await measured('heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z' }], [])))
+    samples.push({ scale, repositories: data.repos.length, sessions: data.sessions.length, cells })
+    app.unmount(); cleanup()
+  }
+  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples))
+  expect(samples).toHaveLength(2)
+}, 60_000)
