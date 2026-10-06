@@ -54,7 +54,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       value: runtime.listRow(name, id),
     })) as HeaderRecord[]
     runInAction(() => {
-      // Live machine rows merge under their feed companions (POD-5661);
+      // Live machine rows win over their feed companions (POD-5661, POD-5704);
       // repositories have no companions and apply directly.
       if (entity === 'machine') pool.ingestLiveMachines(records)
       else headerEntities(pool).apply(records)

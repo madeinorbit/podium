@@ -754,16 +754,20 @@ export class MobxPool {
     return typeof companion?.name === 'string' ? companion.name : undefined
   }
 
-  /** Install live machine rows under their feed companions (POD-5661): the
-   * same merge as the companion path, so either arrival order converges on
-   * live presence with replicated display facts. Companion removals and
-   * row deletions pass through untouched. */
+  /** Install live machine rows under their feed companions (POD-5661,
+   * POD-5704): the same merge as the companion path, so either arrival order
+   * converges on live presence with live display facts. The live row wins;
+   * companion-only facts (loggedOutHarnesses) survive because the live row
+   * never carries them. The offline banner never reads this row — it reads
+   * the stored companion via machineHomeName, so replicated renames still
+   * reach the banner. Companion removals and row deletions pass through
+   * untouched. */
   ingestLiveMachines(records: readonly { id: string; value: unknown }[]): void {
     const merged = records.map((record) => {
       if (record.value === undefined || typeof record.value !== 'object') return record
       const companion = this.companionMachineRows.get(record.id)
       if (!companion) return record
-      return { ...record, value: { ...(record.value as Record<string, unknown>), ...companion } }
+      return { ...record, value: { ...companion, ...(record.value as Record<string, unknown>) } }
     })
     headerEntities(this).apply(merged as never)
   }
@@ -900,19 +904,22 @@ export class MobxPool {
         else if (typeof record.value === 'object') this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
       }
       // Feed companions carry replicated display facts without live presence.
-      // Merge them over the live rows they accompany: a wholesale replace
+      // Merge them under the live rows they accompany: a wholesale replace
       // drops online/availability and every presence reader goes blind until
-      // the next hub emit (POD-5661). Companion fields win; live-only fields
-      // survive. Removals still delete. Live rows merge the same stored
-      // companions on their own path (ingestLiveMachines), so either arrival
-      // order converges.
+      // the next hub emit (POD-5661). The live row wins (POD-5704: a keyed
+      // live rename must reach the header); companion-only facts survive
+      // because the live row never carries them. Removals still delete.
+      // Live rows merge the same stored companions on their own path
+      // (ingestLiveMachines), so either arrival order converges. The offline
+      // banner reads the stored companion via machineHomeName, never this
+      // merged row, so replicated renames still reach it.
       const mergedMachineRows = machineRows.map((record) => {
         if (record.value === undefined || typeof record.value !== 'object') return record
         const live = headerEntities(this).get('machine', record.id)
         if (!live || typeof live !== 'object') return record
         return {
           ...record,
-          value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
+          value: { ...(record.value as Record<string, unknown>), ...(live as Record<string, unknown>) },
         }
       })
       if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
