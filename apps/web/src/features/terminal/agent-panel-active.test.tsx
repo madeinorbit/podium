@@ -1,3 +1,4 @@
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
@@ -120,7 +121,7 @@ const stableStoreFns = {
 
 vi.mock('@/app/store', () => {
   const useStore = () =>
-    normalizedFixtureStore({
+    poolFixtureStore({
       hub: fakeHub,
       sessions: storeSessions,
       machines: [],
@@ -227,7 +228,7 @@ describe('AgentPanel active wiring', () => {
     ]
     selectedIssueId = 'iss-normalized'
     storeSessions = [meta({ issueId: storeIssues[0]!.id })]
-    const world = normalizedFixtureStore({ issues: storeIssues, sessions: storeSessions })
+    const world = poolFixtureStore({ issues: storeIssues, sessions: storeSessions })
     await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
     const stamp = container.querySelector('[data-testid="git-stamp"]')

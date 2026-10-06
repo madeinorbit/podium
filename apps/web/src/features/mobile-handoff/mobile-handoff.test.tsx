@@ -1,3 +1,4 @@
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-pool-store-handle'
 import { parsePodiumLink } from '@podium/protocol'
@@ -55,7 +56,7 @@ const fixture = vi.hoisted(() => {
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (selector: (store: unknown) => unknown) =>
     selector(
-      normalizedFixtureStore({
+      poolFixtureStore({
         uiState: fixture.uiState,
         trpc: fixture.trpc,
         httpOrigin: 'https://local.example',

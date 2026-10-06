@@ -1,3 +1,4 @@
+import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 /**
  * POD-647 — the seams the OLD WorkflowsView had NO test for, and which a
  * refactor therefore does not inherit coverage of.
@@ -68,7 +69,7 @@ const detailOf = (id: string) => ({
 
 vi.mock('@/app/store', () => {
   const fixtureState = () =>
-    normalizedFixtureStore({
+    poolFixtureStore({
       machines: [],
       issues: subjects,
       sessions: [],
@@ -173,7 +174,7 @@ describe('run progress', () => {
 
   it('renders a present subject with only normalized replica rows', async () => {
     subjects = [makeIssue({ id: 'iss-visible', title: 'Projection subject' })]
-    const world = normalizedFixtureStore({ issues: subjects })
+    const world = poolFixtureStore({ issues: subjects })
     runs.mockResolvedValue([run({ subjectId: 'iss-visible' })])
     render(<WorkflowsView />)
     fireEvent.click(screen.getByRole('button', { name: 'Progress' }))

@@ -1,6 +1,3 @@
-export * from '../replica/react'
-// Replica-side issue views [ADR 4 D7.3] — the React bindings apps read to render
-// issues from the replica (membership + rollups derived locally) instead of the
 export * from './provider'
 export * from './store-stats-profiler'
 export * from './use-harness-descriptors'

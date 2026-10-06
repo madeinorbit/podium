@@ -20,7 +20,7 @@ export function createReplicaFixture(options: ReplicaFixtureOptions = {}) {
     side: createSideCache({ ...options, storage: options.storage ?? memoryStorage() }),
   })
   const replace = () => replica.onKernelEvent({
-    type: 'bootstrap-installed', cause: 'bootstrap', snapshotSeq: cursor?.seq ?? 0,
+    type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: cursor?.seq ?? 0,
     entityCount: records.size, bufferedFramesApplied: 0,
   })
   const put = <K extends ReplicaKind>(kind: K, value: ReplicaRows[K]) => {

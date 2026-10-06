@@ -1,3 +1,4 @@
+import { poolFixtureStore, poolFixtureIssues } from '@/test-support/pool-issue-fixture'
 import '@/test-support/mock-core-store-handle'
 
 // @vitest-environment happy-dom
@@ -595,7 +596,7 @@ function explorerPool(issues: SliceIssue[], sessions: SliceSession[] = []): Mobx
 
 function fixturePool(): MobxPool {
   const signature = JSON.stringify([state.issues, state.sessions])
-  const repos = normalizedFixtureStore(state)
+  const repos = poolFixtureStore(state)
     .replica.rows('repos')
     .map((repo) => ({
       kind: 'worktree' as const,
@@ -610,14 +611,14 @@ function fixturePool(): MobxPool {
       },
     }))
   if (!poolMode.pool) {
-    poolMode.pool = explorerPool(normalizedFixtureIssues(state), state.sessions)
+    poolMode.pool = explorerPool(poolFixtureIssues(state), state.sessions)
     poolMode.pool.apply({ type: 'update', rows: repos })
   } else if (poolMode.signature && poolMode.signature !== signature) {
     poolMode.pool.apply({
       type: 'replace',
       rows: [
         ...repos,
-        ...normalizedFixtureIssues(state).map((value) => ({
+        ...poolFixtureIssues(state).map((value) => ({
           kind: 'issue' as const,
           id: value.id,
           value,
