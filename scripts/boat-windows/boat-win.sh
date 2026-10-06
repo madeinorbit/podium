@@ -113,7 +113,11 @@ for s in json.load(sys.stdin)["sandboxes"]:
     root=$(git rev-parse --show-toplevel)
     sha=$(git -C "$root" rev-parse "$ref")
     bundle=$(mktemp --suffix=.bundle)
-    git -C "$root" bundle create "$bundle" "$ref" --quiet 2>/dev/null || git -C "$root" bundle create "$bundle" "$ref"
+    # git bundle needs a ref, not a bare commit: bundle a scratch ref pointing at it.
+    git -C "$root" update-ref refs/boat-win/sync "$sha"
+    git -C "$root" bundle create "$bundle" refs/boat-win/sync --quiet 2>/dev/null ||
+      git -C "$root" bundle create "$bundle" refs/boat-win/sync
+    git -C "$root" update-ref -d refs/boat-win/sync
     boat scp "$bundle" "$id:/home/user/win/shared/podium.bundle" >/dev/null
     rm -f "$bundle"
     # \\host.lan\Data is the dockur Samba share backed by ~/win/shared.
