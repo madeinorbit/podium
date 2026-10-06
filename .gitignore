@@ -32,11 +32,11 @@ tests/e2e/playwright-report/
 test-results/
 
 # POD-4445: round-two browser/count run output (attached to issues, not committed).
-packages/worklist-proto/harness/browser/results/
+tests/worklist/harness/browser/results/
 # POD-4747: the unminified layer-split pages (`PROTO_LAYERS=1`).
-packages/worklist-proto/harness/web/dist-layers/
+tests/worklist/harness/web/dist-layers/
 # POD-4552: anonymised live snapshots (attached to issues, never committed).
-packages/worklist-proto/harness/.live/
+tests/worklist/harness/.live/
 
 # bun build --compile artifacts
 dist-bun/
