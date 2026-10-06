@@ -1,12 +1,14 @@
 {
-  "updatedBy": "POD-5423",
-  "reason": "work follows the screen (1x/4x). Members and unread read each issue's seat summary (seat-verdicts.ts: one observable value per issue WITH seats, judged once per seat change) instead of every seat's retention computed: SessionModel computeds 1659/6480 -> 199/477, total computeds 11228/42058 -> 9839/36156, map probes 4417/17349 -> 3155/11811, standalone values 194/779 -> 898/3754. Seat activity is its own group per issue (IssueModel computeds 9497/35499 -> 9548/35580) so a heartbeat moves one number up the nest. Sidebar bands are cached per layout value and band (standalone computeds 4/11 -> 24/31). Raw row-field reads rise (ingest 13900/55727 -> 18142/72605) as each seat is judged when its row lands; distinct rows unchanged.",
+  "updatedBy": "POD-5677",
+  "reason": "companion normalization (POD-5485 30e913a3e+5bc12dbb2): rows arrive normalized with repo/machine joined at read; ingest reads each resident row once by id plus one memoized composition, so ingest.rowReads 18k->277k/73k->1122k and distinct +2.4k/+9.6k while reactive/paint reads shrink. Header/sidebar keyed derivations (POD-5542 ed88cd4a5): per-session cachedKey contribution/host/working plus machine aggregates replace reaction-per-session; firstPaint standalone +903/+3655 (~1.24/visible, bounded), rosterSeats set +370/+1508, companion mapHas up, paint distinct/reads up, standalone values/reactive changes down. Sidebar eviction reaction (POD-5547 12dc075da): +1 live reaction +1 box at create. Shared relation buckets (POD-5424 148c19616): -1 atom/object. Screen series (POD-5424 e34bb84f..1be3d2a9d): foldLatch out of pool construction, -1 atom. Borrowed companions through the fence (672ca102ab): pool ingests 6 machine companions, +6 Object owners/+18 properties, +5 objects, +1 map/+2 atoms in create, +1 startup standalone. Root scan rows for phone launch (344087e31): +1 map/atom/computed persisting startup to paint.",
   "counts": {
     "1x.firstPaint.byOwner.GroupNode.computeds": 64,
     "1x.firstPaint.byOwner.GroupNode.owners": 8,
     "1x.firstPaint.byOwner.IssueModel.computeds": 9548,
     "1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "1x.firstPaint.byOwner.IssueModel.reactions": 2429,
+    "1x.firstPaint.byOwner.Object.owners": 6,
+    "1x.firstPaint.byOwner.Object.properties": 18,
     "1x.firstPaint.byOwner.SessionModel.computeds": 199,
     "1x.firstPaint.byOwner.SessionModel.owners": 134,
     "1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -19,57 +21,67 @@
     "1x.firstPaint.coldSessions.computeds": 11,
     "1x.firstPaint.coldSessions.owners": 11,
     "1x.firstPaint.computeds.declared": 9815,
-    "1x.firstPaint.computeds.standalone": 24,
-    "1x.firstPaint.computeds.total": 9839,
-    "1x.firstPaint.held.arrayElements": 3844,
-    "1x.firstPaint.held.mapEntries": 6747,
-    "1x.firstPaint.held.setMembers": 15,
-    "1x.firstPaint.observables.array": 1378,
-    "1x.firstPaint.observables.atom": 5949,
-    "1x.firstPaint.observables.map": 19,
-    "1x.firstPaint.observables.object": 11,
+    "1x.firstPaint.computeds.standalone": 929,
+    "1x.firstPaint.computeds.total": 10744,
+    "1x.firstPaint.held.arrayElements": 4031,
+    "1x.firstPaint.held.mapEntries": 6950,
+    "1x.firstPaint.held.setMembers": 385,
+    "1x.firstPaint.observables.array": 1384,
+    "1x.firstPaint.observables.atom": 6020,
+    "1x.firstPaint.observables.map": 41,
+    "1x.firstPaint.observables.object": 16,
     "1x.firstPaint.observables.set": 193,
-    "1x.firstPaint.observables.value.mapEntry": 6747,
-    "1x.firstPaint.observables.value.mapHas": 3155,
-    "1x.firstPaint.observables.value.standalone": 898,
-    "1x.firstPaint.reactions.built": 2450,
-    "1x.firstPaint.reactions.live": 2450,
+    "1x.firstPaint.observables.value.mapEntry": 6950,
+    "1x.firstPaint.observables.value.mapHas": 3663,
+    "1x.firstPaint.observables.value.property": 18,
+    "1x.firstPaint.observables.value.standalone": 710,
+    "1x.firstPaint.reactions.built": 2451,
+    "1x.firstPaint.reactions.live": 2451,
     "1x.firstPaint.visibleRows": 732,
-    "1x.phases.create.built.atom": 25,
+    "1x.phases.create.built.atom": 27,
     "1x.phases.create.built.computed": 4,
-    "1x.phases.create.built.map": 19,
-    "1x.phases.create.built.object": 3,
+    "1x.phases.create.built.map": 20,
+    "1x.phases.create.built.object": 2,
     "1x.phases.create.built.observableValue": 3,
+    "1x.phases.create.built.reaction": 1,
     "1x.phases.create.built.set": 1,
     "1x.phases.create.changes": 4,
-    "1x.phases.firstPaint.built.atom": 607,
-    "1x.phases.firstPaint.built.computed": 1095,
+    "1x.phases.create.reactionRuns": 1,
+    "1x.phases.firstPaint.built.atom": 633,
+    "1x.phases.firstPaint.built.computed": 1998,
     "1x.phases.firstPaint.built.object": 8,
-    "1x.phases.firstPaint.built.observableValue": 261,
+    "1x.phases.firstPaint.built.observableValue": 762,
     "1x.phases.firstPaint.built.reaction": 61,
     "1x.phases.firstPaint.changes": 64,
-    "1x.phases.firstPaint.computedRuns": 1091,
-    "1x.phases.firstPaint.distinctRows": 126,
+    "1x.phases.firstPaint.computedRuns": 1994,
+    "1x.phases.firstPaint.distinctRows": 771,
     "1x.phases.firstPaint.reactionRuns": 61,
-    "1x.phases.firstPaint.rowReads": 5735,
+    "1x.phases.firstPaint.rowReads": 9766,
     "1x.phases.firstReactiveRun.built.array": 1378,
-    "1x.phases.firstReactiveRun.built.atom": 5317,
+    "1x.phases.firstReactiveRun.built.atom": 5327,
     "1x.phases.firstReactiveRun.built.computed": 8740,
-    "1x.phases.firstReactiveRun.built.observableValue": 3834,
+    "1x.phases.firstReactiveRun.built.observableValue": 3841,
     "1x.phases.firstReactiveRun.built.set": 192,
-    "1x.phases.firstReactiveRun.changes": 4893,
+    "1x.phases.firstReactiveRun.changes": 3953,
     "1x.phases.firstReactiveRun.computedRuns": 8740,
-    "1x.phases.firstReactiveRun.distinctRows": 3807,
+    "1x.phases.firstReactiveRun.distinctRows": 4301,
     "1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "1x.phases.firstReactiveRun.rowReads": 127450,
-    "1x.phases.ingest.built.observableValue": 6702,
-    "1x.phases.ingest.changes": 7187,
-    "1x.phases.ingest.distinctRows": 6680,
-    "1x.phases.ingest.rowReads": 18142,
+    "1x.phases.firstReactiveRun.rowReads": 118592,
+    "1x.phases.ingest.built.array": 6,
+    "1x.phases.ingest.built.atom": 33,
+    "1x.phases.ingest.built.computed": 2,
+    "1x.phases.ingest.built.map": 21,
+    "1x.phases.ingest.built.object": 6,
+    "1x.phases.ingest.built.observableValue": 6735,
+    "1x.phases.ingest.changes": 7227,
+    "1x.phases.ingest.distinctRows": 9085,
+    "1x.phases.ingest.rowReads": 277267,
     "1x.phases.nodeConstruction.built.reaction": 2389,
     "1x.startup.byOwner.IssueModel.computeds": 8638,
     "1x.startup.byOwner.IssueModel.owners": 2741,
     "1x.startup.byOwner.IssueModel.reactions": 2389,
+    "1x.startup.byOwner.Object.owners": 6,
+    "1x.startup.byOwner.Object.properties": 18,
     "1x.startup.byOwner.SessionModel.computeds": 102,
     "1x.startup.byOwner.SessionModel.owners": 91,
     "1x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -82,26 +94,30 @@
     "1x.startup.coldSessions.computeds": 11,
     "1x.startup.coldSessions.owners": 11,
     "1x.startup.computeds.declared": 8744,
-    "1x.startup.computeds.total": 8744,
-    "1x.startup.held.arrayElements": 3844,
-    "1x.startup.held.mapEntries": 6747,
-    "1x.startup.held.setMembers": 15,
-    "1x.startup.observables.array": 1378,
-    "1x.startup.observables.atom": 5342,
-    "1x.startup.observables.map": 19,
-    "1x.startup.observables.object": 3,
+    "1x.startup.computeds.standalone": 2,
+    "1x.startup.computeds.total": 8746,
+    "1x.startup.held.arrayElements": 4031,
+    "1x.startup.held.mapEntries": 6950,
+    "1x.startup.held.setMembers": 385,
+    "1x.startup.observables.array": 1384,
+    "1x.startup.observables.atom": 5387,
+    "1x.startup.observables.map": 41,
+    "1x.startup.observables.object": 8,
     "1x.startup.observables.set": 193,
-    "1x.startup.observables.value.mapEntry": 6747,
-    "1x.startup.observables.value.mapHas": 2894,
-    "1x.startup.observables.value.standalone": 898,
-    "1x.startup.reactions.built": 2389,
-    "1x.startup.reactions.live": 2389,
+    "1x.startup.observables.value.mapEntry": 6950,
+    "1x.startup.observables.value.mapHas": 2901,
+    "1x.startup.observables.value.property": 18,
+    "1x.startup.observables.value.standalone": 710,
+    "1x.startup.reactions.built": 2390,
+    "1x.startup.reactions.live": 2390,
     "1x.startup.visibleRows": 732,
     "4x.firstPaint.byOwner.GroupNode.computeds": 64,
     "4x.firstPaint.byOwner.GroupNode.owners": 8,
     "4x.firstPaint.byOwner.IssueModel.computeds": 35580,
     "4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "4x.firstPaint.byOwner.Object.owners": 6,
+    "4x.firstPaint.byOwner.Object.properties": 18,
     "4x.firstPaint.byOwner.SessionModel.computeds": 477,
     "4x.firstPaint.byOwner.SessionModel.owners": 336,
     "4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -114,57 +130,67 @@
     "4x.firstPaint.coldSessions.computeds": 51,
     "4x.firstPaint.coldSessions.owners": 51,
     "4x.firstPaint.computeds.declared": 36125,
-    "4x.firstPaint.computeds.standalone": 31,
-    "4x.firstPaint.computeds.total": 36156,
-    "4x.firstPaint.held.arrayElements": 15617,
-    "4x.firstPaint.held.mapEntries": 27124,
-    "4x.firstPaint.held.setMembers": 27,
-    "4x.firstPaint.observables.array": 5450,
-    "4x.firstPaint.observables.atom": 21680,
-    "4x.firstPaint.observables.map": 19,
-    "4x.firstPaint.observables.object": 11,
+    "4x.firstPaint.computeds.standalone": 3688,
+    "4x.firstPaint.computeds.total": 39813,
+    "4x.firstPaint.held.arrayElements": 16391,
+    "4x.firstPaint.held.mapEntries": 27912,
+    "4x.firstPaint.held.setMembers": 1535,
+    "4x.firstPaint.observables.array": 5456,
+    "4x.firstPaint.observables.atom": 21834,
+    "4x.firstPaint.observables.map": 41,
+    "4x.firstPaint.observables.object": 16,
     "4x.firstPaint.observables.set": 792,
-    "4x.firstPaint.observables.value.mapEntry": 27124,
-    "4x.firstPaint.observables.value.mapHas": 11811,
-    "4x.firstPaint.observables.value.standalone": 3754,
-    "4x.firstPaint.reactions.built": 9677,
-    "4x.firstPaint.reactions.live": 9677,
+    "4x.firstPaint.observables.value.mapEntry": 27912,
+    "4x.firstPaint.observables.value.mapHas": 13978,
+    "4x.firstPaint.observables.value.property": 18,
+    "4x.firstPaint.observables.value.standalone": 2981,
+    "4x.firstPaint.reactions.built": 9678,
+    "4x.firstPaint.reactions.live": 9678,
     "4x.firstPaint.visibleRows": 2928,
-    "4x.phases.create.built.atom": 25,
+    "4x.phases.create.built.atom": 27,
     "4x.phases.create.built.computed": 4,
-    "4x.phases.create.built.map": 19,
-    "4x.phases.create.built.object": 3,
+    "4x.phases.create.built.map": 20,
+    "4x.phases.create.built.object": 2,
     "4x.phases.create.built.observableValue": 3,
+    "4x.phases.create.built.reaction": 1,
     "4x.phases.create.built.set": 1,
     "4x.phases.create.changes": 4,
-    "4x.phases.firstPaint.built.atom": 894,
-    "4x.phases.firstPaint.built.computed": 1436,
+    "4x.phases.create.reactionRuns": 1,
+    "4x.phases.firstPaint.built.atom": 1002,
+    "4x.phases.firstPaint.built.computed": 5091,
     "4x.phases.firstPaint.built.object": 8,
-    "4x.phases.firstPaint.built.observableValue": 312,
+    "4x.phases.firstPaint.built.observableValue": 2474,
     "4x.phases.firstPaint.built.reaction": 61,
     "4x.phases.firstPaint.changes": 64,
-    "4x.phases.firstPaint.computedRuns": 1432,
-    "4x.phases.firstPaint.distinctRows": 200,
+    "4x.phases.firstPaint.computedRuns": 5087,
+    "4x.phases.firstPaint.distinctRows": 2938,
     "4x.phases.firstPaint.reactionRuns": 61,
-    "4x.phases.firstPaint.rowReads": 8884,
+    "4x.phases.firstPaint.rowReads": 30013,
     "4x.phases.firstReactiveRun.built.array": 5450,
-    "4x.phases.firstReactiveRun.built.atom": 20761,
+    "4x.phases.firstReactiveRun.built.atom": 20772,
     "4x.phases.firstReactiveRun.built.computed": 34716,
-    "4x.phases.firstReactiveRun.built.observableValue": 15319,
+    "4x.phases.firstReactiveRun.built.observableValue": 15324,
     "4x.phases.firstReactiveRun.built.set": 791,
-    "4x.phases.firstReactiveRun.changes": 19755,
+    "4x.phases.firstReactiveRun.changes": 15920,
     "4x.phases.firstReactiveRun.computedRuns": 34716,
-    "4x.phases.firstReactiveRun.distinctRows": 15526,
+    "4x.phases.firstReactiveRun.distinctRows": 17428,
     "4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "4x.phases.firstReactiveRun.rowReads": 509702,
-    "4x.phases.ingest.built.observableValue": 27055,
-    "4x.phases.ingest.changes": 28944,
-    "4x.phases.ingest.distinctRows": 27033,
-    "4x.phases.ingest.rowReads": 72605,
+    "4x.phases.firstReactiveRun.rowReads": 483861,
+    "4x.phases.ingest.built.array": 6,
+    "4x.phases.ingest.built.atom": 33,
+    "4x.phases.ingest.built.computed": 2,
+    "4x.phases.ingest.built.map": 21,
+    "4x.phases.ingest.built.object": 6,
+    "4x.phases.ingest.built.observableValue": 27088,
+    "4x.phases.ingest.changes": 28984,
+    "4x.phases.ingest.distinctRows": 36665,
+    "4x.phases.ingest.rowReads": 1121959,
     "4x.phases.nodeConstruction.built.reaction": 9616,
     "4x.startup.byOwner.IssueModel.computeds": 34402,
     "4x.startup.byOwner.IssueModel.owners": 10951,
     "4x.startup.byOwner.IssueModel.reactions": 9616,
+    "4x.startup.byOwner.Object.owners": 6,
+    "4x.startup.byOwner.Object.properties": 18,
     "4x.startup.byOwner.SessionModel.computeds": 314,
     "4x.startup.byOwner.SessionModel.owners": 265,
     "4x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -177,26 +203,30 @@
     "4x.startup.coldSessions.computeds": 51,
     "4x.startup.coldSessions.owners": 51,
     "4x.startup.computeds.declared": 34720,
-    "4x.startup.computeds.total": 34720,
-    "4x.startup.held.arrayElements": 15617,
-    "4x.startup.held.mapEntries": 27124,
-    "4x.startup.held.setMembers": 27,
-    "4x.startup.observables.array": 5450,
-    "4x.startup.observables.atom": 20786,
-    "4x.startup.observables.map": 19,
-    "4x.startup.observables.object": 3,
+    "4x.startup.computeds.standalone": 2,
+    "4x.startup.computeds.total": 34722,
+    "4x.startup.held.arrayElements": 16391,
+    "4x.startup.held.mapEntries": 27912,
+    "4x.startup.held.setMembers": 1535,
+    "4x.startup.observables.array": 5456,
+    "4x.startup.observables.atom": 20832,
+    "4x.startup.observables.map": 41,
+    "4x.startup.observables.object": 8,
     "4x.startup.observables.set": 792,
-    "4x.startup.observables.value.mapEntry": 27124,
-    "4x.startup.observables.value.mapHas": 11499,
-    "4x.startup.observables.value.standalone": 3754,
-    "4x.startup.reactions.built": 9616,
-    "4x.startup.reactions.live": 9616,
+    "4x.startup.observables.value.mapEntry": 27912,
+    "4x.startup.observables.value.mapHas": 11504,
+    "4x.startup.observables.value.property": 18,
+    "4x.startup.observables.value.standalone": 2981,
+    "4x.startup.reactions.built": 9617,
+    "4x.startup.reactions.live": 9617,
     "4x.startup.visibleRows": 2928,
     "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": 64,
     "write-idle.1x.firstPaint.byOwner.GroupNode.owners": 8,
     "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": 9548,
     "write-idle.1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "write-idle.1x.firstPaint.byOwner.IssueModel.reactions": 2429,
+    "write-idle.1x.firstPaint.byOwner.Object.owners": 6,
+    "write-idle.1x.firstPaint.byOwner.Object.properties": 18,
     "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": 199,
     "write-idle.1x.firstPaint.byOwner.SessionModel.owners": 134,
     "write-idle.1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -209,57 +239,67 @@
     "write-idle.1x.firstPaint.coldSessions.computeds": 11,
     "write-idle.1x.firstPaint.coldSessions.owners": 11,
     "write-idle.1x.firstPaint.computeds.declared": 9815,
-    "write-idle.1x.firstPaint.computeds.standalone": 24,
-    "write-idle.1x.firstPaint.computeds.total": 9839,
-    "write-idle.1x.firstPaint.held.arrayElements": 3844,
-    "write-idle.1x.firstPaint.held.mapEntries": 6747,
-    "write-idle.1x.firstPaint.held.setMembers": 15,
-    "write-idle.1x.firstPaint.observables.array": 1378,
-    "write-idle.1x.firstPaint.observables.atom": 5949,
-    "write-idle.1x.firstPaint.observables.map": 19,
-    "write-idle.1x.firstPaint.observables.object": 11,
+    "write-idle.1x.firstPaint.computeds.standalone": 929,
+    "write-idle.1x.firstPaint.computeds.total": 10744,
+    "write-idle.1x.firstPaint.held.arrayElements": 4031,
+    "write-idle.1x.firstPaint.held.mapEntries": 6950,
+    "write-idle.1x.firstPaint.held.setMembers": 385,
+    "write-idle.1x.firstPaint.observables.array": 1384,
+    "write-idle.1x.firstPaint.observables.atom": 6020,
+    "write-idle.1x.firstPaint.observables.map": 41,
+    "write-idle.1x.firstPaint.observables.object": 16,
     "write-idle.1x.firstPaint.observables.set": 193,
-    "write-idle.1x.firstPaint.observables.value.mapEntry": 6747,
-    "write-idle.1x.firstPaint.observables.value.mapHas": 3155,
-    "write-idle.1x.firstPaint.observables.value.standalone": 898,
-    "write-idle.1x.firstPaint.reactions.built": 2450,
-    "write-idle.1x.firstPaint.reactions.live": 2450,
+    "write-idle.1x.firstPaint.observables.value.mapEntry": 6950,
+    "write-idle.1x.firstPaint.observables.value.mapHas": 3663,
+    "write-idle.1x.firstPaint.observables.value.property": 18,
+    "write-idle.1x.firstPaint.observables.value.standalone": 710,
+    "write-idle.1x.firstPaint.reactions.built": 2452,
+    "write-idle.1x.firstPaint.reactions.live": 2452,
     "write-idle.1x.firstPaint.visibleRows": 732,
-    "write-idle.1x.phases.create.built.atom": 25,
+    "write-idle.1x.phases.create.built.atom": 27,
     "write-idle.1x.phases.create.built.computed": 4,
-    "write-idle.1x.phases.create.built.map": 19,
-    "write-idle.1x.phases.create.built.object": 3,
+    "write-idle.1x.phases.create.built.map": 20,
+    "write-idle.1x.phases.create.built.object": 2,
     "write-idle.1x.phases.create.built.observableValue": 3,
+    "write-idle.1x.phases.create.built.reaction": 2,
     "write-idle.1x.phases.create.built.set": 1,
     "write-idle.1x.phases.create.changes": 4,
-    "write-idle.1x.phases.firstPaint.built.atom": 607,
-    "write-idle.1x.phases.firstPaint.built.computed": 1095,
+    "write-idle.1x.phases.create.reactionRuns": 2,
+    "write-idle.1x.phases.firstPaint.built.atom": 633,
+    "write-idle.1x.phases.firstPaint.built.computed": 1998,
     "write-idle.1x.phases.firstPaint.built.object": 8,
-    "write-idle.1x.phases.firstPaint.built.observableValue": 261,
+    "write-idle.1x.phases.firstPaint.built.observableValue": 762,
     "write-idle.1x.phases.firstPaint.built.reaction": 61,
     "write-idle.1x.phases.firstPaint.changes": 64,
-    "write-idle.1x.phases.firstPaint.computedRuns": 1091,
-    "write-idle.1x.phases.firstPaint.distinctRows": 126,
+    "write-idle.1x.phases.firstPaint.computedRuns": 1994,
+    "write-idle.1x.phases.firstPaint.distinctRows": 771,
     "write-idle.1x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.1x.phases.firstPaint.rowReads": 5735,
+    "write-idle.1x.phases.firstPaint.rowReads": 9766,
     "write-idle.1x.phases.firstReactiveRun.built.array": 1378,
-    "write-idle.1x.phases.firstReactiveRun.built.atom": 5317,
+    "write-idle.1x.phases.firstReactiveRun.built.atom": 5327,
     "write-idle.1x.phases.firstReactiveRun.built.computed": 8740,
-    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 3834,
+    "write-idle.1x.phases.firstReactiveRun.built.observableValue": 3841,
     "write-idle.1x.phases.firstReactiveRun.built.set": 192,
-    "write-idle.1x.phases.firstReactiveRun.changes": 4893,
+    "write-idle.1x.phases.firstReactiveRun.changes": 3953,
     "write-idle.1x.phases.firstReactiveRun.computedRuns": 8740,
-    "write-idle.1x.phases.firstReactiveRun.distinctRows": 3807,
+    "write-idle.1x.phases.firstReactiveRun.distinctRows": 4301,
     "write-idle.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-idle.1x.phases.firstReactiveRun.rowReads": 127450,
-    "write-idle.1x.phases.ingest.built.observableValue": 6702,
-    "write-idle.1x.phases.ingest.changes": 7187,
-    "write-idle.1x.phases.ingest.distinctRows": 6680,
-    "write-idle.1x.phases.ingest.rowReads": 18142,
+    "write-idle.1x.phases.firstReactiveRun.rowReads": 118592,
+    "write-idle.1x.phases.ingest.built.array": 6,
+    "write-idle.1x.phases.ingest.built.atom": 33,
+    "write-idle.1x.phases.ingest.built.computed": 2,
+    "write-idle.1x.phases.ingest.built.map": 21,
+    "write-idle.1x.phases.ingest.built.object": 6,
+    "write-idle.1x.phases.ingest.built.observableValue": 6735,
+    "write-idle.1x.phases.ingest.changes": 7227,
+    "write-idle.1x.phases.ingest.distinctRows": 9085,
+    "write-idle.1x.phases.ingest.rowReads": 277267,
     "write-idle.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-idle.1x.startup.byOwner.IssueModel.computeds": 8638,
     "write-idle.1x.startup.byOwner.IssueModel.owners": 2741,
     "write-idle.1x.startup.byOwner.IssueModel.reactions": 2389,
+    "write-idle.1x.startup.byOwner.Object.owners": 6,
+    "write-idle.1x.startup.byOwner.Object.properties": 18,
     "write-idle.1x.startup.byOwner.SessionModel.computeds": 102,
     "write-idle.1x.startup.byOwner.SessionModel.owners": 91,
     "write-idle.1x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -272,26 +312,30 @@
     "write-idle.1x.startup.coldSessions.computeds": 11,
     "write-idle.1x.startup.coldSessions.owners": 11,
     "write-idle.1x.startup.computeds.declared": 8744,
-    "write-idle.1x.startup.computeds.total": 8744,
-    "write-idle.1x.startup.held.arrayElements": 3844,
-    "write-idle.1x.startup.held.mapEntries": 6747,
-    "write-idle.1x.startup.held.setMembers": 15,
-    "write-idle.1x.startup.observables.array": 1378,
-    "write-idle.1x.startup.observables.atom": 5342,
-    "write-idle.1x.startup.observables.map": 19,
-    "write-idle.1x.startup.observables.object": 3,
+    "write-idle.1x.startup.computeds.standalone": 2,
+    "write-idle.1x.startup.computeds.total": 8746,
+    "write-idle.1x.startup.held.arrayElements": 4031,
+    "write-idle.1x.startup.held.mapEntries": 6950,
+    "write-idle.1x.startup.held.setMembers": 385,
+    "write-idle.1x.startup.observables.array": 1384,
+    "write-idle.1x.startup.observables.atom": 5387,
+    "write-idle.1x.startup.observables.map": 41,
+    "write-idle.1x.startup.observables.object": 8,
     "write-idle.1x.startup.observables.set": 193,
-    "write-idle.1x.startup.observables.value.mapEntry": 6747,
-    "write-idle.1x.startup.observables.value.mapHas": 2894,
-    "write-idle.1x.startup.observables.value.standalone": 898,
-    "write-idle.1x.startup.reactions.built": 2389,
-    "write-idle.1x.startup.reactions.live": 2389,
+    "write-idle.1x.startup.observables.value.mapEntry": 6950,
+    "write-idle.1x.startup.observables.value.mapHas": 2901,
+    "write-idle.1x.startup.observables.value.property": 18,
+    "write-idle.1x.startup.observables.value.standalone": 710,
+    "write-idle.1x.startup.reactions.built": 2391,
+    "write-idle.1x.startup.reactions.live": 2391,
     "write-idle.1x.startup.visibleRows": 732,
     "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": 64,
     "write-idle.4x.firstPaint.byOwner.GroupNode.owners": 8,
     "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": 35580,
     "write-idle.4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "write-idle.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "write-idle.4x.firstPaint.byOwner.Object.owners": 6,
+    "write-idle.4x.firstPaint.byOwner.Object.properties": 18,
     "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": 477,
     "write-idle.4x.firstPaint.byOwner.SessionModel.owners": 336,
     "write-idle.4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -304,57 +348,67 @@
     "write-idle.4x.firstPaint.coldSessions.computeds": 51,
     "write-idle.4x.firstPaint.coldSessions.owners": 51,
     "write-idle.4x.firstPaint.computeds.declared": 36125,
-    "write-idle.4x.firstPaint.computeds.standalone": 31,
-    "write-idle.4x.firstPaint.computeds.total": 36156,
-    "write-idle.4x.firstPaint.held.arrayElements": 15617,
-    "write-idle.4x.firstPaint.held.mapEntries": 27124,
-    "write-idle.4x.firstPaint.held.setMembers": 27,
-    "write-idle.4x.firstPaint.observables.array": 5450,
-    "write-idle.4x.firstPaint.observables.atom": 21680,
-    "write-idle.4x.firstPaint.observables.map": 19,
-    "write-idle.4x.firstPaint.observables.object": 11,
+    "write-idle.4x.firstPaint.computeds.standalone": 3688,
+    "write-idle.4x.firstPaint.computeds.total": 39813,
+    "write-idle.4x.firstPaint.held.arrayElements": 16391,
+    "write-idle.4x.firstPaint.held.mapEntries": 27912,
+    "write-idle.4x.firstPaint.held.setMembers": 1535,
+    "write-idle.4x.firstPaint.observables.array": 5456,
+    "write-idle.4x.firstPaint.observables.atom": 21834,
+    "write-idle.4x.firstPaint.observables.map": 41,
+    "write-idle.4x.firstPaint.observables.object": 16,
     "write-idle.4x.firstPaint.observables.set": 792,
-    "write-idle.4x.firstPaint.observables.value.mapEntry": 27124,
-    "write-idle.4x.firstPaint.observables.value.mapHas": 11811,
-    "write-idle.4x.firstPaint.observables.value.standalone": 3754,
-    "write-idle.4x.firstPaint.reactions.built": 9677,
-    "write-idle.4x.firstPaint.reactions.live": 9677,
+    "write-idle.4x.firstPaint.observables.value.mapEntry": 27912,
+    "write-idle.4x.firstPaint.observables.value.mapHas": 13978,
+    "write-idle.4x.firstPaint.observables.value.property": 18,
+    "write-idle.4x.firstPaint.observables.value.standalone": 2981,
+    "write-idle.4x.firstPaint.reactions.built": 9679,
+    "write-idle.4x.firstPaint.reactions.live": 9679,
     "write-idle.4x.firstPaint.visibleRows": 2928,
-    "write-idle.4x.phases.create.built.atom": 25,
+    "write-idle.4x.phases.create.built.atom": 27,
     "write-idle.4x.phases.create.built.computed": 4,
-    "write-idle.4x.phases.create.built.map": 19,
-    "write-idle.4x.phases.create.built.object": 3,
+    "write-idle.4x.phases.create.built.map": 20,
+    "write-idle.4x.phases.create.built.object": 2,
     "write-idle.4x.phases.create.built.observableValue": 3,
+    "write-idle.4x.phases.create.built.reaction": 2,
     "write-idle.4x.phases.create.built.set": 1,
     "write-idle.4x.phases.create.changes": 4,
-    "write-idle.4x.phases.firstPaint.built.atom": 894,
-    "write-idle.4x.phases.firstPaint.built.computed": 1436,
+    "write-idle.4x.phases.create.reactionRuns": 2,
+    "write-idle.4x.phases.firstPaint.built.atom": 1002,
+    "write-idle.4x.phases.firstPaint.built.computed": 5091,
     "write-idle.4x.phases.firstPaint.built.object": 8,
-    "write-idle.4x.phases.firstPaint.built.observableValue": 312,
+    "write-idle.4x.phases.firstPaint.built.observableValue": 2474,
     "write-idle.4x.phases.firstPaint.built.reaction": 61,
     "write-idle.4x.phases.firstPaint.changes": 64,
-    "write-idle.4x.phases.firstPaint.computedRuns": 1432,
-    "write-idle.4x.phases.firstPaint.distinctRows": 200,
+    "write-idle.4x.phases.firstPaint.computedRuns": 5087,
+    "write-idle.4x.phases.firstPaint.distinctRows": 2938,
     "write-idle.4x.phases.firstPaint.reactionRuns": 61,
-    "write-idle.4x.phases.firstPaint.rowReads": 8884,
+    "write-idle.4x.phases.firstPaint.rowReads": 30013,
     "write-idle.4x.phases.firstReactiveRun.built.array": 5450,
-    "write-idle.4x.phases.firstReactiveRun.built.atom": 20761,
+    "write-idle.4x.phases.firstReactiveRun.built.atom": 20772,
     "write-idle.4x.phases.firstReactiveRun.built.computed": 34716,
-    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 15319,
+    "write-idle.4x.phases.firstReactiveRun.built.observableValue": 15324,
     "write-idle.4x.phases.firstReactiveRun.built.set": 791,
-    "write-idle.4x.phases.firstReactiveRun.changes": 19755,
+    "write-idle.4x.phases.firstReactiveRun.changes": 15920,
     "write-idle.4x.phases.firstReactiveRun.computedRuns": 34716,
-    "write-idle.4x.phases.firstReactiveRun.distinctRows": 15526,
+    "write-idle.4x.phases.firstReactiveRun.distinctRows": 17428,
     "write-idle.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-idle.4x.phases.firstReactiveRun.rowReads": 509702,
-    "write-idle.4x.phases.ingest.built.observableValue": 27055,
-    "write-idle.4x.phases.ingest.changes": 28944,
-    "write-idle.4x.phases.ingest.distinctRows": 27033,
-    "write-idle.4x.phases.ingest.rowReads": 72605,
+    "write-idle.4x.phases.firstReactiveRun.rowReads": 483861,
+    "write-idle.4x.phases.ingest.built.array": 6,
+    "write-idle.4x.phases.ingest.built.atom": 33,
+    "write-idle.4x.phases.ingest.built.computed": 2,
+    "write-idle.4x.phases.ingest.built.map": 21,
+    "write-idle.4x.phases.ingest.built.object": 6,
+    "write-idle.4x.phases.ingest.built.observableValue": 27088,
+    "write-idle.4x.phases.ingest.changes": 28984,
+    "write-idle.4x.phases.ingest.distinctRows": 36665,
+    "write-idle.4x.phases.ingest.rowReads": 1121959,
     "write-idle.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-idle.4x.startup.byOwner.IssueModel.computeds": 34402,
     "write-idle.4x.startup.byOwner.IssueModel.owners": 10951,
     "write-idle.4x.startup.byOwner.IssueModel.reactions": 9616,
+    "write-idle.4x.startup.byOwner.Object.owners": 6,
+    "write-idle.4x.startup.byOwner.Object.properties": 18,
     "write-idle.4x.startup.byOwner.SessionModel.computeds": 314,
     "write-idle.4x.startup.byOwner.SessionModel.owners": 265,
     "write-idle.4x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -367,26 +421,30 @@
     "write-idle.4x.startup.coldSessions.computeds": 51,
     "write-idle.4x.startup.coldSessions.owners": 51,
     "write-idle.4x.startup.computeds.declared": 34720,
-    "write-idle.4x.startup.computeds.total": 34720,
-    "write-idle.4x.startup.held.arrayElements": 15617,
-    "write-idle.4x.startup.held.mapEntries": 27124,
-    "write-idle.4x.startup.held.setMembers": 27,
-    "write-idle.4x.startup.observables.array": 5450,
-    "write-idle.4x.startup.observables.atom": 20786,
-    "write-idle.4x.startup.observables.map": 19,
-    "write-idle.4x.startup.observables.object": 3,
+    "write-idle.4x.startup.computeds.standalone": 2,
+    "write-idle.4x.startup.computeds.total": 34722,
+    "write-idle.4x.startup.held.arrayElements": 16391,
+    "write-idle.4x.startup.held.mapEntries": 27912,
+    "write-idle.4x.startup.held.setMembers": 1535,
+    "write-idle.4x.startup.observables.array": 5456,
+    "write-idle.4x.startup.observables.atom": 20832,
+    "write-idle.4x.startup.observables.map": 41,
+    "write-idle.4x.startup.observables.object": 8,
     "write-idle.4x.startup.observables.set": 792,
-    "write-idle.4x.startup.observables.value.mapEntry": 27124,
-    "write-idle.4x.startup.observables.value.mapHas": 11499,
-    "write-idle.4x.startup.observables.value.standalone": 3754,
-    "write-idle.4x.startup.reactions.built": 9616,
-    "write-idle.4x.startup.reactions.live": 9616,
+    "write-idle.4x.startup.observables.value.mapEntry": 27912,
+    "write-idle.4x.startup.observables.value.mapHas": 11504,
+    "write-idle.4x.startup.observables.value.property": 18,
+    "write-idle.4x.startup.observables.value.standalone": 2981,
+    "write-idle.4x.startup.reactions.built": 9618,
+    "write-idle.4x.startup.reactions.live": 9618,
     "write-idle.4x.startup.visibleRows": 2928,
     "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": 64,
     "write-pending.1x.firstPaint.byOwner.GroupNode.owners": 8,
     "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": 9548,
     "write-pending.1x.firstPaint.byOwner.IssueModel.owners": 2827,
     "write-pending.1x.firstPaint.byOwner.IssueModel.reactions": 2429,
+    "write-pending.1x.firstPaint.byOwner.Object.owners": 6,
+    "write-pending.1x.firstPaint.byOwner.Object.properties": 18,
     "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": 199,
     "write-pending.1x.firstPaint.byOwner.SessionModel.owners": 134,
     "write-pending.1x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -399,57 +457,67 @@
     "write-pending.1x.firstPaint.coldSessions.computeds": 11,
     "write-pending.1x.firstPaint.coldSessions.owners": 11,
     "write-pending.1x.firstPaint.computeds.declared": 9815,
-    "write-pending.1x.firstPaint.computeds.standalone": 24,
-    "write-pending.1x.firstPaint.computeds.total": 9839,
-    "write-pending.1x.firstPaint.held.arrayElements": 3844,
-    "write-pending.1x.firstPaint.held.mapEntries": 6747,
-    "write-pending.1x.firstPaint.held.setMembers": 15,
-    "write-pending.1x.firstPaint.observables.array": 1378,
-    "write-pending.1x.firstPaint.observables.atom": 5949,
-    "write-pending.1x.firstPaint.observables.map": 19,
-    "write-pending.1x.firstPaint.observables.object": 11,
+    "write-pending.1x.firstPaint.computeds.standalone": 929,
+    "write-pending.1x.firstPaint.computeds.total": 10744,
+    "write-pending.1x.firstPaint.held.arrayElements": 4031,
+    "write-pending.1x.firstPaint.held.mapEntries": 6950,
+    "write-pending.1x.firstPaint.held.setMembers": 385,
+    "write-pending.1x.firstPaint.observables.array": 1384,
+    "write-pending.1x.firstPaint.observables.atom": 6020,
+    "write-pending.1x.firstPaint.observables.map": 41,
+    "write-pending.1x.firstPaint.observables.object": 16,
     "write-pending.1x.firstPaint.observables.set": 193,
-    "write-pending.1x.firstPaint.observables.value.mapEntry": 6747,
-    "write-pending.1x.firstPaint.observables.value.mapHas": 3155,
-    "write-pending.1x.firstPaint.observables.value.standalone": 898,
-    "write-pending.1x.firstPaint.reactions.built": 2450,
-    "write-pending.1x.firstPaint.reactions.live": 2450,
+    "write-pending.1x.firstPaint.observables.value.mapEntry": 6950,
+    "write-pending.1x.firstPaint.observables.value.mapHas": 3663,
+    "write-pending.1x.firstPaint.observables.value.property": 18,
+    "write-pending.1x.firstPaint.observables.value.standalone": 710,
+    "write-pending.1x.firstPaint.reactions.built": 2452,
+    "write-pending.1x.firstPaint.reactions.live": 2452,
     "write-pending.1x.firstPaint.visibleRows": 732,
-    "write-pending.1x.phases.create.built.atom": 25,
+    "write-pending.1x.phases.create.built.atom": 27,
     "write-pending.1x.phases.create.built.computed": 4,
-    "write-pending.1x.phases.create.built.map": 19,
-    "write-pending.1x.phases.create.built.object": 3,
+    "write-pending.1x.phases.create.built.map": 20,
+    "write-pending.1x.phases.create.built.object": 2,
     "write-pending.1x.phases.create.built.observableValue": 3,
+    "write-pending.1x.phases.create.built.reaction": 2,
     "write-pending.1x.phases.create.built.set": 1,
     "write-pending.1x.phases.create.changes": 4,
-    "write-pending.1x.phases.firstPaint.built.atom": 607,
-    "write-pending.1x.phases.firstPaint.built.computed": 1095,
+    "write-pending.1x.phases.create.reactionRuns": 2,
+    "write-pending.1x.phases.firstPaint.built.atom": 633,
+    "write-pending.1x.phases.firstPaint.built.computed": 1998,
     "write-pending.1x.phases.firstPaint.built.object": 8,
-    "write-pending.1x.phases.firstPaint.built.observableValue": 261,
+    "write-pending.1x.phases.firstPaint.built.observableValue": 762,
     "write-pending.1x.phases.firstPaint.built.reaction": 61,
     "write-pending.1x.phases.firstPaint.changes": 64,
-    "write-pending.1x.phases.firstPaint.computedRuns": 1091,
-    "write-pending.1x.phases.firstPaint.distinctRows": 126,
+    "write-pending.1x.phases.firstPaint.computedRuns": 1994,
+    "write-pending.1x.phases.firstPaint.distinctRows": 771,
     "write-pending.1x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.1x.phases.firstPaint.rowReads": 5735,
+    "write-pending.1x.phases.firstPaint.rowReads": 9766,
     "write-pending.1x.phases.firstReactiveRun.built.array": 1378,
-    "write-pending.1x.phases.firstReactiveRun.built.atom": 5317,
+    "write-pending.1x.phases.firstReactiveRun.built.atom": 5327,
     "write-pending.1x.phases.firstReactiveRun.built.computed": 8740,
-    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 3834,
+    "write-pending.1x.phases.firstReactiveRun.built.observableValue": 3841,
     "write-pending.1x.phases.firstReactiveRun.built.set": 192,
-    "write-pending.1x.phases.firstReactiveRun.changes": 4893,
+    "write-pending.1x.phases.firstReactiveRun.changes": 3953,
     "write-pending.1x.phases.firstReactiveRun.computedRuns": 8740,
-    "write-pending.1x.phases.firstReactiveRun.distinctRows": 3807,
+    "write-pending.1x.phases.firstReactiveRun.distinctRows": 4301,
     "write-pending.1x.phases.firstReactiveRun.reactionRuns": 2389,
-    "write-pending.1x.phases.firstReactiveRun.rowReads": 127450,
-    "write-pending.1x.phases.ingest.built.observableValue": 6702,
-    "write-pending.1x.phases.ingest.changes": 7187,
-    "write-pending.1x.phases.ingest.distinctRows": 6680,
-    "write-pending.1x.phases.ingest.rowReads": 18142,
+    "write-pending.1x.phases.firstReactiveRun.rowReads": 118592,
+    "write-pending.1x.phases.ingest.built.array": 6,
+    "write-pending.1x.phases.ingest.built.atom": 33,
+    "write-pending.1x.phases.ingest.built.computed": 2,
+    "write-pending.1x.phases.ingest.built.map": 21,
+    "write-pending.1x.phases.ingest.built.object": 6,
+    "write-pending.1x.phases.ingest.built.observableValue": 6735,
+    "write-pending.1x.phases.ingest.changes": 7227,
+    "write-pending.1x.phases.ingest.distinctRows": 9085,
+    "write-pending.1x.phases.ingest.rowReads": 277267,
     "write-pending.1x.phases.nodeConstruction.built.reaction": 2389,
     "write-pending.1x.startup.byOwner.IssueModel.computeds": 8638,
     "write-pending.1x.startup.byOwner.IssueModel.owners": 2741,
     "write-pending.1x.startup.byOwner.IssueModel.reactions": 2389,
+    "write-pending.1x.startup.byOwner.Object.owners": 6,
+    "write-pending.1x.startup.byOwner.Object.properties": 18,
     "write-pending.1x.startup.byOwner.SessionModel.computeds": 102,
     "write-pending.1x.startup.byOwner.SessionModel.owners": 91,
     "write-pending.1x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -462,26 +530,30 @@
     "write-pending.1x.startup.coldSessions.computeds": 11,
     "write-pending.1x.startup.coldSessions.owners": 11,
     "write-pending.1x.startup.computeds.declared": 8744,
-    "write-pending.1x.startup.computeds.total": 8744,
-    "write-pending.1x.startup.held.arrayElements": 3844,
-    "write-pending.1x.startup.held.mapEntries": 6747,
-    "write-pending.1x.startup.held.setMembers": 15,
-    "write-pending.1x.startup.observables.array": 1378,
-    "write-pending.1x.startup.observables.atom": 5342,
-    "write-pending.1x.startup.observables.map": 19,
-    "write-pending.1x.startup.observables.object": 3,
+    "write-pending.1x.startup.computeds.standalone": 2,
+    "write-pending.1x.startup.computeds.total": 8746,
+    "write-pending.1x.startup.held.arrayElements": 4031,
+    "write-pending.1x.startup.held.mapEntries": 6950,
+    "write-pending.1x.startup.held.setMembers": 385,
+    "write-pending.1x.startup.observables.array": 1384,
+    "write-pending.1x.startup.observables.atom": 5387,
+    "write-pending.1x.startup.observables.map": 41,
+    "write-pending.1x.startup.observables.object": 8,
     "write-pending.1x.startup.observables.set": 193,
-    "write-pending.1x.startup.observables.value.mapEntry": 6747,
-    "write-pending.1x.startup.observables.value.mapHas": 2894,
-    "write-pending.1x.startup.observables.value.standalone": 898,
-    "write-pending.1x.startup.reactions.built": 2389,
-    "write-pending.1x.startup.reactions.live": 2389,
+    "write-pending.1x.startup.observables.value.mapEntry": 6950,
+    "write-pending.1x.startup.observables.value.mapHas": 2901,
+    "write-pending.1x.startup.observables.value.property": 18,
+    "write-pending.1x.startup.observables.value.standalone": 710,
+    "write-pending.1x.startup.reactions.built": 2391,
+    "write-pending.1x.startup.reactions.live": 2391,
     "write-pending.1x.startup.visibleRows": 732,
     "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": 64,
     "write-pending.4x.firstPaint.byOwner.GroupNode.owners": 8,
     "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": 35580,
     "write-pending.4x.firstPaint.byOwner.IssueModel.owners": 11042,
     "write-pending.4x.firstPaint.byOwner.IssueModel.reactions": 9656,
+    "write-pending.4x.firstPaint.byOwner.Object.owners": 6,
+    "write-pending.4x.firstPaint.byOwner.Object.properties": 18,
     "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": 477,
     "write-pending.4x.firstPaint.byOwner.SessionModel.owners": 336,
     "write-pending.4x.firstPaint.byOwner.WorklistGroups.computeds": 4,
@@ -494,57 +566,67 @@
     "write-pending.4x.firstPaint.coldSessions.computeds": 51,
     "write-pending.4x.firstPaint.coldSessions.owners": 51,
     "write-pending.4x.firstPaint.computeds.declared": 36125,
-    "write-pending.4x.firstPaint.computeds.standalone": 31,
-    "write-pending.4x.firstPaint.computeds.total": 36156,
-    "write-pending.4x.firstPaint.held.arrayElements": 15617,
-    "write-pending.4x.firstPaint.held.mapEntries": 27124,
-    "write-pending.4x.firstPaint.held.setMembers": 27,
-    "write-pending.4x.firstPaint.observables.array": 5450,
-    "write-pending.4x.firstPaint.observables.atom": 21680,
-    "write-pending.4x.firstPaint.observables.map": 19,
-    "write-pending.4x.firstPaint.observables.object": 11,
+    "write-pending.4x.firstPaint.computeds.standalone": 3688,
+    "write-pending.4x.firstPaint.computeds.total": 39813,
+    "write-pending.4x.firstPaint.held.arrayElements": 16391,
+    "write-pending.4x.firstPaint.held.mapEntries": 27912,
+    "write-pending.4x.firstPaint.held.setMembers": 1535,
+    "write-pending.4x.firstPaint.observables.array": 5456,
+    "write-pending.4x.firstPaint.observables.atom": 21834,
+    "write-pending.4x.firstPaint.observables.map": 41,
+    "write-pending.4x.firstPaint.observables.object": 16,
     "write-pending.4x.firstPaint.observables.set": 792,
-    "write-pending.4x.firstPaint.observables.value.mapEntry": 27124,
-    "write-pending.4x.firstPaint.observables.value.mapHas": 11811,
-    "write-pending.4x.firstPaint.observables.value.standalone": 3754,
-    "write-pending.4x.firstPaint.reactions.built": 9677,
-    "write-pending.4x.firstPaint.reactions.live": 9677,
+    "write-pending.4x.firstPaint.observables.value.mapEntry": 27912,
+    "write-pending.4x.firstPaint.observables.value.mapHas": 13978,
+    "write-pending.4x.firstPaint.observables.value.property": 18,
+    "write-pending.4x.firstPaint.observables.value.standalone": 2981,
+    "write-pending.4x.firstPaint.reactions.built": 9679,
+    "write-pending.4x.firstPaint.reactions.live": 9679,
     "write-pending.4x.firstPaint.visibleRows": 2928,
-    "write-pending.4x.phases.create.built.atom": 25,
+    "write-pending.4x.phases.create.built.atom": 27,
     "write-pending.4x.phases.create.built.computed": 4,
-    "write-pending.4x.phases.create.built.map": 19,
-    "write-pending.4x.phases.create.built.object": 3,
+    "write-pending.4x.phases.create.built.map": 20,
+    "write-pending.4x.phases.create.built.object": 2,
     "write-pending.4x.phases.create.built.observableValue": 3,
+    "write-pending.4x.phases.create.built.reaction": 2,
     "write-pending.4x.phases.create.built.set": 1,
     "write-pending.4x.phases.create.changes": 4,
-    "write-pending.4x.phases.firstPaint.built.atom": 894,
-    "write-pending.4x.phases.firstPaint.built.computed": 1436,
+    "write-pending.4x.phases.create.reactionRuns": 2,
+    "write-pending.4x.phases.firstPaint.built.atom": 1002,
+    "write-pending.4x.phases.firstPaint.built.computed": 5091,
     "write-pending.4x.phases.firstPaint.built.object": 8,
-    "write-pending.4x.phases.firstPaint.built.observableValue": 312,
+    "write-pending.4x.phases.firstPaint.built.observableValue": 2474,
     "write-pending.4x.phases.firstPaint.built.reaction": 61,
     "write-pending.4x.phases.firstPaint.changes": 64,
-    "write-pending.4x.phases.firstPaint.computedRuns": 1432,
-    "write-pending.4x.phases.firstPaint.distinctRows": 200,
+    "write-pending.4x.phases.firstPaint.computedRuns": 5087,
+    "write-pending.4x.phases.firstPaint.distinctRows": 2938,
     "write-pending.4x.phases.firstPaint.reactionRuns": 61,
-    "write-pending.4x.phases.firstPaint.rowReads": 8884,
+    "write-pending.4x.phases.firstPaint.rowReads": 30013,
     "write-pending.4x.phases.firstReactiveRun.built.array": 5450,
-    "write-pending.4x.phases.firstReactiveRun.built.atom": 20761,
+    "write-pending.4x.phases.firstReactiveRun.built.atom": 20772,
     "write-pending.4x.phases.firstReactiveRun.built.computed": 34716,
-    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 15319,
+    "write-pending.4x.phases.firstReactiveRun.built.observableValue": 15324,
     "write-pending.4x.phases.firstReactiveRun.built.set": 791,
-    "write-pending.4x.phases.firstReactiveRun.changes": 19755,
+    "write-pending.4x.phases.firstReactiveRun.changes": 15920,
     "write-pending.4x.phases.firstReactiveRun.computedRuns": 34716,
-    "write-pending.4x.phases.firstReactiveRun.distinctRows": 15526,
+    "write-pending.4x.phases.firstReactiveRun.distinctRows": 17428,
     "write-pending.4x.phases.firstReactiveRun.reactionRuns": 9616,
-    "write-pending.4x.phases.firstReactiveRun.rowReads": 509702,
-    "write-pending.4x.phases.ingest.built.observableValue": 27055,
-    "write-pending.4x.phases.ingest.changes": 28944,
-    "write-pending.4x.phases.ingest.distinctRows": 27033,
-    "write-pending.4x.phases.ingest.rowReads": 72605,
+    "write-pending.4x.phases.firstReactiveRun.rowReads": 483861,
+    "write-pending.4x.phases.ingest.built.array": 6,
+    "write-pending.4x.phases.ingest.built.atom": 33,
+    "write-pending.4x.phases.ingest.built.computed": 2,
+    "write-pending.4x.phases.ingest.built.map": 21,
+    "write-pending.4x.phases.ingest.built.object": 6,
+    "write-pending.4x.phases.ingest.built.observableValue": 27088,
+    "write-pending.4x.phases.ingest.changes": 28984,
+    "write-pending.4x.phases.ingest.distinctRows": 36665,
+    "write-pending.4x.phases.ingest.rowReads": 1121959,
     "write-pending.4x.phases.nodeConstruction.built.reaction": 9616,
     "write-pending.4x.startup.byOwner.IssueModel.computeds": 34402,
     "write-pending.4x.startup.byOwner.IssueModel.owners": 10951,
     "write-pending.4x.startup.byOwner.IssueModel.reactions": 9616,
+    "write-pending.4x.startup.byOwner.Object.owners": 6,
+    "write-pending.4x.startup.byOwner.Object.properties": 18,
     "write-pending.4x.startup.byOwner.SessionModel.computeds": 314,
     "write-pending.4x.startup.byOwner.SessionModel.owners": 265,
     "write-pending.4x.startup.byOwner.WorklistGroups.computeds": 4,
@@ -557,937 +639,1708 @@
     "write-pending.4x.startup.coldSessions.computeds": 51,
     "write-pending.4x.startup.coldSessions.owners": 51,
     "write-pending.4x.startup.computeds.declared": 34720,
-    "write-pending.4x.startup.computeds.total": 34720,
-    "write-pending.4x.startup.held.arrayElements": 15617,
-    "write-pending.4x.startup.held.mapEntries": 27124,
-    "write-pending.4x.startup.held.setMembers": 27,
-    "write-pending.4x.startup.observables.array": 5450,
-    "write-pending.4x.startup.observables.atom": 20786,
-    "write-pending.4x.startup.observables.map": 19,
-    "write-pending.4x.startup.observables.object": 3,
+    "write-pending.4x.startup.computeds.standalone": 2,
+    "write-pending.4x.startup.computeds.total": 34722,
+    "write-pending.4x.startup.held.arrayElements": 16391,
+    "write-pending.4x.startup.held.mapEntries": 27912,
+    "write-pending.4x.startup.held.setMembers": 1535,
+    "write-pending.4x.startup.observables.array": 5456,
+    "write-pending.4x.startup.observables.atom": 20832,
+    "write-pending.4x.startup.observables.map": 41,
+    "write-pending.4x.startup.observables.object": 8,
     "write-pending.4x.startup.observables.set": 792,
-    "write-pending.4x.startup.observables.value.mapEntry": 27124,
-    "write-pending.4x.startup.observables.value.mapHas": 11499,
-    "write-pending.4x.startup.observables.value.standalone": 3754,
-    "write-pending.4x.startup.reactions.built": 9616,
-    "write-pending.4x.startup.reactions.live": 9616,
+    "write-pending.4x.startup.observables.value.mapEntry": 27912,
+    "write-pending.4x.startup.observables.value.mapHas": 11504,
+    "write-pending.4x.startup.observables.value.property": 18,
+    "write-pending.4x.startup.observables.value.standalone": 2981,
+    "write-pending.4x.startup.reactions.built": 9618,
+    "write-pending.4x.startup.reactions.live": 9618,
     "write-pending.4x.startup.visibleRows": 2928
   },
-  "comparisonBase": "2de7db316f (integrate/4286-pilot)",
+  "comparisonBase": "d61347cdb5 (integrate/4286-pilot)",
   "perKeyChanges": {
-    "1x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 9497,
-      "to": 9548
-    },
-    "1x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 1659,
-      "to": 199
-    },
-    "1x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 134
-    },
-    "1x.firstPaint.closedIssues.computeds": {
-      "from": 3441,
-      "to": 3467
-    },
-    "1x.firstPaint.computeds.declared": {
-      "from": 11224,
-      "to": 9815
-    },
     "1x.firstPaint.computeds.standalone": {
-      "from": 4,
-      "to": 24
+      "from": 928,
+      "to": 929
     },
     "1x.firstPaint.computeds.total": {
-      "from": 11228,
-      "to": 9839
+      "from": 10743,
+      "to": 10744
     },
     "1x.firstPaint.observables.atom": {
-      "from": 6086,
-      "to": 5949
+      "from": 6019,
+      "to": 6020
     },
-    "1x.firstPaint.observables.value.mapHas": {
-      "from": 4417,
-      "to": 3155
+    "1x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "1x.firstPaint.observables.value.standalone": {
-      "from": 194,
-      "to": 898
+    "1x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "1x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "1x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "1x.phases.firstPaint.built.computed": {
-      "from": 1025,
-      "to": 1095
+    "1x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "1x.phases.firstPaint.built.observableValue": {
-      "from": 202,
-      "to": 261
-    },
-    "1x.phases.firstPaint.computedRuns": {
-      "from": 1021,
-      "to": 1091
-    },
-    "1x.phases.firstPaint.distinctRows": {
-      "from": 129,
-      "to": 126
-    },
-    "1x.phases.firstPaint.rowReads": {
-      "from": 5736,
-      "to": 5735
-    },
-    "1x.phases.firstReactiveRun.built.atom": {
-      "from": 5455,
-      "to": 5317
-    },
-    "1x.phases.firstReactiveRun.built.computed": {
-      "from": 10199,
-      "to": 8740
-    },
-    "1x.phases.firstReactiveRun.built.observableValue": {
-      "from": 4451,
-      "to": 3834
-    },
-    "1x.phases.firstReactiveRun.computedRuns": {
-      "from": 10199,
-      "to": 8740
-    },
-    "1x.phases.firstReactiveRun.rowReads": {
-      "from": 124596,
-      "to": 127450
-    },
-    "1x.phases.ingest.rowReads": {
-      "from": 13900,
-      "to": 18142
-    },
-    "1x.startup.byOwner.SessionModel.computeds": {
-      "from": 1561,
-      "to": 102
-    },
-    "1x.startup.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 91
-    },
-    "1x.startup.computeds.declared": {
-      "from": 10203,
-      "to": 8744
+    "1x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "1x.startup.computeds.total": {
-      "from": 10203,
-      "to": 8744
+      "from": 8745,
+      "to": 8746
     },
     "1x.startup.observables.atom": {
-      "from": 5479,
-      "to": 5342
+      "from": 5386,
+      "to": 5387
     },
-    "1x.startup.observables.value.mapHas": {
-      "from": 4215,
-      "to": 2894
-    },
-    "1x.startup.observables.value.standalone": {
-      "from": 194,
-      "to": 898
-    },
-    "4x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 35499,
-      "to": 35580
-    },
-    "4x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 6480,
-      "to": 477
-    },
-    "4x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 336
-    },
-    "4x.firstPaint.closedIssues.computeds": {
-      "from": 12555,
-      "to": 12588
-    },
-    "4x.firstPaint.computeds.declared": {
-      "from": 42047,
-      "to": 36125
+    "1x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     },
     "4x.firstPaint.computeds.standalone": {
-      "from": 11,
-      "to": 31
+      "from": 3687,
+      "to": 3688
     },
     "4x.firstPaint.computeds.total": {
-      "from": 42058,
-      "to": 36156
+      "from": 39812,
+      "to": 39813
     },
     "4x.firstPaint.observables.atom": {
-      "from": 22269,
-      "to": 21680
+      "from": 21833,
+      "to": 21834
     },
-    "4x.firstPaint.observables.value.mapHas": {
-      "from": 17349,
-      "to": 11811
+    "4x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "4x.firstPaint.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
+    "4x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "4x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "4x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "4x.phases.firstPaint.built.computed": {
-      "from": 1337,
-      "to": 1436
+    "4x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "4x.phases.firstPaint.built.observableValue": {
-      "from": 216,
-      "to": 312
-    },
-    "4x.phases.firstPaint.computedRuns": {
-      "from": 1333,
-      "to": 1432
-    },
-    "4x.phases.firstPaint.distinctRows": {
-      "from": 203,
-      "to": 200
-    },
-    "4x.phases.firstPaint.rowReads": {
-      "from": 8886,
-      "to": 8884
-    },
-    "4x.phases.firstReactiveRun.built.atom": {
-      "from": 21351,
-      "to": 20761
-    },
-    "4x.phases.firstReactiveRun.built.computed": {
-      "from": 40717,
-      "to": 34716
-    },
-    "4x.phases.firstReactiveRun.built.observableValue": {
-      "from": 17978,
-      "to": 15319
-    },
-    "4x.phases.firstReactiveRun.computedRuns": {
-      "from": 40717,
-      "to": 34716
-    },
-    "4x.phases.firstReactiveRun.rowReads": {
-      "from": 497564,
-      "to": 509702
-    },
-    "4x.phases.ingest.rowReads": {
-      "from": 55727,
-      "to": 72605
-    },
-    "4x.startup.byOwner.SessionModel.computeds": {
-      "from": 6315,
-      "to": 314
-    },
-    "4x.startup.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 265
-    },
-    "4x.startup.computeds.declared": {
-      "from": 40721,
-      "to": 34720
+    "4x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "4x.startup.computeds.total": {
-      "from": 40721,
-      "to": 34720
+      "from": 34721,
+      "to": 34722
     },
     "4x.startup.observables.atom": {
-      "from": 21375,
-      "to": 20786
+      "from": 20831,
+      "to": 20832
     },
-    "4x.startup.observables.value.mapHas": {
-      "from": 17133,
-      "to": 11499
-    },
-    "4x.startup.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
-    },
-    "write-idle.1x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 9497,
-      "to": 9548
-    },
-    "write-idle.1x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 1659,
-      "to": 199
-    },
-    "write-idle.1x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 134
-    },
-    "write-idle.1x.firstPaint.closedIssues.computeds": {
-      "from": 3441,
-      "to": 3467
-    },
-    "write-idle.1x.firstPaint.computeds.declared": {
-      "from": 11224,
-      "to": 9815
+    "4x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     },
     "write-idle.1x.firstPaint.computeds.standalone": {
-      "from": 4,
-      "to": 24
+      "from": 928,
+      "to": 929
     },
     "write-idle.1x.firstPaint.computeds.total": {
-      "from": 11228,
-      "to": 9839
+      "from": 10743,
+      "to": 10744
     },
     "write-idle.1x.firstPaint.observables.atom": {
-      "from": 6086,
-      "to": 5949
+      "from": 6019,
+      "to": 6020
     },
-    "write-idle.1x.firstPaint.observables.value.mapHas": {
-      "from": 4417,
-      "to": 3155
+    "write-idle.1x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "write-idle.1x.firstPaint.observables.value.standalone": {
-      "from": 194,
-      "to": 898
+    "write-idle.1x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "write-idle.1x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "write-idle.1x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "write-idle.1x.phases.firstPaint.built.computed": {
-      "from": 1025,
-      "to": 1095
+    "write-idle.1x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "write-idle.1x.phases.firstPaint.built.observableValue": {
-      "from": 202,
-      "to": 261
-    },
-    "write-idle.1x.phases.firstPaint.computedRuns": {
-      "from": 1021,
-      "to": 1091
-    },
-    "write-idle.1x.phases.firstPaint.distinctRows": {
-      "from": 129,
-      "to": 126
-    },
-    "write-idle.1x.phases.firstPaint.rowReads": {
-      "from": 5736,
-      "to": 5735
-    },
-    "write-idle.1x.phases.firstReactiveRun.built.atom": {
-      "from": 5455,
-      "to": 5317
-    },
-    "write-idle.1x.phases.firstReactiveRun.built.computed": {
-      "from": 10199,
-      "to": 8740
-    },
-    "write-idle.1x.phases.firstReactiveRun.built.observableValue": {
-      "from": 4451,
-      "to": 3834
-    },
-    "write-idle.1x.phases.firstReactiveRun.computedRuns": {
-      "from": 10199,
-      "to": 8740
-    },
-    "write-idle.1x.phases.firstReactiveRun.rowReads": {
-      "from": 124596,
-      "to": 127450
-    },
-    "write-idle.1x.phases.ingest.rowReads": {
-      "from": 13900,
-      "to": 18142
-    },
-    "write-idle.1x.startup.byOwner.SessionModel.computeds": {
-      "from": 1561,
-      "to": 102
-    },
-    "write-idle.1x.startup.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 91
-    },
-    "write-idle.1x.startup.computeds.declared": {
-      "from": 10203,
-      "to": 8744
+    "write-idle.1x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "write-idle.1x.startup.computeds.total": {
-      "from": 10203,
-      "to": 8744
+      "from": 8745,
+      "to": 8746
     },
     "write-idle.1x.startup.observables.atom": {
-      "from": 5479,
-      "to": 5342
+      "from": 5386,
+      "to": 5387
     },
-    "write-idle.1x.startup.observables.value.mapHas": {
-      "from": 4215,
-      "to": 2894
-    },
-    "write-idle.1x.startup.observables.value.standalone": {
-      "from": 194,
-      "to": 898
-    },
-    "write-idle.4x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 35499,
-      "to": 35580
-    },
-    "write-idle.4x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 6480,
-      "to": 477
-    },
-    "write-idle.4x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 336
-    },
-    "write-idle.4x.firstPaint.closedIssues.computeds": {
-      "from": 12555,
-      "to": 12588
-    },
-    "write-idle.4x.firstPaint.computeds.declared": {
-      "from": 42047,
-      "to": 36125
+    "write-idle.1x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     },
     "write-idle.4x.firstPaint.computeds.standalone": {
-      "from": 11,
-      "to": 31
+      "from": 3687,
+      "to": 3688
     },
     "write-idle.4x.firstPaint.computeds.total": {
-      "from": 42058,
-      "to": 36156
+      "from": 39812,
+      "to": 39813
     },
     "write-idle.4x.firstPaint.observables.atom": {
-      "from": 22269,
-      "to": 21680
+      "from": 21833,
+      "to": 21834
     },
-    "write-idle.4x.firstPaint.observables.value.mapHas": {
-      "from": 17349,
-      "to": 11811
+    "write-idle.4x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "write-idle.4x.firstPaint.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
+    "write-idle.4x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "write-idle.4x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "write-idle.4x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "write-idle.4x.phases.firstPaint.built.computed": {
-      "from": 1337,
-      "to": 1436
+    "write-idle.4x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "write-idle.4x.phases.firstPaint.built.observableValue": {
-      "from": 216,
-      "to": 312
-    },
-    "write-idle.4x.phases.firstPaint.computedRuns": {
-      "from": 1333,
-      "to": 1432
-    },
-    "write-idle.4x.phases.firstPaint.distinctRows": {
-      "from": 203,
-      "to": 200
-    },
-    "write-idle.4x.phases.firstPaint.rowReads": {
-      "from": 8886,
-      "to": 8884
-    },
-    "write-idle.4x.phases.firstReactiveRun.built.atom": {
-      "from": 21351,
-      "to": 20761
-    },
-    "write-idle.4x.phases.firstReactiveRun.built.computed": {
-      "from": 40717,
-      "to": 34716
-    },
-    "write-idle.4x.phases.firstReactiveRun.built.observableValue": {
-      "from": 17978,
-      "to": 15319
-    },
-    "write-idle.4x.phases.firstReactiveRun.computedRuns": {
-      "from": 40717,
-      "to": 34716
-    },
-    "write-idle.4x.phases.firstReactiveRun.rowReads": {
-      "from": 497564,
-      "to": 509702
-    },
-    "write-idle.4x.phases.ingest.rowReads": {
-      "from": 55727,
-      "to": 72605
-    },
-    "write-idle.4x.startup.byOwner.SessionModel.computeds": {
-      "from": 6315,
-      "to": 314
-    },
-    "write-idle.4x.startup.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 265
-    },
-    "write-idle.4x.startup.computeds.declared": {
-      "from": 40721,
-      "to": 34720
+    "write-idle.4x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "write-idle.4x.startup.computeds.total": {
-      "from": 40721,
-      "to": 34720
+      "from": 34721,
+      "to": 34722
     },
     "write-idle.4x.startup.observables.atom": {
-      "from": 21375,
-      "to": 20786
+      "from": 20831,
+      "to": 20832
     },
-    "write-idle.4x.startup.observables.value.mapHas": {
-      "from": 17133,
-      "to": 11499
-    },
-    "write-idle.4x.startup.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
-    },
-    "write-pending.1x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 9497,
-      "to": 9548
-    },
-    "write-pending.1x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 1659,
-      "to": 199
-    },
-    "write-pending.1x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 134
-    },
-    "write-pending.1x.firstPaint.closedIssues.computeds": {
-      "from": 3441,
-      "to": 3467
-    },
-    "write-pending.1x.firstPaint.computeds.declared": {
-      "from": 11224,
-      "to": 9815
+    "write-idle.4x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     },
     "write-pending.1x.firstPaint.computeds.standalone": {
-      "from": 4,
-      "to": 24
+      "from": 928,
+      "to": 929
     },
     "write-pending.1x.firstPaint.computeds.total": {
-      "from": 11228,
-      "to": 9839
+      "from": 10743,
+      "to": 10744
     },
     "write-pending.1x.firstPaint.observables.atom": {
-      "from": 6086,
-      "to": 5949
+      "from": 6019,
+      "to": 6020
     },
-    "write-pending.1x.firstPaint.observables.value.mapHas": {
-      "from": 4417,
-      "to": 3155
+    "write-pending.1x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "write-pending.1x.firstPaint.observables.value.standalone": {
-      "from": 194,
-      "to": 898
+    "write-pending.1x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "write-pending.1x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "write-pending.1x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "write-pending.1x.phases.firstPaint.built.computed": {
-      "from": 1025,
-      "to": 1095
+    "write-pending.1x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "write-pending.1x.phases.firstPaint.built.observableValue": {
-      "from": 202,
-      "to": 261
-    },
-    "write-pending.1x.phases.firstPaint.computedRuns": {
-      "from": 1021,
-      "to": 1091
-    },
-    "write-pending.1x.phases.firstPaint.distinctRows": {
-      "from": 129,
-      "to": 126
-    },
-    "write-pending.1x.phases.firstPaint.rowReads": {
-      "from": 5736,
-      "to": 5735
-    },
-    "write-pending.1x.phases.firstReactiveRun.built.atom": {
-      "from": 5455,
-      "to": 5317
-    },
-    "write-pending.1x.phases.firstReactiveRun.built.computed": {
-      "from": 10199,
-      "to": 8740
-    },
-    "write-pending.1x.phases.firstReactiveRun.built.observableValue": {
-      "from": 4451,
-      "to": 3834
-    },
-    "write-pending.1x.phases.firstReactiveRun.computedRuns": {
-      "from": 10199,
-      "to": 8740
-    },
-    "write-pending.1x.phases.firstReactiveRun.rowReads": {
-      "from": 124596,
-      "to": 127450
-    },
-    "write-pending.1x.phases.ingest.rowReads": {
-      "from": 13900,
-      "to": 18142
-    },
-    "write-pending.1x.startup.byOwner.SessionModel.computeds": {
-      "from": 1561,
-      "to": 102
-    },
-    "write-pending.1x.startup.byOwner.SessionModel.owners": {
-      "from": 1412,
-      "to": 91
-    },
-    "write-pending.1x.startup.computeds.declared": {
-      "from": 10203,
-      "to": 8744
+    "write-pending.1x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "write-pending.1x.startup.computeds.total": {
-      "from": 10203,
-      "to": 8744
+      "from": 8745,
+      "to": 8746
     },
     "write-pending.1x.startup.observables.atom": {
-      "from": 5479,
-      "to": 5342
+      "from": 5386,
+      "to": 5387
     },
-    "write-pending.1x.startup.observables.value.mapHas": {
-      "from": 4215,
-      "to": 2894
-    },
-    "write-pending.1x.startup.observables.value.standalone": {
-      "from": 194,
-      "to": 898
-    },
-    "write-pending.4x.firstPaint.byOwner.IssueModel.computeds": {
-      "from": 35499,
-      "to": 35580
-    },
-    "write-pending.4x.firstPaint.byOwner.SessionModel.computeds": {
-      "from": 6480,
-      "to": 477
-    },
-    "write-pending.4x.firstPaint.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 336
-    },
-    "write-pending.4x.firstPaint.closedIssues.computeds": {
-      "from": 12555,
-      "to": 12588
-    },
-    "write-pending.4x.firstPaint.computeds.declared": {
-      "from": 42047,
-      "to": 36125
+    "write-pending.1x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     },
     "write-pending.4x.firstPaint.computeds.standalone": {
-      "from": 11,
-      "to": 31
+      "from": 3687,
+      "to": 3688
     },
     "write-pending.4x.firstPaint.computeds.total": {
-      "from": 42058,
-      "to": 36156
+      "from": 39812,
+      "to": 39813
     },
     "write-pending.4x.firstPaint.observables.atom": {
-      "from": 22269,
-      "to": 21680
+      "from": 21833,
+      "to": 21834
     },
-    "write-pending.4x.firstPaint.observables.value.mapHas": {
-      "from": 17349,
-      "to": 11811
+    "write-pending.4x.firstPaint.observables.map": {
+      "from": 40,
+      "to": 41
     },
-    "write-pending.4x.firstPaint.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
+    "write-pending.4x.phases.ingest.built.atom": {
+      "from": 32,
+      "to": 33
     },
-    "write-pending.4x.phases.create.built.atom": {
-      "from": 24,
-      "to": 25
+    "write-pending.4x.phases.ingest.built.computed": {
+      "from": 1,
+      "to": 2
     },
-    "write-pending.4x.phases.firstPaint.built.computed": {
-      "from": 1337,
-      "to": 1436
+    "write-pending.4x.phases.ingest.built.map": {
+      "from": 20,
+      "to": 21
     },
-    "write-pending.4x.phases.firstPaint.built.observableValue": {
-      "from": 216,
-      "to": 312
-    },
-    "write-pending.4x.phases.firstPaint.computedRuns": {
-      "from": 1333,
-      "to": 1432
-    },
-    "write-pending.4x.phases.firstPaint.distinctRows": {
-      "from": 203,
-      "to": 200
-    },
-    "write-pending.4x.phases.firstPaint.rowReads": {
-      "from": 8886,
-      "to": 8884
-    },
-    "write-pending.4x.phases.firstReactiveRun.built.atom": {
-      "from": 21351,
-      "to": 20761
-    },
-    "write-pending.4x.phases.firstReactiveRun.built.computed": {
-      "from": 40717,
-      "to": 34716
-    },
-    "write-pending.4x.phases.firstReactiveRun.built.observableValue": {
-      "from": 17978,
-      "to": 15319
-    },
-    "write-pending.4x.phases.firstReactiveRun.computedRuns": {
-      "from": 40717,
-      "to": 34716
-    },
-    "write-pending.4x.phases.firstReactiveRun.rowReads": {
-      "from": 497564,
-      "to": 509702
-    },
-    "write-pending.4x.phases.ingest.rowReads": {
-      "from": 55727,
-      "to": 72605
-    },
-    "write-pending.4x.startup.byOwner.SessionModel.computeds": {
-      "from": 6315,
-      "to": 314
-    },
-    "write-pending.4x.startup.byOwner.SessionModel.owners": {
-      "from": 5899,
-      "to": 265
-    },
-    "write-pending.4x.startup.computeds.declared": {
-      "from": 40721,
-      "to": 34720
+    "write-pending.4x.startup.computeds.standalone": {
+      "from": 1,
+      "to": 2
     },
     "write-pending.4x.startup.computeds.total": {
-      "from": 40721,
-      "to": 34720
+      "from": 34721,
+      "to": 34722
     },
     "write-pending.4x.startup.observables.atom": {
-      "from": 21375,
-      "to": 20786
+      "from": 20831,
+      "to": 20832
     },
-    "write-pending.4x.startup.observables.value.mapHas": {
-      "from": 17133,
-      "to": 11499
-    },
-    "write-pending.4x.startup.observables.value.standalone": {
-      "from": 779,
-      "to": 3754
+    "write-pending.4x.startup.observables.map": {
+      "from": 40,
+      "to": 41
     }
   },
-  "priorComparisonBase": "3cb72877eb076a5ed2bae5fdfdbb85f92a6eaea7",
+  "priorComparisonBase": "672ca102ab (integrate/4286-pilot)",
   "priorPerKeyChanges": {
-    "1x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "1x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
     },
-    "1x.firstPaint.computeds.declared": {
-      "from": 12778,
-      "to": 12786,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "1x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "1x.firstPaint.computeds.standalone": {
+      "from": 24,
+      "to": 928
     },
     "1x.firstPaint.computeds.total": {
-      "from": 12783,
-      "to": 12791,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 9839,
+      "to": 10743
+    },
+    "1x.firstPaint.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "1x.firstPaint.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "1x.firstPaint.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "1x.firstPaint.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "1x.firstPaint.observables.atom": {
+      "from": 5949,
+      "to": 6019
+    },
+    "1x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "1x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "1x.firstPaint.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "1x.firstPaint.observables.value.mapHas": {
+      "from": 3155,
+      "to": 3663
+    },
+    "1x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "1x.firstPaint.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "1x.firstPaint.reactions.built": {
+      "from": 2450,
+      "to": 2451
+    },
+    "1x.firstPaint.reactions.live": {
+      "from": 2450,
+      "to": 2451
+    },
+    "1x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "1x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "1x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "1x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 1
+    },
+    "1x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 1
+    },
+    "1x.phases.firstPaint.built.atom": {
+      "from": 607,
+      "to": 633
     },
     "1x.phases.firstPaint.built.computed": {
-      "from": 1076,
-      "to": 1084,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1095,
+      "to": 1998
     },
-    "1x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "1x.phases.firstPaint.built.observableValue": {
+      "from": 261,
+      "to": 762
+    },
+    "1x.phases.firstPaint.computedRuns": {
+      "from": 1091,
+      "to": 1994
+    },
+    "1x.phases.firstPaint.distinctRows": {
+      "from": 126,
+      "to": 771
     },
     "1x.phases.firstPaint.rowReads": {
-      "from": 5058,
-      "to": 5131,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 5735,
+      "to": 9766
+    },
+    "1x.phases.firstReactiveRun.built.atom": {
+      "from": 5317,
+      "to": 5327
+    },
+    "1x.phases.firstReactiveRun.built.observableValue": {
+      "from": 3834,
+      "to": 3841
+    },
+    "1x.phases.firstReactiveRun.changes": {
+      "from": 4893,
+      "to": 3953
+    },
+    "1x.phases.firstReactiveRun.distinctRows": {
+      "from": 3807,
+      "to": 4301
     },
     "1x.phases.firstReactiveRun.rowReads": {
-      "from": 125774,
-      "to": 125847,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 127450,
+      "to": 118592
     },
-    "4x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "1x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
     },
-    "4x.firstPaint.computeds.declared": {
-      "from": 48161,
-      "to": 48169,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "1x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "1x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "1x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "1x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "1x.phases.ingest.built.observableValue": {
+      "from": 6702,
+      "to": 6735
+    },
+    "1x.phases.ingest.changes": {
+      "from": 7187,
+      "to": 7227
+    },
+    "1x.phases.ingest.distinctRows": {
+      "from": 6680,
+      "to": 9085
+    },
+    "1x.phases.ingest.rowReads": {
+      "from": 18142,
+      "to": 277267
+    },
+    "1x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "1x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "1x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "1x.startup.computeds.total": {
+      "from": 8744,
+      "to": 8745
+    },
+    "1x.startup.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "1x.startup.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "1x.startup.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "1x.startup.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "1x.startup.observables.atom": {
+      "from": 5342,
+      "to": 5386
+    },
+    "1x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "1x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "1x.startup.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "1x.startup.observables.value.mapHas": {
+      "from": 2894,
+      "to": 2901
+    },
+    "1x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "1x.startup.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "1x.startup.reactions.built": {
+      "from": 2389,
+      "to": 2390
+    },
+    "1x.startup.reactions.live": {
+      "from": 2389,
+      "to": 2390
+    },
+    "4x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "4x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "4x.firstPaint.computeds.standalone": {
+      "from": 31,
+      "to": 3687
     },
     "4x.firstPaint.computeds.total": {
-      "from": 48173,
-      "to": 48181,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 36156,
+      "to": 39812
+    },
+    "4x.firstPaint.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "4x.firstPaint.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "4x.firstPaint.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "4x.firstPaint.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "4x.firstPaint.observables.atom": {
+      "from": 21680,
+      "to": 21833
+    },
+    "4x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "4x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "4x.firstPaint.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "4x.firstPaint.observables.value.mapHas": {
+      "from": 11811,
+      "to": 13978
+    },
+    "4x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "4x.firstPaint.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "4x.firstPaint.reactions.built": {
+      "from": 9677,
+      "to": 9678
+    },
+    "4x.firstPaint.reactions.live": {
+      "from": 9677,
+      "to": 9678
+    },
+    "4x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "4x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "4x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "4x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 1
+    },
+    "4x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 1
+    },
+    "4x.phases.firstPaint.built.atom": {
+      "from": 894,
+      "to": 1002
     },
     "4x.phases.firstPaint.built.computed": {
-      "from": 1427,
-      "to": 1435,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1436,
+      "to": 5091
     },
-    "4x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "4x.phases.firstPaint.built.observableValue": {
+      "from": 312,
+      "to": 2474
+    },
+    "4x.phases.firstPaint.computedRuns": {
+      "from": 1432,
+      "to": 5087
+    },
+    "4x.phases.firstPaint.distinctRows": {
+      "from": 200,
+      "to": 2938
     },
     "4x.phases.firstPaint.rowReads": {
-      "from": 8271,
-      "to": 8415,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 8884,
+      "to": 30013
+    },
+    "4x.phases.firstReactiveRun.built.atom": {
+      "from": 20761,
+      "to": 20772
+    },
+    "4x.phases.firstReactiveRun.built.observableValue": {
+      "from": 15319,
+      "to": 15324
+    },
+    "4x.phases.firstReactiveRun.changes": {
+      "from": 19755,
+      "to": 15920
+    },
+    "4x.phases.firstReactiveRun.distinctRows": {
+      "from": 15526,
+      "to": 17428
     },
     "4x.phases.firstReactiveRun.rowReads": {
-      "from": 502885,
-      "to": 503064,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 509702,
+      "to": 483861
     },
-    "write-idle.1x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "4x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
     },
-    "write-idle.1x.firstPaint.computeds.declared": {
-      "from": 12778,
-      "to": 12786,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "4x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "4x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "4x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "4x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "4x.phases.ingest.built.observableValue": {
+      "from": 27055,
+      "to": 27088
+    },
+    "4x.phases.ingest.changes": {
+      "from": 28944,
+      "to": 28984
+    },
+    "4x.phases.ingest.distinctRows": {
+      "from": 27033,
+      "to": 36665
+    },
+    "4x.phases.ingest.rowReads": {
+      "from": 72605,
+      "to": 1121959
+    },
+    "4x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "4x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "4x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "4x.startup.computeds.total": {
+      "from": 34720,
+      "to": 34721
+    },
+    "4x.startup.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "4x.startup.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "4x.startup.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "4x.startup.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "4x.startup.observables.atom": {
+      "from": 20786,
+      "to": 20831
+    },
+    "4x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "4x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "4x.startup.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "4x.startup.observables.value.mapHas": {
+      "from": 11499,
+      "to": 11504
+    },
+    "4x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "4x.startup.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "4x.startup.reactions.built": {
+      "from": 9616,
+      "to": 9617
+    },
+    "4x.startup.reactions.live": {
+      "from": 9616,
+      "to": 9617
+    },
+    "write-idle.1x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.1x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.1x.firstPaint.computeds.standalone": {
+      "from": 24,
+      "to": 928
     },
     "write-idle.1x.firstPaint.computeds.total": {
-      "from": 12783,
-      "to": 12791,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 9839,
+      "to": 10743
+    },
+    "write-idle.1x.firstPaint.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "write-idle.1x.firstPaint.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-idle.1x.firstPaint.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "write-idle.1x.firstPaint.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "write-idle.1x.firstPaint.observables.atom": {
+      "from": 5949,
+      "to": 6019
+    },
+    "write-idle.1x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-idle.1x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "write-idle.1x.firstPaint.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-idle.1x.firstPaint.observables.value.mapHas": {
+      "from": 3155,
+      "to": 3663
+    },
+    "write-idle.1x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.1x.firstPaint.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "write-idle.1x.firstPaint.reactions.built": {
+      "from": 2450,
+      "to": 2452
+    },
+    "write-idle.1x.firstPaint.reactions.live": {
+      "from": 2450,
+      "to": 2452
+    },
+    "write-idle.1x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "write-idle.1x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "write-idle.1x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "write-idle.1x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 2
+    },
+    "write-idle.1x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 2
+    },
+    "write-idle.1x.phases.firstPaint.built.atom": {
+      "from": 607,
+      "to": 633
     },
     "write-idle.1x.phases.firstPaint.built.computed": {
-      "from": 1076,
-      "to": 1084,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1095,
+      "to": 1998
     },
-    "write-idle.1x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.1x.phases.firstPaint.built.observableValue": {
+      "from": 261,
+      "to": 762
+    },
+    "write-idle.1x.phases.firstPaint.computedRuns": {
+      "from": 1091,
+      "to": 1994
+    },
+    "write-idle.1x.phases.firstPaint.distinctRows": {
+      "from": 126,
+      "to": 771
     },
     "write-idle.1x.phases.firstPaint.rowReads": {
-      "from": 5058,
-      "to": 5131,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 5735,
+      "to": 9766
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.atom": {
+      "from": 5317,
+      "to": 5327
+    },
+    "write-idle.1x.phases.firstReactiveRun.built.observableValue": {
+      "from": 3834,
+      "to": 3841
+    },
+    "write-idle.1x.phases.firstReactiveRun.changes": {
+      "from": 4893,
+      "to": 3953
+    },
+    "write-idle.1x.phases.firstReactiveRun.distinctRows": {
+      "from": 3807,
+      "to": 4301
     },
     "write-idle.1x.phases.firstReactiveRun.rowReads": {
-      "from": 125774,
-      "to": 125847,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 127450,
+      "to": 118592
     },
-    "write-idle.4x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.1x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
     },
-    "write-idle.4x.firstPaint.computeds.declared": {
-      "from": 48161,
-      "to": 48169,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.1x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "write-idle.1x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "write-idle.1x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "write-idle.1x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.1x.phases.ingest.built.observableValue": {
+      "from": 6702,
+      "to": 6735
+    },
+    "write-idle.1x.phases.ingest.changes": {
+      "from": 7187,
+      "to": 7227
+    },
+    "write-idle.1x.phases.ingest.distinctRows": {
+      "from": 6680,
+      "to": 9085
+    },
+    "write-idle.1x.phases.ingest.rowReads": {
+      "from": 18142,
+      "to": 277267
+    },
+    "write-idle.1x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.1x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.1x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "write-idle.1x.startup.computeds.total": {
+      "from": 8744,
+      "to": 8745
+    },
+    "write-idle.1x.startup.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "write-idle.1x.startup.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-idle.1x.startup.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "write-idle.1x.startup.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "write-idle.1x.startup.observables.atom": {
+      "from": 5342,
+      "to": 5386
+    },
+    "write-idle.1x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-idle.1x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "write-idle.1x.startup.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-idle.1x.startup.observables.value.mapHas": {
+      "from": 2894,
+      "to": 2901
+    },
+    "write-idle.1x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.1x.startup.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "write-idle.1x.startup.reactions.built": {
+      "from": 2389,
+      "to": 2391
+    },
+    "write-idle.1x.startup.reactions.live": {
+      "from": 2389,
+      "to": 2391
+    },
+    "write-idle.4x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.4x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.4x.firstPaint.computeds.standalone": {
+      "from": 31,
+      "to": 3687
     },
     "write-idle.4x.firstPaint.computeds.total": {
-      "from": 48173,
-      "to": 48181,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 36156,
+      "to": 39812
+    },
+    "write-idle.4x.firstPaint.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "write-idle.4x.firstPaint.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-idle.4x.firstPaint.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "write-idle.4x.firstPaint.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "write-idle.4x.firstPaint.observables.atom": {
+      "from": 21680,
+      "to": 21833
+    },
+    "write-idle.4x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-idle.4x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "write-idle.4x.firstPaint.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-idle.4x.firstPaint.observables.value.mapHas": {
+      "from": 11811,
+      "to": 13978
+    },
+    "write-idle.4x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.4x.firstPaint.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "write-idle.4x.firstPaint.reactions.built": {
+      "from": 9677,
+      "to": 9679
+    },
+    "write-idle.4x.firstPaint.reactions.live": {
+      "from": 9677,
+      "to": 9679
+    },
+    "write-idle.4x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "write-idle.4x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "write-idle.4x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "write-idle.4x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 2
+    },
+    "write-idle.4x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 2
+    },
+    "write-idle.4x.phases.firstPaint.built.atom": {
+      "from": 894,
+      "to": 1002
     },
     "write-idle.4x.phases.firstPaint.built.computed": {
-      "from": 1427,
-      "to": 1435,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1436,
+      "to": 5091
     },
-    "write-idle.4x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.4x.phases.firstPaint.built.observableValue": {
+      "from": 312,
+      "to": 2474
+    },
+    "write-idle.4x.phases.firstPaint.computedRuns": {
+      "from": 1432,
+      "to": 5087
+    },
+    "write-idle.4x.phases.firstPaint.distinctRows": {
+      "from": 200,
+      "to": 2938
     },
     "write-idle.4x.phases.firstPaint.rowReads": {
-      "from": 8271,
-      "to": 8415,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 8884,
+      "to": 30013
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.atom": {
+      "from": 20761,
+      "to": 20772
+    },
+    "write-idle.4x.phases.firstReactiveRun.built.observableValue": {
+      "from": 15319,
+      "to": 15324
+    },
+    "write-idle.4x.phases.firstReactiveRun.changes": {
+      "from": 19755,
+      "to": 15920
+    },
+    "write-idle.4x.phases.firstReactiveRun.distinctRows": {
+      "from": 15526,
+      "to": 17428
     },
     "write-idle.4x.phases.firstReactiveRun.rowReads": {
-      "from": 502885,
-      "to": 503064,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 509702,
+      "to": 483861
     },
-    "write-pending.1x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.4x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
     },
-    "write-pending.1x.firstPaint.computeds.declared": {
-      "from": 12778,
-      "to": 12786,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-idle.4x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "write-idle.4x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "write-idle.4x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "write-idle.4x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.4x.phases.ingest.built.observableValue": {
+      "from": 27055,
+      "to": 27088
+    },
+    "write-idle.4x.phases.ingest.changes": {
+      "from": 28944,
+      "to": 28984
+    },
+    "write-idle.4x.phases.ingest.distinctRows": {
+      "from": 27033,
+      "to": 36665
+    },
+    "write-idle.4x.phases.ingest.rowReads": {
+      "from": 72605,
+      "to": 1121959
+    },
+    "write-idle.4x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-idle.4x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.4x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "write-idle.4x.startup.computeds.total": {
+      "from": 34720,
+      "to": 34721
+    },
+    "write-idle.4x.startup.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "write-idle.4x.startup.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-idle.4x.startup.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "write-idle.4x.startup.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "write-idle.4x.startup.observables.atom": {
+      "from": 20786,
+      "to": 20831
+    },
+    "write-idle.4x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-idle.4x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "write-idle.4x.startup.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-idle.4x.startup.observables.value.mapHas": {
+      "from": 11499,
+      "to": 11504
+    },
+    "write-idle.4x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-idle.4x.startup.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "write-idle.4x.startup.reactions.built": {
+      "from": 9616,
+      "to": 9618
+    },
+    "write-idle.4x.startup.reactions.live": {
+      "from": 9616,
+      "to": 9618
+    },
+    "write-pending.1x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.1x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.1x.firstPaint.computeds.standalone": {
+      "from": 24,
+      "to": 928
     },
     "write-pending.1x.firstPaint.computeds.total": {
-      "from": 12783,
-      "to": 12791,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 9839,
+      "to": 10743
+    },
+    "write-pending.1x.firstPaint.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "write-pending.1x.firstPaint.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-pending.1x.firstPaint.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "write-pending.1x.firstPaint.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "write-pending.1x.firstPaint.observables.atom": {
+      "from": 5949,
+      "to": 6019
+    },
+    "write-pending.1x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-pending.1x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "write-pending.1x.firstPaint.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-pending.1x.firstPaint.observables.value.mapHas": {
+      "from": 3155,
+      "to": 3663
+    },
+    "write-pending.1x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.1x.firstPaint.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "write-pending.1x.firstPaint.reactions.built": {
+      "from": 2450,
+      "to": 2452
+    },
+    "write-pending.1x.firstPaint.reactions.live": {
+      "from": 2450,
+      "to": 2452
+    },
+    "write-pending.1x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "write-pending.1x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "write-pending.1x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "write-pending.1x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 2
+    },
+    "write-pending.1x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 2
+    },
+    "write-pending.1x.phases.firstPaint.built.atom": {
+      "from": 607,
+      "to": 633
     },
     "write-pending.1x.phases.firstPaint.built.computed": {
-      "from": 1076,
-      "to": 1084,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1095,
+      "to": 1998
     },
-    "write-pending.1x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-pending.1x.phases.firstPaint.built.observableValue": {
+      "from": 261,
+      "to": 762
+    },
+    "write-pending.1x.phases.firstPaint.computedRuns": {
+      "from": 1091,
+      "to": 1994
+    },
+    "write-pending.1x.phases.firstPaint.distinctRows": {
+      "from": 126,
+      "to": 771
     },
     "write-pending.1x.phases.firstPaint.rowReads": {
-      "from": 5054,
-      "to": 5127,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 5735,
+      "to": 9766
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.atom": {
+      "from": 5317,
+      "to": 5327
+    },
+    "write-pending.1x.phases.firstReactiveRun.built.observableValue": {
+      "from": 3834,
+      "to": 3841
+    },
+    "write-pending.1x.phases.firstReactiveRun.changes": {
+      "from": 4893,
+      "to": 3953
+    },
+    "write-pending.1x.phases.firstReactiveRun.distinctRows": {
+      "from": 3807,
+      "to": 4301
     },
     "write-pending.1x.phases.firstReactiveRun.rowReads": {
-      "from": 125774,
-      "to": 125847,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 127450,
+      "to": 118592
     },
-    "write-pending.4x.firstPaint.byOwner.GroupNode.computeds": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-pending.1x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
     },
-    "write-pending.4x.firstPaint.computeds.declared": {
-      "from": 48161,
-      "to": 48169,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-pending.1x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "write-pending.1x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "write-pending.1x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "write-pending.1x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.1x.phases.ingest.built.observableValue": {
+      "from": 6702,
+      "to": 6735
+    },
+    "write-pending.1x.phases.ingest.changes": {
+      "from": 7187,
+      "to": 7227
+    },
+    "write-pending.1x.phases.ingest.distinctRows": {
+      "from": 6680,
+      "to": 9085
+    },
+    "write-pending.1x.phases.ingest.rowReads": {
+      "from": 18142,
+      "to": 277267
+    },
+    "write-pending.1x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.1x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.1x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "write-pending.1x.startup.computeds.total": {
+      "from": 8744,
+      "to": 8745
+    },
+    "write-pending.1x.startup.held.arrayElements": {
+      "from": 3844,
+      "to": 4031
+    },
+    "write-pending.1x.startup.held.mapEntries": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-pending.1x.startup.held.setMembers": {
+      "from": 15,
+      "to": 385
+    },
+    "write-pending.1x.startup.observables.array": {
+      "from": 1378,
+      "to": 1384
+    },
+    "write-pending.1x.startup.observables.atom": {
+      "from": 5342,
+      "to": 5386
+    },
+    "write-pending.1x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-pending.1x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "write-pending.1x.startup.observables.value.mapEntry": {
+      "from": 6747,
+      "to": 6950
+    },
+    "write-pending.1x.startup.observables.value.mapHas": {
+      "from": 2894,
+      "to": 2901
+    },
+    "write-pending.1x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.1x.startup.observables.value.standalone": {
+      "from": 898,
+      "to": 710
+    },
+    "write-pending.1x.startup.reactions.built": {
+      "from": 2389,
+      "to": 2391
+    },
+    "write-pending.1x.startup.reactions.live": {
+      "from": 2389,
+      "to": 2391
+    },
+    "write-pending.4x.firstPaint.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.4x.firstPaint.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.4x.firstPaint.computeds.standalone": {
+      "from": 31,
+      "to": 3687
     },
     "write-pending.4x.firstPaint.computeds.total": {
-      "from": 48173,
-      "to": 48181,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 36156,
+      "to": 39812
     },
-    "write-pending.4x.phases.create.rowReads": {
-      "from": 438,
-      "to": 439,
-      "reason": "POD-4955 (9577ef4f6): the pending-title bootstrap at 4x reads one additional retained session offer while composing the existing railWaiting summary; 1x is unchanged because its pending window has a different roster. This is one field read in the existing VISIBLE roster, with no history scan, new owner, allocation or index."
+    "write-pending.4x.firstPaint.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "write-pending.4x.firstPaint.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-pending.4x.firstPaint.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "write-pending.4x.firstPaint.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "write-pending.4x.firstPaint.observables.atom": {
+      "from": 21680,
+      "to": 21833
+    },
+    "write-pending.4x.firstPaint.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-pending.4x.firstPaint.observables.object": {
+      "from": 11,
+      "to": 16
+    },
+    "write-pending.4x.firstPaint.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-pending.4x.firstPaint.observables.value.mapHas": {
+      "from": 11811,
+      "to": 13978
+    },
+    "write-pending.4x.firstPaint.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.4x.firstPaint.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "write-pending.4x.firstPaint.reactions.built": {
+      "from": 9677,
+      "to": 9679
+    },
+    "write-pending.4x.firstPaint.reactions.live": {
+      "from": 9677,
+      "to": 9679
+    },
+    "write-pending.4x.phases.create.built.atom": {
+      "from": 25,
+      "to": 27
+    },
+    "write-pending.4x.phases.create.built.map": {
+      "from": 19,
+      "to": 20
+    },
+    "write-pending.4x.phases.create.built.object": {
+      "from": 3,
+      "to": 2
+    },
+    "write-pending.4x.phases.create.built.reaction": {
+      "from": 0,
+      "to": 2
+    },
+    "write-pending.4x.phases.create.reactionRuns": {
+      "from": 0,
+      "to": 2
+    },
+    "write-pending.4x.phases.firstPaint.built.atom": {
+      "from": 894,
+      "to": 1002
     },
     "write-pending.4x.phases.firstPaint.built.computed": {
-      "from": 1427,
-      "to": 1435,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+      "from": 1436,
+      "to": 5091
     },
-    "write-pending.4x.phases.firstPaint.changes": {
-      "from": 56,
-      "to": 64,
-      "reason": "POD-5059 (13a4095a0): one cached GroupNode.sidebarMetadata computed per VISIBLE section chooses its first root through the existing sorted resident lane and cached placement. Eight section owners give +8 at both 1x and 4x; historical rows do not add section owners. The field is required for legacy header naming, with no new cold-id index. POD-5060 (452c9a155) subsequently removes the temporary +8 computedRuns, retaining existing metadata as the fallback."
+    "write-pending.4x.phases.firstPaint.built.observableValue": {
+      "from": 312,
+      "to": 2474
+    },
+    "write-pending.4x.phases.firstPaint.computedRuns": {
+      "from": 1432,
+      "to": 5087
+    },
+    "write-pending.4x.phases.firstPaint.distinctRows": {
+      "from": 200,
+      "to": 2938
     },
     "write-pending.4x.phases.firstPaint.rowReads": {
-      "from": 8267,
-      "to": 8411,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 8884,
+      "to": 30013
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.atom": {
+      "from": 20761,
+      "to": 20772
+    },
+    "write-pending.4x.phases.firstReactiveRun.built.observableValue": {
+      "from": 15319,
+      "to": 15324
+    },
+    "write-pending.4x.phases.firstReactiveRun.changes": {
+      "from": 19755,
+      "to": 15920
+    },
+    "write-pending.4x.phases.firstReactiveRun.distinctRows": {
+      "from": 15526,
+      "to": 17428
     },
     "write-pending.4x.phases.firstReactiveRun.rowReads": {
-      "from": 502885,
-      "to": 503064,
-      "reason": "POD-4955 (9577ef4f6): existing ownAttentionPartOf now composes railWaiting from retained VISIBLE session offers and the cached seat verdicts, preserving the legacy rail badge without a legacy derivation. The firstPaint deltas are +73/+144 and firstReactiveRun deltas +73/+179 at 1x/4x: the list roots, fixed 20-row observer window and retained roster composition differ by scale, so work is not four identical windows. No closed-history traversal, additional owners or indexes."
+      "from": 509702,
+      "to": 483861
+    },
+    "write-pending.4x.phases.ingest.built.array": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.4x.phases.ingest.built.atom": {
+      "from": 0,
+      "to": 32
+    },
+    "write-pending.4x.phases.ingest.built.computed": {
+      "from": 0,
+      "to": 1
+    },
+    "write-pending.4x.phases.ingest.built.map": {
+      "from": 0,
+      "to": 20
+    },
+    "write-pending.4x.phases.ingest.built.object": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.4x.phases.ingest.built.observableValue": {
+      "from": 27055,
+      "to": 27088
+    },
+    "write-pending.4x.phases.ingest.changes": {
+      "from": 28944,
+      "to": 28984
+    },
+    "write-pending.4x.phases.ingest.distinctRows": {
+      "from": 27033,
+      "to": 36665
+    },
+    "write-pending.4x.phases.ingest.rowReads": {
+      "from": 72605,
+      "to": 1121959
+    },
+    "write-pending.4x.startup.byOwner.Object.owners": {
+      "from": 0,
+      "to": 6
+    },
+    "write-pending.4x.startup.byOwner.Object.properties": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.4x.startup.computeds.standalone": {
+      "from": 0,
+      "to": 1
+    },
+    "write-pending.4x.startup.computeds.total": {
+      "from": 34720,
+      "to": 34721
+    },
+    "write-pending.4x.startup.held.arrayElements": {
+      "from": 15617,
+      "to": 16391
+    },
+    "write-pending.4x.startup.held.mapEntries": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-pending.4x.startup.held.setMembers": {
+      "from": 27,
+      "to": 1535
+    },
+    "write-pending.4x.startup.observables.array": {
+      "from": 5450,
+      "to": 5456
+    },
+    "write-pending.4x.startup.observables.atom": {
+      "from": 20786,
+      "to": 20831
+    },
+    "write-pending.4x.startup.observables.map": {
+      "from": 19,
+      "to": 40
+    },
+    "write-pending.4x.startup.observables.object": {
+      "from": 3,
+      "to": 8
+    },
+    "write-pending.4x.startup.observables.value.mapEntry": {
+      "from": 27124,
+      "to": 27912
+    },
+    "write-pending.4x.startup.observables.value.mapHas": {
+      "from": 11499,
+      "to": 11504
+    },
+    "write-pending.4x.startup.observables.value.property": {
+      "from": 0,
+      "to": 18
+    },
+    "write-pending.4x.startup.observables.value.standalone": {
+      "from": 3754,
+      "to": 2981
+    },
+    "write-pending.4x.startup.reactions.built": {
+      "from": 9616,
+      "to": 9618
+    },
+    "write-pending.4x.startup.reactions.live": {
+      "from": 9616,
+      "to": 9618
     }
   },
   "historyProbe": {
