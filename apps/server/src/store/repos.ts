@@ -7,7 +7,7 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
-import type { MachineId, RepoId } from '@podium/model'
+import { type MachineId, machinePathBasename, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
 import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
@@ -341,7 +341,8 @@ export class ReposRepository {
   async addRepo(path: string, machineId: MachineId, originUrl?: string, prefix?: string): Promise<void> {
     const normalizedPath = normalizeRepoPath(path)
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
-    const repoName = normalizedPath.split('/').pop() ?? null
+    // The repo's machine may be Windows while this server is not: its path's own separator.
+    const repoName = machinePathBasename(normalizedPath) || null
     const repoId = deriveRepoId({ originUrl: origin, machineId, path: normalizedPath })
     await this.invalidateRegistry()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. The two forms
