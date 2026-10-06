@@ -170,8 +170,7 @@ export interface OutboxStorage {
   save(entries: OutboxEntry[]): void
 }
 
-/** Legacy web localStorage key for the pre-replica outbox blob. The replica's
- *  outbox collection migrates it in on first use (see replica/replica.ts). */
+/** Historical standalone queue address, read only by compatibility side-cache fixtures. */
 export const OUTBOX_LS_KEY = 'podium.outbox.v1'
 
 /** Browser 'online' events when a DOM window exists; undefined elsewhere.

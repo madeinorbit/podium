@@ -355,10 +355,7 @@ export const REPLICA_KEY_PREFIX = 'podium.replica'
  * The readout is not a debugging convenience — it is what makes "this replica
  * persists nothing" a checkable claim rather than a comment. Two callers already
  * needed it and each hand-rolled its own Map because `memoryStorage()` hid its
- * own: `legacy-keys.test.ts` ("`memoryStorage()` hides its map; this one is the
- * same seam with the key set observable, which is the whole measurement") and
- * `legacy-snapshot.ts`, whose entire job is to hand back every key the writer
- * wrote. A seam that has to be re-implemented to be observed is a seam that gets
+ * own: side-cache tests and diagnostic fixtures. A seam that has to be re-implemented to be observed is a seam that gets
  * re-implemented slightly differently each time.
  */
 export interface MemoryStorage extends StorageApi {

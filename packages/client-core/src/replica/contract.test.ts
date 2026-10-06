@@ -1,29 +1,4 @@
-/**
- * THE KERNEL PATH MUST NOT REACH THE LIBRARY IT REPLACES (POD-378).
- *
- * `contract.ts` exists because the kernel facade and side cache were importing
- * their contract from `replica.ts`, and two of the names they took —
- * `StorageApi` and `StorageEventApi` — were re-exports of `@tanstack/db`. The
- * effect was that the REPLACEMENT's type surface routed through the package
- * POD-378 removes, so deleting the adapter would have left the dependency in the
- * lockfile behind a build that still type-checked.
- *
- * That is a one-line regression to reintroduce: an editor auto-import from
- * `../replica` (which still re-exports everything, deliberately, so existing call
- * sites keep working) puts it straight back, and nothing else would notice —
- * the kernel suite would stay green, because the types are structurally identical.
- *
- * So this asserts the property directly, by READING THE SOURCE rather than by
- * trusting the import graph to be visible at run time. A type-only import is
- * erased before any test can observe it, which is precisely how this class of
- * coupling survives a green suite.
- *
- * WHAT IT DOES NOT CLAIM. This is not evidence that the dependency is gone — that
- * claim belongs to the lockfile (`grep tanstack bun.lock`), and a passing test
- * here with `@tanstack/db` still installed is exactly the state the repo is in
- * today. It is evidence that the kernel path has stopped depending on it, which
- * is the step that has to come first.
- */
+/** The kernel facade and client contract must not depend on a store library. */
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

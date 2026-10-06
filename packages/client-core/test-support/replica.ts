@@ -1,15 +1,15 @@
 /** Kernel-backed fixture for engine and UI tests. Entity writes belong only to this fixture. */
-import type { Cursor, EntityRecord } from '@podium/sync/replica'
+import type { EntityRecord } from '@podium/sync/replica'
 import { memoryStorage, type ReplicaKind, type ReplicaRows } from '../src/replica/contract'
 import { createKernelReplica, createSideCache, entityForKind, rowKey } from '../src/replica/kernel'
-import { type FeedCursor } from '../src/replica/feed'
+import type { FeedCursor } from '../src/replica/feed'
 
 export type ReplicaFixtureOptions = Partial<Parameters<typeof createSideCache>[0]>
 export { memoryStorage }
 
 export function createReplicaFixture(options: ReplicaFixtureOptions = {}) {
   const records = new Map<string, EntityRecord>()
-  let cursor: Cursor | null = null
+  let cursor: { seq: number; feedId?: string; epoch?: string } | null = null
   const replica = createKernelReplica({
     cache: {
       readCursor: () => cursor,
@@ -46,10 +46,11 @@ export function createReplicaFixture(options: ReplicaFixtureOptions = {}) {
       for (const value of values)
         replica.onKernelEvent({ type: 'upserted', record: put(kind, value), readmitted: false })
     },
-    setCursor(seq: number) { cursor = { feedId: 'fixture', epoch: 'fixture', seq } },
+    setCursor(seq: number) { cursor = { ...cursor, seq } },
     setFeedCursor(next: FeedCursor) {
       cursor = next.seq === null ? null : {
-        feedId: next.feedId ?? 'fixture', epoch: next.epoch ?? 'fixture', seq: next.seq,
+        ...(next.feedId === null ? {} : { feedId: next.feedId }),
+        ...(next.epoch === null ? {} : { epoch: next.epoch }), seq: next.seq,
       }
     },
     resetCache() { cursor = null; records.clear(); replace() },
