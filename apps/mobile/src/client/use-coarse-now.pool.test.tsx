@@ -3,7 +3,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, screen } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { useCoarseNow } from './hooks'
 import { renderWithMobileStore } from './test-support'
 
