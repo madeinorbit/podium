@@ -1,4 +1,5 @@
 import { productWorkMeter } from '../tests/worklist/harness/src/perf/vite'
+import { standardDecorators } from './vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../vitest.config'
@@ -14,7 +15,7 @@ const repositoryRoot = fileURLToPath(new URL('../', import.meta.url))
  */
 export const createPackageVitestConfig = (workspacePath: string) =>
   defineConfig({
-  plugins: [productWorkMeter()],
+  plugins: [productWorkMeter(), standardDecorators()],
     root: repositoryRoot,
     resolve: sharedVitestConfig.resolve,
     test: {

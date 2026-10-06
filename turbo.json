@@ -10,6 +10,7 @@
     "vitest.smoke-requirements.ts",
     "test-hermetic-*.ts",
     "scripts/package-vitest-config.ts",
+    "scripts/vite-standard-decorators.ts",
     "tests/worklist/harness/src/perf/**"
   ],
   "globalEnv": ["PODIUM_CHECK_ENV_HASH"],

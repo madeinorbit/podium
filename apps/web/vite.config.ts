@@ -9,6 +9,7 @@ import {
   developmentSourceSha,
   developmentSourceVersion,
 } from '../../packages/runtime/src/source-version'
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { mobileRedirectLocation, NAVIGATION_FALLBACK_DENYLIST } from './mobile-routing'
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
@@ -152,6 +153,7 @@ export default defineConfig(({ command, mode }) => {
 
   return {
     plugins: [
+      standardDecorators(),
       mobileEntryRedirectPlugin(),
       importGraphPlugin(),
       react(),

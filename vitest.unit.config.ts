@@ -1,4 +1,5 @@
 import { productWorkMeter } from './tests/worklist/harness/src/perf/vite'
+import { standardDecorators } from './scripts/vite-standard-decorators'
 import { defineConfig } from 'vitest/config'
 import { nodeTestExclude, sharedVitestConfig } from './vitest.config'
 import { ptySmokeTests, realAgentSmokeTests } from './vitest.smoke-requirements'
@@ -65,7 +66,7 @@ export const unitTestExclude = [
 ]
 
 export default defineConfig({
-  plugins: [productWorkMeter()],
+  plugins: [productWorkMeter(), standardDecorators()],
   resolve: sharedVitestConfig.resolve,
   test: {
     projects: [

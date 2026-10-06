@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { sharedVitestConfig } from '../../vitest.config'
 import { mobileVitestResolution } from './vitest-resolution'
 
@@ -61,6 +62,7 @@ const sharedAliases = sharedVitestConfig.resolve.alias.filter(
 )
 
 export default defineConfig({
+  plugins: [standardDecorators()],
   define: { __DEV__: 'false' },
   resolve: {
     ...sharedVitestConfig.resolve,

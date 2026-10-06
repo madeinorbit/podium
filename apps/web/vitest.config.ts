@@ -1,4 +1,5 @@
 import { productWorkMeter } from '../../tests/worklist/harness/src/perf/vite'
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
@@ -21,7 +22,7 @@ const sharedAliases = sharedVitestConfig.resolve.alias.filter(
 )
 
 export default defineConfig({
-  plugins: [productWorkMeter()],
+  plugins: [productWorkMeter(), standardDecorators()],
   resolve: {
     ...sharedVitestConfig.resolve,
     alias: [
