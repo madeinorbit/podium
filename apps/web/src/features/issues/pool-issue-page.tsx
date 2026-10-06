@@ -7,7 +7,7 @@ import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist
 import { IssuePageBody } from './IssuePage'
 import { IssuePanelBody } from './IssuePanelView'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
-import { IssuePageDataContext, IssuePageWorldContext } from './issue-page/issue-page-data'
+import { IssuePageDataContext } from './issue-page/issue-page-data'
 import { useEvictionPresenceGuard } from './issue-page/use-eviction-guard'
 
 export function PoolIssuePage({ issueId, ...props }: Omit<ComponentProps<typeof IssuePageBody>, 'issue'> & { issueId: string }) {
@@ -34,8 +34,5 @@ export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>)
 }
 
 function PoolIssueExplorerList() {
-  const read = useCallback((owner: MobxPool) => issuePages(owner).explorer(), [])
-  const data = useWorklistPoolProjection(read, undefined)
-  if (!data || typeof data === 'symbol') return null
-  return <IssuePageWorldContext.Provider value={data}><IssueExplorerList /></IssuePageWorldContext.Provider>
+  return <IssueExplorerList />
 }

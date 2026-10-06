@@ -75,6 +75,7 @@ export function checkExplorer(
     counts,
     tab,
     rows,
+    ids: rows.map(row => row.id),
     sessions,
     rowSessions,
     byId: new Map(issues.map((row) => [row.id, row])),

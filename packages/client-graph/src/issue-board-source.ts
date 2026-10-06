@@ -14,13 +14,11 @@ import {
 import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
 import {
   compareStructural,
-  createAtom,
   observable,
   observe,
-  reaction,
   runInAction,
 } from 'mobx'
-import { seedIssueReferences } from './enumerate'
+import { createIssueExplorer } from './issue-explorer'
 import { createBoardLayout } from './issue-board-layout'
 import {
   BOARD_EXPLORER_TABS,
@@ -51,10 +49,9 @@ const tabOf = (row: IssueViewModel): BoardExplorerTab | null => {
       : status
 }
 
-/** Read-side service over the existing pool, with no row feed or write owner.
- * The standing index contains RESIDENT IDs only. Cold demand results contain
- * IDs only and disappear on filter change/unmount. Cold candidates come from
- * the feed's declared question; only matching scalar candidates are visited. */
+/** Read-side service over declared pool questions and relations. Layouts
+ * publish IDs; rich cards belong to mounted rows or explicit diagnostics.
+ * Query demand and scalar computeds disappear on filter change/unmount. */
 export function createIssueBoardSource(
   pool: MobxPool,
   owner?: {
@@ -64,12 +61,6 @@ export function createIssueBoardSource(
 ) {
   const layout = createBoardLayout(pool)
   const cache = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read())
-  // Placement returns a fresh scalar record, so compare its fields by value.
-  const placements = keyedComputed((key: string) => `IssueBoard@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
-  const buckets = observable.map<string, ReturnType<typeof observable.set<string>>>(undefined, {
-    deep: false,
-  })
-  const stops = new Map<string, () => void>()
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const countQuestion = { kind: 'boardCounts' } as const
   // Counts are maintained contributions. Opening an explorer attaches its
@@ -96,6 +87,10 @@ export function createIssueBoardSource(
     },
   })
   const frame = defineSource({ readById, release })
+  const explorerLayout = createIssueExplorer(pool, (id, query) => {
+    const row = facts(id)
+    return !row || row === LOADING ? row : matches(row, query, id)
+  })
   const open = observable.box(owner?.readLocal('openIssueId') ?? null)
   // Keyed (POD-5433): only an open-issue change wakes the board.
   const stopOwner =
@@ -104,12 +99,12 @@ export function createIssueBoardSource(
     ) ?? (() => {})
   function memo<T>(key: string, read: () => T): T {
     if (frame.disposed) return LOADING as T
-    return (key.startsWith('placement:') ? placements : cache)(key, read) as T
+    return cache(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
     countIssueBoard('factReads')
-    // Existing resident index observations own these small facts. Reuse them
-    // during React's pre-subscription read; cold facts are never cached here.
+    // Observed counts and eligibility share resident scalar facts. Cold
+    // facts remain demand-owned by the query's addressed computations.
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
@@ -233,142 +228,6 @@ export function createIssueBoardSource(
       )
     )
   }
-  function indexKeys(row: IssueViewModel): Set<string> {
-    const keys = new Set([
-      'all',
-      `priority:${row.priority}`,
-      `repo:${row.repoPath}`,
-      `stage:${issueStatusOf(row)}`,
-    ])
-    if (scoped(row, false)) keys.add('scope')
-    if (scoped(row, true)) keys.add('agents')
-    if (!row.archived && !row.deletedAt) {
-      keys.add('live')
-      if (scoped(row, false, true)) keys.add('liveScope')
-      if (scoped(row, true, true)) keys.add('liveAgents')
-    }
-    keys.add(isFinished(row) ? 'status:closed' : 'status:open')
-    for (const flag of ['ready', 'blocked', 'deferred'] as const)
-      if (row[flag]) keys.add(`status:${flag}`)
-    const tab = tabOf(row)
-    if (tab) keys.add(`tab:${tab}`)
-    if (actionable(row)) keys.add('tab:needs')
-    // POD-5561: no per-issue letter pieces. Text runs over the feed's short
-    // lowercase strings (reader-questions targetDetails) as one pass.
-    return keys
-  }
-  function track(id: string) {
-    if (stops.has(id)) return
-    let previous = new Set<string>()
-    // Approved reverse-index exception: rebuilding buckets per query would
-    // visit every board row. Keep the addressed index and its demand lifetime.
-    // eslint-disable-next-line derivations/no-reaction-writes -- Approved board reverse lookup (POD-5542).
-    const stop = reaction(
-      () => {
-        const row = facts(id)
-        return row && row !== LOADING ? indexKeys(row) : new Set<string>()
-      },
-      (next) =>
-        runInAction(() => {
-          for (const key of previous) if (!next.has(key)) remove(key, id)
-          for (const key of next)
-            if (!previous.has(key)) {
-              let bucket = buckets.get(key)
-              if (!bucket) {
-                bucket = observable.set<string>(undefined, { deep: false })
-                buckets.set(key, bucket)
-              }
-              bucket.add(id)
-            }
-          previous = next
-        }),
-      { fireImmediately: true, name: `IssueBoard@index:${id}` },
-    )
-    stops.set(id, () => {
-      stop()
-      runInAction(() => {
-        for (const key of previous) remove(key, id)
-      })
-    })
-  }
-  function remove(key: string, id: string) {
-    const set = buckets.get(key)
-    set?.delete(id)
-    if (set?.size === 0) buckets.delete(key)
-  }
-  let stopTable: (() => void) | undefined
-  const indexDemand = createAtom('IssueBoard@residentIndex', undefined, releaseIndex)
-  function ensureIndex() {
-    if (stopTable || frame.disposed) return
-    stopTable = observe(pool.tables.issue, (change) => {
-      if (change.type === 'add') track(change.name)
-      if (change.type === 'delete') {
-        stops.get(change.name)?.()
-        stops.delete(change.name)
-      }
-    })
-    const bootstrap = performance.now()
-    seedIssueReferences(pool.tables, track)
-    countIssueBoard('residentIndexRows', stops.size)
-    countIssueBoard('residentIndexBootstrapMs', performance.now() - bootstrap)
-  }
-  function releaseIndex() {
-    stopTable?.()
-    stopTable = undefined
-    for (const stop of stops.values()) stop()
-    stops.clear()
-    runInAction(() => buckets.clear())
-  }
-  function indexed<T>(read: () => T): T {
-    const retained = Boolean(stopTable)
-    const observed = indexDemand.reportObserved()
-    ensureIndex()
-    try {
-      return read()
-    } finally {
-      // Imperative snapshots borrow the index for this read only. Observed
-      // board/explorer queries share it until their last reader closes.
-      if (!observed && !retained) releaseIndex()
-    }
-  }
-  const bucket = (key: string): ReadonlySet<string> => buckets.get(key) ?? new Set<string>()
-  function union(sets: readonly ReadonlySet<string>[]): Set<string> {
-    return new Set(sets.flatMap((set) => [...set]))
-  }
-  function intersection(sets: readonly ReadonlySet<string>[]): Set<string> {
-    const sorted = [...sets].sort((a, b) => a.size - b.size)
-    const result = new Set<string>()
-    for (const id of sorted[0] ?? []) if (sorted.every((set) => set.has(id))) result.add(id)
-    return result
-  }
-  function candidates(query: BoardQuery, textIds?: ReadonlySet<string>): ReadonlySet<string> {
-    // Explorer text overrides scope/tab: an exact ref jumps even out of
-    // scope (the shell's only ref-jump), while ordinary prose is narrowed by
-    // matches(). Intersect with resident `all` here; cold text joins through
-    // the shared id set in queryIds without building non-matching facts.
-    if (query.kind === 'explorer' && textIds) {
-      const result = intersection([bucket('all'), textIds])
-      countIssueBoard('residentCandidates', result.size)
-      return result
-    }
-    const filters: ReadonlySet<string>[] = [bucket(query.showAgentTasks ? 'agents' : 'scope')]
-    if (query.kind === 'board') {
-      const f = query.filter ?? {}
-      if (f.priority != null) filters.push(bucket(`priority:${f.priority}`))
-      if (f.stage) filters.push(bucket(`stage:${f.stage}`))
-      if (f.status) filters.push(bucket(`status:${f.status}`))
-      if (f.projectPaths?.length)
-        filters.push(union(f.projectPaths.map((path) => bucket(`repo:${path}`))))
-      // POD-5561: title/ref only, over the feed's short strings. No grams,
-      // no descriptions.
-      if (textIds) filters.push(textIds)
-    } else {
-      filters.push(bucket('live'), bucket(`tab:${query.tab}`))
-    }
-    const smallest = [...filters].sort((a, b) => a.size - b.size)[0]
-    countIssueBoard('residentCandidates', smallest?.size ?? 0)
-    return intersection(filters)
-  }
   function matches(row: IssueViewModel, query: BoardQuery, id: string = row.id): boolean {
     if (query.kind === 'board')
       return (
@@ -383,60 +242,10 @@ export function createIssueBoardSource(
   }
   function queryIds(query: BoardQuery): Loaded<{ ids: string[] }> {
     if (query.kind === 'board') return layout.queryIds(query)
-    return memo(`query:${JSON.stringify(query)}`, () =>
-      indexed(() => {
-        countIssueBoard('queries')
-        // POD-5561: one shared title/ref pass over feed short strings. No
-        // per-issue grams, no description scan, no fact objects for the pass
-        // itself. Cold rows join only through this id set.
-        const rawNeedle =
-          query.kind === 'board' ? (query.filter?.text?.trim() ?? '') : (query.query?.trim() ?? '')
-        const textIds = rawNeedle ? pool.queries.localTextIds(rawNeedle) : undefined
-        const ids: string[] = []
-        let pending = false
-        const resident = candidates(query, textIds)
-        for (const id of resident) {
-          const row = facts(id)
-          if (row === LOADING) pending = true
-          else if (row && matches(row, query)) ids.push(id)
-        }
-        const start = performance.now()
-        // Text queries visit only text-matching cold rows. Re-adding a loop
-        // over every not-loaded facet id here (fresh facts + lowercase per
-        // keystroke) must fail the planted-red guard.
-        const cold = pool.queries
-          .ids({
-            kind: 'boardIssues',
-            ...query.filter,
-            ...(query.kind === 'explorer'
-              ? { explorerTab: query.tab ?? '', searching: !!query.query?.trim() }
-              : {}),
-          })
-          .filter((id) => !pool.tables.issue.has(id) && (!textIds || textIds.has(id)))
-        for (const id of cold) {
-          // Stage, priority, path and ordinary status filters read only their
-          // declared scalar inputs. Build text/ready/deferred values on demand.
-          const f = query.filter
-          const scalarBoard =
-            query.kind === 'board' &&
-            !f?.text?.trim() &&
-            f?.status !== 'ready' &&
-            f?.status !== 'deferred'
-          const scalarExplorer =
-            query.kind === 'explorer' && !query.query?.trim() && query.tab !== 'needs'
-          const row =
-            scalarBoard || scalarExplorer
-              ? (pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>)
-              : facts(id)
-          if (row === LOADING) pending = true
-          else if (row && matches(row, query, id)) ids.push(id)
-        }
-        countIssueBoard('coldSummaryVisits', cold.length)
-        countIssueBoard('coldSummaryMs', performance.now() - start)
-        countIssueBoard('matchedIds', ids.length)
-        return pending ? LOADING : { ids: [...new Set(ids)].sort(byId) }
-      }),
-    )
+    return memo(`query:${JSON.stringify(query)}`, () => {
+      const ids = explorerLayout.ids(query)
+      return ids === LOADING ? LOADING : { ids: ids ?? [] }
+    })
   }
   const catalogEntry = keyedComputed('IssueBoard.catalogEntry', (key: string) => {
     const [id, agents] = JSON.parse(key) as [string, boolean]
@@ -578,26 +387,6 @@ export function createIssueBoardSource(
       return total ? { total, done, liveAgents } : null
     })
   }
-  /** Positions need eight scalar fields. Rich cards belong to the virtual
-   * window; addressed actions/details obtain the same canonical row model. */
-  function placement(id: string): Loaded<IssueViewModel> {
-    if (pool.tables.issue.has(id)) return facts(id)
-    return memo(`placement:${id}`, () => {
-      const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
-      if (!row || row === LOADING) return row
-      return {
-        id: asIssueId(id),
-        seq: row.seq,
-        stage: row.stage,
-        priority: row.priority,
-        parentId: pool.graph.one('issue', id, 'treeParent') ?? row.parentId,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        title: row.title,
-        memberSessionIds: [],
-      } as unknown as IssueViewModel
-    })
-  }
   function card(options: { id: string; now?: number; agents?: boolean }): Loaded<BoardCardData> {
     return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {
       countIssueBoard('cards')
@@ -689,23 +478,27 @@ export function createIssueBoardSource(
       const counts = explorerCounts()
       if (!counts || counts === LOADING) return LOADING
       const tab = options.tab ?? BOARD_EXPLORER_TABS.find((key) => counts[key]) ?? 'in_progress'
-      const found = queryIds({ kind: 'explorer', tab, query: options.query })
+      const found = explorerLayout.ids({ kind: 'explorer', tab, query: options.query }, true)
       if (!found || found === LOADING) return LOADING
+      const total = BOARD_EXPLORER_TABS.reduce((n, key) => n + (key === 'needs' ? 0 : counts[key]), 0)
+      // Production publishes only order and counts. Rich values are demanded
+      // by mounted cards, or explicitly by the diagnostic snapshot below.
+      if (options.windowed) return { counts, tab, total, ids: found, rows: [],
+        byId: new Map(), rowSessions: new Map(), sessions: [] }
       const rows: IssueViewModel[] = [],
         byId = new Map<string, IssueViewModel>(),
         rowSessions = new Map<string, SessionView[]>(),
         allSeats = new Map<string, SessionView>()
-      for (const id of found.ids) {
-        const row = options.windowed ? placement(id) : issue(id)
+      for (const id of found) {
+        const row = issue(id)
         if (row === LOADING) return LOADING
         if (row) {
           rows.push(row)
           byId.set(id, row)
         }
       }
-      rows.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
-      const neighbours = new Set<string>(options.windowed ? [] : found.ids)
-      for (const id of options.windowed ? [] : found.ids) {
+      const neighbours = new Set<string>(found)
+      for (const id of found) {
         const parent = pool.graph.one('issue', id, 'treeParent')
         if (parent) neighbours.add(parent)
         for (const relation of ['pageDependencies', 'pageDependents', 'spinOffs'] as const)
@@ -725,7 +518,8 @@ export function createIssueBoardSource(
       return {
         counts,
         tab,
-        total: BOARD_EXPLORER_TABS.reduce((n, key) => n + (key === 'needs' ? 0 : counts[key]), 0),
+        total,
+        ids: found,
         rows,
         byId,
         rowSessions,
@@ -769,16 +563,12 @@ export function createIssueBoardSource(
   function release(): void {
     stopOwner()
     layout.dispose()
-    releaseIndex()
+    explorerLayout.dispose()
     tabCounts.dispose()
-    for (const stop of stops.values()) stop()
     for (const result of [...rosters.values()]) result.dispose()
     rosters.clear()
-    stops.clear()
     cache.clear()
-    placements.clear()
     catalogEntry.clear()
-    runInAction(() => buckets.clear())
   }
   return Object.assign(frame, {
     board,
@@ -792,9 +582,9 @@ export function createIssueBoardSource(
     queryIds,
     catalog,
     stats: () => ({
-      residentRows: stops.size,
-      demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length + layout.stats().demandKeys,
-      cached: cache.size + placements.size + catalogEntry.size + layout.stats().cached,
+      residentRows: 0,
+      demandKeys: explorerLayout.stats().demandKeys + layout.stats().demandKeys,
+      cached: cache.size + catalogEntry.size + explorerLayout.stats().cached + layout.stats().cached,
     }),
   })
 }

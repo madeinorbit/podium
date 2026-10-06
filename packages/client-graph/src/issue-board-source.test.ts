@@ -60,7 +60,7 @@ function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' }
     },
   }
 }
-it('indexes residents only while an explorer observes them; the catalogue uses metadata', () => {
+it('releases explorer query demand without a resident reverse index', () => {
   const rows = Array.from({ length: 512 }, (_, index) =>
     row(`resident-${index}`, { priority: index === 0 ? 1 : 2 }),
   )
@@ -73,13 +73,13 @@ it('indexes residents only while an explorer observes them; the catalogue uses m
     source.issue('resident-0')
     expect(source.stats().residentRows).toBe(0)
     closeBoard = autorun(() => source.queryIds({ kind: 'explorer', tab: 'in_progress' }))
-    expect(source.stats().residentRows).toBe(pool.tables.issue.size)
+    expect(source.stats().residentRows).toBe(0)
     closeCatalog = autorun(() => source.catalog(false))
     // An imperative snapshot must not release the index of an open surface.
     expect(source.queryIds({ kind: 'board', filter: { priority: 1 } })).toEqual({
       ids: ['resident-0'],
     })
-    expect(source.stats().residentRows).toBe(512)
+    expect(source.stats().residentRows).toBe(0)
     closeBoard()
     expect(source.stats().residentRows).toBe(0)
     closeCatalog()

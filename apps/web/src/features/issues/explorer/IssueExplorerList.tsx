@@ -5,11 +5,11 @@ import { operationalState } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
-import { useBoardCard, useBoardSessionReader } from '../board-pool-row'
+import { useBoardCard } from '../board-pool-row'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle } from '../issue-card'
@@ -37,14 +37,13 @@ export function IssueExplorerList(): JSX.Element {
     listScrollTop,
     rememberListScrollTop,
   } = useIssueExplorer()
-  const { sessions, counts, tab, total, rows, byId, rowSessions } = useExplorerData(
+  const { counts, tab, total, ids } = useExplorerData(
     pickedTab,
     query,
   )
   // One apply and one close guard for every row's status glyph (POD-1271) —
   // held here rather than per row, which the virtualizer would unmount.
-  const sessionReader = useBoardSessionReader()
-  const rowStatus = useIssueStatusApply(sessions, sessionReader)
+  const rowStatus = useIssueStatusApply()
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
@@ -57,13 +56,10 @@ export function IssueExplorerList(): JSX.Element {
   // to show and promised a search wider than the one it runs.
   const searching = query.trim().length > 0
 
-  // ONE pass for the whole list, not one per row. `operationalState` needs the
-  // task's sessions and an id map, and resolving those inside the row made a
-  // 450-row stage O(n²) — the Done tab alone would have built 450 maps over
-  // every issue in the repo.
-  const rowIds = useMemo(() => rows.map((issue) => issue.id), [rows])
+  // The model owns only ID order. Each mounted card reads its own declared
+  // neighbourhood; offscreen task/session payloads never enter this list.
   const virtual = useBoundedVirtualList({
-    keys: rowIds,
+    keys: ids,
     scrollRef,
     containerRef: listRef,
     estimateSize: 31,
@@ -183,12 +179,12 @@ export function IssueExplorerList(): JSX.Element {
       >
         {searching && (
           <div className="border-b border-hairline-soft px-2.5 py-1.5 font-mono shell-type-micro text-text-dim">
-            {rows.length === 0
+            {ids.length === 0
               ? `No task matches “${query.trim()}”`
-              : `${rows.length} ${rows.length === 1 ? 'match' : 'matches'} across every stage`}
+              : `${ids.length} ${ids.length === 1 ? 'match' : 'matches'} across every stage`}
           </div>
         )}
-        {rows.length === 0 ? (
+        {ids.length === 0 ? (
           barren && !searching ? (
             <GhostRows />
           ) : (
@@ -202,21 +198,20 @@ export function IssueExplorerList(): JSX.Element {
             aria-label="Tasks"
           >
             {virtual.items.map((item) => {
-              const issue = rows[item.index] as IssueViewModel
+              const id = ids[item.index]!
               return (
                 <li
-                  key={issue.id}
-                  ref={virtual.measureRef(issue.id)}
+                  key={id}
+                  ref={virtual.measureRef(id)}
                   className="absolute inset-x-0 top-0"
                   style={{ transform: `translateY(${item.start}px)` }}
                   aria-posinset={item.index + 1}
-                  aria-setsize={rows.length}
+                  aria-setsize={ids.length}
                 >
                   <ExplorerRow
-                    issue={issue}
-                    state={operationalState(issue, rowSessions.get(issue.id) ?? [], byId)}
-                    onOpen={() => push(issue.id)}
-                    onStatusPick={(value, resolved = issue) => rowStatus.pick(resolved, value)}
+                    id={id}
+                    onOpen={() => push(id)}
+                    onStatusPick={(value, issue) => rowStatus.pick(issue, value)}
                   />
                 </li>
               )
@@ -300,25 +295,23 @@ function EmptyList({
   )
 }
 
-/** One task line — the unified row the rest of the shell uses: stage glyph,
- *  ref, title, and the one state word on the right. The state is resolved by
- *  the list, in one pass over every row. */
+/** One task line. Each mounted row owns its card's addressed issue and
+ * session neighbours, including the state word on the right. */
 function ExplorerRow({
-  issue: suppliedIssue,
-  state: suppliedState,
+  id,
   onOpen,
   onStatusPick,
 }: {
-  issue: IssueViewModel
-  state: { state: string; label: string }
+  id: string
   onOpen: () => void
   /** The row's status glyph is its picker (POD-1271); the list applies the pick. */
-  onStatusPick: (value: string, issue?: IssueViewModel) => void
-}): JSX.Element {
-  const data = useBoardCard(suppliedIssue.id, 0)
+  onStatusPick: (value: string, issue: IssueViewModel) => void
+}): JSX.Element | null {
+  const data = useBoardCard(id, 0)
   if (typeof data === 'symbol') return <div role="status">Loading task…</div>
-  const issue = data?.issue ?? suppliedIssue
-  const state = data ? operationalState(issue, data.sessions, data.byId) : suppliedState
+  if (!data) return null
+  const issue = data.issue
+  const state = operationalState(issue, data.sessions, data.byId)
   const closed = isFinished(issue)
   // An errored task is a needs-you with a cause (POD-1601): the row's own
   // `data-needs-you` tint is what makes it findable in a long list, and an

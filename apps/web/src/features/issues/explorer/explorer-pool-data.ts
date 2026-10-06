@@ -19,6 +19,7 @@ const EMPTY: PoolExplorerData = {
   },
   tab: 'in_progress',
   total: 0,
+  ids: [],
   rows: [],
   sessions: [],
   byId: new Map(),

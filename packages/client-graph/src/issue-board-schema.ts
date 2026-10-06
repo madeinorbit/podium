@@ -98,6 +98,8 @@ export interface PoolExplorerData {
   counts: Record<BoardExplorerTab, number>
   tab: BoardExplorerTab
   total: number
+  /** Complete order only; production card payloads belong to mounted rows. */
+  ids: string[]
   rows: IssueViewModel[]
   sessions: SessionView[]
   byId: Map<string, IssueViewModel>

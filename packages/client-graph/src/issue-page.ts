@@ -16,6 +16,7 @@ import {
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import {
   compareStructural,
+  observe,
 } from 'mobx'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { missions } from './mission'
@@ -52,6 +53,26 @@ export function createIssuePageViews(pool: MobxPool) {
   const cache = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read(), { equals: compareStructural })
   const identities = keyedComputed((key: string) => `IssuePage@${key}`, (_key: string, read: () => unknown) => read())
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
+  const explorerQuestion = { kind: 'explorerSessions' } as const
+  const explorerSeats = createQueryResult<SessionView>({
+    name: 'IssuePage@explorerSessions',
+    ids: () => pool.queries.ids(explorerQuestion),
+    has: id => pool.queries.has(explorerQuestion, id),
+    order: id => pool.queries.orderKey(id),
+    read: id => {
+      if (pool.queries.collapsed(id)) return undefined
+      const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
+      return seat && seat !== LOADING ? { ...seat } : seat
+    },
+    subscribe: changed => {
+      const stopTable = observe(pool.tables.session, change => changed(change.name))
+      const stopFeed = pool.queries.onChange(event => {
+        if (event.type === 'replace') changed(undefined)
+        else for (const row of event.rows) if (row.kind === 'session') changed(row.id)
+      })
+      return () => { stopTable(); stopFeed() }
+    },
+  })
   const stats = { issues: 0, pages: 0, panels: 0 }
   let disposed = false
   function memo<T>(key: string, read: () => T, identity = false): T {
@@ -190,9 +211,6 @@ export function createIssuePageViews(pool: MobxPool) {
         throw error
       }
     })
-  }
-  function bySessionOrder(a: string, b: string): number {
-    return byId(pool.queries.orderKey(a), pool.queries.orderKey(b)) || byId(a, b)
   }
   function deferred(until: string | null | undefined): boolean {
     const deadline = until == null ? NaN : Date.parse(until)
@@ -515,18 +533,30 @@ export function createIssuePageViews(pool: MobxPool) {
   }
   function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
     return memo('explorer', () => {
-      const world = menuIssues()
+      // This retained catalog is explicit full-list demand. Maintain each
+      // answer by address; updates never reconstruct or compare its world.
+      const world = pool.queries.project({ kind: 'pageIssues' }, 'IssuePage@explorerIssues', id => {
+        const value = summary(id)
+        if (!value || value === LOADING) return value
+        const children = memo(`explorerChildren:${id}`, () => {
+          const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
+          let childDoneCount = 0
+          for (const childId of childIds) {
+            const child = pool.row('issue', childId, 'summary') as Loaded<{
+              stage?: string; closedReason?: string | null
+            }>
+            if (child && child !== LOADING && isFinished(child)) childDoneCount++
+          }
+          return { childIds: childIds.map(asIssueId), childCount: childIds.length, childDoneCount }
+        }, true)
+        const memberSessionIds = memo(`explorerMembers:${id}`, () =>
+          [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId), true)
+        return { ...value, ...children, memberSessionIds }
+      })
       if (!world || world === LOADING) return world
-      const seats: SessionView[] = []
-      let pending = false
-      for (const id of pool.queries.ids({ kind: 'explorerSessions' }).sort(bySessionOrder)) {
-        if (pool.queries.collapsed(id)) continue
-        const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
-        if (seat === LOADING) pending = true
-        else if (seat) seats.push({ ...seat })
-      }
-      return pending ? LOADING : { issues: world, sessions: seats }
-    })
+      const seats = explorerSeats.get()
+      return seats === LOADING ? LOADING : { issues: world, sessions: seats ?? [] }
+    }, true)
   }
   return {
     issue,
@@ -545,6 +575,7 @@ export function createIssuePageViews(pool: MobxPool) {
       disposed = true
       cache.clear()
       identities.clear()
+      explorerSeats.dispose()
       for (const roster of rosters.values()) roster.dispose()
       rosters.clear()
     },
