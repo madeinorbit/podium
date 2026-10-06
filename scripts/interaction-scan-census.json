@@ -21107,27 +21107,6 @@
     },
     {
       "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "freshOlderTranscriptPage/seen",
-      "rule": "consume:map",
-      "tokens": "fcd63f9bf8f77b588139727328cb1a0c13016894f65d2502b0c6367ba074f6a2",
-      "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a",
-        "else:864390c65f63d76039fa33aaf14b0dfd3a180797717326de560cd0936bfebe6c"
-      ],
-      "origin": [
-        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
-      ],
-      "fingerprint": "3e5fc97f1eef05444641e15dd8f60086a138e2869227b0740d97e476c4b6febb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of freshOlderTranscriptPage/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "mergeIndexedTranscriptFrame",
       "rule": "spread",
       "tokens": "05071afd2273bbd626069d12f75d4c52d293c76a278eaaed1a1c9002f5a655eb",
@@ -45299,31 +45278,6 @@
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/answer",
-      "rule": "spread",
-      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
-      "gate": [
-        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
-        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
-        "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
-        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355",
-        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
-      ],
-      "origin": [
-        "c2c2e20f84b0fbd306ee4f8b0880088d3bb4f278de24e7a821a233ad5f100751"
-      ],
-      "fingerprint": "d84c44f1a249258ade31be79552cc2264f2c70e8646d08a9fb3961ab1484ca08",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Send a turn to the selected superagent thread.",
-      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "MissionDeckModel/presence",
       "rule": "reader-summary",
@@ -49900,6 +49854,26 @@
     },
     {
       "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "freshOlderTranscriptPage",
+      "rule": "consume:filter",
+      "tokens": "c87d5243f67d3052584026d97f9da4780c1612fc6e8b396a6ccd5ecb0a554011",
+      "gate": [
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
+      ],
+      "origin": [
+        "57517aef9b35fec9794f0b461f4ad437773d38d955e3d7c87611ce62c30c665e"
+      ],
+      "fingerprint": "b9617dc2dfb3e34969aba88fe3adacff05323d89113898fc8a359dc0425dfc49",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of freshOlderTranscriptPage",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "freshOlderTranscriptPage/seen",
       "rule": "materialize:Set",
       "tokens": "870f964c650e210dce08805d1880e6a471b7b595bd4525be506191637f526013",
@@ -49916,6 +49890,27 @@
       "trigger": "Invocation of freshOlderTranscriptPage/seen",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "freshOlderTranscriptPage/seen",
+      "rule": "consume:map",
+      "tokens": "fcd63f9bf8f77b588139727328cb1a0c13016894f65d2502b0c6367ba074f6a2",
+      "gate": [
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a",
+        "else:864390c65f63d76039fa33aaf14b0dfd3a180797717326de560cd0936bfebe6c"
+      ],
+      "origin": [
+        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
+      ],
+      "fingerprint": "3e5fc97f1eef05444641e15dd8f60086a138e2869227b0740d97e476c4b6febb",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of freshOlderTranscriptPage/seen",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -49974,6 +49969,31 @@
       "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
       "reason": "Wrapping the screen in observer moves the reader-summary fingerprint but does not repair the inherited catalogue demand.",
       "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/deliver/callback/answer",
+      "rule": "spread",
+      "tokens": "952cb5edf530529dd1f118a51f95f7c79aa16bd7bc1fc0577e4610f5637df5f8",
+      "gate": [
+        "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
+        "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
+        "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
+        "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
+        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355",
+        "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
+      ],
+      "origin": [
+        "c2c2e20f84b0fbd306ee4f8b0880088d3bb4f278de24e7a821a233ad5f100751"
+      ],
+      "fingerprint": "d84c44f1a249258ade31be79552cc2264f2c70e8646d08a9fb3961ab1484ca08",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Send a turn to the selected superagent thread.",
+      "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
