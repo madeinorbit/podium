@@ -4,6 +4,7 @@
  * PODIUM_WEBVIEW_DEBUG_PORT=9222 (boat-win.sh app does that). Runs in the guest:
  *
  *   boat-win.sh ui ID text                       print the page's visible text
+ *   boat-win.sh ui ID buttons                    list visible buttons/menu items by accessible name
  *   boat-win.sh ui ID click 'Pick a project'     click the first visible element with this text
  *   boat-win.sh ui ID button 'Continue'          click the visible button with this accessible name
  *   boat-win.sh ui ID fill 'placeholder' 'C:\x'  fill the input with this placeholder or label
@@ -34,6 +35,18 @@ for (const [action, ...args] of steps) {
     case 'text':
       console.log(await page.locator('body').innerText())
       break
+    case 'buttons': {
+      const names = await page
+        .locator('button, [role=button], [role=menuitem], [role=tab], a[href]')
+        .filter({ visible: true })
+        .evaluateAll((els) =>
+          els.map((el) =>
+            (el.getAttribute('aria-label') ?? el.getAttribute('title') ?? el.textContent ?? '').trim(),
+          ),
+        )
+      console.log(names.filter(Boolean).join('\n'))
+      break
+    }
     case 'click':
       await page
         .getByText(args[0] ?? '', { exact: false })
@@ -42,14 +55,16 @@ for (const [action, ...args] of steps) {
         .click()
       await page.waitForTimeout(1_000)
       break
-    case 'button':
-      await page
-        .getByRole('button', { name: args[0] ?? '', exact: false })
-        .filter({ visible: true })
-        .first()
-        .click()
+    case 'button': {
+      // An exact accessible name first ("Shell" must not hit "Share …"), then a partial one.
+      const exact = page.getByRole('button', { name: args[0] ?? '', exact: true }).filter({ visible: true })
+      const target = (await exact.count())
+        ? exact
+        : page.getByRole('button', { name: args[0] ?? '', exact: false }).filter({ visible: true })
+      await target.first().click()
       await page.waitForTimeout(1_000)
       break
+    }
     case 'fill': {
       const target = args[0] ?? ''
       const byPlaceholder = page.getByPlaceholder(target, { exact: false })
