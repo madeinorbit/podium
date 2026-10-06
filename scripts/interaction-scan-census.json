@@ -2779,25 +2779,6 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckHandoff.tsx",
-      "holder": "FlightDeckHandoff/transcript",
-      "rule": "reader-summary",
-      "tokens": "5a07223be969d1dd436c32f51d6f5050c939adbcfc6f48ac29e98162bca17ae7",
-      "gate": [],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1"
-      ],
-      "fingerprint": "68a767273d317e88458599044945f68cfc753d79b29fa9f60350160595c729fd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckHandoff/transcript",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckHandoff.tsx",
       "holder": "useReviewReturns/useEffect:callback/worker/callback/count",
       "rule": "helper-consumer",
       "tokens": "14f1ea291130f125e1c97b78334e352f3cebab08b085089e7410b6950d23a730",
@@ -5022,116 +5003,6 @@
     },
     {
       "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder",
-      "rule": "consume:filter",
-      "tokens": "47b342768dc4d70f2754fa4f49d6b125548c79d750f677d5a2bea4d3a2a6869d",
-      "gate": [],
-      "origin": [
-        "d83b102e24cb1913b51cf921b3aa25f29c041de33c9cce79d7a1ae96e46b2781"
-      ],
-      "fingerprint": "2733ea65d24f43c7bf589a91a4a9f549db4675fe2cc3066c621507a37b224bfd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder",
-      "rule": "consume:filter",
-      "tokens": "47b342768dc4d70f2754fa4f49d6b125548c79d750f677d5a2bea4d3a2a6869d",
-      "gate": [],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "5566c9f0e3d6643de9b6cbae698456ef9d33a6707f2772ddbf3aa1e39a592a73",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder",
-      "rule": "spread",
-      "tokens": "5ce4729b08fd1f7fa7b34033659c6c617556c0a839cf03b685517705c7867361",
-      "gate": [],
-      "origin": [
-        "d83b102e24cb1913b51cf921b3aa25f29c041de33c9cce79d7a1ae96e46b2781"
-      ],
-      "fingerprint": "a628a4c05f50769166a2d6e0b399475dbd27a823ff92e3f93862f97b11166a12",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder",
-      "rule": "spread",
-      "tokens": "418bd78249b7eccadd338d96518c99d7b376c5fa2a7128a72ba08ebbeb250229",
-      "gate": [],
-      "origin": [
-        "38cdcddee5d97d3cd2afc4ed74997d110e2e79ca7aa8eb203687df27749d763b"
-      ],
-      "fingerprint": "f0de3473884b6d567b78880e267382ea93cca8f92f746a2413173ab293621803",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder/seen",
-      "rule": "materialize:Set",
-      "tokens": "21ec804ead89974634cb5b2748b311174e178f43b85012c254175f6fd3a738db",
-      "gate": [],
-      "origin": [
-        "38cdcddee5d97d3cd2afc4ed74997d110e2e79ca7aa8eb203687df27749d763b"
-      ],
-      "fingerprint": "2e68d05315dfd4c719cfea1a36b30da55c9a4a08df153b0829443eb558dcdf97",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "mergeOlder/seen",
-      "rule": "consume:map",
-      "tokens": "7ba00b1fe54523051f7daf168cc13b33f06a7cbe1afb7835164b2cfa6f34c426",
-      "gate": [],
-      "origin": [
-        "38cdcddee5d97d3cd2afc4ed74997d110e2e79ca7aa8eb203687df27749d763b"
-      ],
-      "fingerprint": "65312854286b68efbcca6f6415594294b64325b9708b1339f771cbed489b8823",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mergeOlder/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
       "holder": "useHandoffTranscript/session/useMemo:callback",
       "rule": "helper-consumer",
       "tokens": "6ac9d21cded511e4f429d3d6bdc886cbb17a04282c417918ca02d99cf5b41cea",
@@ -5168,321 +5039,6 @@
       "trigger": "Invocation of useHandoffTranscript/session/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "loop",
-      "tokens": "570527abe7851bdbc77e10616507d6c05a60800e1d4ca32231037c107fdd98bc",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "15e16ea9a866daed727713e9f991544d18aad43a95fd544edc57c8b769a3954e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "helper-consumer",
-      "tokens": "e9860748aa1ac07e3be977729637b7b7e942d38c04b976379177b13dd73fd2fb",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45",
-        "loop:63c5d99d2b8bc5220a19d29417c202b69659838657cd0f82cf7d322b222bbb23"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "19e2ea3c9c96e07aa8e5f291cc8f091a18b9cb0727c91be99376c5a85232a3c6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "consume:slice",
-      "tokens": "2a9322d8cb7861440e7466225e3f5e0f88c7afcf467b7948b715a5d9ab59ce96",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45",
-        "exit:then:d0dfd78657813021f10d145f2d8d515913747c90efddf040b9d146974b150dd2"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "8232ab61197e2eb4dff8620a74c3f7f9f2bd36f83a2590a67b8d6c7ae95b0fdc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:slice carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "helper-consumer",
-      "tokens": "ccd3cddf286d0cb69389f2a2adadaca3e05468d5e083936b6f9361f72481a6de",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45",
-        "loop:63c5d99d2b8bc5220a19d29417c202b69659838657cd0f82cf7d322b222bbb23"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "a830b09d23b97f00d1a504aced928c7c88b5d6e1ae082f6ec1fc377c02f2162b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "reader-summary",
-      "tokens": "3f0aa909bd9fc560876e3a4cfdc20348addc50e25e25b904fa569b405e810437",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45",
-        "loop:63c5d99d2b8bc5220a19d29417c202b69659838657cd0f82cf7d322b222bbb23"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "ba8ee8684aec44bcda3c06004ddcdd4c2d87f07e1cffccc8eaada8fe00ddbf52",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback",
-      "rule": "reader-summary",
-      "tokens": "7699dd7459908ac61d2338fc24a5dec4465681a755f7b5467aa59478bc3bb621",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45",
-        "loop:63c5d99d2b8bc5220a19d29417c202b69659838657cd0f82cf7d322b222bbb23"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "c574f301330fe11b2cadeaf90936f09d0027a18261d4f0ffd1ba0cbda7406e15",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback/pair",
-      "rule": "reader-summary",
-      "tokens": "7699dd7459908ac61d2338fc24a5dec4465681a755f7b5467aa59478bc3bb621",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "228825be3b4e4c34de4399851ec5ff89c2a415a6af69da4ba709c8feaaab8eb3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback/pair",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/callback/pair",
-      "rule": "helper-consumer",
-      "tokens": "ccd3cddf286d0cb69389f2a2adadaca3e05468d5e083936b6f9361f72481a6de",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "76a094f8fd0b0e1d6ab2b63adaf33fa59735defe51637d55918b6588237770da",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/callback/pair",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "rule": "reader-summary",
-      "tokens": "e12289f1ab268cc503ceac84a68789a075d982e0210a835d4179d5d682dd9c93",
-      "gate": [
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "0fdfe6f9d896a934e5214648e5e7d790d7fac90d5670cf8478de5ca82a99cb7e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "rule": "reader-summary",
-      "tokens": "e12289f1ab268cc503ceac84a68789a075d982e0210a835d4179d5d682dd9c93",
-      "gate": [
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "5aaee7b31de499f0c56becd64757c2aed79e5c010cff352f940e7bb7a10ce2a4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "rule": "helper-consumer",
-      "tokens": "dc0c97c78f2d0f647402ea3c020f8980a4722405b067958d88a734d77669fdf0",
-      "gate": [
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "5bf489d25730c22b900e1222726769cf0834c207b3c53032af54c5f5d4a6068a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "rule": "helper-consumer",
-      "tokens": "dc0c97c78f2d0f647402ea3c020f8980a4722405b067958d88a734d77669fdf0",
-      "gate": [
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "f20aec31b408d25799e96c57b929a342f8115cdea14c620d16bb5ed426c9a400",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/promptOptions/operatorTextOf/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/seeded",
-      "rule": "reader-summary",
-      "tokens": "854a969d816d1a0a1e00555d47d98750b086f08fa9e80131246df7fad5cab184",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "2df5f6f7e04ded3e78f36ee6496c61840d29db6b901f3dda4d7e9389648c3462",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/seeded",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/use-handoff-transcript.ts",
-      "holder": "useHandoffTranscript/useEffect:callback/seeded",
-      "rule": "helper-consumer",
-      "tokens": "e6b713fc79d1b53e41f61c30fdf3eb6b3d12da5a9b56757c6a20584c7f7b77b4",
-      "gate": [
-        "exit:then:1e38b9b9d735f4bcd55b2cae10b7535a334d4d4a2a43b378e83671f4bcd8272b",
-        "exit:then:8f519658b4e6dd05c16fa8dcf8220f81085c7256baf900e41593341970da5c45"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "fccd5f402a635603e5349d247766d72f883db523c8426aa27fa8f33b62522f1c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useHandoffTranscript/useEffect:callback/seeded",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -23679,53 +23235,9 @@
         "then:46f8e3902ce353d7d9c1809030a0d4bb6e11720d86b22070cfb028120291b3f4"
       ],
       "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "446975d9c17dd0eb6f392e549956ec4bea8e87d392cdb762c86bfbb377e07e8e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/answer/anchor/itemKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/answer/anchor/itemKey",
-      "rule": "reader-summary",
-      "tokens": "a1d9c312a279d2b2db45bc2fed8ddbf4c1d585819bcd8bec575cd5c4c2e2f4c4",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428",
-        "then:46f8e3902ce353d7d9c1809030a0d4bb6e11720d86b22070cfb028120291b3f4"
-      ],
-      "origin": [
         "4aa7cd46803ffbe38193bab4c782f324c0a53da8afd46fba47c56f524d92c462"
       ],
       "fingerprint": "7dfd540cb354d867f20661237b7d7d880fab0c37652ca0c9c5d98c6c30d9286b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/answer/anchor/itemKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/answer/anchor/itemKey",
-      "rule": "reader-summary",
-      "tokens": "a1d9c312a279d2b2db45bc2fed8ddbf4c1d585819bcd8bec575cd5c4c2e2f4c4",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428",
-        "then:46f8e3902ce353d7d9c1809030a0d4bb6e11720d86b22070cfb028120291b3f4"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "b1e0bfeaa85aa49f9f66391cea4baed9dee533cc108fa258241484e7d9d2c0e7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -23777,110 +23289,6 @@
     },
     {
       "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/operatorText",
-      "rule": "helper-consumer",
-      "tokens": "ed5b77fd40e5d1621246ebc798ce20b3e9b68c474f7d15e0034291e8493b3da9",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "0dd3d82055e464c70833f9b8d5a8e521be08b2ff91a6fae2f19298daf45eca66",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/operatorText",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/operatorText",
-      "rule": "helper-consumer",
-      "tokens": "ed5b77fd40e5d1621246ebc798ce20b3e9b68c474f7d15e0034291e8493b3da9",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "839a71237460955c59f9b50c6c037e06db261c45dd86d1880ab07e54a2c85b15",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/operatorText",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/operatorText",
-      "rule": "reader-summary",
-      "tokens": "9ad7fd983e5421d10f29bb43363e55f4a9eeaa7fcf5f130f238837a91bc41b81",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "983d43aceae765e03172171b00f3a8ac47d893667fe835a653b48c52694875b1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/operatorText",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/operatorText",
-      "rule": "reader-summary",
-      "tokens": "9ad7fd983e5421d10f29bb43363e55f4a9eeaa7fcf5f130f238837a91bc41b81",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "d352ba3793ed92f37d621fec0e7d914e24b591307393d7c0000e6fa15ba7bd78",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/operatorText",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/prompt/anchor/itemKey",
-      "rule": "reader-summary",
-      "tokens": "c3b67b2b9cb25effcf6c723958c807d01338623e85164233cacb1c8bc9fa2674",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "1092cf7f4745ece5cbb45126408271328f387650ed4724cc9517b123f53bc50b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/prompt/anchor/itemKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
       "holder": "pairLatestPromptAndAnswer/prompt/anchor/itemKey",
       "rule": "reader-summary",
       "tokens": "c3b67b2b9cb25effcf6c723958c807d01338623e85164233cacb1c8bc9fa2674",
@@ -23891,28 +23299,6 @@
         "4aa7cd46803ffbe38193bab4c782f324c0a53da8afd46fba47c56f524d92c462"
       ],
       "fingerprint": "3135d325bf06e0599c3752ebc8c6bbf74051439441f8b05725611c0dc67fa88e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of pairLatestPromptAndAnswer/prompt/anchor/itemKey",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/handoff.ts",
-      "holder": "pairLatestPromptAndAnswer/prompt/anchor/itemKey",
-      "rule": "reader-summary",
-      "tokens": "c3b67b2b9cb25effcf6c723958c807d01338623e85164233cacb1c8bc9fa2674",
-      "gate": [
-        "exit:then:1ba5969d11015eeaf93bdf57a9ee9f0a48a756d7269d60ad061b27f964d61428"
-      ],
-      "origin": [
-        "0d7f0b6ed983a7152eb157c887c314aa15cd46aac93985bb75f4c20f345fe3e3",
-        "0f9eb3aa09dee6010fd6fab3c49aaa6a97903565626a94e5ed8ead9a6d4ef2a1",
-        "b7f85c93fc19a9dfde52506472c4d5b69c20f56af88c8987a36b29f116760989"
-      ],
-      "fingerprint": "8580ad29d585961d9cbeef46d90433a1f8108a6d7deaea4f9fc8fbecd1b79b2d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44337,13 +43723,13 @@
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
         "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
         "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
-        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355",
+        "exit:then:a4f01c1f557572df82188da12e5d6f8b1f32779f15ba0e80723a4de234029536",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "c2c2e20f84b0fbd306ee4f8b0880088d3bb4f278de24e7a821a233ad5f100751"
+        "9e3ab54102e54b826d5014c201259dbde55983e7dae0d47b6d2aa7e821123c39"
       ],
-      "fingerprint": "d84c44f1a249258ade31be79552cc2264f2c70e8646d08a9fb3961ab1484ca08",
+      "fingerprint": "accaada69ed75e8e9ffcaaedd1fe19711c6915f4154db1520e466e13b60a866c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44356,14 +43742,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "f54975096bfab8f410984f8ea1e8e7c3629ff5d38d52b2d41619d3349b5fcc43",
+      "tokens": "d8437f23225ae80aeeac1dc5cc49c267aebac16fa43c4ced9c360a43df76f234",
       "gate": [
-        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355"
+        "exit:then:a4f01c1f557572df82188da12e5d6f8b1f32779f15ba0e80723a4de234029536"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "b2d02f79c1c2c9f4cd86ac514096457282551a9fe6fec748b2aa728fa3f721d1",
+      "fingerprint": "6ae120f028c759c8ed23da210c5077400326ced4411276b44f98e9e48f91517d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44376,12 +43762,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "9c1800b84b512f06f9b6711244ba5b033db9f56ced18201ea1a491279f2b3194",
+      "tokens": "32ae18bd6d9daca3037bcf6cede819db72f1919064932334af0e729feae5e6d5",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "c67c330373ff0b60ee37e51ccaf766a1ade0e662cc02d5ffd3ca734904005696",
+      "fingerprint": "c04794d866b3e7107931cba16fb6013d2d932871ffa76b897e1275214597d419",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
