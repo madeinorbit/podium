@@ -2,7 +2,7 @@
 import type { EntityRecord } from '@podium/sync/replica'
 import { memoryStorage, type ReplicaKind, type ReplicaRows } from '../src/replica/contract'
 import { createKernelReplica, createSideCache, entityForKind, rowKey } from '../src/replica/kernel'
-import type { FeedCursor } from '../src/replica/feed'
+import { COLD_CURSOR, type FeedCursor } from '../src/replica/feed'
 
 export type ReplicaFixtureOptions = Partial<Parameters<typeof createSideCache>[0]>
 export { memoryStorage }
@@ -45,6 +45,12 @@ export function createReplicaFixture(options: ReplicaFixtureOptions = {}) {
       }
       for (const value of values)
         replica.onKernelEvent({ type: 'upserted', record: put(kind, value), readmitted: false })
+    },
+    // Wire-v1 tests own feed identity; the product read facade exposes only seq.
+    getFeedCursor(): FeedCursor {
+      return cursor === null ? COLD_CURSOR : {
+        feedId: cursor.feedId ?? null, epoch: cursor.epoch ?? null, seq: cursor.seq,
+      }
     },
     setCursor(seq: number) { cursor = { ...cursor, seq } },
     setFeedCursor(next: FeedCursor) {
