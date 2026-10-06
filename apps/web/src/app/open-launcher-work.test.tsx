@@ -20,7 +20,7 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
   const samples = []
   for (const scale of [1, 4]) {
     const fixture = createHeaderFixture(128 * scale)
-    const repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
+    let repos = Array.from({ length: 32 * scale }, (_, at) => ({ kind: 'repository',
       path: at === 0 ? '/synthetic/project' : `/synthetic/p${at}`, originUrl: `https://example.invalid/p${at}`,
       machineId: 'host-one', branch: 'main',
       worktrees: Array.from({ length: 8 }, (_, tree) => ({ path: at === 0 ? `/synthetic/project/wt-${tree}` : `/synthetic/p${at}/wt-${tree}`, branch: 'topic' })),
@@ -75,7 +75,8 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
     cells.push(await measured('repository-choice', () => choose('/synthetic/p1')))
     expect(screen.getByText('p1', { exact: true })).toBeTruthy()
     cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
-    cells.push(await measured('catalog', () => { repos[0] = { ...repos[0]!, branch: 'updated' }; return owner.access.refreshRepos() }))
+    cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); return owner.access.refreshRepos() }))
+    expect(attached.row('commandRepository', JSON.stringify(['host-one', '/synthetic/project']))).toMatchObject({ branch: 'updated' })
     cells.push(await measured('usage', () => fixture.patch('session', 'synthetic-session-0', { createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' })))
     cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New panel' })) })

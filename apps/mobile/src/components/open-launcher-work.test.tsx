@@ -88,9 +88,10 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     }
     cells.push(await measured('catalog', () => {
-      data.repos[0] = { ...data.repos[0]!, branch: 'updated' }
+      data.repos = data.repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo)
       return app.runtime.access.refreshRepos()
     }))
+    expect(attached.row('repository', JSON.stringify(['mine', data.repos[0]!.path]))).toMatchObject({ branch: 'updated' })
     cells.push(await measured('usage', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' }], [])))
     cells.push(await measured('heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z' }], [])))
     await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('Dismiss launcher')) : show(false) })
