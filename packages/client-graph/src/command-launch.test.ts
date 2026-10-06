@@ -48,6 +48,14 @@ async function fixture() {
   for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {
     /* baseline boot */
   }
+  // Writer attachment exposes fixture navigation and queues the runtime's
+  // navigation wake on microtasks; the worktree fallback it carries is boot
+  // work, so flush it (then drain what it publishes) before the source seeds —
+  // otherwise the fallback lands inside the first awaited activity instead.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {
+    /* navigation wake */
+  }
   const source = attachCommandLaunchSource(handle.pool, ctx.engine)
   function settle() {
     for (let turn = 0; turn < 32; turn++) {
