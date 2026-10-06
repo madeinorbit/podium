@@ -1,4 +1,4 @@
-import { recordSliceDerivation } from './store-stats'
+import { recordSliceDerivation } from '@podium/client-core/perf'
 
 /** Opt-in, bounded counters contain work counts only, never issue content. */
 let enabled = false

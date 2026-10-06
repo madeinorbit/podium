@@ -1,6 +1,6 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { issueBoardStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'

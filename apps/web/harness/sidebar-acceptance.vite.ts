@@ -1,3 +1,4 @@
+import { productWorkMeter } from '../../../tests/worklist/harness/src/perf/vite'
 /** Measurement-only build: production components, source maps, ordinary React. */
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -15,7 +16,7 @@ const functions: Record<string, string[]> = {
 const config: UserConfig = defineConfig({
   root: resolve(repo, 'apps/web'),
   cacheDir: resolve(repo, 'node_modules/.cache/sidebar-acceptance'),
-  plugins: [tailwindcss(), {
+  plugins: [tailwindcss(), productWorkMeter(), {
     name: 'acceptance-state-boundaries',
     enforce: 'pre',
     transform(code: string, id: string) {

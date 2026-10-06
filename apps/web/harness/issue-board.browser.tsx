@@ -2,7 +2,8 @@ import { referenceState } from '../../../tests/worklist/diagnostics/reference-st
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
-import { issueBoardStats, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {

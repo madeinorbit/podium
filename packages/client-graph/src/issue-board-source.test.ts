@@ -1,4 +1,4 @@
-import { issueBoardStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -313,20 +313,23 @@ it('answers a missing summary with LOADING and one batched load', () => {
   }
 })
 it('stage changes examine the matching resident bucket, independent of hidden residents', () => {
-  const { source, stop } = setup([
+  const { source, pool, stop } = setup([
     row('visible', { stage: 'planning' }),
     ...Array.from({ length: 1500 }, (_, n) => row(`hidden-${n}`)),
   ])
-  issueBoardStats.enable()
-  issueBoardStats.reset()
+  const reads = vi.spyOn(pool, 'row')
+  const questions = vi.spyOn(pool.queries, 'ids')
   try {
     expect(source.queryIds({ kind: 'board', filter: { stage: 'planning' } })).toEqual({
       ids: ['visible'],
     })
-    expect(issueBoardStats.read().residentCandidates ?? 0).toBe(0)
-    expect(issueBoardStats.read().coldSummaryVisits ?? 0).toBe(0)
+    expect(questions).toHaveBeenCalledWith(expect.objectContaining({ kind: 'boardIssues', stage: 'planning' }))
+    const issueReads = reads.mock.calls.filter(([entity]) => entity === 'issue').map(([, id]) => id)
+    expect(new Set(issueReads)).toEqual(new Set(['visible']))
+    expect(issueReads.length).toBeLessThanOrEqual(4)
   } finally {
-    issueBoardStats.disable()
+    reads.mockRestore()
+    questions.mockRestore()
     stop()
   }
 })

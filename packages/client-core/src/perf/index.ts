@@ -5,4 +5,3 @@ export * from './header-perf'
 export * from './chip-perf'
 
 export * from './session-pane-perf'
-export * from './issue-board-perf'

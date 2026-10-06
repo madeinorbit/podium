@@ -249,7 +249,7 @@ const cases = [
   },
   {
     name: 'legacy-positive-counter',
-    file: 'packages/client-core/src/perf/issue-board-perf.ts',
+    file: 'tests/worklist/harness/src/perf/issue-board.ts',
     test: 'apps/web/src/features/issues/board-pool-hooks.test.tsx',
     title: 'records actual legacy',
     from: 'countIssueBoard(`legacy.${name}`)',

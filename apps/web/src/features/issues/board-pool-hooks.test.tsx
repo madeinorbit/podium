@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { issueBoardStats, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../../../tests/worklist/harness/src/perf/issue-board'
 import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'

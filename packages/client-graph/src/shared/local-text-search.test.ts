@@ -203,7 +203,6 @@ describe('board/explorer cheap local search (POD-5561)', () => {
   })
 
   it('planted red: a text keystroke visits only text-matching cold rows', async () => {
-    const { issueBoardStats } = await import('@podium/client-core/perf')
     const rows = [
       boardRow('match', { title: 'Unique target title', seq: 1 }),
       ...Array.from({ length: 400 }, (_, at) =>
@@ -215,8 +214,7 @@ describe('board/explorer cheap local search (POD-5561)', () => {
       ),
     ]
     const f = setupBoard(rows)
-    issueBoardStats.enable()
-    issueBoardStats.reset()
+    const reads = vi.spyOn(f.pool, 'row')
     try {
       const result = f.source.queryIds({
         kind: 'board',
@@ -227,9 +225,10 @@ describe('board/explorer cheap local search (POD-5561)', () => {
       // (fresh facts + lowercase title+description). The shared pass joins
       // cold only through the text id set, so cold visits stay bounded by
       // matches, not the corpus. Re-adding the uncached loop makes this 400.
-      expect(issueBoardStats.read().coldSummaryVisits ?? 0).toBeLessThanOrEqual(1)
+      const coldReads = reads.mock.calls.filter(([entity, id]) => entity === 'issue' && id !== 'match')
+      expect(coldReads).toEqual([])
     } finally {
-      issueBoardStats.disable()
+      reads.mockRestore()
       f.stop()
     }
   })

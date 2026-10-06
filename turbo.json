@@ -9,7 +9,8 @@
     "vitest.unit.config.ts",
     "vitest.smoke-requirements.ts",
     "test-hermetic-*.ts",
-    "scripts/package-vitest-config.ts"
+    "scripts/package-vitest-config.ts",
+    "tests/worklist/harness/src/perf/**"
   ],
   "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
   "globalPassThroughEnv": ["PODIUM_VALIDATION_RESOURCE_HELD"],
@@ -183,6 +184,7 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/tests/worklist/harness/src/**",
+        "$TURBO_ROOT$/tests/worklist/harness/src/perf/**",
         "$TURBO_ROOT$/tests/worklist/shared/src/**",
         "$TURBO_ROOT$/tests/worklist/diagnostics/**",
         "$TURBO_ROOT$/tests/worklist/legacy-values/**",

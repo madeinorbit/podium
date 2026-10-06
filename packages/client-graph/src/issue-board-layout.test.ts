@@ -1,4 +1,4 @@
-import { issueBoardStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { asIssueId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_BOARD_STAGES } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'

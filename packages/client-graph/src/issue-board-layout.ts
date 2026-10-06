@@ -1,4 +1,3 @@
-import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
 import { filterBoardIssues, filterChips, issueRowsByStage } from '@podium/client-core/values'
@@ -78,7 +77,7 @@ export function createBoardLayout(pool: MobxPool) {
     // while typing, instead of rebuilding it for every matching issue.
     const { text: _text, ...filter } = query.filter ?? {}
     const facetKey = JSON.stringify({ kind: 'board', filter, showAgentTasks: query.showAgentTasks })
-    countIssueBoard('queries')
+
     const needle = query.filter?.text?.trim() ?? ''
     const text = needle ? textIds(needle) : undefined
     const ids: string[] = []
@@ -95,7 +94,7 @@ export function createBoardLayout(pool: MobxPool) {
       }
       ids.push(id)
     }
-    countIssueBoard('matchedIds', ids.length)
+
     return ids.sort(byId)
   }, { equals: equalIds })
   const members = keyedComputed('IssueBoard.members', (key: string) => {
@@ -157,7 +156,7 @@ export function createBoardLayout(pool: MobxPool) {
   }
   const columnIds = keyedComputed('IssueBoard.columnIds', (key: string): Loaded<ReturnType<typeof asIssueId>[]> => {
     const options = JSON.parse(key) as BoardColumnOptions
-    countIssueBoard(`column.${options.stage}`)
+
     const query: BoardQuery = { kind: 'board', filter: options.filter, showAgentTasks: options.showAgentTasks }
     const queryKey = JSON.stringify(query)
     // The terminal lane includes all closed reasons. Filters still refer to

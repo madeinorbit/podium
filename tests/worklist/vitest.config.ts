@@ -1,3 +1,4 @@
+import { productWorkMeter } from './harness/src/perf/vite'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
@@ -13,6 +14,7 @@ const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
 )
 
 export default defineConfig({
+  plugins: [productWorkMeter()],
   resolve: {
     ...sharedVitestConfig.resolve,
     alias: [

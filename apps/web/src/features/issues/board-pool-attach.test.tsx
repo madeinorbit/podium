@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { issueBoardStats } from '@podium/client-core/perf'
+import { issueBoardStats } from '../../../../../tests/worklist/harness/src/perf/issue-board'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'

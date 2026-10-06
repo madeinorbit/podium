@@ -1,7 +1,6 @@
 import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
-import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -102,7 +101,7 @@ export function createIssueBoardSource(
     return cache(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
-    countIssueBoard('factReads')
+
     // Observed counts and eligibility share resident scalar facts. Cold
     // facts remain demand-owned by the query's addressed computations.
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
@@ -289,7 +288,7 @@ export function createIssueBoardSource(
   }
   function issue(id: string, visible = false): Loaded<IssueViewModel> {
     return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {
-      countIssueBoard('rowModels')
+
       const value = facts(id)
       if (!value || value === LOADING) return value
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
@@ -389,7 +388,7 @@ export function createIssueBoardSource(
   }
   function card(options: { id: string; now?: number; agents?: boolean }): Loaded<BoardCardData> {
     return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {
-      countIssueBoard('cards')
+
       const row = issue(options.id, true),
         roster = cardSessions(options.id)
       if (!row || row === LOADING || roster === LOADING)
