@@ -1,5 +1,6 @@
 import { asMachineId } from '@podium/model/browser'
 import { expect, it } from 'vitest'
+import { autorun } from 'mobx'
 import { insideArm, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { enableDebugNames } from './debug-name'
 import { MobxPool } from './pool'
@@ -62,8 +63,12 @@ function fixture(scale: 1 | 4) {
   return { pool, repos, lists, ids, listeners, publish, session }
 }
 
-async function measured(scale: 1 | 4) {
+async function measured(scale: 1 | 4, demand = false) {
   const f = fixture(scale)
+  const stop = demand ? autorun(() => {
+    for (const repo of f.repos.filter(repo => repo.kind === 'repository'))
+      f.pool.queries.activity({ kind: 'commandRootActivity', roots: [repo.path, ...repo.worktrees.map(tree => tree.path)] })
+  }, { name: 'probe:activity' }) : () => {}
   try {
     const heartbeat = await measureWork(async () => {
       insideArm(() => f.pool.apply({ type: 'update', rows: [
@@ -72,10 +77,12 @@ async function measured(scale: 1 | 4) {
     }, { pool: f.pool, trace: true })
     expect(f.pool.row('session', 'visible')).toMatchObject({ lastActiveAt: '2026-10-04T12:00:00Z' })
     return { work: heartbeat.work, sites: [...heartbeat.sites!].sort((a, b) => b[1] - a[1]).slice(0, 20) }
-  } finally { f.pool.dispose() }
+  } finally { stop(); f.pool.dispose() }
 }
 
 it('measures pool apply alone for one heartbeat at 1x/4x', async () => {
   const one = await measured(1), four = await measured(4)
   console.info('[pool apply heartbeat work]', JSON.stringify({ one, four }))
+  const observedOne = await measured(1, true), observedFour = await measured(4, true)
+  console.info('[pool apply observed heartbeat work]', JSON.stringify({ one: observedOne, four: observedFour }))
 }, 120_000)
