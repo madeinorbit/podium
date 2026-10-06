@@ -1,0 +1,284 @@
+{
+  "date": "2026-10-06",
+  "host": "flatblock",
+  "base": "c3a9e62d0484f37673e8b7c0e805a9e872a02e8f",
+  "candidate": "a3013043d0",
+  "measurementLease": "meter:flatblock",
+  "scales": [
+    1,
+    4
+  ],
+  "scope": "Automation target presentation only. Ordered IDs and scalar counts use the existing createQueryResult unchanged; metadata and root activity use keyed computeds. No entity-model fields or upstream questions changed.",
+  "focusedFixture": {
+    "offeredRepositories": [
+      2,
+      2
+    ],
+    "externalWorktreeRoots": [
+      128,
+      512
+    ],
+    "before": {
+      "coldOpen": {
+        "rows": [
+          268,
+          1036
+        ],
+        "derivations": [
+          12,
+          12
+        ],
+        "elements": [
+          1331,
+          5171
+        ]
+      },
+      "repositoryUpdate": {
+        "repositoryRows": [
+          131,
+          515
+        ],
+        "targetElements": [
+          396,
+          1548
+        ]
+      },
+      "heartbeat": {
+        "targetRows": [
+          2,
+          2
+        ],
+        "targetDerivations": [
+          1,
+          1
+        ],
+        "targetElements": [
+          396,
+          1548
+        ]
+      }
+    },
+    "after": {
+      "coldOpen": {
+        "rows": [
+          400,
+          1552
+        ],
+        "derivations": [
+          1460,
+          5684
+        ],
+        "elements": [
+          2426,
+          9338
+        ]
+      },
+      "warmReopening": {
+        "rows": [
+          0,
+          0
+        ],
+        "derivations": [
+          2,
+          2
+        ],
+        "elements": [
+          0,
+          0
+        ]
+      },
+      "repositoryUpdate": {
+        "rows": [
+          4,
+          4
+        ],
+        "derivations": [
+          4,
+          4
+        ],
+        "elements": [
+          22,
+          22
+        ]
+      },
+      "winningHeartbeat": {
+        "targetRows": [
+          1,
+          1
+        ],
+        "targetElements": [
+          5,
+          5
+        ],
+        "automationDerivations": [
+          7,
+          7
+        ]
+      }
+    },
+    "coldOpenTradeoff": "First demand seeds the catalog identities and external roots that determine repoUsageAt recency. The initial cost increases to retain independent scalar computations and sorted queries. POD-4286 confirmed this is allowed; updates, heartbeats and reopening while observed must remain flat. Releasing the last observer releases those queries, so a later cold opening seeds again.",
+    "negativeControl": "Restoring the former all-root activity walk with identical output is rejected by the 1x/4x element guard.",
+    "adjacentSourceWork": "The direct fixture pool.apply arm-code heartbeat still grows from 715 to 2635 elements outside automation readers. Mailed to POD-4286 and left outside this change.",
+    "membershipBoundary": "Delta measurements keep catalog IDs and external-root membership unchanged. A changed catalog/root-list input creates a new demand query and seeds that membership again."
+  },
+  "originalCorpusHeartbeat": {
+    "issues": [
+      4870,
+      19471
+    ],
+    "sessions": [
+      4338,
+      17346
+    ],
+    "neighbourhood": [
+      6,
+      6
+    ],
+    "foreignDeferredWork": [
+      0,
+      0
+    ],
+    "beforeTargetElements": [
+      1926,
+      7542
+    ],
+    "afterTargetRows": [
+      0,
+      0
+    ],
+    "afterTargetDerivations": [
+      0,
+      0
+    ],
+    "afterTargetElements": [
+      0,
+      0
+    ],
+    "afterFullWindow": {
+      "rows": [
+        36,
+        36
+      ],
+      "derivations": [
+        10,
+        10
+      ],
+      "elements": [
+        24,
+        24
+      ]
+    }
+  },
+  "structuralCensus": {
+    "command": "bun run speed:structural",
+    "readers": 48,
+    "actions": 9,
+    "counters": 1404,
+    "expectedFailures": 69,
+    "resolvedCounts": 95,
+    "unexpectedCounts": 8,
+    "automationFailures": 0,
+    "peakWorkerMb": 7498,
+    "knownFailures": [
+      {
+        "owner": "POD-5640",
+        "reader": "launcher.palette guard-child loaded/displayRef",
+        "action": "select",
+        "counters": 4
+      },
+      {
+        "owner": "POD-5716",
+        "reader": "sidebar.row guard-root.sidebar.nested",
+        "action": "navigate-by-ref",
+        "elements": [
+          12,
+          14
+        ]
+      },
+      {
+        "owner": "POD-5639",
+        "reader": "header.folded",
+        "action": "navigate-by-ref",
+        "elements": [
+          50,
+          52
+        ]
+      },
+      {
+        "owner": "POD-5716",
+        "reader": "guard-next.nesting",
+        "actions": [
+          "heartbeat",
+          "lane-change"
+        ],
+        "derivations": [
+          0,
+          1
+        ]
+      },
+      {
+        "owner": "POD-5618",
+        "reader": "declared-query scripted issue-page guard-root",
+        "action": "select",
+        "elements": [
+          55,
+          151
+        ]
+      },
+      {
+        "owner": "POD-5618",
+        "reader": "declared-query scripted issue-page guard-child",
+        "action": "navigate-by-ref",
+        "elements": [
+          49,
+          145
+        ]
+      }
+    ],
+    "disposition": "Full census remains red outside automation. POD-4286 explicitly approved the scoped landing on 2026-10-06T11:41:29Z. No new allowances were added; the old target heartbeat exception was removed."
+  },
+  "focusedValidation": {
+    "packages/client-graph/src/automation-targets.work.test.ts": 1,
+    "packages/client-graph/src/settings-questions.test.ts": 3,
+    "packages/client-graph/src/automation-source.test.ts": 1,
+    "tests/worklist/harness/src/automation-screen-work.test.ts": 1,
+    "apps/web/src/app/automation-readers.test.tsx": 5,
+    "apps/web/src/features/automations/NewAutomationDialog.test.tsx": 2
+  },
+  "requiredGates": {
+    "fullTypecheck": {
+      "command": "bun run typecheck",
+      "successfulTasks": 29,
+      "totalTasks": 29
+    },
+    "leanGate": {
+      "command": "bun run test",
+      "status": "lean gate green",
+      "executedTests": 154,
+      "executedFiles": 4,
+      "collectedNodeFiles": 1825
+    },
+    "interactionScans": {
+      "ratchetErrors": 0,
+      "classifications": "Existing REQUIRED REPAIR classifications preserved; no new allowances."
+    },
+    "mobxPrivateApi": {
+      "violations": 0
+    },
+    "untrackedReads": {
+      "errors": 0,
+      "callSites": 27
+    },
+    "clockReads": {
+      "bareProductReads": 0
+    },
+    "spanEffects": {
+      "unclassified": 0
+    },
+    "webBuild": {
+      "command": "cd apps/web && bun run build",
+      "exitCode": 0,
+      "peakProcessMb": 1363
+    }
+  }
+}
