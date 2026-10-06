@@ -105,13 +105,7 @@ afterEach(() => {
 describe('FirstTaskActivation', () => {
   it('shows supported agents as an honest readiness checklist', async () => {
     const onRouteChange = vi.fn()
-    render(
-      <FirstTaskActivation
-        route="agent"
-        onRouteChange={onRouteChange}
-        onComplete={vi.fn()}
-      />,
-    )
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
 
     await screen.findByText('Ready')
     expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
@@ -130,13 +124,7 @@ describe('FirstTaskActivation', () => {
     codexLogin = 'out'
     login.mockResolvedValue({ sessionId: 'login-session' })
 
-    render(
-      <FirstTaskActivation
-        route="agent"
-        onRouteChange={vi.fn()}
-        onComplete={vi.fn()}
-      />,
-    )
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }))
     await waitFor(() =>
@@ -146,14 +134,22 @@ describe('FirstTaskActivation', () => {
     expect(screen.getByRole('heading', { name: 'Finish agent sign-in' })).toBeTruthy()
   })
 
+  it('steps from the agent page to the ready page in the same mounted component', async () => {
+    // The wizard keeps one FirstTaskActivation across both routes. A hook below the
+    // first-task early return made this step render fewer hooks (React error #300).
+    const { rerender } = render(
+      <FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />,
+    )
+    rerender(
+      <FirstTaskActivation route="first-task" onRouteChange={vi.fn()} onComplete={vi.fn()} />,
+    )
+    expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()
+  })
+
   it('combines the ready handoff with explicit telemetry consent', async () => {
     const onComplete = vi.fn()
     render(
-      <FirstTaskActivation
-        route="first-task"
-        onRouteChange={vi.fn()}
-        onComplete={onComplete}
-      />,
+      <FirstTaskActivation route="first-task" onRouteChange={vi.fn()} onComplete={onComplete} />,
     )
 
     expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()

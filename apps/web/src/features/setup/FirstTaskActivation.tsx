@@ -228,6 +228,22 @@ export function FirstTaskActivation({
     }
   }
 
+  // POD-2700 §3.3: the `?? machines[0]` this replaces was one of the retired
+  // fallbacks — on a fleet whose first row is the server-only coordinator it
+  // named a machine that can run nothing, and the login/readiness panel then
+  // reported that machine's (empty) agent inventory as the user's. Falling back
+  // only within the repo-capable machines keeps the panel honest; `undefined` is
+  // an answer the caller below already renders.
+  const selectedMachine =
+    machines.find((machine) => machine.id === selectedRepo?.machineId) ??
+    machinesFor(machines, HOST_REPOS).find((machine) => machine.online) ??
+    machinesFor(machines, HOST_REPOS)[0]
+  // Served descriptors for the machine under setup (POD-4475): login copy,
+  // labels, icons and brand all render from here, bundled copy offline.
+  // A hook: it stays above the first-task early return below, or the agent → first-task
+  // step renders fewer hooks than the step before and React aborts (error #300).
+  const descriptors = useResolvedDescriptors([selectedMachine?.id])
+
   if (route === 'first-task') {
     const finish = async (): Promise<void> => {
       if (finishBusy) return
@@ -356,19 +372,6 @@ export function FirstTaskActivation({
     )
   }
 
-  // POD-2700 §3.3: the `?? machines[0]` this replaces was one of the retired
-  // fallbacks — on a fleet whose first row is the server-only coordinator it
-  // named a machine that can run nothing, and the login/readiness panel then
-  // reported that machine's (empty) agent inventory as the user's. Falling back
-  // only within the repo-capable machines keeps the panel honest; `undefined` is
-  // an answer the caller below already renders.
-  const selectedMachine =
-    machines.find((machine) => machine.id === selectedRepo?.machineId) ??
-    machinesFor(machines, HOST_REPOS).find((machine) => machine.online) ??
-    machinesFor(machines, HOST_REPOS)[0]
-  // Served descriptors for the machine under setup (POD-4475): login copy,
-  // labels, icons and brand all render from here, bundled copy offline.
-  const descriptors = useResolvedDescriptors([selectedMachine?.id])
   const descriptorByKind = new Map(descriptors.map((d) => [d.kind, d]))
   const agentLogin = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.login
   const agentBrand = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.brand
@@ -439,7 +442,12 @@ export function FirstTaskActivation({
                  full width there now, so ellipsising a sentence that fits is
                  just hiding the instruction it carries (POD-1200). */
               <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab] max-sm:whitespace-normal">
-                {setupHint(agent, readiness, agentLogin(agent), issueAgentLabel(agent, descriptors))}
+                {setupHint(
+                  agent,
+                  readiness,
+                  agentLogin(agent),
+                  issueAgentLabel(agent, descriptors),
+                )}
               </p>
             )}
           </div>
