@@ -59,7 +59,6 @@ import { referenceState } from '../../diagnostics/reference-state'
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { POOL_OWNED_KINDS } from '@podium/client-graph/host'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { attachRuntimeWriter, createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-source'
@@ -172,7 +171,7 @@ const FEEDS_OF_FLUSH = new WeakMap<() => void, FenceFeeds>()
 
 /**
  * `owned` (POD-5432): the production wiring of the pool owning optimism — the
- * runtime's transaction log paints the host's `POOL_OWNED_KINDS` (`pooled`
+ * runtime's transaction log paints the host's issue and session rows (`pooled`
  * feed) and the runtime's actions route through it. The arm's pool takes the
  * log through `attachPool`.
  */
@@ -254,7 +253,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     attachPool(pool: MobxPool): void {
       ctx.engine.setNavigationProvider(createPoolNavigationProvider(pool))
       if (transactions !== null)
-        pool.attachTransactions(transactions, POOL_OWNED_KINDS.includes('session'))
+        pool.attachTransactions(transactions, true)
     },
     flush(): void {
       rows.flush()

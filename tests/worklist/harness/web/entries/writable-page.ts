@@ -19,7 +19,6 @@ import { referenceState } from '../../../diagnostics/reference-state'
  * (strings) outlive a build.
  */
 
-import { POOL_OWNED_KINDS } from '@podium/client-graph/host'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { attachRuntimeWriter, createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import { createRowSource } from '../../../shared/src/row-source'
@@ -47,7 +46,7 @@ import {
   stagePoint,
 } from '../entrylib'
 
-/** The product's wiring of `owns: POOL_OWNED_KINDS`, over one page engine. */
+/** The product's writable pool wiring over one page engine. */
 function ownedFeed(over: ScenarioEngine): OwnedFeed {
   const transactions = createRuntimeTransactions(over.engine)
   let stopWriter = (): void => {}
@@ -60,7 +59,7 @@ function ownedFeed(over: ScenarioEngine): OwnedFeed {
     attach(handle) {
       ;(handle as unknown as { pool: MobxPool }).pool.attachTransactions(
         transactions,
-        POOL_OWNED_KINDS.includes('session'),
+        true,
       )
     },
     release() {
