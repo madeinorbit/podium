@@ -165,7 +165,7 @@ describe('header pool values', () => {
   it('declares separate machine, sample and quota identities and both relation directions', () => {
     expect(HEADER_SCHEMA.machine.source).toBe('engine:machines')
     expect(HEADER_SCHEMA.hostMetric.source).toBe('runtime:hostMetrics')
-    expect(HEADER_SCHEMA.quota.source).toBe('api:quota.summary')
+    expect(HEADER_SCHEMA.quota.source).toBe('runtime:headerInputs.quota')
     expect(HEADER_RELATIONS).toContainEqual({
       from: 'session',
       name: 'machine',
