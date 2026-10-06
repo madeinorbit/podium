@@ -53,11 +53,8 @@ import { upsertIssue } from '../../../../shared/src/scenarios'
 
 
 import type { MobxPool } from '@podium/client-graph/pool'
-import { sidebarValues } from '@podium/client-graph/worklist/sidebar'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { poolIssuePaint } from '../../../../../../apps/web/src/features/worklist/pool-row-data'
 import type { RowView } from '@podium/client-graph/shared/row-view'
-import { getObserverTree, observable, reaction, runInAction } from 'mobx'
+import { observable, reaction, runInAction } from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
@@ -282,22 +279,9 @@ interface ChainCell {
 async function chainStep(create: CheckableArm, parity: boolean): Promise<ChainCell> {
   return withMounted(create, async (ctx, mounted, handle, flush) => {
     const chain = findChain(handle.pool)
-    if (process.env.POD_ANCESTOR_TRACE === '1') {
-      console.info('[ancestor trace before]', JSON.stringify({ chain,
-        obsoleteSidebarGetter: 'sidebar' in handle.pool.issue(chain.rows[0]!)!,
-        sessionObservers: getObserverTree(handle.pool.tables.session, chain.sessionId),
-        rows: chain.rows.map(id => ({ id, text: document.querySelector(`[data-issue-row="${id}"]`)?.textContent })),
-      }))
-    }
     mounted.log.reset()
     mounted.reads.reset()
     const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, questionOn(chain))
-    if (process.env.POD_ANCESTOR_TRACE === '1') {
-      console.info('[ancestor trace after]', JSON.stringify({ result,
-        sessionObservers: getObserverTree(handle.pool.tables.session, chain.sessionId),
-        rows: chain.rows.map(id => ({ id, text: document.querySelector(`[data-issue-row="${id}"]`)?.textContent })),
-      }))
-    }
     if (parity) {
       assertCommits(result)
       checkParity(ctx, handle, 'depth 4')
@@ -472,15 +456,7 @@ describe('row roll-ups (Mb3)', () => {
       for (const entry of FENCE_SCENARIOS) {
         mounted.log.reset()
         mounted.reads.reset()
-        const parentTrace = () => tracked(() => {
-          const value = sidebarValues(handle.pool.issueObject('i635'), handle.pool)
-          return value === LOADING || value === undefined ? value : {
-            paint: poolIssuePaint(value), fromChildren: value.fromChildren, statusFromChildren: value.statusFromChildren,
-          }
-        })
-        const parentBefore = process.env.POD_ANCESTOR_TRACE === '1' && entry.scenario === 'parentReassignment' ? parentTrace() : undefined
         const { result, readsBudget } = await runFenceStep(mounted, ctx, flush, entry)
-        if (parentBefore !== undefined) console.info('[ancestor reparent trace]', JSON.stringify({ before: parentBefore, after: parentTrace(), result }))
         assertCommits(result)
         // Reads are recorded, not held to a fixed budget: whether they grow
         // with the data is the work-per-change check's (POD-4746).

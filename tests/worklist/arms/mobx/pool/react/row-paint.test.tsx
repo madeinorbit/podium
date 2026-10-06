@@ -132,3 +132,12 @@ it('suppresses an unchanged paint when navigation-only facts change', () => {
   try { row.change(next); expect(row.commits).not.toHaveBeenCalled() }
   finally { row.dispose() }
 })
+
+it('moves a child without redrawing its unchanged paint when only parentId changes', () => {
+  const base = payload()
+  const next = { ...base, issue: { ...base.issue, parentId: 'another-parent' } }
+  expect(poolIssuePaint(next)).toEqual(poolIssuePaint(base))
+  const row = mount(base)
+  try { row.change(next); expect(row.commits).not.toHaveBeenCalled() }
+  finally { row.dispose() }
+})

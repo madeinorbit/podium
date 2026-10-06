@@ -66,6 +66,8 @@ import { type RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import { type RowSourceMode } from '../../shared/src/row-source'
 import { createRowSource } from '../../shared/src/row-source'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
 import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 import { act } from 'react'
 import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
@@ -542,9 +544,9 @@ export async function runFenceStep(
   }
   let settledAt = feeds.rowReads()
   const stateBefore = mounted.work === false ? null : neighbourhoodState(ctx)
-  // The MobX demo consumes the complete real-row payload in its existing
-  // observer. Its exact redraw set and work neighbourhood must therefore
-  // include the same complete oracle surface, never only the old RowView.
+  // Redraw expectation is a painted change. A parentId-only placement
+  // change is judged by parity and mount/move checks, not by redraw. Use
+  // the real paint projection; raw sidebar parity still compares all facts.
   const pool = (mounted.handle as Partial<{ pool: MobxPool }>).pool
   const content =
     (pool ? sidebarView(pool) : undefined) === undefined
@@ -553,14 +555,17 @@ export async function runFenceStep(
           const locals = engineLocals(ctx)
           const derivation = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
           return Object.fromEntries(
-            visibleIssueRows(derivation, locals).map((row) => [
-              row.issue.id,
-              legacySidebarRow(row, derivation, locals.coarseNow),
-            ]),
+            visibleIssueRows(derivation, locals).map((row) => {
+              const value = legacySidebarRow(row, derivation, locals.coarseNow) as unknown as SidebarRowValues
+              return [row.issue.id, {
+                paint: poolIssuePaint(value),
+                fromChildren: value.fromChildren,
+                statusFromChildren: value.statusFromChildren,
+              }]
+            }),
           )
         }
   const publications: Readonly<Record<string, unknown>>[] = []
-  const parentTraceBefore = process.env.POD_ANCESTOR_TRACE === '1' && entry.scenario === 'parentReassignment' ? content?.()['i635'] : undefined
   feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
@@ -600,7 +605,6 @@ export async function runFenceStep(
     content,
     contentDuring: () => publications,
   })
-  if (parentTraceBefore !== undefined) console.info('[ancestor oracle reparent trace]', JSON.stringify({ before: parentTraceBefore, after: content?.()['i635'], during: publications.map(publication => publication['i635']) }))
   // LOAD ISOLATION (G2): a load pending now, or one that landed after the
   // step's settle (in the harness's own `snapshot()`, after the reads were
   // sampled), is charged to no step. Refuse it here, where it was triggered.
