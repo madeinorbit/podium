@@ -228,7 +228,10 @@ for (const entry of ROUND_THREE_ARMS) {
 }
 
 describe('lazy selection mark-read settlement', () => {
-  it.each(['idle', 'pending'] as const)('echoes the loaded 4x selection in the %s owned arm', async (variant) => {
+  it.each([
+    'idle',
+    'pending',
+  ] as const)('echoes the loaded 4x selection in the %s owned arm', async (variant) => {
     const held = holdingServer()
     const ctx = await startScenarioEngine(4, ownedEngineOptions(held.server))
     let titles: ReadonlyMap<string, string> = new Map()
@@ -240,7 +243,7 @@ describe('lazy selection mark-read settlement', () => {
           titles = pendingTitleEditsOn(
             probe.source.snapshot('issue'),
             snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
-            id => excluded.has(id),
+            (id) => excluded.has(id),
             PENDING_WINDOW_ROWS,
             parityLocals(ctx).coarseNow,
           ).titles
@@ -262,19 +265,21 @@ describe('lazy selection mark-read settlement', () => {
       // This is a semantic settle regression, with structural work metering off.
       const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals, { work: false })
       try {
-        const heldRows = [...titles.keys()].map(id => `issueProjections:${id}`)
+        const heldRows = [...titles.keys()].map((id) => `issueProjections:${id}`)
         for (const methodology of ['#3', '#9a', '#9b']) {
-          const entry = FENCE_SCENARIOS.find(candidate => candidate.methodology === methodology)!
+          const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!
           const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry, {
-            expected: oracle => withPendingTitles(oracle, titles),
+            expected: (oracle) => withPendingTitles(oracle, titles),
             held: heldRows,
           })
           expect(result.parity, `${methodology}: ${result.parityDiff ?? ''}`).toBe(true)
-          const expected = methodology === '#9a'
-            ? [...heldRows, `issueUserStates:${ctx.targets.markReadId}`].sort()
-            : heldRows.sort()
+          const expected =
+            methodology === '#9a'
+              ? [...heldRows, `issueUserStates:${ctx.targets.markReadId}`].sort()
+              : heldRows.sort()
           expect(pendingWrites(ctx), `${methodology} settles only its own writes`).toEqual(expected)
-          if (methodology === '#3') expect(ctx.markReadReceipts).toContain(ctx.targets.visibleRootId)
+          if (methodology === '#3')
+            expect(ctx.markReadReceipts).toContain(ctx.targets.visibleRootId)
         }
         expect(stillPending(feeds, titles)).toHaveLength(titles.size)
       } finally {
