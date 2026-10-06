@@ -63,7 +63,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
         } as Store
         const headers = headerEntities(pool)
         const repositoryIds = current.repos.map(repo => JSON.stringify([repo.machineId ?? '', repo.path]))
-        const machineIds = current.machines.map(machine => machine.id)
+        const machineIds: string[] = current.machines.map(machine => machine.id)
         const records: HeaderRecord[] = [
           ...current.repos.map((value, at) => ({ kind: 'repository' as const, id: repositoryIds[at]!, value })),
           ...current.machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
