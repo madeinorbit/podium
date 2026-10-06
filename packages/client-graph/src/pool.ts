@@ -310,7 +310,7 @@ export class MobxPool {
   private emptyIndex: ColdIndex | undefined
   private readonly issueIdByRef: PoolLazyOptions['issueIdByRef']
   private readonly joinedRows = new WeakMap<object, object>()
-  private companionMachines = new Set<string>()
+  private companionMachineRows = observable.map<string, Record<string, unknown>>()
   private disposed = false
 
   /** A reference borrows the source's keyed identity answer and one named
@@ -786,6 +786,29 @@ export class MobxPool {
     return this.transactions?.notSaved?.(kind, id) ?? false
   }
 
+  /** TRACKED: the feed's replicated display name for a machine with a
+   * companion, undefined otherwise (POD-5661). Reads the stored companion,
+   * never the merged live row, so live overwrites cannot move it; renames
+   * re-run only this id's readers. */
+  machineHomeName(id: string): string | undefined {
+    const companion = this.companionMachineRows.get(id)
+    return typeof companion?.name === 'string' ? companion.name : undefined
+  }
+
+  /** Install live machine rows under their feed companions (POD-5661): the
+   * same merge as the companion path, so either arrival order converges on
+   * live presence with replicated display facts. Companion removals and
+   * row deletions pass through untouched. */
+  ingestLiveMachines(records: readonly { id: string; value: unknown }[]): void {
+    const merged = records.map((record) => {
+      if (record.value === undefined || typeof record.value !== 'object') return record
+      const companion = this.companionMachineRows.get(record.id)
+      if (!companion) return record
+      return { ...record, value: { ...(record.value as Record<string, unknown>), ...companion } }
+    })
+    this.header.apply(merged as never)
+  }
+
   /**
    * One change, any queued command (POD-5431): the model and every reader of
    * it see the new visible row in the same action, and the outbox takes the
@@ -904,18 +927,26 @@ export class MobxPool {
       const machineRows = event.rows.filter(record => record.kind === 'machine')
       if (event.type === 'replace') {
         const next = new Set(machineRows.filter(record => record.value !== undefined).map(record => record.id))
-        for (const id of this.companionMachines)
+        for (const id of this.companionMachineRows.keys())
           if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
-        this.companionMachines = next
+        // Replace tracked companions in place so existing readers keep
+        // watching the same observable across publications.
+        for (const id of [...this.companionMachineRows.keys()]) if (!next.has(id)) this.companionMachineRows.delete(id)
+        for (const record of machineRows) {
+          if (record.value !== undefined && typeof record.value === 'object')
+            this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
+        }
       } else for (const record of machineRows) {
-        if (record.value === undefined) this.companionMachines.delete(record.id)
-        else this.companionMachines.add(record.id)
+        if (record.value === undefined) this.companionMachineRows.delete(record.id)
+        else if (typeof record.value === 'object') this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
       }
       // Feed companions carry replicated display facts without live presence.
       // Merge them over the live rows they accompany: a wholesale replace
       // drops online/availability and every presence reader goes blind until
       // the next hub emit (POD-5661). Companion fields win; live-only fields
-      // survive. Removals still delete; the live path is untouched.
+      // survive. Removals still delete. Live rows merge the same stored
+      // companions on their own path (ingestLiveMachines), so either arrival
+      // order converges.
       const mergedMachineRows = machineRows.map((record) => {
         if (record.value === undefined || typeof record.value !== 'object') return record
         const live = this.header.get('machine', record.id)

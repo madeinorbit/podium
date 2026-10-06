@@ -119,6 +119,12 @@ export function useSessionContextMachine(id: string | undefined): MachineWire | 
   const read = useCallback((reader: Reader) => reader.machine(id), [id])
   return useRead(read, undefined)
 }
+/** Replicated machine display name for the offline banner (POD-5661):
+ * undefined without a feed companion, so the banner falls back. */
+export function useSessionContextMachineHome(id: string | undefined): string | undefined {
+  const read = useCallback((reader: Reader) => reader.machineHome(id), [id])
+  return useRead(read, undefined)
+}
 export function useSessionContextSpawnPending(id: SessionId | undefined) {
   const read = useCallback(
     (reader: Reader) => {

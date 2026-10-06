@@ -51,7 +51,10 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       value: runtime.listRow(name, id),
     })) as HeaderRecord[]
     runInAction(() => {
-      pool.header.apply(records)
+      // Live machine rows merge under their feed companions (POD-5661);
+      // repositories have no companions and apply directly.
+      if (entity === 'machine') pool.ingestLiveMachines(records)
+      else pool.header.apply(records)
       if (ids) pool.header.order(entity, ids)
     })
   }

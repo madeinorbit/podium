@@ -62,6 +62,10 @@ export function createMobileSessionReader(pool: MobxPool) {
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>
       id === undefined ? undefined : pool.row('machine', id) as MachineWire | undefined,
+    /** Feed companion display name for the offline banner (POD-5661):
+     * undefined without a companion, so the banner can fall back. */
+    machineHome: (id: string | undefined): string | undefined =>
+      id === undefined ? undefined : pool.machineHomeName(id),
     machines: () => pool.sessionPanes.machines(),
     spawnPending(id: string | undefined): Loaded<boolean> {
       if (id === undefined) return false

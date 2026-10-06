@@ -34,6 +34,7 @@ import {
   useSessionContextIssues as useIssues,
   useSessionContextIssue,
   useSessionContextMachine,
+  useSessionContextMachineHome,
   useSessionContextQuestion,
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
@@ -41,7 +42,6 @@ import {
   useSessionContextSessions as useSessions,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
-import { useSessionMachineHomeName } from '../client/hooks'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { chatSendTransport } from '../lib/chat-send-transport'
 import { interruptSession } from '../lib/interrupt-session'
@@ -394,7 +394,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   }, [requestedRef, referencedIssue, onOpenTerminalRef])
   const machine = useSessionContextMachine(session.machineId)
   const sessionId = session.sessionId
-  const homeName = useSessionMachineHomeName(session.machineId)
+  const homeName = useSessionContextMachineHome(session.machineId)
   // Offline predicate on LIVE presence, display name on the REPLICATED home
   // (POD-5661; POD-4830's desktop banner reads the same server truth from its
   // transcript page): session.machineId -> the live machine row for the
