@@ -9,7 +9,7 @@ import { insideArm, measureWork, type WorkCounts } from '../../../tests/worklist
 import { chatInteractions, chatRecords } from './chat-context'
 import { NOTICE_ENTITIES } from './notice-schema'
 import { NoticeSource } from './notice-source'
-import { noticeInteractions, noticeMessages, noticeNewestMessage, noticeRecovery } from './notice-views'
+import { noticeInteractions, noticeMessages, noticeNewestMessage, noticeRecovery, NOTICE_MESSAGE_WINDOW } from './notice-views'
 import { MobxPool } from './pool'
 import { superagentQuestion } from './superagent'
 import { LOADING } from './worklist/rollup'
@@ -181,6 +181,42 @@ it('bounds newest/count demand without reading ordinary history or non-newest pa
     expect(measured[1]![step].elements, step).toBeLessThanOrEqual(measured[0]![step].elements)
   }
   console.info('[newest notice work]', JSON.stringify(measured))
+})
+
+it('keeps the windowed notice log flat at 1x/4x across open, new notice and label change', async () => {
+  const measured = []
+  for (const scale of [1, 4] as const) {
+    const f = fixture(scale, true)
+    let stop: (() => void) | undefined
+    let current = noticeMessages(f.pool, NOTICE_MESSAGE_WINDOW)
+    try {
+      const open = await measureWork(async () => {
+        stop = autorun(() => { current = noticeMessages(f.pool, NOTICE_MESSAGE_WINDOW) }, { name: 'consumer:notice-window' })
+        await Promise.resolve()
+      }, { pool: f.pool })
+      expect(current.notices).toHaveLength(NOTICE_MESSAGE_WINDOW)
+      expect(current.notices[0]?.messageId).toBe('z-message')
+      const add = f.writeMessage('fresh-notice', message('fresh-notice', 'fresh-session', 'failed', '2026-10-06T12:00:00Z'))
+      const added = await measureWork(async () => add(), { pool: f.pool })
+      expect(current.notices).toHaveLength(NOTICE_MESSAGE_WINDOW)
+      expect(current.notices[0]?.messageId).toBe('fresh-notice')
+      const relabel = await measureWork(async () => {
+        f.pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'selected', value: {
+          sessionId: 'selected', name: 'Renamed agent', cwd: '/synthetic', agentKind: 'codex',
+        } as never }] })
+      }, { pool: f.pool })
+      expect(current.notices.filter(row => row.sessionId === 'selected').map(row => row.sessionLabel))
+        .toEqual(['Renamed agent', 'Renamed agent'])
+      measured.push({ scale, open: compact(open.work), added: compact(added.work), relabel: compact(relabel.work) })
+    } finally { stop?.(); f.pool.dispose() }
+  }
+  const first = measured[0]!, second = measured[1]!
+  for (const step of ['open', 'added', 'relabel'] as const) {
+    expect(second[step].rows, step).toBe(first[step].rows)
+    expect(second[step].derivations, step).toBe(first[step].derivations)
+    expect(second[step].elements, step).toBeLessThanOrEqual(first[step].elements)
+  }
+  console.info('[windowed notice log work]', JSON.stringify(measured))
 })
 
 it('retains replica order through session moves, optimistic insert/rollback and replacement, and preserves notice ties', async () => {

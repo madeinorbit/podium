@@ -38,11 +38,16 @@ export function noticeNewestMessage(pool: MobxPool) {
   return { count: attention.count, notice: newest.notice, pending: newest.pending }
 }
 
-export function noticeMessages(pool: MobxPool) {
+/** Newest notices a shipped full-log reader may observe per run. The dialog
+ * demand stays O(window): the catalog arrives newest-first, so the slice
+ * happens before any payload or label read, and the sort covers the window. */
+export const NOTICE_MESSAGE_WINDOW = 100
+
+export function noticeMessages(pool: MobxPool, limit = Number.POSITIVE_INFINITY) {
   const catalog = pool.row('noticeMessageCatalog', 'catalog')
   const notices: MessageNotice[] = [], pendingIds: string[] = []
   let pending = catalog === LOADING ? 1 : 0
-  if (catalog && catalog !== LOADING) for (const id of catalog.messages) {
+  if (catalog && catalog !== LOADING) for (const id of catalog.messages.slice(0, limit)) {
     const row = messageNotice(pool, id)
     pending += row.pending
     if (row.labelPending) pendingIds.push(id)

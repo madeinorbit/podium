@@ -9,6 +9,7 @@
  */
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MessageNotice } from '@podium/client-core/values'
+import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import { MessageSquareWarning } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -129,6 +130,11 @@ function NoticeIndicatorBody({
               <NoticeRow key={notice.messageId} notice={notice} onOpen={() => setOpen(false)} />
             ))}
           </ul>
+          {count > notices.length && (
+            <p className="px-5 py-3 text-[12px] text-muted-foreground">
+              Showing the newest {NOTICE_MESSAGE_WINDOW} — older ones stay in their chats.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
     </>
