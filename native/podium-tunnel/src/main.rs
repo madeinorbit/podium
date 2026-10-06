@@ -97,7 +97,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut stable_after = Duration::from_secs(60);
     let mut backoff = millis(&[1_000, 2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000]);
     let mut post_backoff = millis(&[1_000, 2_000, 5_000, 10_000, 30_000]);
-    let mut dns_wait = Duration::from_secs(15);
+    // 45 s, not 15: on the lab one nameserver once lagged past 15 s, the URL went
+    // out unresolved, and the first lookup cached NXDOMAIN for a minute.
+    let mut dns_wait = Duration::from_secs(45);
     let mut dns_fallback = Duration::from_secs(5);
     let mut dns_authorities: Option<Vec<SocketAddr>> = None;
     let mut i = 0;

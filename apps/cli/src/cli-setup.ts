@@ -621,14 +621,25 @@ export interface ReachabilityChecks {
   inside: (url: string) => Promise<boolean>
 }
 
-async function realInsideCheck(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/version`, {
-      signal: AbortSignal.timeout(10_000),
-    })
-    return res.ok
-  } catch {
-    return false
+/**
+ * Fetch `/version` from this machine, retrying for up to `budgetMs`. A brand-new address
+ * can take a while to answer — a quick tunnel's name once took over 15 s to reach both of
+ * Cloudflare's nameservers, and a lookup in that window is cached as "no such name" for a
+ * minute — so one miss right after it appears is not a verdict.
+ */
+async function realInsideCheck(url: string, budgetMs = 90_000): Promise<boolean> {
+  const deadline = Date.now() + budgetMs
+  for (;;) {
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/version`, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (res.ok) return true
+    } catch {
+      // Not answering yet — try again until the budget is spent.
+    }
+    if (Date.now() + 5_000 >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 5_000))
   }
 }
 
@@ -656,7 +667,7 @@ async function verifyReachable(
         : undefined
   if (via) {
     const spin = io.spinner()
-    spin.start(`Checking the address from this machine, through ${via}`)
+    spin.start(`Checking the address from this machine, through ${via} (can take a minute)`)
     if (await checks.inside(url)) {
       spin.stop(`Reachable — ${url} answers through ${via}.`)
       return 'ok'
