@@ -77,6 +77,13 @@ exports[`pool command-hold row shortcuts > numbers and selects the settled first
 }
 `;
 
+exports[`pool navigation uses the existing gesture semantics > borrows immutable full drag order across heartbeat and selection changes > sidebar action output 1`] = `
+{
+  "bytes": 44975,
+  "sha256": "86df5d747253ec6118e1c4fcc0b5057189316697c4007ea0e03fbcd3de01aa70",
+}
+`;
+
 exports[`pool navigation uses the existing gesture semantics > chooses the same mission pane as legacy for archived-grandparent > sidebar action output 1`] = `
 {
   "bytes": 39429,
