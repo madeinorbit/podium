@@ -27,6 +27,9 @@ for (const history of [32, 128]) {
     const members = vi.spyOn(root, 'memberIds', 'get').mockImplementation(() => {
       throw new Error('Sidebar enumerated archived member history')
     })
+    const lane = vi.spyOn(root, 'laneMemberIds', 'get').mockImplementation(() => {
+      throw new Error('Sidebar queried lane members without a checkout')
+    })
     let value: ReturnType<ReturnType<typeof sidebarView>['row']>
     const stop = autorun(() => { value = sidebarView(pool).row('root') })
     try {
@@ -39,7 +42,8 @@ for (const history of [32, 128]) {
       expect(value!).toMatchObject({ working: true, timing: { sinceMs: Date.parse(stamp) } })
       expect(read.mock.calls.some(([kind, id]) => kind === 'session' && id.startsWith('old-'))).toBe(false)
       expect(members).not.toHaveBeenCalled()
-    } finally { stop(); members.mockRestore(); pool.dispose() }
+      expect(lane).not.toHaveBeenCalled()
+    } finally { stop(); members.mockRestore(); lane.mockRestore(); pool.dispose() }
   })
 }
 

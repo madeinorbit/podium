@@ -4,6 +4,7 @@ import { debugName } from '../debug-name'
 import { hostOf, type IssueModel, type SessionModel } from '../models'
 import type { MobxPool } from '../pool'
 import type { SliceSession } from '../shared/slice-types'
+import { nestParentPartOf } from './visible'
 import { aggregate, LOADING, ownAttentionPartOf, ownFactsOf, seatVerdictOf, type Aggregate } from './rollup'
 
 /** Sidebar demand has its own computations: asking for a drawn row must not
@@ -17,7 +18,9 @@ function memo<V>(name: string, read: (issue: IssueModel, pool: MobxPool) => V) {
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 
-const nestParent = cachedGroup('sidebar.parent', (issue: IssueModel) => issue.nestParent)
+const nestParent = cachedGroup('sidebar.parent', (issue: IssueModel) =>
+  nestParentPartOf(hostOf(issue).visibleInputs, issue.id, issue.nestCandidate))
+const lanePath = cachedGroup('sidebar.lanePath', (issue: IssueModel) => issue.worktreePath)
 const below: (issue: IssueModel, pool: MobxPool) => readonly string[] = memo('below', (issue, pool): readonly string[] => {
   const ids: string[] = []
   const host = hostOf(issue)
@@ -53,10 +56,10 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
     // and resume collapse. Empty started relations need no ownership probe.
     startedBy(sessionId)
   }
-  for (const sessionId of issue.laneMemberIds) {
-    const session = host.visibleInputs.session(sessionId)
-    if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
-  }
+  if (lanePath(issue)) for (const sessionId of issue.laneMemberIds) {
+      const session = host.visibleInputs.session(sessionId)
+      if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
+    }
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
 })
 
