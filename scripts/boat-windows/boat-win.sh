@@ -46,6 +46,11 @@ ps() {
   host "$id" "$GUEST_SSH powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $enc"
 }
 
+# Boat places sandboxes on bare metal (nested KVM) or on Hetzner VMs without /dev/kvm, and
+# only admins can pin the provider. Windows needs KVM, so a sandbox without it is retried:
+# a fresh fork is deleted and forked again, a resumed one is stopped and resumed again.
+has_kvm() { host "$1" 'test -e /dev/kvm && echo kvm' 2>/dev/null | grep -q kvm; }
+
 # Start Windows only once boat has finished restoring the sandbox's files. Boat's lazy
 # filesystem fetches a file whole before serving it, and a process that opens the disk
 # image while it is still downloading is never woken (seen 2026-10-06), so an early
@@ -82,10 +87,16 @@ case "$cmd" in
   up)
     name="podium-win-$(date +%m%d-%H%M%S)"
     [[ "${1:-}" == --name ]] && name="podium-win-$2"
-    id=$(boat new --from "$BASE_SNAPSHOT" --ttl "$TTL" --json | tail -1 |
-         python3 -c 'import sys,json;d=json.load(sys.stdin);d=d.get("sandbox",d);print(d.get("id") or d)')
-    [[ "$id" == bx_* ]] || die "boat new failed: $id"
-    # Rename is not exposed by the CLI; the name lives only in this tool's log.
+    for attempt in 1 2 3 4 5; do
+      id=$(boat new --from "$BASE_SNAPSHOT" --ttl "$TTL" --json | tail -1 |
+           python3 -c 'import sys,json;d=json.load(sys.stdin);d=d.get("sandbox",d);print(d.get("id") or d)')
+      [[ "$id" == bx_* ]] || die "boat new failed: $id"
+      has_kvm "$id" && break
+      echo "boat-win: $id has no /dev/kvm (non-bare-metal host); deleting and retrying ($attempt/5)" >&2
+      boat delete "$id" --yes >/dev/null 2>&1 || true
+      id=""
+    done
+    [[ -n "$id" ]] || die "no KVM-capable sandbox after 5 attempts"
     echo "$id $name $(date -u +%FT%TZ)" >> "${XDG_STATE_HOME:-$HOME/.local/state}/boat-win.log" 2>/dev/null || true
     start_windows "$id"
     wait_windows "$id"
@@ -182,12 +193,21 @@ for s in json.load(sys.stdin)["sandboxes"]:
     ;;
   resume)
     need_id "${1:-}"
-    boat resume "$1" --ttl "$TTL" >/dev/null
+    for attempt in 1 2 3 4 5; do
+      boat resume "$1" --ttl "$TTL" >/dev/null
+      has_kvm "$1" && break
+      echo "boat-win: $1 resumed onto a host without /dev/kvm; stopping and retrying ($attempt/5)" >&2
+      boat stop "$1" >/dev/null 2>&1 || true
+      waited=0  # a stop uploads the changed disk first: minutes, not seconds
+      until boat info "$1" --json | grep -q '"state":"stopped"'; do
+        (( waited < 1800 )) || die "$1 did not finish stopping in 30 min"
+        sleep 10; waited=$((waited + 10))
+      done
+      (( attempt < 5 )) || die "no KVM-capable host after 5 resumes"
+    done
     start_windows "$1"
     wait_windows "$1"
     ;;
-  extend)
-    need_id "${1:-}"; boat extend "$1" --ttl $(( ${2:-30} * 60 )) >/dev/null ;;
   rm)
     need_id "${1:-}"; boat delete "$1" --yes ;;
   compact)
