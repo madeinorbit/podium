@@ -1,6 +1,6 @@
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineId } from '@podium/model'
-import { asMachineId, HOST_REPOS, machinesFor } from '@podium/model'
+import { asMachineId, HOST_REPOS, isAbsoluteMachinePath, machinesFor } from '@podium/model'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
@@ -38,7 +38,7 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
       ...(typeof value.selectedMachineId === 'string'
         ? { selectedMachineId: value.selectedMachineId }
         : {}),
-      ...(typeof value.browsePath === 'string' && value.browsePath.startsWith('/')
+      ...(typeof value.browsePath === 'string' && isAbsoluteMachinePath(value.browsePath)
         ? { browsePath: value.browsePath }
         : {}),
       ...(value.source === 'github' || value.source === 'local' ? { source: value.source } : {}),

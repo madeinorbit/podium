@@ -149,6 +149,7 @@ export * from './identity/worktree'
 // @podium/protocol's ids.ts and planes/principal.ts, both of which named this
 // package as their destination. THE single definition site for a brand.
 export * from './ids'
+export * from './machine-path'
 
 // The ownership matrix as DATA (POD-304): the vocabulary, one fully annotated
 // row per replicated aggregate / field group, and the Authority-only arbitration

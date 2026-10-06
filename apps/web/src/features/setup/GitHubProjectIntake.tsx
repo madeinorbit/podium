@@ -1,5 +1,6 @@
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineWire } from '@podium/model'
+import { isAbsoluteMachinePath } from '@podium/model'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
 import { Check, Copy, Download, ExternalLink, GitFork, RefreshCw, Search } from 'lucide-react'
 import type { JSX } from 'react'
@@ -109,7 +110,7 @@ export function GitHubProjectIntake({
     machine?.online === true &&
     status?.state === 'ready' &&
     selected !== undefined &&
-    draft.destination.trim().startsWith('/')
+    isAbsoluteMachinePath(draft.destination.trim())
 
   function selectRepository(repository: GitHubRepositoryWire): void {
     const same = repository.nameWithOwner === draft.repository

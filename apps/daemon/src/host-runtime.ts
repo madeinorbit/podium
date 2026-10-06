@@ -3,7 +3,7 @@ import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { createOpencode2Client, DriverRefusalError } from '@podium/harness/driver/host'
 import {
   type ClaudeEngineJournalEntry,
@@ -752,7 +752,7 @@ export async function createDaemonHostRuntime(args: {
     relay: async (request) => {
       if (request.router === 'session' && request.proc === 'setWorktree') {
         const path = (request.input as { path?: unknown } | null | undefined)?.path
-        if (typeof path !== 'string' || !path.startsWith('/')) {
+        if (typeof path !== 'string' || !isAbsolute(path)) {
           return {
             ok: false,
             error: 'path must be an absolute directory path',

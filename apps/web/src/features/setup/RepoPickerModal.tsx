@@ -1,3 +1,4 @@
+import { isAbsoluteMachinePath } from '@podium/model'
 import {
   asMachineId,
   HOST_REPOS,
@@ -295,7 +296,7 @@ export function RepoPickerModal({
       setError(`${selectedMachine.name} is offline`)
       return
     }
-    if (!path.startsWith('/')) {
+    if (!isAbsoluteMachinePath(path)) {
       setError('Repo path must be absolute')
       return
     }
@@ -753,7 +754,11 @@ export function RepoPickerModal({
                     disabled={busy}
                     aria-label={`Open parent folder ${listing.parentPath}`}
                   >
-                    <Folder size={19} className="flex-none text-muted-foreground" aria-hidden="true" />
+                    <Folder
+                      size={19}
+                      className="flex-none text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     <span className="font-mono text-[13px] text-muted-foreground">..</span>
                     <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
                       {listing.parentPath}

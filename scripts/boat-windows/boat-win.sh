@@ -12,8 +12,9 @@
 #   boat-win.sh bun ID FILE [ARGS]    run a local .ts file in the guest checkout (Bun, source conditions)
 #   boat-win.sh gui ID CMD...         run PowerShell in the signed-in desktop session (GUI apps)
 #   boat-win.sh shot ID OUT.png       screenshot of the Windows desktop
-#   boat-win.sh click ID X Y          left-click at screen pixel X,Y (as in a shot)
-#   boat-win.sh type ID TEXT          type into the focused window (SendKeys syntax: {ENTER}, ^a, …)
+#   boat-win.sh click ID X Y [TEXT]   left-click at screen pixel X,Y (as in a shot), then type TEXT
+#                                     (SendKeys syntax: {ENTER}, ^a, …). Type in the SAME call: a
+#                                     separate call's helper process takes the keyboard focus.
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
 #   boat-win.sh stop ID               shut Windows down cleanly, then stop (snapshot) the sandbox
 #   boat-win.sh resume ID             resume a stopped sandbox and wait for Windows SSH
@@ -123,11 +124,11 @@ for s in json.load(sys.stdin)["sandboxes"]:
     boat scp "$file" "$id:/home/user/win/shared/run-$name" >/dev/null
     ps "$id" "New-Item -ItemType Directory -Force C:\\src\\podium\\apps\\cli\\.boat-run | Out-Null; Copy-Item -Force \\\\host.lan\\Data\\run-$name C:\\src\\podium\\apps\\cli\\.boat-run\\$name; cd C:\\src\\podium\\apps\\cli; & \"\$env:LOCALAPPDATA\\mise\\installs\\bun\\1.4.2\\bin\\bun.exe\" --conditions=@podium/source .boat-run\\$name $*"
     ;;
-  click|type)
-    need_id "${1:-}"; id="$1"; shift
+  click)
+    need_id "${1:-}"; id="$1"; x="$2"; y="$3"; shift 3
     boat scp "$(dirname "$0")/click.ps1" "$id:/home/user/win/shared/click.ps1" >/dev/null
-    if [[ "$cmd" == click ]]; then args="-X $1 -Y $2"; else args="-Text '${*//\'/\'\'}'"; fi
-    "$0" gui "$id" "& \\\\host.lan\\Data\\click.ps1 $args"
+    text="${*//\'/\'\'}"
+    "$0" gui "$id" "& \\\\host.lan\\Data\\click.ps1 -X $x -Y $y${text:+ -Text '$text'}"
     ;;
   gui|shot)
     need_id "${1:-}"; id="$1"; shift
