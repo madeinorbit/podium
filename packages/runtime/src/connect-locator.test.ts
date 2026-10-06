@@ -194,6 +194,36 @@ describe('resolveServerUrl', () => {
     expect(calls[0]).toBe(`https://connect.test/v1/installations/${INSTALLATION_ID}`)
   })
 
+  it('reports why it adopted nothing: no record, only the current address, or each refusal (POD-3274)', async () => {
+    const base = {
+      installationId: INSTALLATION_ID,
+      installationPublicKey: INSTALLATION_KEY,
+      connectBaseUrl: 'https://connect.test',
+      currentServerUrl: 'wss://old.example',
+    }
+    const events: unknown[] = []
+    const report = (event: unknown) => events.push(event)
+
+    const unknownId = stubFetch(() => new Response('{}', { status: 404 }))
+    await resolveServerUrl({ ...base, fetch: unknownId.fetch, report })
+    expect(events).toEqual([{ kind: 'no-record' }])
+
+    events.length = 0
+    const stale = harness({ endpoints: [{ url: 'https://old.example', priority: 100 }], versions: {} })
+    await resolveServerUrl({ ...base, fetch: stale.fetch, report })
+    expect(events).toEqual([{ kind: 'no-new-address' }])
+
+    events.length = 0
+    const unresolvable = stubFetch((url) => {
+      if (url.startsWith('https://connect.test/')) return locator([{ url: 'https://fresh.example', priority: 100 }])
+      throw Object.assign(new Error('getaddrinfo ENOTFOUND fresh.example'), { code: 'ENOTFOUND' })
+    })
+    await expect(resolveServerUrl({ ...base, fetch: unresolvable.fetch, report })).resolves.toBeUndefined()
+    expect(events).toEqual([
+      { kind: 'rejected', url: 'https://fresh.example', reason: 'name does not resolve (ENOTFOUND)' },
+    ])
+  })
+
   it('refuses a candidate belonging to a different installation and tries the next', async () => {
     const { fetch } = harness({
       endpoints: [

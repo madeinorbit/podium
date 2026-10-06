@@ -3,7 +3,9 @@
 //!
 //! A quick tunnel mints a new `https://<random>.trycloudflare.com` every time
 //! cloudflared starts. This program owns cloudflared as its child: it starts
-//! it, reads the URL it prints, POSTs that URL to the server's control socket
+//! it, reads the URL it prints, waits until that hostname resolves (dns.rs —
+//! a URL handed out before then gets cached as "no such name" for a minute),
+//! POSTs it to the server's control socket
 //! (which publishes it to Podium Connect at once), restarts cloudflared with
 //! backoff whenever it dies, and takes it down when told to stop.
 //!
@@ -16,11 +18,13 @@
 //! not restart on 78; 2 is a usage error.
 
 mod control;
+mod dns;
 mod url;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::process::CommandExt;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -32,7 +36,7 @@ use control::PostOutcome;
 const EXIT_REFUSED: u8 = 78;
 const EXIT_USAGE: u8 = 2;
 
-const USAGE: &str = "usage: podium-tunnel --origin <http://127.0.0.1:PORT> --socket <control.sock> [--cloudflared <path>] [--lock <path>]";
+const USAGE: &str = "usage: podium-tunnel --origin <http://127.0.0.1:PORT> --socket <control.sock> [--cloudflared <path>] [--lock <path>] [--dns-wait-ms <ms>]";
 
 fn log(message: &str) {
     eprintln!("podium-tunnel: {message}");
@@ -59,6 +63,12 @@ struct Config {
     backoff: Vec<Duration>,
     /// Delays between attempts to reach a server that is not answering yet.
     post_backoff: Vec<Duration>,
+    /// The most a new URL is held back waiting for its name to resolve. Zero: never.
+    dns_wait: Duration,
+    /// The hold when the zone's nameservers cannot be asked directly.
+    dns_fallback: Duration,
+    /// Ask these nameservers instead of the zone's own (tests).
+    dns_authorities: Option<Vec<SocketAddr>>,
 }
 
 fn millis(list: &[u64]) -> Vec<Duration> {
@@ -87,6 +97,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut stable_after = Duration::from_secs(60);
     let mut backoff = millis(&[1_000, 2_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000]);
     let mut post_backoff = millis(&[1_000, 2_000, 5_000, 10_000, 30_000]);
+    let mut dns_wait = Duration::from_secs(15);
+    let mut dns_fallback = Duration::from_secs(5);
+    let mut dns_authorities: Option<Vec<SocketAddr>> = None;
     let mut i = 0;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -102,6 +115,13 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--stable-ms" => stable_after = parse_millis(&value?)?,
             "--backoff-ms" => backoff = parse_millis_list(&value?)?,
             "--post-backoff-ms" => post_backoff = parse_millis_list(&value?)?,
+            "--dns-wait-ms" => dns_wait = parse_millis(&value?)?,
+            "--dns-fallback-ms" => dns_fallback = parse_millis(&value?)?,
+            "--dns-authority" => {
+                let value = value?;
+                let addr = value.parse::<SocketAddr>().map_err(|_| format!("not ip:port: {value}"))?;
+                dns_authorities.get_or_insert_with(Vec::new).push(addr);
+            }
             other => return Err(format!("unknown argument {other}")),
         }
         i += 2;
@@ -119,6 +139,9 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         stable_after,
         backoff,
         post_backoff,
+        dns_wait,
+        dns_fallback,
+        dns_authorities,
     })
 }
 
@@ -197,9 +220,24 @@ fn spawn_reader(run: u64, pipe: impl Read + Send + 'static, events: Sender<Event
 /// Posts URLs to the control socket, retrying while the server is unreachable.
 /// Always posts the NEWEST URL: a rotation during a retry replaces the one
 /// being retried, so a stale URL is never recorded after a fresher one.
-fn spawn_poster(socket: PathBuf, delays: Vec<Duration>, urls: Receiver<String>, events: Sender<Event>) {
+fn spawn_poster(
+    socket: PathBuf,
+    delays: Vec<Duration>,
+    dns: dns::WaitConfig,
+    urls: Receiver<String>,
+    events: Sender<Event>,
+) {
     thread::spawn(move || {
         while let Ok(mut url) = urls.recv() {
+            // Hold the URL until its name resolves; a rotation meanwhile replaces it,
+            // and the newer one gets its own wait.
+            loop {
+                wait_for_dns(&url, &dns);
+                match urls.try_recv() {
+                    Ok(newer) => url = newer,
+                    Err(_) => break,
+                }
+            }
             let mut attempt = 0usize;
             loop {
                 while let Ok(newer) = urls.try_recv() {
@@ -232,6 +270,25 @@ fn spawn_poster(socket: PathBuf, delays: Vec<Duration>, urls: Receiver<String>, 
             }
         }
     });
+}
+
+fn wait_for_dns(url: &str, config: &dns::WaitConfig) {
+    let host = url.trim_start_matches("https://");
+    match dns::wait_until_resolvable(host, config) {
+        dns::Published::Resolves { nameservers, after } => log(&format!(
+            "{host} resolves at all {nameservers} of its nameservers after {} ms",
+            after.as_millis()
+        )),
+        dns::Published::TimedOut { after } => log(&format!(
+            "{host} did not resolve at every nameserver within {} ms; publishing it anyway",
+            after.as_millis()
+        )),
+        dns::Published::FixedDelay { reason, after } => log(&format!(
+            "cannot ask the nameservers ({reason}); waited {} ms instead",
+            after.as_millis()
+        )),
+        dns::Published::Skipped => {}
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -484,7 +541,12 @@ fn main() -> ExitCode {
     let (events_tx, events) = mpsc::channel::<Event>();
     let (urls_tx, urls_rx) = mpsc::channel::<String>();
     spawn_signal_thread(events_tx.clone());
-    spawn_poster(config.socket.clone(), config.post_backoff.clone(), urls_rx, events_tx.clone());
+    let dns_wait = dns::WaitConfig {
+        cap: config.dns_wait,
+        fallback: config.dns_fallback,
+        authorities: config.dns_authorities.clone(),
+    };
+    spawn_poster(config.socket.clone(), config.post_backoff.clone(), dns_wait, urls_rx, events_tx.clone());
 
     let mut supervisor = Supervisor {
         config,

@@ -227,42 +227,70 @@ export interface FetchVersionIdentityOptions {
 export async function fetchVersionIdentity(
   opts: FetchVersionIdentityOptions,
 ): Promise<VersionIdentity | undefined> {
+  const probe = await probeVersionIdentity(opts)
+  return 'identity' in probe ? probe.identity : undefined
+}
+
+/** A failed probe's reason, in words an operator reading a log can act on. */
+function describeFetchError(error: unknown, timeoutMs: number): string {
+  const e = error as { name?: string; code?: string; message?: string; cause?: { code?: string } }
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError')
+    return `timed out after ${timeoutMs} ms`
+  const code = e?.code ?? e?.cause?.code
+  if (code === 'ENOTFOUND' || code === 'EAI_NONAME' || code === 'DNSException')
+    return `name does not resolve (${code})`
+  const message = e?.message ?? String(error)
+  return code ? `${code}: ${message}` : message
+}
+
+/**
+ * {@link fetchVersionIdentity}, keeping WHY a candidate gave no identity, so a
+ * daemon that rejects an address can say so (POD-3274): a lookup that failed
+ * silently left a 60-second DNS-cache stall readable only from the code.
+ */
+export async function probeVersionIdentity(
+  opts: FetchVersionIdentityOptions,
+): Promise<{ identity: VersionIdentity } | { failure: string }> {
+  const timeoutMs = opts.timeoutMs ?? CONNECT_LOCATOR_TIMEOUT_MS
   try {
     let target: URL
     try {
       target = new URL(opts.serverUrl.trim())
     } catch {
-      return undefined
+      return { failure: 'not a URL' }
     }
     const protocol =
       target.protocol === 'ws:' ? 'http:' : target.protocol === 'wss:' ? 'https:' : target.protocol
-    if (protocol !== 'http:' && protocol !== 'https:') return undefined
+    if (protocol !== 'http:' && protocol !== 'https:')
+      return { failure: `unsupported scheme ${target.protocol}` }
     const fetchImpl = opts.fetch ?? fetch
-    const timeoutMs = opts.timeoutMs ?? CONNECT_LOCATOR_TIMEOUT_MS
     const res = await fetchImpl(`${protocol}//${target.host}/version`, {
       headers: { accept: 'application/json' },
       ...abortAfter(timeoutMs),
     })
-    if (!res.ok) return undefined
+    if (!res.ok) return { failure: `/version answered HTTP ${res.status}` }
     const text = await readCappedText(res, CONNECT_VERSION_MAX_BODY_BYTES)
-    if (text === undefined) return undefined
+    if (text === undefined) return { failure: '/version body too large or unreadable' }
     let body: unknown
     try {
       body = JSON.parse(text)
     } catch {
-      return undefined
+      return { failure: '/version is not JSON' }
     }
-    if (typeof body !== 'object' || body === null) return undefined
+    if (typeof body !== 'object' || body === null) return { failure: '/version is not an object' }
     const { installationId, installationPublicKey } = body as {
       installationId?: unknown
       installationPublicKey?: unknown
     }
-    if (!isLocatorInstallationId(installationId)) return undefined
-    return isLocatorInstallationPublicKey(installationPublicKey)
-      ? { installationId, installationPublicKey }
-      : { installationId }
-  } catch {
-    return undefined
+    if (!isLocatorInstallationId(installationId))
+      return { failure: '/version names no installation' }
+    return {
+      identity: isLocatorInstallationPublicKey(installationPublicKey)
+        ? { installationId, installationPublicKey }
+        : { installationId },
+    }
+  } catch (error) {
+    return { failure: describeFetchError(error, timeoutMs) }
   }
 }
 
@@ -290,7 +318,21 @@ export interface ResolveServerUrlOptions {
   fetch?: typeof fetch
   /** Milliseconds, per request. */
   timeoutMs?: number
+  /**
+   * Told what the lookup found when it adopts nothing, so the caller can log it
+   * (POD-3274). Optional: the answer itself is unchanged.
+   */
+  report?: (event: LocatorLookupEvent) => void
 }
+
+/** Why a lookup adopted nothing. */
+export type LocatorLookupEvent =
+  /** Connect gave no usable record: unreachable, unknown id, or malformed. */
+  | { kind: 'no-record' }
+  /** The record names only the address already failing — not republished yet. */
+  | { kind: 'no-new-address' }
+  /** A candidate was tried and refused. */
+  | { kind: 'rejected'; url: string; reason: string }
 
 /**
  * Discovery plus verification in one call: read the locator record, then walk
@@ -311,25 +353,47 @@ export async function resolveServerUrl(
       fetch: opts.fetch,
       timeoutMs: opts.timeoutMs,
     })
-    if (!record) return undefined
+    if (!record) {
+      opts.report?.({ kind: 'no-record' })
+      return undefined
+    }
     const current = opts.currentServerUrl ? httpsOriginOf(opts.currentServerUrl) : undefined
+    let tried = 0
     for (const endpoint of record.endpoints) {
       if (current !== undefined && httpsOriginOf(endpoint.url) === current) continue
-      const identity = await fetchVersionIdentity({
+      tried += 1
+      const probe = await probeVersionIdentity({
         serverUrl: endpoint.url,
         fetch: opts.fetch,
         timeoutMs: opts.timeoutMs,
       })
-      if (!identity) continue
-      if (identity.installationId !== opts.installationId) continue
+      if ('failure' in probe) {
+        opts.report?.({ kind: 'rejected', url: endpoint.url, reason: probe.failure })
+        continue
+      }
+      const identity = probe.identity
+      if (identity.installationId !== opts.installationId) {
+        opts.report?.({
+          kind: 'rejected',
+          url: endpoint.url,
+          reason: `serves a different installation (${identity.installationId})`,
+        })
+        continue
+      }
       if (
         identity.installationPublicKey !== undefined &&
         identity.installationPublicKey !== opts.installationPublicKey
       ) {
+        opts.report?.({
+          kind: 'rejected',
+          url: endpoint.url,
+          reason: 'serves this installation id with a different key',
+        })
         continue
       }
       return endpoint.url
     }
+    if (tried === 0) opts.report?.({ kind: 'no-new-address' })
     return undefined
   } catch {
     return undefined

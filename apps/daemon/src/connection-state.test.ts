@@ -1,3 +1,4 @@
+import { addSink, createRingBufferSink } from '@podium/logger'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,7 +34,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { buildReport } from './build-report'
-import { createDaemonConnection, describeSocketError } from './connection-state'
+import { createDaemonConnection, describeSocketError, locatorAskDelayMs } from './connection-state'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { loadIdentity } from './identity'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
@@ -1623,6 +1624,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
         return socket
       },
       locatorFetch: fetchImpl,
+      // No jitter: every wait is exactly its schedule entry, so counts are exact.
+      random: () => 0.5,
     })
     const locatorReads = () => fetchCalls.filter((url) => url.includes('/v1/installations/'))
     const republish = (endpoints: Array<{ url: string; priority: number }>): void => {
@@ -1697,7 +1700,7 @@ describe('podium connect locator rescue (POD-4533)', () => {
     dropSocket(h.sockets[2]!)
     await flush()
     // Not one read per drop: the ask that opened this outage covers the next
-    // failures until 30 s of backoff have passed (POD-4646 re-arms after that).
+    // failures until 2 s of backoff have passed (the schedule's first step).
     expect(h.locatorReads()).toHaveLength(2)
     expect(h.timers.next(1000)).toBeDefined()
     await h.state.close()
@@ -1743,6 +1746,44 @@ describe('podium connect locator rescue (POD-4533)', () => {
     await h.state.close()
   })
 
+  it('a refused candidate is logged with its address and the reason (POD-3274)', async () => {
+    const sink = createRingBufferSink()
+    const dispose = addSink(sink)
+    try {
+      const h = rescueHarness({
+        recordEndpoints: [
+          { url: 'https://impostor.example', priority: 100 },
+          { url: 'https://down.example', priority: 50 },
+        ],
+        versions: {
+          'https://impostor.example': { installationId: OTHER_ID, installationPublicKey: OTHER_KEY },
+        },
+        identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      })
+      void h.state.start()
+      dropSocket(h.sockets[0]!)
+      await flush()
+      const rejected = sink
+        .snapshot()
+        .filter((record) => record.msg === 'locator candidate rejected; keeping the configured server URL')
+      expect(rejected).toEqual([
+        expect.objectContaining({
+          level: 'warn',
+          candidate: 'https://impostor.example',
+          reason: `serves a different installation (${OTHER_ID})`,
+        }),
+        expect.objectContaining({
+          level: 'warn',
+          candidate: 'https://down.example',
+          reason: '/version answered HTTP 500',
+        }),
+      ])
+      await h.state.close()
+    } finally {
+      dispose()
+    }
+  })
+
   it('a rotating tunnel: the record is stale at the drop, republished later, and adopted without a restart (POD-4646)', async () => {
     // THE ROTATING-TUNNEL SEQUENCE. The tunnel dies, the link drops, and the
     // record still names the url that just died — the replacement tunnel has
@@ -1776,8 +1817,9 @@ describe('podium connect locator rescue (POD-4533)', () => {
     }
     expect(loadConfig().serverUrl).toBe('wss://new.example')
     expect(h.socketUrls.at(-1)).toBe('wss://new.example/daemon')
-    // Within the re-arm window (30s of backoff), not minutes later.
-    expect(elapsedMs).toBeLessThanOrEqual(35_000)
+    // Seconds, not the half-minute a fixed 30 s re-arm took (POD-3274): the
+    // second ask comes once 2 s of backoff have passed — here 0.5 + 1 + 2 s.
+    expect(elapsedMs).toBeLessThanOrEqual(3_500)
     expect(h.locatorReads()).toHaveLength(2)
 
     h.sockets.at(-1)!.emit('open')
@@ -1820,7 +1862,7 @@ describe('podium connect locator rescue (POD-4533)', () => {
     }
   })
 
-  it('the re-arm is bounded: a ten-minute outage resolves 21 times, not once per tick (POD-4646)', async () => {
+  it('the re-arm is bounded: a ten-minute outage resolves 9 times, not once per tick (POD-4646, POD-3274)', async () => {
     const h = rescueHarness({
       // The record never moves on: every resolution finds only the dead url.
       recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
@@ -1838,10 +1880,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
       ticks += 1
     }
     // Backoff 0.5+1+2+4 s, then 5 s a tick: 123 reconnect ticks cover ten
-    // minutes. Resolutions: one at the drop, one once 30 s of backoff has
-    // elapsed (tick 9, 32.5 s), then one every six 5 s ticks — 1 + 1 + 19.
+    // minutes. Resolutions: one at the drop, then once each of 2, 4, 8, 16, 32,
+    // 64, 128 s of backoff has passed and then every 300 s — at 3.5, 7.5, 17.5,
+    // 37.5, 72.5, 137.5, 267.5 and 567.5 s: nine in all, where a fixed 30 s
+    // re-arm made 21 and kept asking every ~35 s for ever.
     expect(ticks).toBe(123)
-    expect(h.locatorReads()).toHaveLength(21)
+    expect(h.locatorReads()).toHaveLength(9)
     // Nothing was adopted and nothing probed the dead url it keeps skipping.
     expect(loadConfig().serverUrl).toBe('wss://old.example')
     expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
@@ -1992,5 +2036,19 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
     expect(l.delivered).toEqual([accepted, settled])
     expect(l.outbox.pending()).toEqual([settled])
     await l.conn.close()
+  })
+})
+
+describe('locatorAskDelayMs: the re-ask schedule (POD-3274)', () => {
+  it('starts at 2 s, doubles to 128 s, then holds at five minutes', () => {
+    const exact = () => 0.5
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 50].map((n) => locatorAskDelayMs(n, exact))).toEqual([
+      2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 300_000, 300_000,
+    ])
+  })
+
+  it('jitters each wait by ±50%, so a stranded fleet does not ask in lockstep', () => {
+    expect(locatorAskDelayMs(8, () => 0)).toBe(150_000)
+    expect(locatorAskDelayMs(8, () => 0.999_999)).toBe(450_000)
   })
 })
