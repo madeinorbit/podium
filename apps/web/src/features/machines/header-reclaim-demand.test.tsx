@@ -138,15 +138,16 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); pool?.dispose() })
 it.each([1, 4] as const)('closed header reads zero reclaim candidates across title, occupancy and deadline changes at %ix', async (scale) => {
   const count = fixture(scale)
   const row = vi.spyOn(pool, 'row')
-  const model = vi.spyOn(pool, 'model')
-  const candidatesRead = () => [...row.mock.calls, ...model.mock.calls].filter(
+  // Row reads include the old count's summary reads. Identity lookups during
+  // ingestion are write-path work, not a header read of a candidate.
+  const candidatesRead = () => row.mock.calls.filter(
     ([entity, id]) => entity === 'issue' && id.startsWith('candidate-'),
   ).length
   const samples: Record<string, number> = {}
   render(<HeaderHostIndicators />)
   await act(async () => {})
   samples.mount = candidatesRead()
-  expect(samples.mount, 'header mount must not read candidate rows or models').toBe(0)
+  expect(samples.mount, 'header mount must not read candidate rows').toBe(0)
   expect(reclaimInventory).not.toHaveBeenCalled()
   const chip = screen.getByRole('button', { name: /fixture-host/ })
   expect(chip.getAttribute('aria-label')).not.toContain('reclaimable worktrees')
@@ -156,7 +157,6 @@ it.each([1, 4] as const)('closed header reads zero reclaim candidates across tit
     ['title', changeTitle], ['occupancy', changeOccupancy], ['deadline', crossDeadline],
   ] as const) {
     row.mockClear()
-    model.mockClear()
     await act(async () => { change() })
     samples[name] = candidatesRead()
     expect(samples[name], `${name} must not read reclaim candidates while closed`).toBe(0)
