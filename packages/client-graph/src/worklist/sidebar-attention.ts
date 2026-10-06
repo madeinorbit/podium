@@ -20,7 +20,10 @@ const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 const nestParent = cachedGroup('sidebar.parent', (issue: IssueModel) =>
   nestParentPartOf(hostOf(issue).visibleInputs, issue.id, issue.nestCandidate))
-const lanePath = cachedGroup('sidebar.lanePath', (issue: IssueModel) => issue.worktreePath)
+const lanePath = cachedGroup('sidebar.lanePath', (issue: IssueModel) => {
+  const row = hostOf(issue).rollupInputs.loadedIssue(issue.id)
+  return row === undefined || row === LOADING ? null : row.worktreePath ?? null
+})
 const below: (issue: IssueModel, pool: MobxPool) => readonly string[] = memo('below', (issue, pool): readonly string[] => {
   const ids: string[] = []
   const host = hostOf(issue)

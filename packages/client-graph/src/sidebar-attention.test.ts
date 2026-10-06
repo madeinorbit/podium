@@ -78,3 +78,22 @@ it('keeps unarchived exited starters, excludes archived/headless starters and fo
     expect(ids).toEqual(['archived'])
   } finally { stop(); pool.dispose() }
 })
+
+it('keeps an unarchived exited issueless starter owned by the issue checkout', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'worktree', id: '/synthetic/lane', value: { path: '/synthetic/lane', repoPath: '/synthetic' } },
+    { kind: 'issue', id: 'root', value: issue('root', { worktreePath: '/synthetic/lane' }) },
+    { kind: 'issue', id: 'lane-child', value: issue('lane-child', { startedBySession: 'lane-sender' }) },
+    { kind: 'session', id: 'lane-sender', value: sender('lane-sender', {
+      issueId: undefined, cwd: '/synthetic/lane', archived: false,
+    }) as never },
+  ] })
+  const root = pool.issue('root')!
+  const stop = autorun(() => {
+    expect(sidebarNested(root, pool)).toEqual(['lane-child'])
+    expect(sidebarAttention(root, pool)).toEqual(root.aggregate)
+  })
+  try { expect(sidebarNested(root, pool)).toEqual(['lane-child']) }
+  finally { stop(); pool.dispose() }
+})
