@@ -267,6 +267,22 @@ describe('a redraw on a picture session', () => {
     expect(host.raw.requestPicture).not.toHaveBeenCalled()
   })
 
+  it('Windows hard redraw paints from a picture without clearing the console or resizing', () => {
+    const platform = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const w = world({ accepted: true })
+      const host = hostAttachment({ screen: true, atTail: false })
+      wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
+      sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, hard: true })
+      expect(host.raw.requestPicture).toHaveBeenCalledOnce()
+      expect(host.raw.writeBytes).not.toHaveBeenCalled()
+      expect(host.raw.resize).not.toHaveBeenCalled()
+    } finally {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    }
+  })
+
   it('an old server keeps the snapshot branch', async () => {
     const w = world({ accepted: false })
     const host = hostAttachment({ screen: true, atTail: false })

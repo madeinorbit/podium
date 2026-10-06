@@ -38,7 +38,7 @@ const log = createLogger('pty:host-bin')
  * When none of these yields a host, resolution fails loudly: the reason is
  * printed once and the daemon refuses every spawn with a machine diagnostic.
  * There is no PATH lookup and no fallback host.
- * Windows: unsupported (forkpty).
+ * Windows: native ConPTY host over an owner-only local named pipe.
  */
 
 /**
@@ -51,6 +51,10 @@ const log = createLogger('pty:host-bin')
 export const HOST_FEATURES = 2
 export const RUST_HOST_BINARY = 'podium-host'
 
+export function hostBinaryName(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? `${RUST_HOST_BINARY}.exe` : RUST_HOST_BINARY
+}
+
 /** Why a spawn has no host; the resolver printed the details when it failed. */
 export const HOST_UNAVAILABLE =
   'podium-host unavailable: no Rust podium-host binary could be found or built (see the daemon log)'
@@ -59,11 +63,11 @@ const VENDOR_CRATE = fileURLToPath(new URL('../vendor/podium-host', import.meta.
 
 /** Prebuilt Rust host shipped beside podium-cli; no customer Rust toolchain. */
 export function bundledRustHostPath(): string {
-  return join(resolveInstallDir(), RUST_HOST_BINARY)
+  return join(resolveInstallDir(), hostBinaryName())
 }
 
 export function hostSupported(platform: NodeJS.Platform = process.platform): boolean {
-  return platform !== 'win32'
+  return ['linux', 'darwin', 'win32'].includes(platform)
 }
 
 const VERSION_RE = /^podium-host \S+ features=(\d+)\s*$/m
@@ -189,7 +193,7 @@ function cargoBuild(crate: string, targetDir: string): string | undefined {
     lastSourceBuildError = `${argv[0]} ${argv[1].join(' ')} failed${stderr ? `:\n${stderr.split('\n').slice(-20).join('\n')}` : ''}`
     return undefined
   }
-  const out = join(targetDir, 'release', 'podium-host')
+  const out = join(targetDir, 'release', hostBinaryName())
   if (hostBinFeatures(out) < HOST_FEATURES) {
     lastSourceBuildError = `${out} does not report podium-host feature level ${HOST_FEATURES}`
     return undefined
@@ -250,7 +254,7 @@ function acquireBuildLock(lock: string, timeoutMs = LOCK_STALE_MS): boolean {
 }
 
 function publishedSourceHost(root: string, hash: string): string | undefined {
-  const bin = join(root, hash.slice(0, 16), RUST_HOST_BINARY)
+  const bin = join(root, hash.slice(0, 16), hostBinaryName())
   return existsSync(bin) && hostBinFeatures(bin) >= HOST_FEATURES ? bin : undefined
 }
 
@@ -290,14 +294,14 @@ export function ensureSourceRustHost(
     const built = cargoBuild(crate, join(root, 'target'))
     if (!built) return undefined
     mkdirSync(staging, { recursive: true })
-    copyFileSync(built, join(staging, RUST_HOST_BINARY))
+    copyFileSync(built, join(staging, hostBinaryName()))
     writeFileSync(
       join(staging, 'manifest.json'),
       `${JSON.stringify({ features: hostBinFeatures(built), sourceHash: hash, builtAt: new Date().toISOString() }, null, 2)}\n`,
     )
     rmSync(dir, { recursive: true, force: true })
     renameSync(staging, dir)
-    return { bin: join(dir, RUST_HOST_BINARY), built: true }
+    return { bin: join(dir, hostBinaryName()), built: true }
   } catch (e) {
     lastSourceBuildError = `publishing the build failed: ${e instanceof Error ? e.message : String(e)}`
     return undefined

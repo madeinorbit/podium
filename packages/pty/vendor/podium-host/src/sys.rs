@@ -310,3 +310,11 @@ pub fn probe_socket(path: &std::path::Path) -> Probe {
         Err(e) => Probe::Failed(e.into()),
     }
 }
+
+// Platform vocabulary for the shared protocol, screen and cut loop.
+pub type Io = std::fs::File;
+pub type Listener = std::os::unix::net::UnixListener;
+pub type Stream = std::os::unix::net::UnixStream;
+pub type SignalSource = std::fs::File;
+pub const SIGTERM: i32 = libc::SIGTERM;
+pub const SIGKILL: i32 = libc::SIGKILL;

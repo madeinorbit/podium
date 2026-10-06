@@ -210,8 +210,10 @@ name = "podium-host"
 version = "1.0.0"
 dependencies = [
  "alacritty_terminal",
+ "bitflags",
  "libc",
  "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

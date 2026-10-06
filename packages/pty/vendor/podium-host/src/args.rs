@@ -2,6 +2,7 @@
 
 use std::ffi::CString;
 use std::ffi::OsString;
+#[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 
 pub const MAX_COLS: u16 = 1000;
@@ -11,6 +12,8 @@ pub const MAX_ROWS: u16 = 500;
 pub struct CreateOpts {
     pub socket: OsString,
     pub cwd: Option<Vec<u8>>,
+    #[cfg(windows)]
+    pub pidfile: Option<OsString>,
     pub cols: u16,
     pub rows: u16,
     pub ring_bytes: usize,
@@ -25,6 +28,8 @@ pub struct CreateOpts {
 #[derive(Debug)]
 pub enum Command {
     Version,
+    #[cfg(windows)]
+    Connect(OsString),
     Create(CreateOpts),
 }
 
@@ -65,12 +70,18 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     use ArgError::Usage;
     match argv.get(1).map(Vec::as_slice) {
         Some(b"version") => return Ok(Command::Version),
+        #[cfg(windows)]
+        Some(b"connect") if argv.len() == 4 && argv[2] == b"--socket" => {
+            return Ok(Command::Connect(os_string(argv[3].clone())));
+        }
         Some(b"create") => {}
         _ => return Err(Usage),
     }
     let (mut sock, mut cwd) = (None, None);
     let (mut cols, mut rows, mut ring, mut linger) = (0, 0, 4i64 << 20, 30);
     let mut no_pty = false;
+    #[cfg(windows)]
+    let mut pidfile = None;
     #[cfg(feature = "screen")]
     let mut screen_scrollback = crate::screen::DEFAULT_SCROLLBACK as i64;
     let mut i = 2;
@@ -84,6 +95,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
         match (a, v) {
             (b"--socket", Some(v)) => sock = Some(v.to_vec()),
             (b"--cwd", Some(v)) => cwd = Some(v.to_vec()),
+            #[cfg(windows)]
+            (b"--pidfile", Some(v)) => pidfile = Some(os_string(v.to_vec())),
             (b"--cols", Some(v)) => cols = arg_long(a, v, 1, MAX_COLS as i64)?,
             (b"--rows", Some(v)) => rows = arg_long(a, v, 1, MAX_ROWS as i64)?,
             (b"--ring-bytes", Some(v)) => ring = arg_long(a, v, 4096, 1 << 30)?,
@@ -115,7 +128,9 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
         .map(|a| CString::new(a.clone()).expect("argv holds no NUL"))
         .collect();
     Ok(Command::Create(CreateOpts {
-        socket: OsString::from_vec(sock),
+        socket: os_string(sock),
+        #[cfg(windows)]
+        pidfile,
         cwd,
         cols: if cols != 0 { cols as u16 } else { 80 },
         rows: if rows != 0 { rows as u16 } else { 24 },
@@ -279,5 +294,16 @@ mod tests {
         let o = create("create --socket /a --socket /b -- prog --socket x --");
         assert_eq!(o.socket, "/b");
         assert_eq!(o.command.len(), 4);
+    }
+}
+
+fn os_string(bytes: Vec<u8>) -> OsString {
+    #[cfg(unix)]
+    {
+        OsString::from_vec(bytes)
+    }
+    #[cfg(windows)]
+    {
+        OsString::from(String::from_utf8(bytes).expect("Unicode Windows argv"))
     }
 }

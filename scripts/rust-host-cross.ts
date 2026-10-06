@@ -22,7 +22,7 @@ import {
   type HeadlessPlatform,
   isHeadlessPlatform,
 } from '../packages/protocol/src/update/platforms'
-import { RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
+import { hostBinaryName, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { sharedCacheDir } from './shared-cache-dir'
 import { resolveRcodesign, resolveZig } from './tool-pins'
 
@@ -150,7 +150,7 @@ export function crossBuildRustHost(
 
 /**
  * The Rust host for a local (this-machine) bundle, built with this host's own cargo.
- * No fallback: the Rust host is the only durable process host a POSIX bundle has, so
+ * No fallback: the Rust host is the only durable process host a bundle has, so
  * a machine without the crate's toolchain cannot package one and says so.
  */
 export function buildLocalRustHost(crate = RUST_HOST_CRATE): string {
@@ -165,7 +165,7 @@ export function buildLocalRustHost(crate = RUST_HOST_CRATE): string {
     stdio: 'inherit',
     env: { ...process.env, CARGO_TARGET_DIR: join(crate, 'target') },
   })
-  return join(crate, 'target', 'release', 'podium-host')
+  return join(crate, 'target', 'release', hostBinaryName())
 }
 
 function main(): void {

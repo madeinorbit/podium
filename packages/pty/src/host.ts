@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
-import { createConnection, type Socket } from 'node:net'
+import { createConnection } from 'node:net'
 import { join } from 'node:path'
+import type { Duplex } from 'node:stream'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import type { Geometry } from '@podium/model'
@@ -14,17 +16,18 @@ import {
 import { resolveScopeBudget } from '@podium/runtime/scope'
 import type { PtyProcess } from './backends/types.js'
 import { HOST_UNAVAILABLE, resolveHostBin } from './host-bin.js'
+import { connectWindowsHost } from './host-windows-transport.js'
 import {
   applySessionsSliceBudget,
   canScopeMaster,
   type DurableSpawnOptions,
   execCreate,
   liveEnv,
+  type SystemctlRunner,
   scopeEnv,
   scopeReclaimArgvs,
   scopeUnitName,
   stopSessionScope,
-  type SystemctlRunner,
   systemdScopeArgv,
   userRuntimeDir,
 } from './scope.js'
@@ -37,7 +40,7 @@ const log = createLogger('pty:host')
  * owns the child and its pty, keeps a byte-sequenced ring of output, grants one
  * writer lease, applies resizes itself and answers with the kernel's size, and
  * reports the child's real exit status. It is the only durable backend on Linux
- * and macOS (POD-4986): the Rust host is the one spawned, and a C host an older
+ * macOS and Windows (POD-4986): the Rust host is the one spawned, and a C host an older
  * daemon started is still adopted through this same protocol until it exits.
  */
 
@@ -87,7 +90,7 @@ export const HostFeature = { SCREEN: 1 } as const
  * where the C host queues without limit. An ERR that refuses a WRITE may carry
  * that write's u32 id after the message (the Rust host always sends it).
  */
-export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5 } as const
+export const HostErr = { NOT_WRITER: 1, NO_PTY: 2, BAD_FRAME: 3, EXITED: 4, INPUT_FULL: 5, UNSUPPORTED_SIGNAL: 7 } as const
 
 /** `fromSeq` meaning "from the tail: replay nothing". */
 export const HOST_TAIL = 0xffff_ffff_ffff_ffffn
@@ -109,7 +112,9 @@ export function encodeHello(mode: 'writer' | 'reader', fromSeq: bigint): Buffer 
 }
 
 /** Incremental frame decoder: feed bytes in any chunking, get whole frames. */
-export function createHostFrameDecoder(): (chunk: Uint8Array) => Array<{ type: number; payload: Buffer }> {
+export function createHostFrameDecoder(): (
+  chunk: Uint8Array,
+) => Array<{ type: number; payload: Buffer }> {
   let acc = Buffer.alloc(0)
   return (chunk) => {
     acc = acc.length ? Buffer.concat([acc, chunk]) : Buffer.from(chunk)
@@ -150,7 +155,14 @@ export interface HostWelcome {
  */
 export type HostItem =
   | { kind: 'data'; seq: bigint; data: Buffer }
-  | { kind: 'picture'; seq: bigint; reason: 'reset' | 'cut'; cols: number; rows: number; bytes: Buffer }
+  | {
+      kind: 'picture'
+      seq: bigint
+      reason: 'reset' | 'cut'
+      cols: number
+      rows: number
+      bytes: Buffer
+    }
 
 export interface HostStatus {
   alive: boolean
@@ -207,7 +219,10 @@ type Pending = {
   reject: (e: Error) => void
 }
 type PendingWrite = { id: number; resolve: (bytes: number) => void; reject: (e: Error) => void }
-type PendingReplay = { resolve: (r: { from: bigint; bytes: number }) => void; reject: (e: Error) => void }
+type PendingReplay = {
+  resolve: (r: { from: bigint; bytes: number }) => void
+  reject: (e: Error) => void
+}
 
 /**
  * One connection to a host: framing, request/response correlation and events.
@@ -216,7 +231,7 @@ type PendingReplay = { resolve: (r: { from: bigint; bytes: number }) => void; re
  */
 export class HostConnection {
   readonly welcome: Promise<HostWelcome>
-  private readonly sock: Socket
+  private readonly sock: Duplex
   private readonly decode = createHostFrameDecoder()
   private readonly pending: Pending[] = []
   private readonly pendingWrites: PendingWrite[] = []
@@ -260,7 +275,7 @@ export class HostConnection {
       this.rejectWelcome = reject
     })
     // Node queues writes issued before 'connect', so HELLO is always first.
-    this.sock = createConnection(socketPath)
+    this.sock = hostConnectionStream(socketPath)
     this.sock.write(encodeHello(mode, fromSeq))
     this.sock.on('data', (chunk: Buffer) => {
       for (const f of this.decode(chunk)) this.onFrame(f.type, f.payload)
@@ -395,6 +410,12 @@ export class HostConnection {
         const code = p.readUInt16BE(0)
         const n = p.readUInt32BE(2)
         const err = new HostError(code, p.subarray(6, 6 + n).toString('utf8'))
+        // SIGNAL has no request id or response slot. Its Windows diagnostic
+        // must never reject a concurrent resize, status or accepted write.
+        if (code === HostErr.UNSUPPORTED_SIGNAL) {
+          for (const cb of [...this.errCbs]) cb(err)
+          return
+        }
         // A refused WRITE names itself: reject exactly that write. Without the
         // id, an ERR is matched to the oldest pending request, which is wrong
         // when writes the host accepted are still pending (queued, WRITTEN not
@@ -639,18 +660,33 @@ function hostSocketDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   return dirs.filter((d, i) => dirs.indexOf(d) === i)
 }
 
+/** A protected inventory marker names a bounded, instance-scoped Windows pipe. */
+export function hostEndpointForMarker(
+  marker: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') return marker
+  const digest = createHash('sha256').update(marker.toLowerCase()).digest('hex')
+  return `\\\\.\\pipe\\podium-host-${digest}`
+}
+
 export function hostSocketPath(label: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(hostSocketDir(env), `${label}.sock`)
+  return hostEndpointForMarker(join(hostSocketDir(env), `${label}.sock`))
+}
+
+/** Windows authenticates the exact pipe handle in its native bridge. */
+function hostConnectionStream(path: string): Duplex {
+  return process.platform === 'win32' ? connectWindowsHost(path) : createConnection(path)
 }
 
 /** Connect probe: does anything answer at this path? */
 export function probeHostSocket(path: string): Promise<'live' | 'refused' | 'missing'> {
   return new Promise((resolve) => {
-    if (!existsSync(path)) {
+    if (process.platform !== 'win32' && !existsSync(path)) {
       resolve('missing')
       return
     }
-    const s = createConnection(path)
+    const s = hostConnectionStream(path)
     const done = (r: 'live' | 'refused' | 'missing'): void => {
       s.destroy()
       resolve(r)
@@ -676,9 +712,13 @@ export async function waitForHostSocket(
     const found = await liveHostSocket(label, env)
     if (found) return found
     if (Date.now() >= deadline) break
-    await new Promise<void>((r) => setTimeout(r, Math.min(pollMs, Math.max(1, deadline - Date.now()))))
+    await new Promise<void>((r) =>
+      setTimeout(r, Math.min(pollMs, Math.max(1, deadline - Date.now()))),
+    )
   }
-  throw new Error(`podium-host session ${label} did not publish a live socket within ${timeoutMs}ms`)
+  throw new Error(
+    `podium-host session ${label} did not publish a live socket within ${timeoutMs}ms`,
+  )
 }
 
 /** The path of a live host for `label` in any of its directories, else undefined. */
@@ -687,7 +727,7 @@ export async function liveHostSocket(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | undefined> {
   for (const dir of hostSocketDirs(env)) {
-    const path = join(dir, `${label}.sock`)
+    const path = hostEndpointForMarker(join(dir, `${label}.sock`))
     if ((await probeHostSocket(path)) === 'live') return path
   }
   return undefined
@@ -698,7 +738,10 @@ export async function liveHostSocket(
  * and asks STATUS — never `stat` alone: a lingering host after the child's exit
  * owns the name but is not a session.
  */
-export async function hostHasSession(label: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+export async function hostHasSession(
+  label: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<boolean> {
   const path = await liveHostSocket(label, env)
   if (!path) return false
   return hostSocketAlive(path)
@@ -733,11 +776,12 @@ export async function listLiveHostLabels(env: NodeJS.ProcessEnv = process.env): 
     }
     for (const name of names) {
       if (!name.endsWith('.sock') || name.startsWith('.')) continue
-      const path = join(dir, name)
+      const marker = join(dir, name)
+      const path = hostEndpointForMarker(marker)
       const probe = await probeHostSocket(path)
-      if (probe === 'refused') {
+      if (probe === 'refused' || (process.platform === 'win32' && probe === 'missing')) {
         try {
-          unlinkSync(path)
+          unlinkSync(marker)
         } catch {
           // raced with the host's own unlink
         }
@@ -767,7 +811,8 @@ export async function killHostSession(
     const c = connectHost(path, { mode: 'writer' })
     try {
       const w = await c.welcome
-      if (w.lease) {
+      if (w.lease || process.platform === 'win32') {
+        if (!w.lease) await c.steal()
         c.kill()
         await new Promise<void>((resolve) => {
           const t = setTimeout(resolve, 7000)
@@ -784,7 +829,7 @@ export async function killHostSession(
         try {
           process.kill(w.hostPid, 'SIGTERM')
         } catch {
-          // already gone
+          /* already gone */
         }
       }
     } catch {
@@ -899,7 +944,9 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     // reattach path resumes from `connection.lastSeq`. Only surface the drop.
     if (err && !disposed) log.warn('podium-host connection dropped', { label: opts.label, err })
   })
-  conn.onError((err) => log.warn('podium-host refused a request', { label: opts.label, err: err.message }))
+  conn.onError((err) =>
+    log.warn('podium-host refused a request', { label: opts.label, err: err.message }),
+  )
   // Someone stole the lease out from under this attachment: say so once, by
   // label, so the next swallowed write is never a mystery. The host keeps
   // delivering DATA (reading is allowed); only writes stop landing.
@@ -923,11 +970,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
         // names the session instead of leaving a live-looking dead writer.
         const status = await conn.status().catch(() => undefined)
         conn.detach()
-        throw new WriterLeaseRefusedError(
-          opts.label,
-          status?.writers ?? 1,
-          status?.readers ?? 0,
-        )
+        throw new WriterLeaseRefusedError(opts.label, status?.writers ?? 1, status?.readers ?? 0)
       }
       log.warn('podium-host granted no writer lease — another writer is attached', {
         label: opts.label,
@@ -971,10 +1014,13 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
           // lease never comes back without a reattach.
           if (leaseLost && !warnedLeaselessWrite) {
             warnedLeaselessWrite = true
-            log.warn('podium-host dropped input: this attachment no longer holds the writer lease', {
-              label: opts.label,
-              err: err instanceof Error ? err.message : String(err),
-            })
+            log.warn(
+              'podium-host dropped input: this attachment no longer holds the writer lease',
+              {
+                label: opts.label,
+                err: err instanceof Error ? err.message : String(err),
+              },
+            )
           }
         },
       )
@@ -1048,6 +1094,8 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
 
 export interface HostCreateCommand {
   socketPath: string
+  /** Windows inventory marker, created and removed by its detached host. */
+  pidfile?: string
   cwd: string
   cmd: string
   args?: string[]
@@ -1084,6 +1132,7 @@ export interface HostRetention {
  */
 export function hostCreateArgs(opts: HostCreateCommand): string[] {
   const retention = [
+    ...(opts.pidfile !== undefined ? ['--pidfile', opts.pidfile] : []),
     ...(opts.ringBytes !== undefined ? ['--ring-bytes', String(opts.ringBytes)] : []),
     ...(opts.lingerSecs !== undefined ? ['--linger-secs', String(opts.lingerSecs)] : []),
   ]
@@ -1133,12 +1182,16 @@ export async function spawnHostAgent(
   }
   for (const key of opts.stripEnv ?? []) delete childEnv[key]
   const dir = hostSocketDir(childEnv)
-  const socketPath = join(dir, `${opts.label}.sock`)
+  const marker = join(dir, `${opts.label}.sock`)
+  const socketPath = hostEndpointForMarker(marker)
   assertLinuxUnixSocketPath(socketPath, resolveInstanceId(childEnv), 'a podium-host session socket')
   mkdirSync(dir, { recursive: true, mode: 0o700 })
 
   const adopt = async (path: string): Promise<HostDurableAttachment> => {
-    log.info('durable label already owned by a live host — adopting it', { label: opts.label, path })
+    log.info('durable label already owned by a live host — adopting it', {
+      label: opts.label,
+      path,
+    })
     // A spawn that adopts while another writer holds the lease is the update-
     // overlap symptom (two daemons, one host): refuse loudly when the caller
     // asked for the lease rather than attaching a silent reader. The refusal
@@ -1158,6 +1211,7 @@ export async function spawnHostAgent(
 
   const createArgs = hostCreateArgs({
     socketPath,
+    ...(process.platform === 'win32' ? { pidfile: marker } : {}),
     cwd: opts.cwd ?? process.cwd(),
     cmd: opts.cmd,
     ...(opts.args ? { args: opts.args } : {}),
@@ -1171,7 +1225,12 @@ export async function spawnHostAgent(
   const attachCreated = async (): Promise<HostDurableAttachment> => {
     const path = await waitForHostSocket(opts.label, childEnv)
     // From seq 0: the child's first bytes are in the ring already; nothing is missed.
-    const s = attachHostAgent({ label: opts.label, socketPath: path, fromSeq: 0n, ...(opts.env ? { env: opts.env } : {}) })
+    const s = attachHostAgent({
+      label: opts.label,
+      socketPath: path,
+      fromSeq: 0n,
+      ...(opts.env ? { env: opts.env } : {}),
+    })
     await s.ready
     return s
   }
