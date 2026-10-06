@@ -13,7 +13,7 @@ it('publishes archived-state changes without depending on display fields or row 
   const stop = autorun(() => { values.push(pool.queries.sessionArchived('seat')) })
   const stopSeat = autorun(() => { sessionSeats(pool).seat('seat') })
   const flag = vi.spyOn(pool.queries, 'sessionArchived')
-  const update = (value: object | undefined) => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value }] })
+  const update = (value: Readonly<Record<string, unknown>> | undefined) => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value }] })
   try {
     expect(pool.tables.session.has('seat')).toBe(false)
     expect(values).toEqual([false])
