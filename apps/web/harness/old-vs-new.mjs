@@ -288,10 +288,6 @@ async function makePage() {
     }
     const startupObserver=new MutationObserver(observeStartup)
     startupObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
-    // A warm viewport can finish positioning after its final DOM mutation.
-    // Keep the same visible, hit-tested boundary until layout makes it true.
-    const pollStartup=()=>{observeStartup();if(!window.__comparisonStartup)requestAnimationFrame(pollStartup)}
-    requestAnimationFrame(pollStartup)
   },{now:corpus.fixedNow})
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
@@ -1019,15 +1015,14 @@ try {
   }
   result.captureStartedAt=new Date().toISOString();result.captureLoadStart=loadavg();result.hostCpuStart=cpuTicks()
   let f=fixture=await makePage()
-  if(mode==='timing' && !backgroundOnly) {
+  if(mode==='timing' && !backgroundOnly && !matrixSmoke) {
     // Each cold sample owns a new browser context; the paired warm sample
     // reloads it, retaining durable rows and preferences. Bootstrap request
     // routing disables HTTP cache; this is a warm-data reload.
-    const startupSamples=matrixSmoke?1:5
-    for(let i=0;i<startupSamples;i++) {
+    for(let i=0;i<5;i++) {
       if(i!==0)f=fixture=await makePage()
-      await startup(f,'app-cold-start',!matrixSmoke&&i===4);await startup(f,'app-warm-start',!matrixSmoke&&i===4)
-      if(i!==startupSamples-1)await f.context.close()
+      await startup(f,'app-cold-start',i===4);await startup(f,'app-warm-start',i===4)
+      if(i!==4)await f.context.close()
     }
   }
   else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}
