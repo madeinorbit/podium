@@ -1,5 +1,6 @@
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
+import { addSink, resetLogging, type LogRecord } from '@podium/logger'
 import { observe } from 'mobx'
 import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
@@ -52,7 +53,33 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
   }
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.restoreAllMocks()
+  resetLogging()
+})
+
+/** Feed failures log through @podium/logger (no console sink in tests), so
+ * collect the records instead of spying on console.error. */
+function collectFeedLogs() {
+  const seen: LogRecord[] = []
+  addSink({
+    name: 'row-source-test',
+    write: (record) => {
+      seen.push(record)
+    },
+  })
+  return seen
+}
+
+function expectFeedLogged(seen: LogRecord[], msg: string, error: unknown) {
+  expect(seen).toHaveLength(1)
+  expect(seen[0]).toMatchObject({
+    level: 'error',
+    ns: 'client-graph:feed-diagnostics',
+    msg,
+  })
+  expect(seen[0]?.error).toBe(error)
+}
 
 it('counts a throwing pool listener and replaces the half-applied pool on the next flush', () => {
   const f = fixture()
@@ -62,7 +89,7 @@ it('counts a throwing pool listener and replaces the half-applied pool on the ne
     fixedLocals({ selectedIssueId: null, coarseNow: 0 }).source,
   )
   const error = new Error('planted listener failure')
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const seen = collectFeedLogs()
   let fail = true
   const stop = observe(handle.pool.tables.session, (change) => {
     if (change.name === 'b' && fail) {
@@ -81,7 +108,7 @@ it('counts a throwing pool listener and replaces the half-applied pool on the ne
     expect(f.source.stats).toMatchObject({ applyErrors: 1 })
     expect(handle.pool.diagnostics).toBe(f.source.source.diagnostics)
     expect(handle.pool.diagnostics).toMatchObject({ errors: 1, resyncPending: true })
-    expect(log).toHaveBeenCalledWith('[pool feed] listener:update failed', error)
+    expectFeedLogged(seen, '[pool feed] listener:update failed', error)
     expect(f.source.flush()?.type).toBe('replace')
     expect(handle.pool.row('session', 'c')).toMatchObject({ title: 'after' })
     expect(events.map((event) => event.type)).toEqual(['update', 'replace'])
@@ -96,7 +123,7 @@ it('counts a throwing pool listener and replaces the half-applied pool on the ne
 
 it('automatically resyncs without another replica signal and keeps other listeners running', async () => {
   const f = fixture()
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const seen = collectFeedLogs()
   const events: RowSourceEvent[] = []
   f.source.source.subscribe(
     vi.fn().mockImplementationOnce(() => {
@@ -116,7 +143,7 @@ it('automatically resyncs without another replica signal and keeps other listene
       replaceResyncs: 1,
       resyncPending: false,
     })
-    expect(log).toHaveBeenCalledTimes(1)
+    expect(seen).toHaveLength(1)
   } finally {
     f.source.dispose()
   }
@@ -127,7 +154,7 @@ it('counts every failure, logs once per event kind, and bounds a failing recover
   vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((callback) => {
     queued.push(callback)
   })
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const seen = collectFeedLogs()
   const f = fixture()
   const events: RowSourceEvent[] = []
   const stop = f.source.source.subscribe(() => {
@@ -152,7 +179,7 @@ it('counts every failure, logs once per event kind, and bounds a failing recover
     expect(queued).toHaveLength(0)
     expect(events.map((event) => event.type)).toEqual(['update', 'replace', 'replace'])
     expect(f.source.stats.applyErrors).toBe(3)
-    expect(log).toHaveBeenCalledTimes(2)
+    expect(seen).toHaveLength(2)
     stop()
     expect(f.source.flush()?.type).toBe('replace')
     expect(f.source.source.diagnostics?.resyncPending).toBe(false)
@@ -169,7 +196,7 @@ it('explicitly reseeds a failed cold index from the next replace with all declar
   f.session('a', 'before')
   const index = f.source.source.cold!({ session: ['title'] }) as ColdIndex
   const error = new Error('planted cold-index failure')
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const seen = collectFeedLogs()
   vi.spyOn(index, 'apply').mockImplementationOnce(() => {
     throw error
   })
@@ -181,7 +208,7 @@ it('explicitly reseeds a failed cold index from the next replace with all declar
     f.update('a', 'b')
     expect(f.source.flush()?.type).toBe('update')
     expect(f.source.stats.applyErrors).toBe(1)
-    expect(log).toHaveBeenCalledWith('[pool feed] cold-index:update failed', error)
+    expectFeedLogged(seen, '[pool feed] cold-index:update failed', error)
     expect(listener).not.toHaveBeenCalled()
     expect(() => f.source.source.cold!()).toThrow(/awaiting replacement resync/)
     expect(f.source.flush()?.type).toBe('replace')
@@ -248,7 +275,7 @@ it('recovery includes pending optimism, removals, and rollback', () => {
 
 it('disposal cancels queued recovery and a fresh principal has fresh diagnostics', async () => {
   const f = fixture()
-  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const seen = collectFeedLogs()
   const listener = vi.fn(() => {
     throw new Error('fail')
   })
@@ -259,7 +286,7 @@ it('disposal cancels queued recovery and a fresh principal has fresh diagnostics
   f.source.dispose()
   await Promise.resolve()
   expect(listener).toHaveBeenCalledTimes(1)
-  expect(log).toHaveBeenCalledTimes(1)
+  expect(seen).toHaveLength(1)
   expect(f.source.flush()).toBeNull()
   expect(f.source.source.diagnostics?.resyncPending).toBe(false)
   const fresh = fixture()
