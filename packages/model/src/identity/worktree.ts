@@ -1,9 +1,10 @@
 import {
   isMachinePathWithinRoot,
+  isValidMachinePath,
   machinePathDirname,
   machinePathRelativeToRoot,
   machinePathSeparator,
-  normalizeMachinePath,
+  machinePathKey,
 } from '../machine-path'
 /** The worktree that CONTAINS `cwd`: the longest root with `cwd === root` or
  *  `cwd` under `root/`. Longest-match matters because a repo root contains its
@@ -47,7 +48,7 @@ export type WorktreeRootIndex = ReadonlyMap<string, WorktreeRootEntry>
 /** Strip one trailing slash so `a` and `a/` share an index key. `/` is
  *  preserved: it is a real (if pathological) root and `''` is not one. */
 function normalizeRoot(path: string): string {
-  if (machinePathSeparator(path) === '\\') return normalizeMachinePath(path).toLowerCase()
+  if (machinePathSeparator(path) === '\\') return machinePathKey(path)
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
@@ -62,6 +63,7 @@ function normalizeRoot(path: string): string {
 export function buildWorktreeRootIndex(worktreePaths: Iterable<string>): WorktreeRootIndex {
   const index = new Map<string, WorktreeRootEntry>()
   for (const root of worktreePaths) {
+    if (!isValidMachinePath(root)) continue
     const key = normalizeRoot(root)
     const existing = index.get(key)
     const plain = machinePathSeparator(root) === '\\' || root === key ? root : existing?.plain
@@ -76,6 +78,7 @@ export function buildWorktreeRootIndex(worktreePaths: Iterable<string>): Worktre
  *  return the first that is a root. Identical answers, O(path depth) per call.
  *  The FIRST hit is the longest match, so no length comparison is needed. */
 export function worktreeForCwdIndexed(cwd: string, roots: WorktreeRootIndex): string | null {
+  if (!isValidMachinePath(cwd)) return null
   let prefix = normalizeRoot(cwd)
   if (machinePathSeparator(cwd) === '\\') {
     // Windows keys canonicalize separators/casing; keep original roots as returned spellings.

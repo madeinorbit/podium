@@ -1,5 +1,5 @@
 import type { FileScope } from '@podium/client-core/values'
-import { resolveMachinePath } from '@podium/model'
+import { isValidMachinePath, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
 import { currentWorkspaceSlug } from './workspace-request'
 
@@ -18,6 +18,7 @@ export function assetUrl(args: {
   const { httpOrigin, sessionId, fileDir, src } = args
   const workspace = args.workspace ?? currentWorkspaceSlug()
   if (/^(https?:|data:|blob:|\/\/)/i.test(src)) return null
+  if (!isValidMachinePath(fileDir) || !isValidMachinePath(src, fileDir)) return null
   const abs = resolveMachinePath(fileDir, src)
   const qs = new URLSearchParams({ sessionId, path: abs })
   if (workspace) qs.set('workspace', workspace)
@@ -48,6 +49,7 @@ export function scopedAssetUrl(args: {
     return `${origin}/files/artifact${workspacePath}/${encodeURIComponent(scope.issueId)}/${encodeURIComponent(scope.artifactId)}/${relEnc}`
   }
 
+  if (!isValidMachinePath(fileDir) || !isValidMachinePath(src, fileDir)) return null
   const abs = resolveMachinePath(fileDir, src)
   const qs = new URLSearchParams({ root: scope.root, path: abs })
   if (scope.machineId) qs.set('machineId', scope.machineId)

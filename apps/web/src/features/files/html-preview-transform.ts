@@ -1,4 +1,4 @@
-import { machinePathDirname, resolveMachinePath } from '@podium/model/browser'
+import { isValidMachinePath, machinePathDirname, resolveMachinePath } from '@podium/model/browser'
 
 type ResolveAsset = (baseDir: string, value: string) => string | null
 
@@ -57,7 +57,7 @@ export function linkedStylesheetPathsForStaticHtml(html: string, fileDir: string
     doc.querySelectorAll<HTMLLinkElement>('link[href], link[data-podium-href]'),
   )) {
     const href = link.getAttribute('data-podium-href') ?? link.getAttribute('href')
-    if (!shouldRewrite(href)) continue
+    if (!shouldRewrite(href) || !isValidMachinePath(fileDir) || !isValidMachinePath(href, fileDir)) continue
     const rel = (link.getAttribute('rel') ?? '').toLowerCase()
     if (rel.split(/\s+/).includes('stylesheet')) paths.add(resolveMachinePath(fileDir, href))
   }
@@ -126,7 +126,7 @@ export function buildStaticHtmlPreview(opts: StaticHtmlPreviewOptions): string {
   )) {
     const href = link.getAttribute('data-podium-href') ?? link.getAttribute('href')
     if (!href) continue
-    if (!shouldRewrite(href)) {
+    if (!shouldRewrite(href) || !isValidMachinePath(opts.fileDir) || !isValidMachinePath(href, opts.fileDir)) {
       setLinkHref(link, href)
       continue
     }

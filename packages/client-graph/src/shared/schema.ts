@@ -1741,7 +1741,9 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
   let best: string | null = null
   for (const raw of roots) {
     const root = normalizeRootPath(raw)
-    if (!isMachinePathWithinRoot(root, probe)) continue
+    if (machinePathSeparator(root) === '\\') {
+      if (!isMachinePathWithinRoot(root, probe)) continue
+    } else if (probe !== root && !probe.startsWith(`${root}/`)) continue
     if (best === null || root.length > best.length) best = raw
   }
   return best

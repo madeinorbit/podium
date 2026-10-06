@@ -40,9 +40,11 @@ function pathParts(path: string, separator: '/' | '\\'): { root: string; parts: 
   return { root: rooted ? separator : '', parts: value.split(separator) }
 }
 
-/** Normalize dot segments without ever walking above a drive, share or POSIX root. */
+/** Normalize dot segments without ever walking above a drive, share or POSIX root.
+ * Invalid Windows spelling stays literal for display/identity; authorization must use
+ * isValidMachinePath or the containment helpers, which refuse those segments. */
 export function normalizeMachinePath(path: string, root: string = path): string {
-  if (!isValidMachinePath(path, root)) throw new Error('invalid Windows path segment: trailing space or dot')
+  if (!isValidMachinePath(path, root)) return path.replace(/\//g, '\\')
   const separator = machinePathSeparator(root)
   const parsed = pathParts(path, separator)
   const out: string[] = []
@@ -76,6 +78,7 @@ export function resolveMachinePath(cwd: string, path: string): string {
 
 export function machinePathBasename(path: string, root: string = path): string {
   if (path === '') return ''
+  if (machinePathSeparator(root) === '/') return machinePathSegments(path, root).at(-1) ?? ''
   const normalized = normalizeMachinePath(path, root)
   const parsed = pathParts(normalized, machinePathSeparator(root))
   return parsed.parts.filter(Boolean).at(-1) ?? parsed.root
@@ -98,14 +101,22 @@ export function machinePathRelativeToRoot(root: string, path: string): string | 
   const target = isAbsoluteMachinePath(base)
     ? resolveMachinePath(base, path)
     : normalizeMachinePath(path, root)
-  const windows = machinePathSeparator(base) === '\\'
-  const comparableBase = windows ? base.toLowerCase() : base
-  const comparableTarget = windows ? target.toLowerCase() : target
-  if (comparableBase === comparableTarget) return ''
-  const prefix = comparableBase.endsWith(machinePathSeparator(base))
-    ? comparableBase
-    : comparableBase + machinePathSeparator(base)
-  return comparableTarget.startsWith(prefix) ? target.slice(prefix.length) : null
+  const separator = machinePathSeparator(base)
+  if (separator === '\\') {
+    const from = pathParts(base, separator)
+    const to = pathParts(target, separator)
+    const fromParts = from.parts.filter(Boolean)
+    const toParts = to.parts.filter(Boolean)
+    if (foldMachinePathCase(from.root) !== foldMachinePathCase(to.root) || fromParts.length > toParts.length)
+      return null
+    for (let i = 0; i < fromParts.length; i++) {
+      if (foldMachinePathCase(fromParts[i]!) !== foldMachinePathCase(toParts[i]!)) return null
+    }
+    return toParts.slice(fromParts.length).join(separator)
+  }
+  if (base === target) return ''
+  const prefix = base.endsWith(separator) ? base : base + separator
+  return target.startsWith(prefix) ? target.slice(prefix.length) : null
 }
 
 export function isMachinePathWithinRoot(root: string, path: string): boolean {
@@ -115,18 +126,17 @@ export function isMachinePathWithinRoot(root: string, path: string): boolean {
   if (machinePathSeparator(root) === '/')
     return path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
   if (isAbsoluteMachinePath(root) && !isAbsoluteMachinePath(path)) return false
-  const base = normalizeMachinePath(root).toLowerCase()
-  const target = normalizeMachinePath(path, root).toLowerCase()
-  return target === base || target.startsWith(base.endsWith('\\') ? base : `${base}\\`)
+  return machinePathRelativeToRoot(root, path) !== null
 }
 
 /** Match a truncated/relative file token at a segment boundary, in the full path's syntax. */
 export function machinePathHasSuffix(path: string, suffix: string): boolean {
+  if (!isValidMachinePath(path) || !isValidMachinePath(suffix, path)) return false
   const separator = machinePathSeparator(path)
   const full = normalizeMachinePath(path)
   const tail = normalizeMachinePath(suffix, path)
-  const a = separator === '\\' ? full.toLowerCase() : full
-  const b = separator === '\\' ? tail.toLowerCase() : tail
+  const a = separator === '\\' ? foldMachinePathCase(full) : full
+  const b = separator === '\\' ? foldMachinePathCase(tail) : tail
   // A parent-relative token must resolve against its cwd, never match a truncated basename.
   return (
     a === b ||
@@ -136,9 +146,14 @@ export function machinePathHasSuffix(path: string, suffix: string): boolean {
   )
 }
 
+/** ASCII folding cannot expand a segment or alias Unicode characters to ASCII. */
+function foldMachinePathCase(path: string): string {
+  return path.replace(/[A-Z]/g, char => char.toLowerCase())
+}
+
 /** Stable comparison/key spelling. POSIX identity stays literal; Windows folds separators and case. */
 export function machinePathKey(path: string): string {
-  return machinePathSeparator(path) === '\\' ? normalizeMachinePath(path).toLowerCase() : path
+  return machinePathSeparator(path) === '\\' ? foldMachinePathCase(normalizeMachinePath(path)) : path
 }
 
 export function machinePathsEqual(a: string, b: string): boolean {
@@ -147,6 +162,7 @@ export function machinePathsEqual(a: string, b: string): boolean {
 
 /** Directory ancestors, nearest first, without normalizing literal POSIX spelling. */
 export function machinePathAncestors(path: string): string[] {
+  if (!isValidMachinePath(path)) return []
   if (machinePathSeparator(path) === '\\') {
     const ancestors: string[] = []
     let current = normalizeMachinePath(path)

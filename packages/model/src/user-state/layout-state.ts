@@ -1,4 +1,4 @@
-import { isAbsoluteMachinePath, normalizeMachinePath } from '../machine-path'
+import { isAbsoluteMachinePath, isValidMachinePath, machinePathSeparator, normalizeMachinePath } from '../machine-path'
 /**
  * PER-USER STATE FAMILY — SIDEBAR AND TAB LAYOUT (POD-1350).
  *
@@ -351,5 +351,7 @@ export const LAYOUT_USER_STATE_MEMBERS = [
 export function normalizeDockWorktreeKey(worktreePath: string): string | null {
   const trimmed = worktreePath.trim()
   if (trimmed.length === 0 || !isAbsoluteMachinePath(trimmed)) return null
-  return normalizeMachinePath(trimmed)
+  if (machinePathSeparator(trimmed) === '/')
+    return /^\/+$/u.test(trimmed) ? '/' : trimmed.replace(/\/+$/u, '')
+  return isValidMachinePath(trimmed) ? normalizeMachinePath(trimmed) : null
 }

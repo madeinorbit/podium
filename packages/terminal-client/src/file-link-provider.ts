@@ -1,5 +1,6 @@
 import {
   isMachinePathWithinRoot,
+  isValidMachinePath,
   machinePathHasSuffix,
   machinePathRelativeToRoot,
   machinePathSeparator,
@@ -32,6 +33,8 @@ const MAX_TOKEN = 1024
 function accept(token: string, cfg: FileLinkConfig): string | null {
   if (
     token.length > MAX_TOKEN ||
+    !isValidMachinePath(cfg.cwd) ||
+    !isValidMachinePath(token, cfg.cwd) ||
     !PATHISH.test(token) ||
     /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(token)
   )
