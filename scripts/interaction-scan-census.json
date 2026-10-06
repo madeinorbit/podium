@@ -1721,10 +1721,10 @@
       "tokens": "4d4523d79b436e33e7a5c1b0a5c0f57843d0abff80801213dd300a232bce4603",
       "gate": [],
       "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8"
+        "5101ca70ba3568d32f37c96df87f69778d8788da013e52da358448238f456eb8",
+        "f48fc0546bb9fcb0c4bce70f90dfbf672c33ea1b847adcb1efdbc12acd82b784"
       ],
-      "fingerprint": "bf505653898479a27f5b9105b642eb0c236d64ed61a33f2df6e3c877ee908024",
+      "fingerprint": "5ef6e1c24b133e27144f0edbb47bc5b79f3e4f3d82cbd1b8b620bd3cda761b14",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -12242,12 +12242,12 @@
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "useSettingsSetupSummary/paths/useMemo:callback",
       "rule": "materialize:Set",
-      "tokens": "da5c44b8e39d449ca6c53b96e95df55a5616b1ec2e35d7f369614895d64d6378",
+      "tokens": "c9fbaf1367b034d943cd574273b51758b8b2fb15c99a27eb3e364eb752a06391",
       "gate": [],
       "origin": [
         "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
       ],
-      "fingerprint": "1ee043429ab6f62745076480202bc247dd878540b8468ef5d6172d04407627b4",
+      "fingerprint": "edce22ff268051163f48005fcdb41849866bd4b041fd0c9ada344eb8394c28ef",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
@@ -12260,12 +12260,12 @@
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "useSettingsSetupSummary/paths/useMemo:callback",
       "rule": "spread",
-      "tokens": "79d0ec29dca4167303fa0a60b73e798501293b757e3908164d065f02a75e9467",
+      "tokens": "a8642a7e46a71af5c6db4b545d39ddd901b7a056ada4ba5cd078471dfb4973d0",
       "gate": [],
       "origin": [
         "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
       ],
-      "fingerprint": "2db05d3244911a418fe661a64558456d4c264deb311ecba1edcb2894b64dbb89",
+      "fingerprint": "61882e76a2a368846a74bd4f2d1d733e052fdfe7ea45f63e5e80d45639754725",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
@@ -12278,12 +12278,12 @@
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "useSettingsSetupSummary/paths/useMemo:callback/flatMap:callback",
       "rule": "spread",
-      "tokens": "3c785da47b21db703115016ee72ba965decdd6fd2a7a2e2eb771aa8f733d9e6e",
+      "tokens": "190a7d41b024782b40850eb19333b54866751113272e4e0b319d5128355da2f4",
       "gate": [],
       "origin": [
         "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
       ],
-      "fingerprint": "6acf36a0bf434b07a2a6849ce7b501869bc12badebc4cd116f00ed323b5a17fc",
+      "fingerprint": "13d3b9fc81bc003555a823639e02b4e8e99150c864fcaac2c4e3b9eb54660a8d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
@@ -12296,12 +12296,12 @@
       "file": "apps/web/src/features/settings/readers.ts",
       "holder": "useSettingsSetupSummary/paths/useMemo:callback/flatMap:callback",
       "rule": "consume:map",
-      "tokens": "6cfd70bd12cf035257ec1fe67bf57b865739e1aa492be1254457d350434d9a62",
+      "tokens": "bd4e1525d58ff416c57d29eea037b0b48a74412a12bb048bc18aa8fb3f015f1e",
       "gate": [],
       "origin": [
         "9b2f48b69340eefabbe81f6a2cd6894a6ee05f222883bdfe7c9f326396786763"
       ],
-      "fingerprint": "89340b047c714a0341cc5ac59c8f2465b59505fb1fda357b43aa521a391193be",
+      "fingerprint": "efc71015cb97b7e0ce35eea25bf8102a76a558fcc323bc104e4d5bcdce2c18f8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
@@ -13221,14 +13221,16 @@
     },
     {
       "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible",
+      "holder": "ManageProjectsButton/visible/useMemo:callback",
       "rule": "spread",
-      "tokens": "1b6688a302e4554e21df5bcf0ece2d536febbfeb6c9e1300e8760775e7a9c98a",
-      "gate": [],
+      "tokens": "52d9169c76990d9cbfe0895a2fe0bb6a2cd0d36936f6bb0e2bd0aa7e263e94e4",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
       "origin": [
         "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
       ],
-      "fingerprint": "af7628208f3694cd9a9fdee89cc2976f879a1fd6b4a3cbadc9a73115e56f3c43",
+      "fingerprint": "867576d68eff86fb31b362aec7a712fe80f01165788a607ef3953d67b8d4cc17",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13239,38 +13241,22 @@
     },
     {
       "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible",
+      "holder": "ManageProjectsButton/visible/useMemo:callback",
       "rule": "consume:filter",
-      "tokens": "edfb4dc42befe2b2d8cf5a6398c6cf04c19a360db6c39ae4138adb6702a80b90",
-      "gate": [],
+      "tokens": "6757d1269d696f2887ca38be22d65a2a5a996da5b1bdbb0ead12c3bdbb8c6fc3",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
       "origin": [
         "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
       ],
-      "fingerprint": "d67fa11cf8ed183d9e5080b8960c712e777abc6eb4798e943193f1cd7916a89d",
+      "fingerprint": "b09e84ed7e94ddcecacd63c91dce08ba201466775a936a73cacfc91335c8c3e9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ManageProjectsButton/visible",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
-      "holder": "ManageProjectsButton/visible/map:callback",
-      "rule": "consume:find",
-      "tokens": "af9dd4a71f6689911f116f98ecbcab8673aed87972e2111185f5c75746608207",
-      "gate": [],
-      "origin": [
-        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
-      ],
-      "fingerprint": "ab1114bb1fa28d29f2c9dba5b5157dd151fc807380293af3b5b431d8dcc7c8cd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ManageProjectsButton/visible/map:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33937,7 +33923,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -45729,6 +45715,82 @@
       "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/screens/settings-readers.ts",
+      "holder": "machineReaders/view:callback/shown/keyedComputed:callback",
+      "rule": "bounded-window",
+      "tokens": "3b5538ca817a1c900571d4eb8256553105da4c9c524e6feb8b93b6b63952fe49",
+      "gate": [],
+      "origin": [
+        "f48fc0546bb9fcb0c4bce70f90dfbf672c33ea1b847adcb1efdbc12acd82b784"
+      ],
+      "fingerprint": "c55be297811791b1e1138f7bbfda0680c4f125ab27faa9139e2ffc76a61ee241",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5650",
+      "trigger": "Invocation of machineReaders/view:callback/shown/keyedComputed:callback",
+      "bound": "Settings returns at most twelve machine IDs; fleet scalar labels still request all machines.",
+      "reason": "The first twelve displayed identities are capped, but this census origin also carries the catalog required by the visible fleet scalar labels. Preserve the conservative collection classification.",
+      "guard": "Focused SettingsScreen.pool.test.tsx checks twelve displayed machine rows and flat cursor-only heartbeat reads at 1x and 4x."
+    },
+    {
+      "file": "apps/mobile/src/screens/settings-readers.ts",
+      "holder": "machineReaders/view:callback/shown/keyedComputed:callback",
+      "rule": "dynamic-question",
+      "tokens": "f6ca3925e4a27c5059dccdb5fc3f3bac7c12fb458b2ec78568f925f5a142f8c8",
+      "gate": [],
+      "origin": [
+        "f48fc0546bb9fcb0c4bce70f90dfbf672c33ea1b847adcb1efdbc12acd82b784"
+      ],
+      "fingerprint": "ecbb3f7cf0fc73ce4cad755b2c1ff8570358331e6b8d10053e45e02a3ade6cfc",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5650",
+      "trigger": "Invocation of machineReaders/view:callback/shown/keyedComputed:callback",
+      "bound": "Settings returns at most twelve machine IDs; fleet scalar labels still request all machines.",
+      "reason": "The first twelve displayed identities are capped, but this census origin also carries the catalog required by the visible fleet scalar labels. Preserve the conservative collection classification.",
+      "guard": "Focused SettingsScreen.pool.test.tsx checks twelve displayed machine rows and flat cursor-only heartbeat reads at 1x and 4x."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsButton/visible/useMemo:callback/byKey",
+      "rule": "materialize:Map",
+      "tokens": "4d1cdbe2fdc940768ba85b44374ca48ce21b237ca72426740c0b1025e97a2390",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "122250f9d08279a25c8ba754a898c2340329a59bb19675ad753ce961dd1e6af6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsButton/visible",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/ManageProjectsDialog.tsx",
+      "holder": "ManageProjectsButton/visible/useMemo:callback/byKey",
+      "rule": "consume:map",
+      "tokens": "d9bbed494fc8feb0cf56115fe30095659b505da908392f941fe7aeefc6e1d8fb",
+      "gate": [
+        "exit:then:d00541a808e3e606bcdd81f3437e5950fe1901fd784fef4544148f59da363a7d"
+      ],
+      "origin": [
+        "67866ce9a160dce456103eeb5eac64a5bf5401012f53d878801660028f6719ec"
+      ],
+      "fingerprint": "476262cc9c6e0c34add1639ba887919b4366e49951985d2bbdbd299da0ea65bf",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ManageProjectsButton/visible",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
