@@ -217,8 +217,20 @@ export const sidebarActivityAt = memo('activityAt', (issue, pool) => {
 
 /** One drawn issue payload, shared only while a screen observes it. */
 export const sidebarIssueRow = keyedComputed<IssueModel, Loaded<SidebarRowValues>, [MobxPool]>(
-  model => debugName(() => `IssueModel@${model.id}.sidebar`), sidebarValues, { context: model => model },
+  model => debugName(() => `IssueModel@${model.id}.sidebar`), sidebarValues,
+  { context: model => model, equals: sameSidebar },
 )
+
+/** Borrowed own seats compare by identity; the composed screen facts compare
+ * by value, so an unchanged ancestor payload stops propagation. */
+function sameSidebar(a: Loaded<SidebarRowValues>, b: Loaded<SidebarRowValues>): boolean {
+  if (a === b) return true
+  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
+  const { sessions: seatsA, ...factsA } = a
+  const { sessions: seatsB, ...factsB } = b
+  return seatsA.length === seatsB.length &&
+    seatsA.every((seat, index) => seat === seatsB[index]) && compareStructural(factsA, factsB)
+}
 
 /** Formal unit counts, without the sidebar's labels, seats or attention payload. */
 export const sidebarIssueProgress = cachedGroup('sidebarProgress', (model: IssueModel): SidebarProgress | typeof LOADING => {
