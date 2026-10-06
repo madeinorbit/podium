@@ -18,6 +18,7 @@
  * and otherwise the most recently mounted one, which is the pane you last opened.
  */
 import { useEffect } from 'react'
+import { isApplePlatform } from '@/lib/mod-chord'
 import { isMacNativeShell } from '@/lib/nativeDesktop'
 
 type Entry = { root: HTMLElement | null; focus: () => void }
@@ -29,12 +30,7 @@ let bound = false
  *  answers itself, in every shell and every browser tab. */
 function isChord(e: KeyboardEvent): boolean {
   if (e.key !== '/') return false
-  return isApple() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
-}
-
-function isApple(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+  return isApplePlatform() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey
 }
 
 /**
@@ -55,7 +51,7 @@ function isApple(): boolean {
  */
 export function chordLabel(): string {
   if (isMacNativeShell()) return '⌘L'
-  return isApple() ? '⌘/' : 'Ctrl /'
+  return isApplePlatform() ? '⌘/' : 'Ctrl /'
 }
 
 /**

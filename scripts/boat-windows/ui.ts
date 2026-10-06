@@ -5,6 +5,7 @@
  *
  *   boat-win.sh ui ID text                       print the page's visible text
  *   boat-win.sh ui ID click 'Pick a project'     click the first visible element with this text
+ *   boat-win.sh ui ID button 'Continue'          click the visible button with this accessible name
  *   boat-win.sh ui ID fill 'placeholder' 'C:\x'  fill the input with this placeholder or label
  *   boat-win.sh ui ID press Enter                press a key
  *   boat-win.sh ui ID eval 'location.href'       evaluate an expression
@@ -34,7 +35,19 @@ for (const [action, ...args] of steps) {
       console.log(await page.locator('body').innerText())
       break
     case 'click':
-      await page.getByText(args[0] ?? '', { exact: false }).filter({ visible: true }).first().click()
+      await page
+        .getByText(args[0] ?? '', { exact: false })
+        .filter({ visible: true })
+        .first()
+        .click()
+      await page.waitForTimeout(1_000)
+      break
+    case 'button':
+      await page
+        .getByRole('button', { name: args[0] ?? '', exact: false })
+        .filter({ visible: true })
+        .first()
+        .click()
       await page.waitForTimeout(1_000)
       break
     case 'fill': {

@@ -135,7 +135,9 @@ for s in json.load(sys.stdin)["sandboxes"]:
   app)
     need_id "${1:-}"; id="$1"
     exe="${2:-C:\\src\\podium\\apps\\desktop\\src-tauri\\target\\release\\Podium.exe}"
-    ps "$id" 'Get-Process Podium,msedgewebview2 -EA 0 | Stop-Process -Force' >/dev/null 2>&1 || true
+    # A fresh build re-stamps the web bundle while sw.js can stay byte-identical, so the
+    # service worker keeps serving the previous page; start every app run from no SW cache.
+    ps "$id" 'Get-Process Podium,msedgewebview2 -EA 0 | Stop-Process -Force; Start-Sleep 1; Remove-Item -Recurse -Force "$env:LOCALAPPDATA\app.podium.desktop\EBWebView\Default\Service Worker" -EA 0' >/dev/null 2>&1 || true
     "$0" gui "$id" "\$env:PODIUM_WEBVIEW_DEBUG_PORT = '9222'; Start-Process -WindowStyle Maximized '$exe'"
     deadline=$((SECONDS + 120))
     until ps "$id" '(Invoke-WebRequest -UseBasicParsing http://127.0.0.1:9222/json/version -TimeoutSec 3).StatusCode' 2>/dev/null | grep -q 200; do

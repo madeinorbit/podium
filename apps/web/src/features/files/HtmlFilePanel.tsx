@@ -12,6 +12,7 @@ import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { scopedAssetUrl } from '@/lib/asset-url'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { modChord } from '@/lib/mod-chord'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
@@ -179,7 +180,7 @@ export function HtmlFilePanel({
           pendingLabel={<span className="sr-only">Saving file…</span>}
           aria-label={doc.saving ? 'Saving file…' : 'Save'}
           aria-describedby={saveFeedbackId}
-          title="Save (⌘S)"
+          title={`Save (${modChord('S')})`}
         >
           <Save size={14} />
         </Button>

@@ -28,6 +28,7 @@
 import { FolderPlus, Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
+import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { newTaskChordBound, useNewTask } from './new-task'
 import { ID_GUTTER_W } from './WorkRowShell'
@@ -73,7 +74,7 @@ export function NewTaskRow(): JSX.Element {
             aria-hidden="true"
             data-testid="new-task-chord"
           >
-            ⌘N
+            {modChord('N')}
           </span>
         )}
       </button>

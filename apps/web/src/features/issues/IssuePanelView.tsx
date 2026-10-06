@@ -36,6 +36,7 @@ import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -600,7 +601,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
       />
       {active && (
         <div className="mt-1.5 flex items-center justify-end gap-2">
-          <span className="font-mono shell-type-micro text-text-faint">⌘↵</span>
+          <span className="font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
           <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
             {busy ? 'Posting…' : 'Post'}
           </Button>

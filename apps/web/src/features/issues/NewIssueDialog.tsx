@@ -47,6 +47,7 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_RULE } from '@/lib/menu-surface'
+import { modChord } from '@/lib/mod-chord'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
@@ -622,9 +623,9 @@ function NewIssueDialogBody({
           <span
             className="ml-auto font-mono text-[10.5px] text-text-faint"
             role="img"
-            aria-label="Command Enter"
+            aria-label={modChord('↵') === '⌘↵' ? 'Command Enter' : 'Control Enter'}
           >
-            ⌘↵
+            {modChord('↵')}
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             Cancel

@@ -63,6 +63,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
+import { modChord } from '@/lib/mod-chord'
 
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
@@ -435,7 +436,7 @@ export function CommentComposer({
             Post
           </Button>
         ) : (
-          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">⌘↵</span>
+          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
         )}
       </div>
     </div>

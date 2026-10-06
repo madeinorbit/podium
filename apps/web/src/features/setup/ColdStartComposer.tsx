@@ -36,6 +36,7 @@ import {
   issueAgentLabel,
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import { modChord } from '@/lib/mod-chord'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import {
   headlessRuntimeDrivers,
@@ -1252,7 +1253,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                         className="font-mono text-[12.5px] leading-none text-primary-foreground/60"
                         aria-hidden="true"
                       >
-                        ⌘↵
+                        {modChord('↵')}
                       </span>
                     </>
                   )}

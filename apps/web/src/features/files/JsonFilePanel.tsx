@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { type JSX, useCallback, useDeferredValue, useId, useMemo, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { modChord } from '@/lib/mod-chord'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
@@ -226,7 +227,7 @@ export function JsonFilePanel({
             onClick={format}
             disabled={!canFormat}
             aria-label="Format"
-            title="Format — write the indentation into the file (⌘S to save)"
+            title={`Format — write the indentation into the file (${modChord('S')} to save)`}
           >
             <IndentIncrease size={14} />
           </Button>
@@ -253,7 +254,7 @@ export function JsonFilePanel({
           pendingLabel={<span className="sr-only">Saving file…</span>}
           aria-label={doc.saving ? 'Saving file…' : 'Save'}
           aria-describedby={saveFeedbackId}
-          title="Save (⌘S)"
+          title={`Save (${modChord('S')})`}
         >
           <Save size={14} />
         </Button>
