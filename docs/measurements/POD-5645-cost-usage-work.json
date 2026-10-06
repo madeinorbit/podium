@@ -179,7 +179,131 @@
     },
     "structuralCensus": {
       "command": "bun run speed:structural",
-      "result": "pending meter:flatblock lease"
+      "lease": "meter:flatblock",
+      "validatedTip": "6c6154af88",
+      "result": "Only coordinator-authorized existing failures; no new failures. Command exited 1 and is not a green census.",
+      "durationSeconds": 203.86,
+      "peakProcessRssKiB": 9352236,
+      "resourceStop": false,
+      "testCases": {
+        "passed": 21,
+        "failed": 2,
+        "skippedByLaneFilter": 7
+      },
+      "readerProjections": 48,
+      "counters": 1404,
+      "manifestExpectedFailures": 69,
+      "resolvedCounts": 95,
+      "newFailures": 0,
+      "coordinatorAuthorizedUnlistedCounters": [
+        {
+          "action": "select",
+          "kind": "rows",
+          "reader": "consumer:launcher.palette/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 2,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false,
+          "owner": "POD-5640"
+        },
+        {
+          "action": "select",
+          "kind": "derivations",
+          "reader": "consumer:launcher.palette/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 1,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false,
+          "owner": "POD-5640"
+        },
+        {
+          "action": "select",
+          "kind": "elements",
+          "reader": "consumer:launcher.palette/IssueModel@guard-child.displayRef",
+          "at1x": 0,
+          "at4x": 1,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false,
+          "owner": "POD-5640"
+        },
+        {
+          "action": "select",
+          "kind": "elements",
+          "reader": "consumer:launcher.palette/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 2,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false,
+          "owner": "POD-5640"
+        },
+        {
+          "action": "navigate-by-ref",
+          "kind": "elements",
+          "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+          "at1x": 12,
+          "at4x": 14,
+          "neighbourhood1x": 7,
+          "neighbourhood4x": 7,
+          "passed": false,
+          "owner": "POD-5716"
+        },
+        {
+          "action": "navigate-by-ref",
+          "kind": "elements",
+          "reader": "consumer:header.folded",
+          "at1x": 50,
+          "at4x": 52,
+          "neighbourhood1x": 7,
+          "neighbourhood4x": 7,
+          "passed": false,
+          "owner": "POD-5639"
+        },
+        {
+          "action": "heartbeat",
+          "kind": "derivations",
+          "reader": "IssueModel@guard-next.nesting",
+          "at1x": 0,
+          "at4x": 1,
+          "neighbourhood1x": 7,
+          "neighbourhood4x": 7,
+          "passed": false,
+          "owner": "POD-5716"
+        },
+        {
+          "action": "lane-change",
+          "kind": "derivations",
+          "reader": "IssueModel@guard-next.nesting",
+          "at1x": 0,
+          "at4x": 1,
+          "neighbourhood1x": 7,
+          "neighbourhood4x": 7,
+          "passed": false,
+          "owner": "POD-5716"
+        }
+      ],
+      "declaredQueryCase": {
+        "owner": "POD-5618",
+        "failures": [
+          {
+            "action": "select",
+            "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
+            "kind": "elements",
+            "at1x": 55,
+            "at4x": 151
+          },
+          {
+            "action": "navigate-by-ref",
+            "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
+            "kind": "elements",
+            "at1x": 49,
+            "at4x": 145
+          }
+        ]
+      }
     }
   }
 }
