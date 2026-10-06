@@ -21,10 +21,13 @@ const heartbeatOnly=regionsOnly || process.argv.includes('--heartbeat-only')
 const backgroundOnly=heartbeatOnly || process.argv.includes('--background-only')
 const terminalProbe=process.argv.includes('--terminal-probe')
 const tasksProbe=process.argv.includes('--tasks-probe')
+const matrixSmoke=process.argv.includes('--matrix-smoke')
+const diagnosticSamples=matrixSmoke?0:2
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
 if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
 if(terminalProbe && (surface!=='phone' || mode!=='probe'))throw Error('Direct phone terminal is a structural probe, never a Work-screen timing capture')
 if(tasksProbe && (surface!=='phone' || mode!=='probe' || terminalProbe))throw Error('Direct Tasks entry is a separate phone structural probe')
+if(matrixSmoke && (mode!=='timing' || surface!=='web' || backgroundOnly || samples!==2))throw Error('Matrix smoke requires the full web timing recipe with two samples to reach both alternating targets')
 const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
 mkdirSync(out, { recursive: true })
 const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
@@ -53,7 +56,7 @@ const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-t
 const harnessBytes=readFileSync(new URL(import.meta.url))
 writeFileSync(resolve(out,'harness-source.mjs'),harnessBytes)
 writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./browser-paint.ts',import.meta.url)))
-const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
+const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:matrixSmoke?'matrix-smoke':round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
   httpCache:'disabled by bootstrap request routing',
@@ -63,6 +66,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   heartbeatOnly,
   regionsOnly,
   worklistProbe,
+  matrixSmoke,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -303,11 +307,51 @@ async function ready(page,{controlById=false}={}) {
     await page.getByRole('textbox',{name:'Search tasks',exact:true}).fill('Comparison target A')
     await page.getByRole('button',{name:/^Task .*Comparison target A/}).first().waitFor({timeout:120000})
   }
-  else if(heartbeatOnly && surface==='web')await page.locator('aside [data-issue-row]').first().waitFor({timeout:120000})
-  else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
+  // Startup readiness is the first painted row, not an off-screen control.
+  // Action preparation reveals controls after the startup boundary is recorded.
+  else if(surface==='web')await page.locator('aside [data-issue-row]').first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
+}
+async function revealSidebarIssue(page,id,{scroll=true}={}) {
+  const row=page.locator(`aside [data-issue-row="${id}"]`).first()
+  const finish=async()=>{
+    if(scroll){await row.scrollIntoViewIfNeeded();await frames(page);await frames(page)}
+    if(matrixSmoke){result.sidebarPreparations??=[];result.sidebarPreparations.push({issueId:id,mounted:true,rect:await row.boundingBox()});save()}
+    return row
+  }
+  if(await row.count())return finish()
+  const issue=controls.find(control=>control.issue.id===id)?.issue??issuesById.get(id)
+  if(!issue)throw Error(`No fixture issue for sidebar preparation: ${id}`)
+  const scope=`group:${issue.repoId??issue.repoPath}`
+  let window=page.locator(`[data-drag-scope="${scope}"]`).first()
+  const group=await window.count()?window.locator('xpath=ancestor::*[@data-testid="project-group"][1]'):page.getByTestId('project-group').filter({has:page.getByTestId('project-group-label').filter({hasText:issue.repoPath.split('/').at(-1)})}).first()
+  const label=group.getByTestId('project-group-label')
+  if(await group.getAttribute('data-collapsed')==='true')await label.click()
+  // Match the heartbeat recipe: scroll the real project label and let the
+  // viewport mount its rows. All of this is outside measured action windows.
+  await label.scrollIntoViewIfNeeded();await frames(page);await frames(page)
+  if(await row.count())return finish()
+  window=page.locator(`[data-drag-scope="${scope}"]`).first()
+  const geometry=await window.evaluate(node=>{
+    let scroller=node.parentElement
+    while(scroller&&!/(auto|scroll)/.test(getComputedStyle(scroller).overflowY))scroller=scroller.parentElement
+    if(!scroller)throw Error('No sidebar scroll container')
+    const rect=node.getBoundingClientRect(),view=scroller.getBoundingClientRect()
+    scroller.scrollTop+=rect.top-view.top
+    return {height:rect.height,step:Math.max(1,view.height*0.65)}
+  })
+  for(let step=0;step<=Math.ceil(geometry.height/geometry.step)+2;step++) {
+    await frames(page);await frames(page)
+    if(await row.count())return finish()
+    await window.evaluate((node,amount)=>{
+      let scroller=node.parentElement
+      while(scroller&&!/(auto|scroll)/.test(getComputedStyle(scroller).overflowY))scroller=scroller.parentElement
+      scroller.scrollTop+=amount
+    },geometry.step)
+  }
+  throw Error(`Sidebar preparation could not reveal ${id}`)
 }
 async function inspect(page,label) {
   const dom=await page.evaluate(()=>({url:location.href,buttons:[...document.querySelectorAll('button,[role="button"],[role="tab"]')].filter(x=>x.getClientRects().length).map(x=>({text:x.textContent?.trim().slice(0,140),label:x.getAttribute('aria-label'),title:x.getAttribute('title'),testid:x.getAttribute('data-testid'),issue:x.getAttribute('data-issue-row'),session:x.getAttribute('data-session'),html:x.outerHTML.slice(0,900)})),inputs:[...document.querySelectorAll('input,textarea,[contenteditable]')].filter(x=>x.getClientRects().length).map(x=>({placeholder:x.getAttribute('placeholder'),label:x.getAttribute('aria-label'),html:x.outerHTML.slice(0,900)})),rows:document.querySelectorAll('[data-issue-row],[data-issue-id]').length,text:document.body.innerText.slice(0,5000)}))
@@ -348,7 +392,7 @@ async function capture(fixture,name,perform,expected,{manual=false,profile=false
   const {page,cdp}=fixture
   const ordinal=actionSamples.get(name)??0
   actionSamples.set(name,ordinal+1)
-  profile ||= ordinal>=samples
+  profile ||= !matrixSmoke && ordinal>=samples
   await frames(page)
   const expectation=typeof expected==='string'?expected:expected.toString()
   await page.evaluate(({expectation,manual})=>{
@@ -440,20 +484,23 @@ async function runActions(f) {
     const row = id => page.locator(`aside [data-issue-row="${id}"]`).first()
     await attempt('sidebar-select',async()=>{
       await page.getByTestId('topbar-nav-workspace').click()
+      await revealSidebarIssue(page,controls[1].issue.id)
       await row(controls[1].issue.id).click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const id=controls[i%2].issue.id
+        await revealSidebarIssue(page,id)
         await capture(f,'sidebar-select',()=>row(id).click(),`aside [data-issue-row="${id}"][data-selected="true"]`)
       }
     })
     await attempt('sidebar-fold',async()=>{
       const label='Collapse sidebar', expandedLabel='Expand sidebar'
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'sidebar-collapse',()=>page.getByRole('button',{name:label,exact:true}).click(),`button[aria-label="${expandedLabel}"]`)
         await capture(f,'sidebar-expand',()=>page.getByRole('button',{name:expandedLabel,exact:true}).click(),`button[aria-label="${label}"]`)
       }
     })
     await attempt('sidebar-group-fold',async()=>{
+      await revealSidebarIssue(page,largeMissionTargets[0].id)
       const ids=corpus.issues.filter(issue=>issue.repoId===groupCorpusRepoId).map(issue=>issue.id)
       const target=await page.evaluate(ids=>{
         const wanted=new Set(ids),groups=[...document.querySelectorAll('aside [data-testid="project-group"]')]
@@ -468,19 +515,20 @@ async function runActions(f) {
       const button=group.getByTestId('project-group-label')
       if(await button.getAttribute('data-collapsed')==='true')await button.click()
       await button.scrollIntoViewIfNeeded()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'sidebar-group-collapse',()=>button.click(),`()=>document.querySelectorAll('aside [data-testid="project-group"]')[${target.index}]?.getAttribute('data-collapsed')==='true'`)
         await capture(f,'sidebar-group-expand',()=>button.click(),`()=>document.querySelectorAll('aside [data-testid="project-group"]')[${target.index}]?.getAttribute('data-collapsed')==='false'`)
       }
     })
     await attempt('session-switch',async()=>{
+      await revealSidebarIssue(page,issue.id)
       await row(issue.id).click()
       const expand=page.getByRole('button',{name:'Expand Flight Deck',exact:true})
       if(await expand.isVisible().catch(()=>false))await expand.click()
       const ids=[controls[0].session.sessionId,controls[0].secondSession.sessionId]
       const agent=id=>page.locator(`[data-flight-session="${id}"] button.deck-agent`).first()
       await agent(ids[1]).click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const id=ids[i%2]
         await capture(f,'session-switch',()=>agent(id).click(),`[data-panel-resident][data-session="${id}"][data-pane]`)
       }
@@ -491,7 +539,7 @@ async function runActions(f) {
       await chat.click({timeout:10000})
       const input=page.locator('[data-panel-resident][data-pane] textarea.prompt-input').last()
       await input.focus();await input.fill('')
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const wanted='x'.repeat(i+1)
         await capture(f,'session-composer-typing',()=>page.keyboard.insertText('x'),`() => [...document.querySelectorAll('[data-panel-resident][data-pane] textarea.prompt-input')].some(x=>x.value===${JSON.stringify(wanted)})`)
       }
@@ -502,20 +550,21 @@ async function runActions(f) {
       if(await trigger.getAttribute('aria-pressed')!=='true')await trigger.click()
       const input=page.getByPlaceholder('Ask across all tasks…')
       await input.focus();await input.fill('')
-      for(let i=0;i<samples+2;i++)await capture(f,'superagent-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.placeholder==='Ask across all tasks…' && x.value===${JSON.stringify('x'.repeat(i+1))})`)
+      for(let i=0;i<samples+diagnosticSamples;i++)await capture(f,'superagent-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.placeholder==='Ask across all tasks…' && x.value===${JSON.stringify('x'.repeat(i+1))})`)
       await input.fill('');await trigger.click()
     })
     await attempt('flight-deck-fold',async()=>{
       const collapse=page.getByRole('button',{name:'Collapse Flight Deck',exact:true}), expand=page.getByRole('button',{name:'Expand Flight Deck',exact:true})
       if(await expand.isVisible().catch(()=>false))await expand.click()
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         await capture(f,'flight-deck-collapse',()=>collapse.click(),'button[aria-label="Expand Flight Deck"]')
         await capture(f,'flight-deck-expand',()=>expand.click(),'button[aria-label="Collapse Flight Deck"]')
       }
     })
     await attempt('drag',async()=>{
       const grip=row(other.id).getByTestId('row-grip')
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
+        await revealSidebarIssue(page,other.id)
         await row(other.id).hover();const box=await grip.boundingBox()
         if(!box)throw Error('No sidebar reorder grip')
         await page.mouse.move(box.x+box.width/2,box.y+box.height/2)
@@ -525,7 +574,9 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-drag-drop',async()=>{
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
+        await revealSidebarIssue(page,issue.id)
+        await revealSidebarIssue(page,other.id)
         await row(other.id).hover()
         const grip=row(other.id).getByTestId('row-grip'), from=await grip.boundingBox(), target=await row(issue.id).boundingBox()
         if(!from || !target || target.y<0 || target.y+target.height>1000)throw Error('Both control rows must be visible for a comparable drag drop')
@@ -540,9 +591,11 @@ async function runActions(f) {
       }
     })
     await attempt('mark-read',async()=>{
+      await revealSidebarIssue(page,issue.id)
       await row(issue.id).click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await rpc('issues.markUnread',{id:other.id})
+        await revealSidebarIssue(page,other.id)
         await page.waitForFunction(id=>document.querySelector(`aside [data-issue-row="${id}"]`)?.textContent.includes('unread'),other.id)
         await row(other.id).click({button:'right'})
         const menu=page.getByRole('menuitem',{name:/^Mark (?:as )?read/i})
@@ -553,19 +606,21 @@ async function runActions(f) {
     const control=()=>page.getByText(title,{exact:true}).first()
     await attempt('mission-open',async()=>{
       await page.getByTestId('topbar-nav-issues').click();await page.getByRole('region',{name:'Tasks'}).waitFor()
+      await revealSidebarIssue(page,issue.id)
       await control().click({trial:true})
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const name=i%2?otherTitle:title
         const id=controls[i%2].session.sessionId
+        await revealSidebarIssue(page,controls[i%2].issue.id)
         await capture(f,'mission-switch',()=>page.locator(`aside [data-issue-row="${controls[i%2].issue.id}"]`).first().click(),`[data-flight-session="${id}"]`)
         await page.getByTestId('topbar-nav-issues').click();await page.getByRole('region',{name:'Tasks'}).waitFor()
       }
     })
     await attempt('large-mission-switch',async()=>{
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await page.getByTestId('topbar-nav-issues').click()
         const target=largeMissionTargets[i%2]
-        await row(target.id).scrollIntoViewIfNeeded()
+        await revealSidebarIssue(page,target.id)
         // The mission root is a header; data-flight-issue labels its children.
         const measured=await capture(f,'large-mission-switch',()=>row(target.id).click(),`()=>[...document.querySelectorAll('.deck-header')].some(header=>header.textContent?.includes(${JSON.stringify(target.title)}) && header.getBoundingClientRect().width>0 && !header.closest('[aria-hidden="true"]')) && !!document.querySelector('[data-testid="flight-deck-scroller"] [data-flight-issue]')`)
         measured.targetIssueId=target.id
@@ -574,7 +629,7 @@ async function runActions(f) {
       }
     })
     await attempt('command-palette',async()=>{
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'command-palette',()=>page.keyboard.press('Control+k'),'[role="dialog"]')
         await page.keyboard.press('Escape');await pause(100)
       }
@@ -583,14 +638,14 @@ async function runActions(f) {
       await page.keyboard.press('Control+k')
       const input=page.getByRole('combobox')
       await input.fill(otherTitle);await pause(300)
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const wanted=i%2?otherTitle:title, unwanted=i%2?title:otherTitle
         await capture(f,'issue-picker-search',()=>input.fill(wanted),`()=>document.querySelector('[role="combobox"]')?.value===${JSON.stringify(wanted)} && document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(wanted)}) && !document.querySelector('[role="listbox"]')?.textContent?.includes(${JSON.stringify(unwanted)})`)
       }
       await page.keyboard.press('Escape');await page.keyboard.press('Escape');await page.getByRole('dialog',{name:'Command palette'}).waitFor({state:'hidden'})
     })
     await attempt('issue-board',async()=>{
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const back=page.locator('[data-testid="issue-page"] button[title="Back"]')
         if(await back.isVisible().catch(()=>false))await back.click()
         const home=page.getByTestId('topbar-nav-workspace')
@@ -600,18 +655,19 @@ async function runActions(f) {
       }
     })
     await attempt('dock-open',async()=>{
-      await page.getByTestId('topbar-nav-workspace').click();await row(issue.id).click()
+      await page.getByTestId('topbar-nav-workspace').click();await revealSidebarIssue(page,issue.id);await row(issue.id).click()
       const close=page.locator('button[title^="Close "][title$=" panel"]')
       if(await close.count())await close.last().click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'dock-open',()=>page.getByTestId('right-rail').getByRole('button',{name:'Tasks',exact:true}).click(),'[data-right-dock-panel="issue"]')
         await capture(f,'dock-close',()=>page.locator('button[title="Close tasks panel"]').click(),()=>!document.querySelector('[data-right-dock-panel="issue"]'))
       }
     })
     await attempt('issue-rename',async()=>{
       await page.getByTestId('topbar-nav-workspace').click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const renamed=`Comparison target A revision ${i}`
+        await revealSidebarIssue(page,issue.id)
         await row(issue.id).locator('.shell-work-row-title').dblclick()
         await row(issue.id).locator('input').fill(renamed)
         await capture(f,'issue-rename',()=>page.keyboard.press('Enter'),`()=>document.querySelector('aside [data-issue-row="${issue.id}"] .shell-work-row-title')?.textContent?.trim()===${JSON.stringify(renamed)}`)
@@ -619,8 +675,9 @@ async function runActions(f) {
       await rpc('issues.update',{id:issue.id,patch:{title}})
     })
     await attempt('header-menu',async()=>{
+      await revealSidebarIssue(page,issue.id)
       await row(issue.id).click()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         const trigger=page.locator('[data-panel-resident][data-pane] [data-testid="header-menu"]').last()
         await capture(f,'header-menu',()=>trigger.click(),'[role="menu"]')
         await trigger.click();await page.getByRole('menu').waitFor({state:'hidden'})
@@ -631,7 +688,7 @@ async function runActions(f) {
       const search=page.getByRole('textbox',{name:'Search tasks'})
       await search.fill(title);await pause(300)
       await inspect(page,'board')
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'issue-page-open',()=>page.locator('[data-issue-id]').filter({hasText:title}).first().click(),()=>!!document.querySelector('[data-testid="issue-page"]'))
         await page.locator('[data-testid="issue-page"] button[title="Back"]').click()
       }
@@ -640,7 +697,7 @@ async function runActions(f) {
       await page.getByTestId('topbar-nav-issues').click()
       const input=page.getByRole('textbox',{name:'Search tasks'})
       await input.fill('unflake');await pause(300)
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         const wanted=i%2?'unflake':'Comparison', unwanted=i%2?'Comparison':'unflake'
         await capture(f,'board-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search tasks"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[data-issue-id]')].some(x=>x.textContent?.includes(${JSON.stringify(wanted)})) && ![...document.querySelectorAll('[data-issue-id]')].some(x=>x.textContent?.includes(${JSON.stringify(unwanted)}))`)
       }
@@ -659,28 +716,28 @@ async function runActions(f) {
     const toTasks=async()=>{await backToTabs();await tasks().click()}
     const target=()=>page.getByRole('button',{name:new RegExp(`^(?:[A-Z]+-\\d+|#\\d+) ${title}$`)})
     await attempt('phone-navigation',async()=>{
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'phone-issue-screen',()=>tasks().click(),()=>location.pathname==='/mobile/issues' && !!document.querySelector('[aria-label="Search tasks"]'))
         await capture(f,'phone-work-screen',()=>work().click(),()=>location.pathname==='/mobile/work' && document.querySelector('[role="tab"][aria-label="Work"]')?.getAttribute('aria-selected')==='true')
       }
     })
     await attempt('phone-mission-open',async()=>{
       await toWork()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'phone-mission-open',()=>target().click(),'[aria-label="Mission actions"]')
         await toWork();await target().waitFor()
       }
     })
     await attempt('phone-inbox',async()=>{
       if(!await page.getByRole('tab',{name:'Inbox',exact:true}).count())throw Error('No Inbox tab or production route in this revision; detached Inbox component is not a whole-app measurement')
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'phone-inbox',()=>page.getByRole('tab',{name:'Inbox',exact:true}).click(),()=>location.pathname.includes('/inbox'))
         await toWork()
       }
     })
     await attempt('phone-long-press',async()=>{
       await toWork()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await target().click({trial:true});const box=await target().boundingBox()
         await capture(f,'phone-long-press',async()=>{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await page.waitForTimeout(500)},()=>[...document.querySelectorAll('[role="button"],button')].some(x=>x.textContent?.trim()==='Rename'))
         await cdp.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]})
@@ -689,7 +746,7 @@ async function runActions(f) {
     })
     await attempt('phone-mission-details',async()=>{
       await toWork();await target().click()
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         await capture(f,'phone-mission-details',()=>page.getByRole('button',{name:'Mission details',exact:true}).click(),()=>location.pathname.endsWith('/details') && !!document.querySelector('[aria-label="Launch an agent on this mission"]'))
         await page.getByRole('button',{name:'Done',exact:true}).click()
       }
@@ -698,7 +755,7 @@ async function runActions(f) {
       await toWork();await target().click()
       const input=page.locator('textarea').last()
       await input.focus();await input.fill('')
-      for(let i=0;i<samples+2;i++)await capture(f,'phone-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.value===${JSON.stringify('x'.repeat(i+1))})`)
+      for(let i=0;i<samples+diagnosticSamples;i++)await capture(f,'phone-composer-typing',()=>page.keyboard.insertText('x'),`()=>[...document.querySelectorAll('textarea')].some(x=>x.value===${JSON.stringify('x'.repeat(i+1))})`)
       await input.fill('')
     })
     await attempt('phone-issue-open',async()=>{
@@ -709,7 +766,7 @@ async function runActions(f) {
       await input.fill(title);await pause(250)
       await inspect(page,'phone-board')
       const task=()=>page.getByRole('button',{name:new RegExp(`^Task .*${title}`)}).first()
-      for(let i=0;i<samples+2;i++) {
+      for(let i=0;i<samples+diagnosticSamples;i++) {
         await capture(f,'phone-issue-open',()=>task().click(),`()=>location.pathname==='/mobile/issue/${issue.id}' && !!document.querySelector('[data-testid="issue-keyboard-avoider"]')`)
         await page.getByRole('button',{name:'Back',exact:true}).click()
       }
@@ -722,7 +779,7 @@ async function runActions(f) {
       const input=page.getByRole('textbox',{name:'Search parent',exact:true})
       const alternative=corpus.issues.find(row=>!row.parentId && !row.closedAt && !row.archived).title
       await input.fill(alternative);await pause(350)
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         const wanted=i%2?alternative:otherTitle, unwanted=i%2?otherTitle:alternative
         await capture(f,'phone-issue-picker-search',()=>input.fill(wanted),`()=>{const input=document.querySelector('[aria-label="Search parent"]');const scope=input?.closest('[aria-modal="true"],[role="dialog"]');const labels=[...(scope?.querySelectorAll('[role="button"]')??[])].map(x=>x.getAttribute('aria-label'));return input?.value===${JSON.stringify(wanted)} && labels.some(x=>x?.endsWith(${JSON.stringify(wanted)})) && !labels.some(x=>x?.endsWith(${JSON.stringify(unwanted)}))}`)
       }
@@ -731,7 +788,7 @@ async function runActions(f) {
       else await page.keyboard.press('Escape')
     })
     await attempt('phone-issue-rename',async()=>{
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         const renamed=`Comparison target A revision ${i}`
         await page.getByRole('button',{name:'Task title — edit',exact:true}).click()
         await page.getByRole('textbox',{name:'Task title',exact:true}).fill(renamed)
@@ -743,7 +800,7 @@ async function runActions(f) {
       await toWork();await page.getByRole('button',{name:'Search work',exact:true}).click()
       const input=page.getByRole('textbox',{name:'Search work',exact:true})
       await input.fill(otherTitle);await pause(300)
-      for(let i=0;i<samples+2;i++){
+      for(let i=0;i<samples+diagnosticSamples;i++){
         const wanted=i%2?otherTitle:title
         await capture(f,'phone-work-search',()=>input.fill(wanted),`()=>document.querySelector('[aria-label="Search work"][role="textbox"],input[aria-label="Search work"]')?.value===${JSON.stringify(wanted)} && [...document.querySelectorAll('[role="button"]')].filter(x=>!x.closest('[aria-hidden="true"]')).some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(wanted)})) && ![...document.querySelectorAll('[role="button"]')].filter(x=>!x.closest('[aria-hidden="true"]')).some(x=>x.getAttribute('aria-label')?.endsWith(${JSON.stringify(i%2?title:otherTitle)}))`)
       }
@@ -766,11 +823,7 @@ async function background(f) {
       await f.page.getByTestId('topbar-nav-workspace').click()
       const control=f.page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first()
       if(!await control.count()) {
-        // A windowed sidebar reveals rows by scrolling their project band.
-        // Preparation is outside every measured window; no state API bypass.
-        const project=controls[0].issue.repoPath.split('/').at(-1)
-        await f.page.getByTestId('project-group-label').filter({hasText:project}).first().scrollIntoViewIfNeeded()
-        await frames(f.page);await frames(f.page)
+        await revealSidebarIssue(f.page,controls[0].issue.id,{scroll:false})
       }
       await control.click()
       const expand=f.page.getByRole('button',{name:'Expand Flight Deck',exact:true})
@@ -865,13 +918,13 @@ async function background(f) {
   for(let i=0;i<samples;i++)await metricWindow('quiet',async()=>{})
   for(const [kind,row] of (heartbeatOnly?[['heartbeat',heartbeat]]:[['heartbeat',heartbeat],['issue-change',issue]])) {
     if(!row){result.unavailable.push({action:`background-${kind}`,reason:'No fixture target'});continue}
-    for(let i=0;i<samples+2;i++) {
+    for(let i=0;i<samples+diagnosticSamples;i++) {
       const value={...row.value,...(kind==='heartbeat'?{lastActiveAt:new Date(corpus.fixedNow+10000+i*1000).toISOString()}:{title:`Background issue revision ${i}`})}
       await metricWindow(kind,async()=>kind==='issue-change'?pushChanges(issueChanges(value)):push(row.entity,row.entityId,value),heartbeatOnly && i>=samples)
     }
   }
   if(heartbeatOnly)return
-  if(outputAvailable)for(let i=0;i<samples+2;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
+  if(outputAvailable)for(let i=0;i<samples+diagnosticSamples;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
   // Approximate the historical operator publication rates, using synthetic
   // payloads. Host/draft/conversation events were not output frames; do not
   // silently substitute terminal activity for them.
@@ -966,10 +1019,11 @@ try {
     // Each cold sample owns a new browser context; the paired warm sample
     // reloads it, retaining durable rows and preferences. Bootstrap request
     // routing disables HTTP cache; this is a warm-data reload.
-    for(let i=0;i<5;i++) {
+    const startupSamples=matrixSmoke?1:5
+    for(let i=0;i<startupSamples;i++) {
       if(i!==0)f=fixture=await makePage()
-      await startup(f,'app-cold-start',i===4);await startup(f,'app-warm-start',i===4)
-      if(i!==4)await f.context.close()
+      await startup(f,'app-cold-start',!matrixSmoke&&i===4);await startup(f,'app-warm-start',!matrixSmoke&&i===4)
+      if(i!==startupSamples-1)await f.context.close()
     }
   }
   else {await f.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});if(mode==='probe'){await pause(3000);await inspect(f.page,'early')}await ready(f.page)}
@@ -977,7 +1031,7 @@ try {
   await population(f.page)
   if(mode==='probe') {
     // Untimed controls only: retain selectors for the complete timing action map.
-    if(surface==='web'){await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
+    if(surface==='web'){await revealSidebarIssue(f.page,controls[0].issue.id);await f.page.getByText('Comparison target A',{exact:true}).first().click();await pause(500);await inspect(f.page,'mission');await f.page.getByTestId('topbar-nav-issues').click();await f.page.getByRole('region',{name:'Tasks'}).waitFor({timeout:60000});await inspect(f.page,'board')}
     else if(terminalProbe) {
       const targetSession=controls[0].secondSession.sessionId
       for(let i=0;i<100 && !outputEpochs.has(targetSession);i++)await pause(100)
@@ -1018,6 +1072,7 @@ try {
       if(surface==='web') {
         if(i%3===0) {
           await page.getByTestId('topbar-nav-workspace').click()
+          await revealSidebarIssue(page,issue.id)
           await page.locator(`aside [data-issue-row="${issue.id}"]`).first().click()
           const expand=page.getByRole('button',{name:'Expand Flight Deck',exact:true})
           if(await expand.isVisible().catch(()=>false))await expand.click()
