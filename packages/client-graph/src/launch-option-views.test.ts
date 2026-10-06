@@ -124,6 +124,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     clone('/first'),
     clone('/second'),
     { kind: 'worktree' as const, path: '/first/linked', worktrees: [] },
+    { kind: 'worktree' as const, path: '/unlisted', worktrees: [] },
   ]
   entities.apply(repos.map((value, at) => ({ kind: 'repository' as const, id: `r${at}`, value })))
   const activity = vi.spyOn(pool.queries, 'activity').mockReturnValue(0)
@@ -160,6 +161,9 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     entities.apply([{ kind: 'repository', id: 'r1', value: undefined }])
     expect(views.repositoryPaths()).toEqual(['/first'])
     expect(views.catalog().repoPaths).toEqual(['/first'])
+    entities.order('repository', ['r3'])
+    expect(views.catalog().repoPaths).toEqual([])
+    expect(views.catalog().initialRepoPath).toBe('/unlisted')
   } finally {
     stop()
     activity.mockRestore()

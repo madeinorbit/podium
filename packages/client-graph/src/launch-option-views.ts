@@ -108,12 +108,16 @@ export function launchOptionViews(pool: MobxPool) {
     const catalogOrder = computed(() => {
       const values = headerEntities(pool).repositoryRootIds().flatMap(id => {
         const repo = catalogRoot(id)
-        return repo ? [{ id, path: repo.path, at: catalogUsage(id) }] : []
+        return repo && repo.kind !== 'worktree' ? [{ id, path: repo.path, at: catalogUsage(id) }] : []
       })
       // The default keeps discovery order on equal usage, while displayed
       // choices break ties by basename as the existing New Issue dialog does.
-      const initial = values.reduce<(typeof values)[number] | undefined>((best, value) =>
-        !best || value.at > best.at ? value : best, undefined)?.path ?? ''
+      let initial = values.reduce<(typeof values)[number] | undefined>((best, value) =>
+        !best || value.at > best.at ? value : best, undefined)?.path
+      if (initial === undefined) {
+        const id = headerEntities(pool).firstId('repository')
+        initial = id ? catalogRoot(id)?.path ?? '' : ''
+      }
       values.sort((a, b) => b.at - a.at ||
         (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
           b.path.split('/').filter(Boolean).pop() ?? b.path, undefined, { sensitivity: 'base' }))
