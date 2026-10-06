@@ -1,11 +1,12 @@
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import type { MobxPool } from '@podium/client-graph/pool'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
-import { memo, useCallback, useEffect, useState } from 'react'
+import { compareStructural, computed } from 'mobx'
+import { observer } from 'mobx-react-lite'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
-import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePool } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
 import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -401,14 +402,8 @@ const rowStyles = StyleSheet.create({
   },
 })
 
-type PoolRowSnapshot = {
-  readonly paint: MobileRowPaint | 'loading' | null
-  readonly reader: MobxPool['mobileWork'] | null
-}
-const EMPTY_POOL_ROW: PoolRowSnapshot = Object.freeze({ paint: 'loading', reader: null })
-
 export const PoolWorkRowSlot = memo(
-  function PoolWorkRowSlot({
+  observer(function PoolWorkRowSlot({
     item,
     onTuck,
     ...callbacks
@@ -420,20 +415,21 @@ export const PoolWorkRowSlot = memo(
     onLongPress: (issue: IssueNavigationModel) => void
     onTuck: (id: string) => void
   }) {
-    const read = useCallback(
-      (pool: MobxPool): PoolRowSnapshot => {
+    const pool = useMobilePool()
+    // This row owns one small paint computed. Hidden payload/navigation changes
+    // can refresh its inputs without publishing a new value to the observer.
+    const shown = useMemo(
+      () => computed((): MobileRowPaint | 'loading' | null => {
+        if (!pool) return 'loading'
         const value = pool.mobileWork.row({ id: item.id, kind: item.kind })
-        const shown =
-          typeof value === 'symbol'
-            ? 'loading'
-            : value
-              ? mobileRowPaint(value, mobilePaintNow(pool))
-              : null
-        return { paint: shown, reader: pool.mobileWork }
-      },
-      [item.id, item.kind],
+        return typeof value === 'symbol'
+          ? 'loading'
+          : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
+      }, { equals: compareStructural }),
+      [pool, item.id, item.kind],
     )
-    const { paint, reader } = useMobilePoolProjection(read, EMPTY_POOL_ROW)
+    const paint = shown.get()
+    const reader = pool?.mobileWork
     const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
     const openRow = useCallback(() => {
       const current = reader?.row({ id: item.id, kind: item.kind })
@@ -458,7 +454,7 @@ export const PoolWorkRowSlot = memo(
         onTuck={paint.tuckable ? tuck : undefined}
       />
     )
-  },
+  }),
   (a, b) =>
     a.item.id === b.item.id &&
     a.item.kind === b.item.kind &&
