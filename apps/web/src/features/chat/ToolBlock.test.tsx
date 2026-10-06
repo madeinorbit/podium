@@ -3,10 +3,25 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToolBlock } from './ToolBlock'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const editWork = vi.hoisted(() => ({ resolve: 0, lines: 0 }))
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/values')>()
+  return { ...actual,
+    resolveToolEdit: (...args: Parameters<typeof actual.resolveToolEdit>) => {
+      editWork.resolve += 1
+      return actual.resolveToolEdit(...args)
+    },
+    toolEditLines: (...args: Parameters<typeof actual.toolEditLines>) => {
+      editWork.lines += 1
+      return actual.toolEditLines(...args)
+    },
+  }
+})
 
 let host: HTMLDivElement
 let root: Root
@@ -247,4 +262,26 @@ describe('retained Bash command disclosure', () => {
     unfold()
     expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('')
   })
+})
+
+it('measures folded edit-body work across streamed results and unfolds the latest edit', () => {
+  const toolInputJson = JSON.stringify({ kind: 'file-edit', path: 'a.ts', mode: 'replace',
+    hunks: [{ oldText: 'before', newText: 'after' }], added: 1, removed: 1 })
+  editWork.resolve = 0
+  editWork.lines = 0
+  mount({ toolName: 'Edit', toolInput: 'a.ts', toolInputJson })
+  const mountWork = { ...editWork }
+  const frames = []
+  for (let token = 0; token < 5; token++) {
+    const before = { ...editWork }
+    mount({ toolName: 'Edit', toolInput: 'a.ts', toolInputJson, toolResult: `ok ${token}` })
+    frames.push({ resolve: editWork.resolve - before.resolve, lines: editWork.lines - before.lines })
+  }
+  expect(host.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
+  const folded = { ...editWork }
+  unfold()
+  expect(host.querySelector('[data-testid="tool-edit-diff"]')?.textContent).toContain('after')
+  expect(editWork.lines - folded.lines).toBe(1)
+  console.log('[folded tool edit-body work]', JSON.stringify({ mount: mountWork, frames,
+    unfold: { resolve: editWork.resolve - folded.resolve, lines: editWork.lines - folded.lines } }))
 })

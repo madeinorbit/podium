@@ -13,7 +13,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * and draft saving/Stop behaviour is unchanged (covered by existing tests).
  */
 
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
@@ -47,6 +47,21 @@ vi.mock('./PullToRefreshBoundary', () => ({
 
 const screenRenders = vi.hoisted(() => ({ count: 0 }))
 const transcriptRenders = vi.hoisted(() => ({ count: 0 }))
+const composerWork = vi.hoisted(() => ({ renders: 0, state: 0 }))
+vi.mock('./Composer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./Composer')>()
+  return { ...actual, Composer: (props: Parameters<typeof actual.Composer>[0]) => {
+    composerWork.renders += 1
+    return <actual.Composer {...props} />
+  } }
+})
+vi.mock('@podium/client-core/values', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/values')>()
+  return { ...actual, composerState: (...args: Parameters<typeof actual.composerState>) => {
+    composerWork.state += 1
+    return actual.composerState(...args)
+  } }
+})
 
 vi.mock('./SessionLifecycle', () => ({
   MobileSessionLifecycle: () => {
@@ -56,12 +71,15 @@ vi.mock('./SessionLifecycle', () => ({
 }))
 vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
-vi.mock('./TranscriptList', () => ({
-  TranscriptList: () => {
+vi.mock('./TranscriptList', async () => {
+  const { observer } = await import('mobx-react-lite')
+  return { TranscriptList: observer(({ transcript }: {
+    transcript: import('@podium/client-core/conversation').TranscriptLog
+  }) => {
     transcriptRenders.count += 1
-    return null
-  },
-}))
+    return <span data-testid="stream-text">{transcript.byId.get('stream')?.text}</span>
+  }) }
+})
 
 const { SessionConversation } = await import('./SessionConversation')
 
@@ -78,11 +96,11 @@ describe('phone composer draft isolation', () => {
   it('typing N keys renders the transcript 0 times and the screen 0 times', async () => {
     screenRenders.count = 0
     transcriptRenders.count = 0
-    await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
+    const fixture = await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
       sessions: [session],
       api: {
         sessions: {
-          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+          transcriptRead: { query: async () => ({ items: [{ id: 'stream', role: 'assistant', text: 'start', cursor: 'stream' }], hasMore: false }) },
           answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
           interrupt: { mutate: async () => ({ ok: true }) },
         },
@@ -105,6 +123,7 @@ describe('phone composer draft isolation', () => {
     const transcriptBaseline = transcriptRenders.count
     const screenBaseline = screenRenders.count
 
+    const composerBaseline = { ...composerWork }
     const keys = ['h', 'he', 'hel', 'hell', 'hello']
     for (const value of keys) {
       fireEvent.change(field, { target: { value } })
@@ -116,5 +135,25 @@ describe('phone composer draft isolation', () => {
     // Neither the transcript nor the screen re-rendered for any key.
     expect(transcriptRenders.count).toBe(transcriptBaseline)
     expect(screenRenders.count).toBe(screenBaseline)
+    expect(composerWork.renders - composerBaseline.renders).toBe(keys.length)
+    expect(composerWork.state).toBe(composerBaseline.state)
+    const typing = { keys: keys.length, composer: composerWork.renders - composerBaseline.renders,
+      screen: screenRenders.count - screenBaseline, transcript: transcriptRenders.count - transcriptBaseline,
+      composerState: composerWork.state - composerBaseline.state }
+
+    const streamed = []
+    for (let token = 1; token <= 5; token++) {
+      const before = { composer: composerWork.renders, state: composerWork.state,
+        screen: screenRenders.count, transcript: transcriptRenders.count }
+      await act(async () => fixture.emit('transcriptDelta', session.sessionId,
+        [{ id: 'stream', role: 'assistant', text: `token ${token}`, cursor: 'stream' }], { reset: false }))
+      await waitFor(() => expect(screen.getByTestId('stream-text').textContent).toBe(`token ${token}`))
+      streamed.push({ token, composer: composerWork.renders - before.composer,
+        composerState: composerWork.state - before.state, screen: screenRenders.count - before.screen,
+        transcript: transcriptRenders.count - before.transcript })
+    }
+    expect(field.value).toBe('hello')
+    expect(streamed.every(sample => sample.composer === 0 && sample.screen === 0 && sample.composerState === 0)).toBe(true)
+    console.log('[phone composer typing and stream]', JSON.stringify({ typing, streamed }))
   })
 })
