@@ -97,7 +97,9 @@ function fixture(scale: 1 | 4) {
       deps: [], labels: [], archived: false, deletedAt: null,
     },
   }))
-  pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined, {
+    header: true, worklist: 'demand', load: () => undefined, schedule: () => () => {},
+  })
   pool.apply({ type: 'replace', rows })
   headerEntities(pool).apply([
     { kind: 'hostMetric', id: MACHINE, value: metric },
@@ -138,8 +140,8 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); pool?.dispose() })
 it.each([1, 4] as const)('closed header reads zero reclaim candidates across title, occupancy and deadline changes at %ix', async (scale) => {
   const count = fixture(scale)
   const row = vi.spyOn(pool, 'row')
-  // Row reads include the old count's summary reads. Identity lookups during
-  // ingestion are write-path work, not a header read of a candidate.
+  // The header is the only mounted pool consumer: the worklist has no demand.
+  // Count full rows and summaries, including the old count's summary reads.
   const candidatesRead = () => row.mock.calls.filter(
     ([entity, id]) => entity === 'issue' && id.startsWith('candidate-'),
   ).length
