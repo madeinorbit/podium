@@ -430,7 +430,11 @@ function createHeaderViews(pool: MobxPool) {
         return metric ? [metric] : []
       }),
     machines: () =>
-      headerIds(pool, 'machine').flatMap((id) => {
+      // The fleet section follows the live keyed order, not every table row:
+      // feed companions land in the tables for joins (S6) but are not fleet
+      // members. Pre-S6 the tables held live rows only, so this restores that
+      // membership exactly; joins and offline detection keep reading tables.
+      (headerEntities(pool).orders.get('machine') ?? []).flatMap((id) => {
         const machine = row('machine', id)
         return machine ? [machine] : []
       }),
