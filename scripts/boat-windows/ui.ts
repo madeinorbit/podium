@@ -9,6 +9,8 @@
  *   boat-win.sh ui ID button 'Continue'          click the visible button with this accessible name
  *   boat-win.sh ui ID fill 'placeholder' 'C:\x'  fill the input with this placeholder or label
  *   boat-win.sh ui ID press Enter                press a key
+ *   boat-win.sh ui ID css '.xterm-screen'        click the last visible element matching a CSS selector
+ *   boat-win.sh ui ID type 'dir'                 type text into whatever has focus
  *   boat-win.sh ui ID eval 'location.href'       evaluate an expression
  *   boat-win.sh ui ID shot                       full-page screenshot to C:\ui.png
  *
@@ -72,6 +74,13 @@ for (const [action, ...args] of steps) {
       await field.first().fill(args[1] ?? '')
       break
     }
+    case 'css':
+      await page.locator(args[0] ?? 'body').filter({ visible: true }).last().click()
+      await page.waitForTimeout(500)
+      break
+    case 'type':
+      await page.keyboard.type(args[0] ?? '', { delay: 20 })
+      break
     case 'press':
       await page.keyboard.press(args[0] ?? 'Enter')
       break
