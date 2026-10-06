@@ -601,7 +601,7 @@ describe('test lane configuration', () => {
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
     expect(pkg.scripts.test).toBe(
-      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun scripts/test-lean.ts',
+      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun scripts/test-lean.ts',
     )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
     // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
