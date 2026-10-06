@@ -47,11 +47,11 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
   for (const scale of [1, 4]) {
     const data = fixture(scale)
     let pool: MobxPool | null = null
-    let show!: () => void
+    let show!: (open: boolean) => void
     function Host() {
       pool = useMobilePool()
       const [open, setOpen] = useState(false)
-      show = () => setOpen(true)
+      show = setOpen
       return surface === 'NewWorkButton' ? <NewWorkButton /> : open ? <NewIssueScreen /> : null
     }
     const app = await renderWithMobileStore(<Host />, data)
@@ -69,7 +69,7 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
       return { action, ...result.work }
     }
     const cells = []
-    cells.push(await measured('open', () => surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show()))
+    cells.push(await measured('open', () => surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true)))
     if (surface === 'NewWorkButton') {
       expect(screen.getByLabelText('Start in p000')).toBeTruthy()
       cells.push(await measured('repository-choice', () => {
@@ -98,9 +98,11 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     }))
     cells.push(await measured('usage', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' }], [])))
     cells.push(await measured('heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z' }], [])))
+    await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('Dismiss launcher')) : show(false) })
+    cells.push(await measured('closed-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-05T00:00:00Z' }], [])))
     samples.push({ scale, repositories: data.repos.length, sessions: data.sessions.length, cells })
     app.unmount(); cleanup()
   }
-  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples))
+  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
 }, 60_000)
