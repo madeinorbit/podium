@@ -317,6 +317,38 @@ describe.skipIf(!windows)('Windows durable host', () => {
     await until(() => view.text().includes(JSON.stringify(args)), 'literal batch argv')
   })
 
+  it('unsupported signals keep pipe children alive; SIGINT terminates with status 130', async () => {
+    const name = label()
+    const s = await create(name, true)
+    const errors: string[] = []
+    s.connection.onError((e) => errors.push(e.message))
+    for (const signal of [1, 18, 28]) {
+      s.connection.signal(signal)
+      await until(() => errors.length > 0, 'unsupported signal reported')
+      expect(errors.shift()).toContain('ignored')
+      expect((await s.connection.status()).alive).toBe(true)
+    }
+    s.connection.signal(2)
+    await until(() => s.connection.exited !== undefined, 'pipe interrupt terminates')
+    expect(s.connection.exited?.code).toBe(130)
+  })
+
+  it('a protected inventory write failure is not reported as an owned pipe collision', () => {
+    const name = label()
+    const markerDirectory = join(root, 'marker-directory')
+    mkdirSync(markerDirectory)
+    try {
+      const result = spawnSync(bin, [
+        'create', '--socket', hostSocketPath(name), '--pidfile', markerDirectory,
+        '--no-pty', '--', process.execPath, fixture,
+      ], { encoding: 'utf8' })
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('podium-host:')
+    } finally {
+      rmSync(markerDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('reports missing executables synchronously and publishes no discovery marker', async () => {
     const name = label()
     await expect(create(name, true, 'podium-definitely-missing.exe')).rejects.toThrow()

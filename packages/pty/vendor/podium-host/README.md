@@ -178,3 +178,15 @@ Windows Ctrl-C is console input and termination targets the child job.
 
 Native acceptance: `cargo test --locked` in this crate and, from the repository
 root, `bun run test:file -- packages/pty/test/host-windows.bun.test.ts`.
+
+Windows clients use `podium-host connect --socket <pipe>` as a native stdio
+bridge. It opens the exact protocol handle with identification-only SQOS,
+checks the named-pipe server process's token user against the caller's SID,
+and only then forwards bytes. Discovery and adoption use the same bridge;
+a stale marker or squatted global pipe name cannot establish trust.
+Bare commands search PATH without implicitly searching the session directory.
+Only a first-instance bind collision reports exit 3; other startup failures
+report exit 1. Unsupported POSIX signals are ignored with a protocol diagnostic.
+ConPTY SIGINT writes Ctrl-C; a pipes-only child has no console, so its documented
+interrupt equivalent terminates its owned job with status 130. SIGTERM/SIGKILL
+terminate the job with status 143/137 respectively.

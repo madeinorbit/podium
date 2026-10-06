@@ -371,6 +371,11 @@ impl Listener {
                 0,
                 &sa,
             )
+        }).map_err(|e| {
+            if first && e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+                // Only failure of FIRST_PIPE_INSTANCE establishes a name collision.
+                io::Error::new(io::ErrorKind::AddrInUse, e)
+            } else { e }
         })?;
         let mut connect = Operation::new()?;
         let ok = unsafe { ConnectNamedPipe(handle.0, &mut *connect.ov) };
@@ -497,6 +502,10 @@ fn random_suffix() -> io::Result<String> {
     Ok(format!("{a:016x}{b:016x}"))
 }
 
+fn termination_status(signo: i32) -> Option<u32> {
+    matches!(signo, 2 | 9 | 15).then_some((128 + signo) as u32)
+}
+
 pub struct ChildControl {
     process: Handle,
     job: Handle,
@@ -521,13 +530,12 @@ impl ChildControl {
         (unsafe { GetExitCodeProcess(self.process.0, &mut code) } != 0).then_some(code as i32)
     }
     pub fn signal(&self, signo: i32) {
-        if signo == 2 {
-            // ConPTY's input is the console's interrupt boundary. The shared
-            // host queues Ctrl-C separately (see signal_input below).
-            return;
-        }
-        unsafe {
-            TerminateJobObject(self.job.0, (128 + signo) as u32);
+        // ConPTY SIGINT is queued input by the host. A --no-pty child has
+        // CREATE_NO_WINDOW and no console to receive a console control event:
+        // its interrupt equivalent terminates the owned job with status 130.
+        // It must not silently defeat SDK interrupt/termination escalation.
+        if let Some(code) = termination_status(signo) {
+            unsafe { TerminateJobObject(self.job.0, code); }
         }
     }
     pub fn close_console(&self) {
@@ -642,6 +650,11 @@ fn quote_batch_arg(arg: &str) -> io::Result<String> {
 }
 
 fn resolve_program(program: &str) -> io::Result<PathBuf> {
+    resolve_program_on_path(program,
+        &std::env::var_os("PATH").unwrap_or_default(),
+        &std::env::var("PATHEXT").unwrap_or(".COM;.EXE;.BAT;.CMD".into()))
+}
+fn resolve_program_on_path(program: &str, path: &OsStr, extensions: &str) -> io::Result<PathBuf> {
     // CreateProcessW's search omits PATH changes in custom environments in some
     // launchers. Resolve before spawning, and pass an explicit application path.
     let p = Path::new(program);
@@ -654,10 +667,9 @@ fn resolve_program(program: &str) -> io::Result<PathBuf> {
             format!("cannot run {program}"),
         ));
     }
-    let extensions = std::env::var("PATHEXT").unwrap_or(".COM;.EXE;.BAT;.CMD".into());
-    for dir in std::iter::once(std::env::current_dir()?).chain(std::env::split_paths(
-        &std::env::var_os("PATH").unwrap_or_default(),
-    )) {
+    // Match execvp: a repository must not override a bare agent command.
+    // Explicit relative paths remain supported above; only PATH searches here.
+    for dir in std::env::split_paths(path) {
         for ext in std::iter::once("").chain(extensions.split(';')) {
             let candidate = dir.join(format!("{program}{ext}"));
             if candidate.is_file() {
@@ -880,6 +892,87 @@ fn protected_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     result
 }
 
+/// A client authenticates the server on the very handle that carries input.
+/// Node/Bun do not expose the SQOS flags or that HANDLE; never open Windows
+/// protocol connections directly through their net API.
+fn verify_server(handle: HANDLE, expected_owner: PSID) -> io::Result<()> {
+    let mut pid = 0;
+    check(unsafe { GetNamedPipeServerProcessId(handle, &mut pid) })?;
+    let process = Handle::new(unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) })?;
+    let mut token = null_mut();
+    check(unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) })?;
+    let token = Handle::new(token)?;
+    let mut len = 0;
+    unsafe { GetTokenInformation(token.0, TokenUser, null_mut(), 0, &mut len); }
+    let mut storage = vec![0usize; (len as usize).div_ceil(size_of::<usize>())];
+    check(unsafe { GetTokenInformation(token.0, TokenUser, storage.as_mut_ptr().cast(), len, &mut len) })?;
+    let user = unsafe { &*(storage.as_ptr().cast::<TOKEN_USER>()) };
+    if unsafe { EqualSid(expected_owner, user.User.Sid) } == 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "named pipe server belongs to another user"));
+    }
+    Ok(())
+}
+fn authenticated_pipe(name: &OsStr) -> io::Result<Stream> {
+    if !name.to_string_lossy().starts_with(r"\\.\pipe\podium-host-") {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "expected a local podium-host named pipe"));
+    }
+    let handle = Handle::new(unsafe {
+        CreateFileW(wide(name).as_ptr(), GENERIC_READ | GENERIC_WRITE, 0, null(), OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, null_mut())
+    })?;
+    let security = Security::current_user()?;
+    let mut owner = null_mut();
+    let mut defaulted = 0;
+    check(unsafe { GetSecurityDescriptorOwner(security.descriptor, &mut owner, &mut defaulted) })?;
+    verify_server(handle.0, owner)?;
+    Stream::new(handle)
+}
+fn connect_stdio(name: &OsStr) -> io::Result<()> {
+    let pipe = authenticated_pipe(name)?;
+    // This is the only startup notification; stdout is exclusively protocol.
+    // No input is read/forwarded and no server bytes are rendered before vetting.
+    eprintln!("CONNECTED");
+    let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+    std::thread::spawn(move || {
+        let mut input = io::stdin().lock();
+        loop {
+            let mut bytes = vec![0; 16384];
+            match input.read(&mut bytes) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => { bytes.truncate(n); if sender.send(bytes).is_err() { break; } }
+            }
+        }
+    });
+    let mut pending = Vec::new();
+    let mut offset = 0;
+    let mut output = io::stdout().lock();
+    let mut buffer = [0; 16384];
+    loop {
+        if pending.is_empty() {
+            match receiver.try_recv() {
+                Ok(bytes) => { pending = bytes; offset = 0; }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return Ok(()),
+                Err(std::sync::mpsc::TryRecvError::Empty) => (),
+            }
+        }
+        if !pending.is_empty() {
+            match (&pipe).write(&pending[offset..]) {
+                Ok(0) => return Ok(()),
+                Ok(n) => { offset += n; if offset == pending.len() { pending.clear(); } }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                Err(e) => return Err(e),
+            }
+        }
+        match (&pipe).read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(n) => { output.write_all(&buffer[..n])?; output.flush()?; }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+            Err(e) => return Err(e),
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// The public launcher waits for a private ready-file after the detached host
 /// has bound the pipe and spawned the child. A failed breakaway is a failure,
 /// never a hidden job-bound host that would die with the daemon.
@@ -896,6 +989,12 @@ pub fn run() {
             crate::VERSION,
             crate::HOST_FEATURES
         ),
+        Command::Connect(name) => {
+            if let Err(e) = connect_stdio(&name) {
+                eprintln!("podium-host connect: {e}");
+                std::process::exit(if matches!(e.raw_os_error(), Some(2 | 3)) { 4 } else { 5 });
+            }
+        }
         Command::Create(opts) => {
             if let Some(report) = std::env::var_os("PODIUM_HOST_WINDOWS_REPORT") {
                 // Only the re-exec child sees this environment variable. Keep
@@ -947,7 +1046,7 @@ pub fn run() {
                             format!("podium-host: {e}\n").as_bytes(),
                         );
                         std::process::exit(
-                            if e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+                            if e.kind() == io::ErrorKind::AddrInUse {
                                 3
                             } else {
                                 1
@@ -1015,6 +1114,70 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unsupported_signals_never_terminate_and_pipe_interrupt_is_explicit() {
+        for signal in [0, 1, 18, 19, 28] { assert_eq!(termination_status(signal), None); }
+        assert_eq!(termination_status(2), Some(130));
+        assert_eq!(termination_status(9), Some(137));
+        assert_eq!(termination_status(15), Some(143));
+    }
+    #[test]
+    fn bare_programs_do_not_search_the_session_directory() {
+        let name = format!("podium-cwd-hijack-{}.exe", std::process::id());
+        let cwd = std::env::current_dir().unwrap();
+        let planted = cwd.join(&name);
+        fs::write(&planted, b"not an agent").unwrap();
+        let other = cwd.join("target").join("no-agent-here");
+        let result = resolve_program_on_path(&name, other.as_os_str(), ".EXE;.CMD");
+        let explicit = resolve_program_on_path(&format!(r".\{name}"), other.as_os_str(), ".EXE;.CMD");
+        fs::remove_file(planted).unwrap();
+        assert!(result.is_err());
+        assert!(explicit.is_ok());
+    }
+    #[test]
+    fn authenticated_client_checks_owner_on_its_handle_and_cannot_act_as_client() {
+        let name = OsString::from(format!(r"\\.\pipe\podium-host-auth-test-{}", std::process::id()));
+        let listener = Listener::bind(&name).unwrap();
+        let client = authenticated_pipe(&name).unwrap();
+        // A different expected owner is rejected using the real server token.
+        let mut other = null_mut();
+        check(unsafe { ConvertStringSidToSidW(wide("S-1-1-0").as_ptr(), &mut other) }).unwrap();
+        let refused = verify_server(client.handle.0, other);
+        unsafe { LocalFree(other); }
+        assert_eq!(refused.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match (&client).write(b"identify") {
+                Ok(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                Err(e) => panic!("{e}"),
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (server, _) = listener.accept().unwrap();
+        let mut bytes = [0; 8];
+        loop {
+            match (&server).read(&mut bytes) {
+                Ok(8) => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                other => panic!("{other:?}"),
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        check(unsafe { ImpersonateNamedPipeClient(server.handle.0) }).unwrap();
+        let mut token = null_mut();
+        let opened = unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 1, &mut token) };
+        let mut level = SecurityAnonymous;
+        let mut len = 0;
+        let queried = if opened != 0 { unsafe {
+            GetTokenInformation(token, TokenImpersonationLevel, (&mut level as *mut _).cast(), size_of_val(&level) as u32, &mut len)
+        }} else { 0 };
+        unsafe { RevertToSelf(); if !token.is_null() { CloseHandle(token); } }
+        assert_ne!(queried, 0);
+        assert_eq!(level, SecurityIdentification);
+    }
     #[test]
     fn windows_argv_quotes_empty_unicode_and_backslashes() {
         assert_eq!(quote_arg(""), "\"\"");

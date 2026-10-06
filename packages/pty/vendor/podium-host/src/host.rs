@@ -648,8 +648,12 @@ impl Host {
                         data: vec![3],
                         off: 0,
                     });
-                } else {
+                } else if matches!(signo, 2 | 9 | 15) {
                     self.kill_child(signo as i32);
+                } else {
+                    // SIGWINCH/SIGHUP/SIGCONT have no Windows process semantics.
+                    // Report the ignored request so the daemon logs it; never kill.
+                    self.refuse(ci, proto::ERR_BAD_FRAME, "signal unsupported on Windows; ignored");
                 }
                 #[cfg(unix)]
                 self.kill_child(signo as i32);

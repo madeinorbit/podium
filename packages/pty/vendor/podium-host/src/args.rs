@@ -28,6 +28,8 @@ pub struct CreateOpts {
 #[derive(Debug)]
 pub enum Command {
     Version,
+    #[cfg(windows)]
+    Connect(OsString),
     Create(CreateOpts),
 }
 
@@ -68,6 +70,10 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     use ArgError::Usage;
     match argv.get(1).map(Vec::as_slice) {
         Some(b"version") => return Ok(Command::Version),
+        #[cfg(windows)]
+        Some(b"connect") if argv.len() == 4 && argv[2] == b"--socket" => {
+            return Ok(Command::Connect(os_string(argv[3].clone())));
+        }
         Some(b"create") => {}
         _ => return Err(Usage),
     }

@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
-import { createConnection, type Socket } from 'node:net'
+import { createConnection } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
@@ -15,6 +16,7 @@ import {
 import { resolveScopeBudget } from '@podium/runtime/scope'
 import type { PtyProcess } from './backends/types.js'
 import { HOST_UNAVAILABLE, resolveHostBin } from './host-bin.js'
+import { connectWindowsHost } from './host-windows-transport.js'
 import {
   applySessionsSliceBudget,
   canScopeMaster,
@@ -229,7 +231,7 @@ type PendingReplay = {
  */
 export class HostConnection {
   readonly welcome: Promise<HostWelcome>
-  private readonly sock: Socket
+  private readonly sock: Duplex
   private readonly decode = createHostFrameDecoder()
   private readonly pending: Pending[] = []
   private readonly pendingWrites: PendingWrite[] = []
@@ -273,7 +275,7 @@ export class HostConnection {
       this.rejectWelcome = reject
     })
     // Node queues writes issued before 'connect', so HELLO is always first.
-    this.sock = createConnection(socketPath)
+    this.sock = hostConnectionStream(socketPath)
     this.sock.write(encodeHello(mode, fromSeq))
     this.sock.on('data', (chunk: Buffer) => {
       for (const f of this.decode(chunk)) this.onFrame(f.type, f.payload)
@@ -666,6 +668,11 @@ export function hostSocketPath(label: string, env: NodeJS.ProcessEnv = process.e
   return hostEndpointForMarker(join(hostSocketDir(env), `${label}.sock`))
 }
 
+/** Windows authenticates the exact pipe handle in its native bridge. */
+function hostConnectionStream(path: string): Duplex {
+  return process.platform === 'win32' ? connectWindowsHost(path) : createConnection(path)
+}
+
 /** Connect probe: does anything answer at this path? */
 export function probeHostSocket(path: string): Promise<'live' | 'refused' | 'missing'> {
   return new Promise((resolve) => {
@@ -673,7 +680,7 @@ export function probeHostSocket(path: string): Promise<'live' | 'refused' | 'mis
       resolve('missing')
       return
     }
-    const s = createConnection(path)
+    const s = hostConnectionStream(path)
     const done = (r: 'live' | 'refused' | 'missing'): void => {
       s.destroy()
       resolve(r)
@@ -798,7 +805,8 @@ export async function killHostSession(
     const c = connectHost(path, { mode: 'writer' })
     try {
       const w = await c.welcome
-      if (w.lease) {
+      if (w.lease || process.platform === 'win32') {
+        if (!w.lease) await c.steal()
         c.kill()
         await new Promise<void>((resolve) => {
           const t = setTimeout(resolve, 7000)
@@ -812,16 +820,10 @@ export async function killHostSession(
           })
         })
       } else {
-        if (process.platform === 'win32') {
-          // TerminateProcess cannot run the host's child-job cleanup.
-          await c.steal()
-          c.kill()
-        } else {
-          try {
-            process.kill(w.hostPid, 'SIGTERM')
-          } catch {
-            /* already gone */
-          }
+        try {
+          process.kill(w.hostPid, 'SIGTERM')
+        } catch {
+          /* already gone */
         }
       }
     } catch {
