@@ -3,7 +3,7 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ActiveWorktree } from '@podium/client-core/values'
+import type { ActiveWorktree, IssueNavigationModel } from '@podium/client-core/values'
 import type { RepoId } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
@@ -215,12 +215,11 @@ export function createShellViews(pool: MobxPool) {
       // only its shown present sessions — never archived history.
       const rootId = missions(pool).rootFor(state.selectedIssueId)
       if (rootId === LOADING) return LOADING
-      let missionRoot: { id: string; title: string; type: string; childCount: number } | undefined = undefined
+      let missionRoot: Pick<IssueNavigationModel, 'id' | 'title' | 'type' | 'childCount'> | undefined = undefined
       if (rootId) {
-        const full = pool.row('issue', rootId) as Loaded<{
-          id: string; title: string; type: string; archived?: boolean; deletedAt?: string | null;
-          isDraftVessel?: boolean; worktreePath?: string | null
-        }>
+        const full = pool.row('issue', rootId) as Loaded<
+          Pick<IssueNavigationModel, 'id' | 'title' | 'type' | 'archived' | 'deletedAt' | 'isDraftVessel' | 'worktreePath'>
+        >
         if (full === LOADING) return LOADING
         if (!full || full.archived || full.deletedAt) missionRoot = undefined
         else if (full.isDraftVessel && !full.worktreePath) {
