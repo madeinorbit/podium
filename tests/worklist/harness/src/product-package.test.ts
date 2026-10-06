@@ -12,7 +12,7 @@ const PRODUCT = join(PROTOTYPE, '../../packages/client-graph')
 describe('product worklist package boundary', () => {
   it('public data, shared and React entries reach the one pool without prototype machinery', () => {
     const graph = new Set(
-      ['index.ts', 'shared/index.ts', 'react/index.ts'].flatMap((entry) =>
+      ['index.ts', 'runtime-pool.ts', 'shared/index.ts', 'react/index.ts'].flatMap((entry) =>
         moduleGraphOf(join(PRODUCT, 'src', entry)),
       ),
     )
@@ -24,7 +24,7 @@ describe('product worklist package boundary', () => {
       'residency.ts',
       'worklist/visible.ts',
       'worklist/rollup.ts',
-      'write/edit.ts',
+      'write/transactions.ts',
       'shared/row-source.ts',
       'react/row.tsx',
     ]) {
