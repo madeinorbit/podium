@@ -1,5 +1,5 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { poolFixtureStore, poolFixtureIssues } from '@/test-support/pool-issue-fixture'
-import '@/test-support/mock-core-store-handle'
 
 // @vitest-environment happy-dom
 
@@ -68,6 +68,18 @@ const state = {
     },
   },
 }
+
+// The generic store-handle helper also installs a screen-pool mock. This suite
+// owns a real board source, so its store handle must not replace that pool.
+vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/react')>()
+  const owner = withKeyedInputs({
+    getSnapshot: () => poolFixtureStore(state) as never,
+    services: {},
+    subscribe: () => () => {},
+  })
+  return { ...actual, useStoreHandle: () => owner }
+})
 
 vi.mock('@/app/store', () => ({
   useStore: () => state as never,
