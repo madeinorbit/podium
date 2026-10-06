@@ -23,11 +23,11 @@ function fixture(scale: 1 | 4) {
   const repos: SettingsRows['settingsRepository'][] = [
     { path: '/project', machineId: asMachineId('host'), kind: 'repository', branch: 'main', worktrees },
     { path: '/other', machineId: asMachineId('host'), kind: 'repository', branch: 'main', worktrees: [] },
-    ...worktrees.map(tree => ({ ...tree, machineId: asMachineId('host'), kind: 'worktree', worktrees: [] })),
+    ...worktrees.map(tree => ({ ...tree, machineId: asMachineId('host'), kind: 'worktree' as const, worktrees: [] })),
   ]
   const machines: SettingsRows['settingsMachine'][] = [{
     id: asMachineId('host'), name: 'Host', hostname: 'host', online: true,
-    lastSeenAt: stamp, use: 'granted', availability: { daemon: true },
+    lastSeenAt: stamp, use: 'granted', availability: { daemon: true, server: false, supervisor: false, epoch: 'test' },
     serviceAssignment: { server: false, agentExecution: true },
   }]
   const lists = {

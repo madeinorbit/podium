@@ -1,7 +1,7 @@
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { memo, useState } from 'react'
-import { useAutomationTarget, useAutomationTargetMachine, useAutomationTargets } from '@/app/automation-readers'
+import { useAutomationTarget, useAutomationTargetForPath, useAutomationTargetMachine, useAutomationTargets } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -132,6 +132,7 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const targetMachineId = useAutomationTargetMachine(state.target)
+  const selectedTarget = useAutomationTargetForPath(state.target, automation?.repoPath ?? null)
 
   const patch = (next: Partial<AutomationFormState>): void =>
     setState((prev) => ({ ...prev, ...next }))
@@ -185,6 +186,7 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
         state={state}
         ctx={ctx}
         targetIds={ids}
+        targetLabel={selectedTarget?.label}
         machineId={targetMachineId}
         onChange={patch}
         onAgentChange={(agent) => patch({ agent, model: AUTO, effort: AUTO })}
@@ -282,6 +284,7 @@ function AutomationField({
   state,
   ctx,
   targetIds,
+  targetLabel,
   machineId,
   onChange,
   onAgentChange,
@@ -290,6 +293,7 @@ function AutomationField({
   state: AutomationFormState
   ctx: AutomationFormContext
   targetIds: readonly string[]
+  targetLabel: string | undefined
   machineId?: MachineId
   onChange: (next: Partial<AutomationFormState>) => void
   onAgentChange: (agent: ReturnType<typeof issueDefaultAgentKind>) => void
@@ -386,8 +390,8 @@ function AutomationField({
     <div className="flex flex-col gap-1.5">
       {field.label && <Label htmlFor={field.id}>{field.label}</Label>}
       {field.field === 'target' ? (
-        <Select value={state.target} onValueChange={target => onChange({ target })}>
-          <SelectTrigger id={field.id}><SelectValue /></SelectTrigger>
+        <Select value={state.target} onValueChange={target => onChange({ target: target ?? state.target })}>
+          <SelectTrigger id={field.id} className="w-full"><SelectValue>{targetLabel}</SelectValue></SelectTrigger>
           <SelectContent>
             {targetIds.map(id => <AutomationTargetOption key={id} id={id} />)}
           </SelectContent>

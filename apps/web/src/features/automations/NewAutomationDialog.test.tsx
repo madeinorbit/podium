@@ -11,6 +11,7 @@ vi.mock('@/app/automation-readers', () => ({
     excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }, pending: 0,
   }),
   useAutomationTarget: () => ({ value: '/repos/podium', label: 'podium', availability: 'available' }),
+  useAutomationTargetForPath: () => ({ value: '/repos/podium', label: 'podium', availability: 'available' }),
   useAutomationTargetMachine: () => undefined,
 }))
 

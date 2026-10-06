@@ -33,6 +33,13 @@ export function useAutomationTargetMachine(path: string) {
   )
   return useWorklistPoolProjection(read, undefined)
 }
+export function useAutomationTargetForPath(path: string, savedPath: string | null) {
+  const read = useCallback(
+    (pool: Parameters<typeof automationViews>[0]) => automationViews(pool).targetForPath(path, savedPath),
+    [path, savedPath],
+  )
+  return useWorklistPoolProjection(read, undefined)
+}
 export function useAutomationRunSession(id: string | undefined) {
   const read = useCallback(
     (pool: Parameters<typeof automationViews>[0]) => automationViews(pool).session(id),

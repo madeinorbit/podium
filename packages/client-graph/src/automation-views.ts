@@ -69,7 +69,7 @@ function createAutomationViews(pool: MobxPool) {
     return pool.queries.setupSessionPresent(id) ? pool.row('setupSession', id) : undefined
   }
   return { list, repositories, targets: targetViews.targets, target: targetViews.target,
-    targetMachine: targetViews.targetMachine, session,
+    targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, session,
     dispose: () => { cache.clear(); targetViews.dispose() } }
 }
 export function automationViews(pool: MobxPool) {

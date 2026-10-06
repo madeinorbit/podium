@@ -189,5 +189,13 @@ export function createAutomationTargets(pool: MobxPool) {
       return machine === LOADING ? undefined : machine
     })
   }
-  return { targets, target, targetMachine, dispose: () => cache.clear() }
+  function targetForPath(value: string, savedPath: string | null) {
+    return memo(`targetForPath:${JSON.stringify([value, savedPath])}`, () => {
+      if (value === GLOBAL) return target(GLOBAL)
+      for (const id of byPath().get(value) ?? EMPTY_IDS)
+        if (status(id) === 0) return target(id)
+      return value === savedPath ? target(`${SAVED}${value}`) : undefined
+    })
+  }
+  return { targets, target, targetMachine, targetForPath, dispose: () => cache.clear() }
 }
