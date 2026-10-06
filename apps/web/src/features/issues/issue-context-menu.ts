@@ -1,7 +1,6 @@
 import { isClosed } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   type HandoffAvailability,
   type HandoffIssue,
