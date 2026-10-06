@@ -18,6 +18,7 @@ import {
   ensurePodiumCodexHooks,
   parseCodexHookTrustState,
   PODIUM_CODEX_HOOK_COMMAND,
+  PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
   parseCodexVersion,
   podiumHookPositions,
   supportsCodexHooks,
@@ -72,6 +73,8 @@ describe('ensurePodiumCodexHooks', () => {
       'Stop',
     ]) {
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.command).toBe(PODIUM_CODEX_HOOK_COMMAND)
+      // Windows runs commandWindows (cmd.exe), never the bash command.
+      expect(doc.hooks[event]?.[0]?.hooks?.[0]?.commandWindows).toBe(PODIUM_CODEX_HOOK_COMMAND_WINDOWS)
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.timeout).toBe(5)
     }
     expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
