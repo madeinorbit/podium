@@ -32,7 +32,7 @@ export default defineConfig({
     ...sharedVitestConfig.test,
     setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}', 'shared/**/*.test.{ts,tsx}', 'arms/**/*.test.{ts,tsx}', 'harness/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'shared/**/*.test.{ts,tsx}', 'arms/**/*.test.{ts,tsx}', 'harness/**/*.test.{ts,tsx}', 'diagnostics/**/*.test.{ts,tsx}', 'product/**/*.test.{ts,tsx}', 'legacy-values/**/*.test.{ts,tsx}', 'replays/**/*.test.{ts,tsx}'],
     exclude: unitTestExclude,
     passWithNoTests: true,
     retry: 0,
