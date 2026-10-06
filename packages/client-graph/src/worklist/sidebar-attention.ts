@@ -56,10 +56,12 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
     // and resume collapse. Empty started relations need no ownership probe.
     startedBy(sessionId)
   }
-  if (lanePath(issue)) for (const sessionId of issue.laneMemberIds) {
+  if (lanePath(issue)) {
+    for (const sessionId of issue.laneMemberIds) {
       const session = host.visibleInputs.session(sessionId)
       if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
     }
+  }
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
 })
 

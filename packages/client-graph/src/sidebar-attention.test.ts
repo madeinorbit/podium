@@ -27,9 +27,6 @@ for (const history of [32, 128]) {
     const members = vi.spyOn(root, 'memberIds', 'get').mockImplementation(() => {
       throw new Error('Sidebar enumerated archived member history')
     })
-    const lane = vi.spyOn(root, 'laneMemberIds', 'get').mockImplementation(() => {
-      throw new Error('Sidebar queried lane members without a checkout')
-    })
     let value: ReturnType<ReturnType<typeof sidebarView>['row']>
     const stop = autorun(() => { value = sidebarView(pool).row('root') })
     try {
@@ -42,10 +39,21 @@ for (const history of [32, 128]) {
       expect(value!).toMatchObject({ working: true, timing: { sinceMs: Date.parse(stamp) } })
       expect(read.mock.calls.some(([kind, id]) => kind === 'session' && id.startsWith('old-'))).toBe(false)
       expect(members).not.toHaveBeenCalled()
-      expect(lane).not.toHaveBeenCalled()
-    } finally { stop(); members.mockRestore(); lane.mockRestore(); pool.dispose() }
+    } finally { stop(); members.mockRestore(); pool.dispose() }
   })
 }
+
+it('does not acquire a lane for the nested-child reader without a checkout', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
+  const root = pool.issue('root')!
+  // Visibility owns its own member demand; isolate the screen's nesting read.
+  const keepPresent = autorun(() => { void root.present })
+  const lane = vi.spyOn(root, 'laneMemberIds', 'get')
+  const stop = autorun(() => { expect(sidebarNested(root, pool)).toEqual([]) })
+  try { expect(lane).not.toHaveBeenCalled() }
+  finally { stop(); lane.mockRestore(); keepPresent(); pool.dispose() }
+})
 
 it('keeps unarchived exited starters, excludes archived/headless starters and follows archive changes', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
