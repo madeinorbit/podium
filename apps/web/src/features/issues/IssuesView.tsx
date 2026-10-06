@@ -153,7 +153,10 @@ export function IssuesView(): JSX.Element {
     filter: deferredFilter, expanded: [...expanded], isMobile,
   }), [display.layout, display.ordering, display.showAgentTasks, deferredFilter, expanded, isMobile])
   const { view } = useBoardData(options)
-  const catalog = useBoardCatalog(projectMenuOpen || propMenu !== null, display.showAgentTasks)
+  const catalog = useBoardCatalog(
+    projectMenuOpen || propMenu?.kind === 'a' || propMenu?.kind === 'l',
+    display.showAgentTasks,
+  )
   const menuInputs = useBoardMenu(ctxMenu?.ids, display.showAgentTasks)
   const addressedIds = useMemo(() => [...new Set([
     ...keyState.selected, ...(ctxMenu?.ids ?? []), ...(bulkClose?.ids ?? []), ...(propMenu ? [propMenu.id] : []),
