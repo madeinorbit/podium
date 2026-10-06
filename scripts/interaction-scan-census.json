@@ -8910,18 +8910,18 @@
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
       "holder": "cascadeSessionCount",
       "rule": "consume:reduce",
-      "tokens": "c9c2fb92a966e539f89d83d428717d1823bf3f8bfa6b132989376a74d6107d1d",
+      "tokens": "5f74b3ba2321913df36f05de39a197d54c3ef99a4e382570cadf02566c7d94ea",
       "gate": [],
       "origin": [
-        "b5ca8dd64b9aea3769f5cc4f9e737c133304d4b87c88050c55fa01e5cfc4a888"
+        "990709e31832516289a34ea891bb5d1f1fd72c1904083274ffc5981b00ef0292"
       ],
-      "fingerprint": "81a38a9bf1395a1821709e41c224b538a7309b434b414121d02ec2d892e679a0",
+      "fingerprint": "4dbc51c733e85cc6104a56c188824099b739af835c4c19b11e4b823c7b8c1869",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "Archive or delete confirmation for the menu explicit selection.",
-      "bound": "One scalar addition per selected issue; archive has exactly one issue. No issue catalog, session ID vector or hidden history roster is read.",
-      "reason": "The confirmation displays how many selected tasks and attached agents the action affects. Raw attachment totals are already maintained by the declared per-issue relation.",
+      "bound": "One scalar addition per selected issue; archive has exactly one issue. Menus read maintained attachment totals; legacy callers can read an existing attachment-vector length. No ID iteration, issue catalogue or hidden history hydration.",
+      "reason": "The confirmation displays selected task and attached-agent totals. Menu attachment counts are maintained by the declared per-issue relation; the legacy fallback reads only a stored length.",
       "guard": "apps/web/src/features/issues/issue-context-menu.test.ts preserves archive/delete totals with 33/129 agents and no member IDs; packages/client-graph/src/mission-menu.test.ts keeps menu rows/elements equal when hidden history grows 32/128."
     },
     {
