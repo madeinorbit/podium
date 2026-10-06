@@ -7,7 +7,11 @@ export const commandLaunchScreen = {
   id: 'commands',
   options: () => ({ summaries: COMMAND_SUMMARIES }),
   async attach(runtime: ClientRuntime, pool: MobxPool) {
-    const { attachCommandLaunchSource } = await import('@podium/client-graph/command-launch-source')
+    const [{ attachCommandLaunchSource }, { launchOptionViews }] = await Promise.all([
+      import('@podium/client-graph/command-launch-source'),
+      import('@podium/client-graph/launch-option-views'),
+    ])
+    launchOptionViews(pool)
     const source = attachCommandLaunchSource(pool, runtime)
     return () => source.dispose()
   },

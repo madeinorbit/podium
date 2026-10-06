@@ -8,6 +8,7 @@ import { MobxPool } from '@podium/client-graph'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { HeaderRecord } from '@podium/client-graph/header-schema'
 import { useEffect, useMemo } from 'react'
 import { vi } from 'vitest'
@@ -43,6 +44,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
     let previousRows: unknown
     const listeners = new Set<() => void>()
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    launchOptionViews(pool)
     let source: CommandLaunchSource | undefined
     return {
       pool,

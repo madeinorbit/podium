@@ -435,6 +435,7 @@ async function measureScreenCells(
       lanes: shell.lanes(),
       shipping: shell.shipping(),
     }))
+    launchOptionViews(pool)
     add('launcher.launch', ['NewIssueDialog'], () =>
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
