@@ -1,4 +1,5 @@
 import { sidebarRosterView } from './sidebar-roster'
+import { sidebarView, type SidebarSections } from './sidebar'
 /**
  * POD-5423 (review finding 11): an issue publication re-files no session of
  * that issue's history. Whether a session is a roster candidate depends on its
@@ -231,4 +232,41 @@ it('rejects a planted whole-group path filter on eviction', async () => {
   const first = await evictionWork(1, true)
   const second = await evictionWork(4, true)
   expect(() => assertAddressedRoster(first, second)).toThrow(/work grows with unrelated paths/)
+})
+
+it('preserves snoozed-head names, roster-only bands and empty project affordances', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const lane = '/repo-a/seat'
+  const extra = '/extra/seat'
+  pool.apply({ type: 'replace', rows: [
+    ...[
+      { path: '/repo-a', repoPath: '/repo-a', repoName: 'Project A' },
+      { path: '/repo-b', repoPath: '/repo-b', repoName: 'Project B' },
+      { path: lane, repoPath: '/repo-a', repoName: 'Roster A' },
+      { path: extra, repoPath: '/extra', repoName: 'Extra' },
+    ].map(value => ({ kind: 'worktree' as const, id: value.path, value })),
+    { kind: 'issue', id: 'snoozed', value: { id: 'snoozed', seq: 1, title: 'Snoozed',
+      repoPath: '/repo-a', stage: 'in_progress', audience: 'human',
+      deferUntil: '2026-10-20T00:00:00Z',
+      createdAt: new Date(NOW).toISOString(), updatedAt: new Date(NOW).toISOString() } as never },
+    ...[lane, extra].map((cwd, n) => ({ kind: 'session' as const, id: `free-${n}`,
+      value: { sessionId: `free-${n}`, cwd, issueId: null, agentKind: 'codex', status: 'live',
+        lastActiveAt: new Date(NOW).toISOString() } as never })),
+  ] })
+  let sections!: SidebarSections
+  const stop = autorun(() => { sections = sidebarView(pool).sections() })
+  try {
+    expect(sections.bands.map(band => band.key)).toEqual(['/repo-a', '/repo-b', '/extra'])
+    expect(sections.bands[0]).toMatchObject({ label: 'Roster A', snoozedIds: ['snoozed'], worktreeIds: [lane], startFirstTask: false })
+    expect(sections.bands[1]).toMatchObject({ label: 'Project B', worktreeIds: [], startFirstTask: true })
+    expect(sections.bands[2]).toMatchObject({ label: 'Extra', worktreeIds: [extra], startFirstTask: false })
+    const emptyProject = sections.bands[1]
+    pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'free-0', value: undefined },
+      { kind: 'session', id: 'free-1', value: undefined },
+    ] })
+    expect(sections.bands.map(band => band.key)).toEqual(['/repo-a', '/repo-b'])
+    expect(sections.bands[0]).toMatchObject({ label: 'repo-a', snoozedIds: ['snoozed'], worktreeIds: [], startFirstTask: false })
+    expect(sections.bands[1]).toBe(emptyProject)
+  } finally { stop(); pool.dispose() }
 })
