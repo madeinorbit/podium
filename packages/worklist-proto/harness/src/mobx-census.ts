@@ -56,6 +56,7 @@ import {
   ObservableSet,
   observable,
   Reaction,
+  runInAction,
 } from 'mobx'
 import { enableDebugNames } from '@podium/client-graph/debug-name'
 
@@ -305,8 +306,15 @@ export function startCensus(options: { sample?: () => Record<string, number> } =
 
 function ownerOf(object: unknown): Owner | null {
   if (typeof object !== 'object' || object === null) return null
-  const id = (object as { id?: unknown }).id
-  return { cls: object.constructor?.name ?? 'Object', id: typeof id === 'string' ? id : null }
+  // Classification is measurement, not product behavior: read inside an
+  // action so an owner that is itself observable (POD-5677: the pool builds
+  // per-machine companion structures whose owners the census meets here)
+  // never trips the MobX warn trap. This reads two fields and builds
+  // nothing, so the counts are unchanged.
+  return runInAction(() => {
+    const id = (object as { id?: unknown }).id
+    return { cls: object.constructor?.name ?? 'Object', id: typeof id === 'string' ? id : null }
+  })
 }
 
 function classify(
