@@ -141,13 +141,13 @@ describe('phone launch demand bounds', () => {
     const rows = vi.spyOn(attached, 'row')
     fireEvent.click(screen.getByLabelText('New work'))
     await screen.findByLabelText('Start in podium')
-    expect(rows.mock.calls.filter(([kind]) => kind === 'repository')).toHaveLength(1)
+    expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(1)
     rows.mockClear()
     await act(async () => {
       attached.header.apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
         value: { ...linked[0]!, branch: 'unshown' } }])
     })
-    expect(rows.mock.calls.filter(([kind]) => kind === 'repository')).toHaveLength(0)
+    expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(0)
     expect(screen.getByLabelText('Start in podium')).toBeDefined()
   })
 
