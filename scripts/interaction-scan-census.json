@@ -36037,22 +36037,42 @@
     {
       "file": "packages/client-graph/src/notice-views.ts",
       "holder": "noticeMessages",
-      "rule": "loop:for-of",
-      "tokens": "52ad614d86ac04485c4732c1569f20351f8ffa51c94f63e0cf5ebaaefa772c1f",
+      "rule": "consume:slice",
+      "tokens": "806859ef02dd97687e4695b02038c0f7e29d2a24bdda3c2a0513bf1faa3edabe",
       "gate": [
         "then:426bdf2a95d8994e939b71ed31b6d9c1761b3afd3b260dcb3acbbc1a6b76cfd9"
       ],
       "origin": [
         "cfde47bf430fd79041bedd03b37d1f0aaca786ad8a90f1f0be6097df8ece7903"
       ],
-      "fingerprint": "9694afcbd21b9b8b35f0096addd63957e4710dba64642fd27dc8a2729f9e2130",
+      "fingerprint": "8a25e5915cdb09747629b8f1804f9fa8cd79ac4cfda10ffb4ced867bc062260d",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
+      "classification": "bounded local work",
+      "owner": "POD-5648",
       "trigger": "Invocation of noticeMessages",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "bound": "At most NOTICE_MESSAGE_WINDOW (100) catalog ids per run; the slice happens before any payload or session-label read, and the only shipped full-log demand (the web notice dialog, gated on open) passes the window.",
+      "reason": "consume:slice caps the catalog to the window before the loop; per-notice payload and label reads scale with the window, not the attention count.",
+      "guard": "packages/client-graph/src/notice-bounds.test.ts keeps the windowed notice log flat at 1x/4x: open, added and relabel rows flat (202/201/204) at 130 vs 514 notices."
+    },
+    {
+      "file": "packages/client-graph/src/notice-views.ts",
+      "holder": "noticeMessages",
+      "rule": "loop:for-of",
+      "tokens": "ecf9dafdfa849512a122ac989a3d6061b822b8151b7f9d06c60ccf4b32c753d5",
+      "gate": [
+        "then:426bdf2a95d8994e939b71ed31b6d9c1761b3afd3b260dcb3acbbc1a6b76cfd9"
+      ],
+      "origin": [
+        "cfde47bf430fd79041bedd03b37d1f0aaca786ad8a90f1f0be6097df8ece7903"
+      ],
+      "fingerprint": "f3e0a1042ee01f2039390534e87172645a13895306eab4fa219920bdc8bebce2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5648",
+      "trigger": "Invocation of noticeMessages",
+      "bound": "At most NOTICE_MESSAGE_WINDOW (100) catalog ids per run; the slice happens before any payload or session-label read, and the only shipped full-log demand (the web notice dialog, gated on open) passes the window.",
+      "reason": "loop:for-of walks the windowed slice with keyed dialog rows; the mobile full-list export is deleted and scalar banner/newest readers are untouched.",
+      "guard": "packages/client-graph/src/notice-bounds.test.ts keeps the windowed notice log flat at 1x/4x: steady-state added and relabel rows and elements flat at 130 vs 514 notices."
     },
     {
       "file": "packages/client-graph/src/pool.ts",
