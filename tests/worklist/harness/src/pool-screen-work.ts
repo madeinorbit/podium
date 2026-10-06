@@ -406,14 +406,13 @@ async function measureScreenCells(
     )
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())
-    add('header.fleet', ['FleetOverview', 'ReclaimPanel'], () => ({
+    add('header.fleet', ['FleetOverview'], () => ({
       aggregate: headerView(pool).aggregate(undefined),
       history: headerView(pool).history(),
       metrics: headerView(pool).metrics(),
       machines: headerView(pool).machines(),
       quotas: headerView(pool).quotas(),
       offline: headerView(pool).offlineMachines(),
-      reclaim: headerView(pool).reclaimCounts(30),
       working: headerView(pool).working(),
       selected: headerView(pool).selectedIssue(),
       session: headerView(pool).session(SESSION),

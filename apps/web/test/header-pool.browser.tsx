@@ -124,7 +124,7 @@ const driver = {
       '../../../tests/worklist/diagnostics/header-check'
     )
     for (let round = 0; round < 64; round++) {
-      poolHeaderSnapshot(pool, fixture.inputs() as never)
+      poolHeaderSnapshot(pool)
       if (pool.hydrate() === 0) break
     }
     const result = checkHeader(pool, referenceState(runtime), fixture.inputs() as never)

@@ -48,7 +48,6 @@ describe('mobile target identity question', () => {
       boardCatalog: { kind: 'boardCatalog' },
       boardCounts: { kind: 'boardCounts' },
       proposedIssues: { kind: 'proposedIssues' },
-      reclaimIssues: { kind: 'reclaimIssues' },
       commandSessions: { kind: 'commandSessions' },
       inboxSessions: { kind: 'inboxSessions' },
       setupSessions: { kind: 'setupSessions' },

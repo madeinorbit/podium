@@ -316,9 +316,6 @@ export function hostMemoryView(host: HostMetricsWire): HostMemoryView {
 /** Default load-per-core the meter fills against when policy has load pressure off. */
 export const DEFAULT_LOAD_PER_CORE = 1.5
 
-/** Amber health-dot threshold: reclaimable worktree count past this asks the operator. */
-export const RECLAIMABLE_WORKTREE_THRESHOLD = 20
-
 const RESIDENT_STATUSES: ReadonlySet<SessionStatus> = new Set(['live', 'starting', 'reconnecting'])
 
 export interface HostLoadView {

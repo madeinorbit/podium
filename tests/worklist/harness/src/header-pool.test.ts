@@ -19,7 +19,6 @@ import {
   evict,
   startScenarioEngine,
   upsert,
-  upsertIssue,
   writeArchiveIssue,
   writeBurst50,
   writeClockTick,
@@ -56,13 +55,12 @@ async function fixture(scale: 1 | 4 = 1) {
     metrics: ctx.engine.hostMetrics.getSnapshot(),
     quotas: [],
     connection: health as never,
-    afterDays: 14,
     lifecycle: headerEntities(handle.pool).received.lifecycle,
     history: headerEntities(handle.pool).received.history,
   })
   const settle = () => {
     for (let turn = 0; turn < 64; turn++) {
-      runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))
+      runInAction(() => poolHeaderSnapshot(handle.pool))
       if (handle.pool.hydrate() === 0) return
     }
     throw new Error('Header loads did not settle')
@@ -76,7 +74,7 @@ async function fixture(scale: 1 | 4 = 1) {
         inputs(),
         handle.pool.clock.current,
       )
-      const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs()))
+      const actual = runInAction(() => poolHeaderSnapshot(handle.pool))
       expect(actual.sections[value.first.sectionIndex], label).toEqual(
         expected.sections[value.first.sectionIndex],
       )
@@ -133,7 +131,7 @@ describe('header pool values', () => {
 
   it.each([1, 4] as const)('matches corpus values and addressed changes at %ix', async (scale) => {
     const f = await fixture(scale)
-    const stop = autorun(() => poolHeaderSnapshot(f.pool, f.inputs()))
+    const stop = autorun(() => poolHeaderSnapshot(f.pool))
     try {
       f.parity()
       for (const write of [
@@ -207,7 +205,6 @@ describe('header pool values', () => {
         headerView(f.pool).occupancyKey()
         headerView(f.pool).shipping()
         headerView(f.pool).folded()
-        headerView(f.pool).reclaimCounts(14)
         status++
       }),
     ]
@@ -229,48 +226,6 @@ describe('header pool values', () => {
       expect(headerEntities(f.pool).members('machine', first, 'metrics')).toEqual([])
     } finally {
       for (const stop of stops) stop()
-      f.dispose()
-      f.ctx.dispose()
-    }
-  }, 120_000)
-
-  it('cold summary additions and removals refresh reclaim counts without loading rows', async () => {
-    const f = await fixture()
-    const machine = 'cold-summary-host' as MachineId
-    f.ctx.hub.emit('hostMetrics', [metric(machine, 'fixed')])
-    let count = 0
-    const stop = autorun(() => {
-      count = headerView(f.pool).reclaimCounts(14)[machine] ?? 0
-    })
-    const initial = count
-    const id = 'cold-header-added'
-    try {
-      const old = new Date(f.pool.clock.current - 30 * 86_400_000).toISOString()
-      const value = {
-        id,
-        seq: 999999,
-        title: 'Synthetic cold issue',
-        repoPath: '/synthetic',
-        stage: 'done',
-        createdAt: old,
-        updatedAt: old,
-        closedAt: old,
-        worktreePath: '/synthetic/cold-header-added',
-        machineId: machine,
-      }
-      // History identities are owned by the row source. Publish through its
-      // authority instead of injecting a row only into the pool registry.
-      upsertIssue(f.ctx, id, value)
-      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
-      expect(f.pool.residency?.isCold('issue', id)).toBe(true)
-      expect(count).toBe(initial + 1)
-      expect(f.pool.tables.issue.has(id)).toBe(false)
-      expect(f.pool.hydrate()).toBe(0)
-      evict(f.ctx, 'issueProjection', id)
-      await new Promise(resolve => setTimeout(resolve, f.ctx.settleMs))
-      expect(count).toBe(initial)
-    } finally {
-      stop()
       f.dispose()
       f.ctx.dispose()
     }

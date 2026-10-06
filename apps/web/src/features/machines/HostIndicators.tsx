@@ -3,7 +3,6 @@ import {
   hostDiskView,
   hostLoadView,
   hostMemoryView,
-  RECLAIMABLE_WORKTREE_THRESHOLD,
 } from '@podium/client-core/values'
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
 import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
@@ -20,7 +19,6 @@ import {
   usePoolMetric,
   usePoolMetricIds,
   usePoolOfflineMachines,
-  usePoolReclaimCounts,
 } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { throughRestarts } from '@/lib/chunk-recovery'
@@ -202,7 +200,6 @@ interface MachineChipProps {
   lifecycle: ReturnType<typeof useHostLifecycleSettings>
   serverAppVersion: ReturnType<typeof useServerAppVersion>
   healthStatus: 'ok' | 'degraded' | 'down'
-  reclaimCount: number
   onInfo: OpenHostInfo
 }
 const HeaderMachineChip = memo(function HeaderMachineChip({
@@ -212,7 +209,6 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
   lifecycle,
   serverAppVersion,
   healthStatus,
-  reclaimCount,
   onInfo,
 }: MachineChipProps): JSX.Element {
   const memory = hostMemoryView(host)
@@ -238,7 +234,6 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
   const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
   const updateTargetVersion =
     machine?.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
-  const reclaimablePast = reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && healthStatus === 'ok'
   const phases = aggregate.phases
   const agentTitleParts = [
     agents.title,
@@ -253,7 +248,6 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
     load.title,
     disk?.title ?? 'disk usage unavailable',
     agentTitleParts.join(' — '),
-    reclaimablePast ? `${reclaimCount} reclaimable worktrees` : null,
   ]
     .filter(Boolean)
     .join('; ')
@@ -274,9 +268,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
               machineOffline
                 ? 'bg-destructive'
                 : healthStatus === 'ok'
-                  ? reclaimablePast
-                    ? 'bg-warning'
-                    : 'bg-success'
+                  ? 'bg-success'
                   : healthStatus === 'degraded'
                     ? 'bg-warning'
                     : 'bg-destructive',
@@ -383,7 +375,6 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
   lifecycle,
   serverAppVersion,
   healthStatus,
-  reclaimCount,
   onInfo,
 }: Omit<MachineChipProps, 'host' | 'machine' | 'aggregate'> & { id: string }) {
   const host = usePoolMetric(id)
@@ -398,7 +389,6 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
         lifecycle={lifecycle}
         serverAppVersion={serverAppVersion}
         healthStatus={healthStatus}
-        reclaimCount={reclaimCount}
         onInfo={onInfo}
       />
     ) : null
@@ -412,7 +402,6 @@ function PoolHeaderHostIndicators(): JSX.Element {
   const lifecycle = useHostLifecycleSettings()
   const serverAppVersion = useServerAppVersion(trpc)
   const { health } = useStableConnection()
-  const reclaim = usePoolReclaimCounts(lifecycle?.worktreeGc.afterDays ?? 14)
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   const description =
     health.status === 'ok'
@@ -455,7 +444,6 @@ function PoolHeaderHostIndicators(): JSX.Element {
           lifecycle={lifecycle}
           serverAppVersion={serverAppVersion}
           healthStatus={health.status}
-          reclaimCount={reclaim[id] ?? 0}
           onInfo={setInfo}
         />
       ))}

@@ -385,7 +385,6 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
       working: headerView(pool).working(),
       occupancy: headerView(pool).occupancyKey(),
       shipping: headerView(pool).shipping(),
-      reclaim: headerView(pool).reclaimCounts(1),
     }),
   },
   {
@@ -861,7 +860,6 @@ describe('readers behind declared cold questions', () => {
       { kind: 'commandIssues' },
       { kind: 'commandSessions' },
       { kind: 'proposedIssues' },
-      { kind: 'reclaimIssues' },
       { kind: 'inboxSessions' },
       { kind: 'headerSessions' },
       { kind: 'headerOccupancy' },

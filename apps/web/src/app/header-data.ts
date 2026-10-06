@@ -91,14 +91,6 @@ export function usePoolHostAggregate(id: MachineId | undefined) {
     phases: { working: 0, idle: 0, waiting: 0, other: 0 },
   })
 }
-export function usePoolReclaimCounts(afterDays: number) {
-  const read = useMemo(
-    () => (pool: MobxPool) => headerView(pool).reclaimCounts(afterDays),
-    [afterDays],
-  )
-  return useWorklistPoolProjection(read, {})
-}
-
 /** Load-panel session rows are loaded by the one reader in one batch. */
 export function usePoolSessionLabels(ids: readonly string[]) {
   const signature = ids.join('\n')

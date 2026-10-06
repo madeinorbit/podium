@@ -84,7 +84,7 @@ async function main() {
   const handle = createRuntimeWorklistPool(runtime as unknown as Parameters<typeof createRuntimeWorklistPool>[0], { header: true })
   try {
     await Promise.resolve(); await Promise.resolve()
-    const inputs = { metrics, quotas, history, lifecycle, connection: health, afterDays: lifecycle.worktreeGc.afterDays }
+    const inputs = { metrics, quotas, history, lifecycle, connection: health }
     phase = 7
     const selections = [null, ...replica.rows('issueProjections').slice(0, 32).map((row) => row.id)]
     let differences = 0, pending = 0, checks = 0
@@ -96,7 +96,7 @@ async function main() {
       // Locals publish at the existing bridge's microtask boundary.
       await Promise.resolve()
       for (let turn = 0; turn < 64; turn++) {
-        runInAction(() => poolHeaderSnapshot(handle.pool, inputs))
+        runInAction(() => poolHeaderSnapshot(handle.pool))
         if (handle.pool.hydrate() === 0) break
       }
       const result = runInAction(() => checkHeader(handle.pool, store, inputs))
@@ -104,7 +104,7 @@ async function main() {
       if (!first && result.first) first = { check: checks, sectionIndex: result.first.sectionIndex, field: result.first.field }
       if (result.differences) {
         const expected = legacyHeaderSnapshot(store, inputs, handle.pool.clock.current)
-        const actual = runInAction(() => poolHeaderSnapshot(handle.pool, inputs))
+        const actual = runInAction(() => poolHeaderSnapshot(handle.pool))
         for (let index = 0; index < expected.sections.length; index++) {
           const a = actual.sections[index]?.fields.value as Record<string, unknown> | null
           const b = expected.sections[index]?.fields.value as Record<string, unknown> | null

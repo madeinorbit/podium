@@ -2,13 +2,11 @@
 import { listReclaimableWorktreesClient } from '@podium/client-core/values'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
-import { headerView } from '@podium/client-graph/header-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import { asMachineId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { autorun } from 'mobx'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
@@ -134,24 +132,76 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); pool?.dispose() })
 
-it.each([1, 4] as const)('matches the old header count and opened inventory at %ix before removal', async (scale) => {
+// Before deleting reclaimCounts, this SAME fixture matched its four answers:
+// 1x [127, 127, 126, 127], 4x [511, 511, 510, 511]. The opened panel also
+// matched every issue label and title (baseline commit 9ec232383e).
+it.each([1, 4] as const)('closed header reads zero reclaim candidates across title, occupancy and deadline changes at %ix', async (scale) => {
   const count = fixture(scale)
-  let oldCount = 0
-  const stop = autorun(() => { oldCount = headerView(pool).reclaimCounts(1)[MACHINE] ?? 0 })
-  const counts: number[] = []
-  try {
-    for (const change of [() => {}, changeTitle, changeOccupancy, crossDeadline]) {
-      await act(async () => { change() })
-      expect(oldCount).toBe(inventory().candidates.length)
-      counts.push(oldCount)
-    }
-    expect(counts).toEqual([count - 1, count - 1, count - 2, count - 1])
-    render(<HostInfoView initialTab="reclaim" machineId={MACHINE} onClose={() => {}} />)
-    await screen.findByText(`${count - 1} candidates`)
-    const labels = screen.getByRole('dialog').querySelectorAll<HTMLLabelElement>('label[for^="reclaim-"]')
-    expect([...labels].map(element => [element.htmlFor, element.textContent])).toEqual(
-      inventory().candidates.map(candidate => [`reclaim-${candidate.issueId}`, candidate.title]),
-    )
-    console.info('[reclaim pre-removal parity]', JSON.stringify({ scale, candidates: count, counts }))
-  } finally { stop() }
+  const row = vi.spyOn(pool, 'row')
+  const model = vi.spyOn(pool, 'model')
+  const candidatesRead = () => [...row.mock.calls, ...model.mock.calls].filter(
+    ([entity, id]) => entity === 'issue' && id.startsWith('candidate-'),
+  ).length
+  const samples: Record<string, number> = {}
+  render(<HeaderHostIndicators />)
+  await act(async () => {})
+  samples.mount = candidatesRead()
+  expect(samples.mount, 'header mount must not read candidate rows or models').toBe(0)
+  expect(reclaimInventory).not.toHaveBeenCalled()
+  const chip = screen.getByRole('button', { name: /fixture-host/ })
+  expect(chip.getAttribute('aria-label')).not.toContain('reclaimable worktrees')
+  expect(chip.firstElementChild?.classList.contains('bg-success')).toBe(true)
+
+  for (const [name, change] of [
+    ['title', changeTitle], ['occupancy', changeOccupancy], ['deadline', crossDeadline],
+  ] as const) {
+    row.mockClear()
+    model.mockClear()
+    await act(async () => { change() })
+    samples[name] = candidatesRead()
+    expect(samples[name], `${name} must not read reclaim candidates while closed`).toBe(0)
+    expect(reclaimInventory).not.toHaveBeenCalled()
+  }
+
+  // Exercise the real onOpenReclaim route: open the load panel, then Review.
+  fireEvent.click(chip)
+  const review = await screen.findByRole('button', { name: 'Review' })
+  expect(reclaimInventory).toHaveBeenCalledWith({ machineId: MACHINE })
+  fireEvent.click(review)
+  await screen.findByText(`${count - 1} candidates`)
+  const dialog = screen.getByRole('dialog')
+  const labels = dialog.querySelectorAll<HTMLLabelElement>('label[for^="reclaim-"]')
+  const expected = Array.from({ length: count }, (_, at) => at).filter(at => at !== 1)
+  expect([...labels].map(element => [element.htmlFor, element.textContent])).toEqual(
+    expected.map(at => [`reclaim-candidate-${at.toString().padStart(3, '0')}`,
+      at === 0 ? 'Renamed candidate' : `Candidate ${at}`]),
+  )
+  expect(within(dialog).getAllByRole('checkbox')).toHaveLength(count - 1)
+  console.info('[closed header reclaim reads]', JSON.stringify({ scale, candidates: count, samples, opened: labels.length }))
+})
+
+it('reads inventory only on the reclaim tab and releases its polling on tab close and unmount', async () => {
+  fixture(1)
+  const intervals = vi.spyOn(globalThis, 'setInterval')
+  const clear = vi.spyOn(globalThis, 'clearInterval')
+  const view = render(<HostInfoView initialTab="connection" machineId={MACHINE} onClose={() => {}} />)
+  await act(async () => {})
+  expect(reclaimInventory).not.toHaveBeenCalled()
+  const firstInterval = intervals.mock.calls.length
+  fireEvent.click(screen.getByRole('tab', { name: 'Reclaim' }))
+  await screen.findByText('127 candidates')
+  const reclaimTimer = intervals.mock.results[firstInterval]?.value
+  expect(intervals.mock.calls[firstInterval]?.[1]).toBe(5000)
+  expect(reclaimInventory).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('tab', { name: 'Connection' }))
+  await waitFor(() => expect(screen.queryByText('127 candidates')).toBeNull())
+  expect(clear).toHaveBeenCalledWith(reclaimTimer)
+  await act(async () => { changeTitle(); changeOccupancy(); crossDeadline() })
+  expect(reclaimInventory).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('tab', { name: 'Reclaim' }))
+  await screen.findByText('127 candidates')
+  expect(reclaimInventory).toHaveBeenCalledTimes(2)
+  const reopenedTimer = intervals.mock.results.at(-1)?.value
+  view.unmount()
+  expect(clear).toHaveBeenCalledWith(reopenedTimer)
 })

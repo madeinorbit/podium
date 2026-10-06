@@ -20,7 +20,6 @@ export type ReaderQuestion =
         | 'boardCatalog'
         | 'boardCounts'
         | 'proposedIssues'
-        | 'reclaimIssues'
     }
   | {
       kind:
@@ -214,7 +213,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       if (stage === 'proposed') out.add('issue:proposed')
       if (typeof worktreePath === 'string' && worktreePath) {
         out.add(`issue:root:${worktreePath}`)
-        if (!deletedAt && isFinished({ stage, closedReason })) out.add('issue:reclaim')
       }
     } else if (kind === 'session') {
       const { archived, headless, agentKind, status, issueId } = row
@@ -435,9 +433,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
-        case 'reclaimIssues':
-          keys.push('issue:reclaim')
-          break
         case 'inboxSessions':
           keys.push('session:inbox')
           break
@@ -543,7 +538,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           // Ordered windows are answered by their existing bounded indexes.
           return this.ids(question).includes(id)
         case 'proposedIssues': return has('issue:proposed')
-        case 'reclaimIssues': return has('issue:reclaim')
         case 'inboxSessions': return has('session:inbox')
         case 'headerSessions':
         case 'headerOccupancy': return has('session:host')
@@ -623,8 +617,6 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           return []
         case 'proposedIssues':
           return [...bucket('issue:proposed')]
-        case 'reclaimIssues':
-          return [...bucket('issue:reclaim')]
         case 'inboxSessions':
           return [...bucket('session:inbox')]
         case 'headerSessions':

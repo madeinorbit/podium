@@ -39,9 +39,6 @@ const FOLDED_NONE = {
   needs: 0,
   loading: false,
 }
-const contains = (cwd: string, root: string) =>
-  cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
-
 /** Views over one pool. Memos exist only while observed, and are released when
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */
 function createHeaderViews(pool: MobxPool) {
@@ -379,27 +376,6 @@ function createHeaderViews(pool: MobxPool) {
       return headerEntities(pool).shippingCounts(repoId)
     })
   }
-  function reclaimCounts(afterDays: number) {
-    return memo(`reclaim:${afterDays}`, () => {
-      const metrics = headerIds(pool, 'hostMetric')
-      const sole =
-        metrics.length === 1 ? headerEntities(pool).one('hostMetric', metrics[0]!, 'machine') : undefined
-      const occupied = occupancyKey().split('\n').filter(Boolean)
-      const result: Record<string, number> = {}
-      if (!metrics.length) return result
-      for (const id of pool.queries.ids({ kind: 'reclaimIssues' })) {
-        const candidate = issueSummary(id)
-        if (!candidate?.worktreePath || candidate.deletedAt || !isFinished(candidate)) continue
-        const closed = Date.parse(candidate.closedAt ?? '')
-        if (!Number.isFinite(closed) || !pool.clock.reached(closed + afterDays * 86_400_000))
-          continue
-        if (occupied.some((cwd) => contains(cwd, candidate.worktreePath!))) continue
-        const machine = candidate.machineId ?? sole
-        if (machine) result[machine] = (result[machine] ?? 0) + 1
-      }
-      return result
-    })
-  }
   return {
     row,
     selectedIssue,
@@ -407,7 +383,6 @@ function createHeaderViews(pool: MobxPool) {
     occupancyKey,
     folded,
     shipping,
-    reclaimCounts,
     repositoryCount: () => headerEntities(pool).count('repository'),
     worktreeCount: () => worktreeCount.get(),
     repository: (path: string) =>
