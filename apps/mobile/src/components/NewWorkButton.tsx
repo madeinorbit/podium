@@ -89,7 +89,7 @@ const writeString = (value: string | null): string | null => value
  * which, on the single-repo instance most operators run, had exactly one row in
  * it. A choice with one option is not a choice; it is a tap the app collects on
  * the way to doing the only thing it could have done. The project is now a
- * PRESELECTED field like the others (most recently used first, and inert when
+ * PRESELECTED field like the others (remembered choice first, and inert when
  * there is only one), the primary control says Start, and nothing stands between
  * a returning operator and the same launch they made yesterday.
  *
@@ -192,8 +192,8 @@ function NewWorkLauncher({
   /**
    * The project this sheet will start in, decided BEFORE it is shown.
    *
-   * Remembered pick first, then most-recently-used (the list is already sorted
-   * that way). A remembered path that is not on the selected machine is not an
+   * Remembered pick first, then the catalog's alphabetical order. A remembered
+   * path that is not on the selected machine is not an
    * error to report — it is simply not a candidate, and falling through to the
    * top of the list is what the operator would have done by hand.
    */

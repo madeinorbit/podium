@@ -107,4 +107,6 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     expect(four, `${surface} ${action} rows`).toBe(one)
     expect(four, `${surface} ${action} row ceiling`).toBeLessThanOrEqual(8)
   }
+  const heartbeat = samples.map(sample => sample.cells.find(cell => cell.action === 'heartbeat')!)
+  expect(heartbeat[1]!.elements, `${surface} heartbeat collection work`).toBe(heartbeat[0]!.elements)
 }, 60_000)

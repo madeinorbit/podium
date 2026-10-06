@@ -13,7 +13,7 @@ import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 /** Open launchers own these computeds. Metadata belongs to one repository
- * group; usage ordering consumes cached scalars, never re-groups worktrees. */
+ * group; option ordering observes catalog membership, not session activity. */
 export function launchOptionViews(pool: MobxPool) {
   return pool.sources.view('launch.options', () => {
     const counts = { repositoryBuilds: 0, usageQueries: 0 }
@@ -51,13 +51,9 @@ export function launchOptionViews(pool: MobxPool) {
           .repositoryGroupIds()
           .flatMap((id) => {
             const repo = repository(id)
-            return repo ? [{ path: repo.path, at: usage(JSON.stringify([id, 'within'])) }] : []
+            return repo ? [repo.path] : []
           })
-          .sort(
-            (a, b) =>
-              b.at - a.at || a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
-          )
-          .map(({ path }) => path)),
+          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))),
     )
     const paths = computed(() => JSON.parse(pathOrderKey.get()) as string[])
     const pins = computed(() => {
@@ -84,14 +80,13 @@ export function launchOptionViews(pool: MobxPool) {
         .flatMap((id) => {
           const repo = project(id)
           return repo && (pinned.includes(repo.path) || repo.worktrees.length)
-            ? [{ id, repo, at: usage(JSON.stringify([id, 'exact'])) }]
+            ? [{ id, repo }]
             : []
         })
       // Pinned order breaks otherwise equal choices, as in the existing menu.
       const pinOrder = new Map(pinned.map((path, at) => [path, at]))
       values.sort(
         (a, b) =>
-          b.at - a.at ||
           a.repo.name.localeCompare(b.repo.name, undefined, { sensitivity: 'base' }) ||
           (pinOrder.get(a.repo.path) ?? pinned.length) -
             (pinOrder.get(b.repo.path) ?? pinned.length),
