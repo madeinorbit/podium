@@ -1,8 +1,8 @@
 // apps/server/src/file-asset-route.test.ts
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
-import { isAllowedRoot } from './root-allowlist'
 import { type AssetReader, registerAssetRoute } from './file-asset-route'
+import { isAllowedRoot } from './root-allowlist'
 
 const stub = (r: Awaited<ReturnType<AssetReader['readAsset']>>): AssetReader => ({
   allowsRoot: () => true,

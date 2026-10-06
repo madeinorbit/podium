@@ -8,8 +8,8 @@ import { createRelationIndex } from './shared/relation-index'
 import { longestPrefixPath, prefixCandidates, SCHEMA } from './shared/schema'
 import { createSessionActivityIndex } from './shared/session-activity'
 import { createSessionQuestions } from './shared/session-questions'
-import { unstarted } from './worklist/sidebar-row'
 import { repoLabelOf } from './worklist/groups'
+import { unstarted } from './worklist/sidebar-row'
 
 const cases = [
   ['/Repo', '/Repo', '/Repo/wt', '/Repo/wt/src'],

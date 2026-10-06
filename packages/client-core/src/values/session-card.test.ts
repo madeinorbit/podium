@@ -1,8 +1,8 @@
 import type { SessionId, UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 import { sessionCardModel, sessionTitle } from './session-card'
 
 function session(overrides: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView {

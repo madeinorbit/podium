@@ -2,9 +2,9 @@ import {
   isMachinePathWithinRoot,
   isValidMachinePath,
   machinePathDirname,
+  machinePathKey,
   machinePathRelativeToRoot,
   machinePathSeparator,
-  machinePathKey,
 } from '../machine-path'
 /** The worktree that CONTAINS `cwd`: the longest root with `cwd === root` or
  *  `cwd` under `root/`. Longest-match matters because a repo root contains its
