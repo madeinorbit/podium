@@ -57,7 +57,7 @@ it.each([false, true])('keeps phone rows, search and point aliases equivalent th
 
 it('changes hidden question membership and skips blank/interrupt assistant facts exactly', () => {
   const hidden = observable.box<string | undefined>('ask')
-  const ask = item('ask', 'tool', '', { toolName: 'AskUserQuestion' })
+  const ask = item('ask', 'tool', '', { toolName: 'AskUserQuestion', toolInputJson: '{"questions":[]}' })
   let items = [item('answer', 'assistant', 'Done'), ask]
   const graph = new TranscriptGraph(items)
   const phone = new MobileConversationPresentation(graph, shapeMobileChatRow, id => graph.itemPosition(id), {
