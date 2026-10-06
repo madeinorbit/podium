@@ -24,5 +24,8 @@ it('bounds retained header fleet and shell chrome readers at 1x/4x', async () =>
   writeFileSync(resolve(directory, 'header-chrome-work.json'),
     JSON.stringify({ at1x, at4x, verdicts, ...classified }, null, 2) + '\n')
   console.info('[header/chrome growing readers]', JSON.stringify(classified.expectedFailures))
-  assertScreenWork(classified.unexpected)
+  // Scripted actions also invoke other screens. Keep their diagnostics in the
+  // report; this focused gate owns only the retained header/chrome consumers.
+  assertScreenWork(classified.unexpected.filter(({ reader }) =>
+    reader.startsWith('consumer:shell.chrome') || reader.startsWith('consumer:header.fleet')))
 }, 7_200_000)

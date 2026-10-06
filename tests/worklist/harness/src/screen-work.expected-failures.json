@@ -58,35 +58,6 @@
     ]
   },
   {
-    "issue": "POD-5639",
-    "reason": "Coordinator reassigned the six growing shell.chrome element counts; remove each existing allowance with the header-layer repair. No new allowance.",
-    "readers": [
-      {
-        "reader": "consumer:shell.chrome/ComputedValue@#",
-        "actions": {
-          "select": [
-            "elements"
-          ],
-          "stage-change": [
-            "elements"
-          ],
-          "open-menu": [
-            "elements"
-          ],
-          "navigate-by-ref": [
-            "elements"
-          ],
-          "heartbeat": [
-            "elements"
-          ],
-          "lane-change": [
-            "elements"
-          ]
-        }
-      }
-    ]
-  },
-  {
     "issue": "POD-5423",
     "reason": "Remaining O(1) latchedOpenId attribution across mobile-work/sidebar; board session-roster work is tracked under POD-5454.",
     "readers": [

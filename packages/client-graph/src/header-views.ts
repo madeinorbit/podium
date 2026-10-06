@@ -3,7 +3,7 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
-import { compareStructural, createAtom, reaction } from 'mobx'
+import { compareStructural, computed, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
@@ -97,6 +97,16 @@ function createHeaderViews(pool: MobxPool) {
     try { return read(index) } finally { index.dispose() }
   }
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
+  // Chrome shows a number. Keep each scan's length behind a scalar computed,
+  // then share the total independently of window controls and row metadata.
+  const scanWorktreeCount = keyedComputed(
+    (id: string) => debugName(() => `header.worktreeCount:${id}`),
+    (id: string) => row('repository', id)?.worktrees.length ?? 0,
+  )
+  const worktreeCount = computed(
+    () => headerIds(pool, 'repository').reduce((sum, id) => sum + scanWorktreeCount(id), 0),
+    { name: debugName(() => 'header.worktreeCount') },
+  )
   function row<E extends HeaderEntity>(entity: E, id: string): HeaderRows[E] | undefined {
     return pool.row(entity, id) as HeaderRows[E] | undefined
   }
@@ -399,6 +409,7 @@ function createHeaderViews(pool: MobxPool) {
     shipping,
     reclaimCounts,
     repositoryCount: () => headerEntities(pool).count('repository'),
+    worktreeCount: () => worktreeCount.get(),
     repository: (path: string) =>
       memo(`repository:${path}`, () => {
         const scans = headerEntities(pool).repositoryGroup(path).flatMap((id) => {
@@ -450,6 +461,7 @@ function createHeaderViews(pool: MobxPool) {
       sessions = undefined
       offline?.dispose()
       offline = undefined
+      scanWorktreeCount.clear()
       cache.clear()
     },
   }

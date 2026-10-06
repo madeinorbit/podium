@@ -1,4 +1,5 @@
 import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -204,8 +205,7 @@ function createShellViews(pool: MobxPool) {
   }
   function chrome() {
     return memo('chrome', () => {
-      const state = window(),
-        repos = repositories()
+      const state = window()
       if (!state || state === LOADING) return LOADING
       // Chrome needs only the mission root's addressed identity (id/title/type
       // and child count) for its flight-deck key and complexity check. Reading
@@ -252,8 +252,8 @@ function createShellViews(pool: MobxPool) {
         superOpen: state.superOpen,
         paletteOpen: state.paletteOpen,
         selectedIssueId: state.selectedIssueId,
-        repoCount: repos.length,
-        worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
+        repoCount: headerView(pool).repositoryCount(),
+        worktreeCount: headerView(pool).worktreeCount(),
         sessionCount: sessionCount(),
         colorIssue,
         colors,

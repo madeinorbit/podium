@@ -199,3 +199,44 @@ it('answers repository membership count without reading any row at 1x/4x', async
   for (const action of Object.values(samples[0]!.actions)) expect(action.work.rows).toBe(0)
   expect(samples[1]!.control.work.rows).toBeGreaterThan(samples[0]!.control.work.rows ?? 0)
 })
+
+it('shares worktree totals across window reads and ignores scan metadata at 1x/4x', async () => {
+  const samples = []
+  for (const scale of [1, 4] as const) {
+    const f = fixture(scale)
+    const scan = { ...f.repos[0]!, worktrees: [{ path: '/repo/0/a' }, { path: '/repo/0/b' }] }
+    headerEntities(f.pool).apply([{ kind: 'repository', id: 'r0', value: scan }])
+    let count = 0, paints = 0
+    const stop = autorun(() => { count = headerView(f.pool).worktreeCount(); paints++ })
+    try {
+      expect(count).toBe(2)
+      const repeat = await f.measure('chrome repeats worktree total', () => {
+        expect(headerView(f.pool).worktreeCount()).toBe(2)
+      })
+      const before = paints
+      const metadata = await f.measure('scan branch changes', () => {
+        headerEntities(f.pool).apply([{ kind: 'repository', id: 'r0',
+          value: { ...scan, branch: 'changed' } }])
+      })
+      expect(paints).toBe(before)
+      expect(metadata.work.rows).toBe(1)
+      headerEntities(f.pool).apply([{ kind: 'repository', id: 'r1',
+        value: { ...f.repos[1]!, worktrees: [{ path: '/repo/1/a' }] } }])
+      expect(count).toBe(3)
+      headerEntities(f.pool).apply([{ kind: 'repository', id: 'r0', value: undefined }])
+      expect(count).toBe(1)
+      headerEntities(f.pool).order('repository', ['missing', 'r1'])
+      expect(count).toBe(1)
+      stop()
+      const released = await f.measure('closed chrome worktree total', () => {
+        headerEntities(f.pool).apply([{ kind: 'repository', id: 'r1', value: f.repos[1] }])
+      })
+      expect(released.work.rows).toBe(0)
+      expect(headerView(f.pool).worktreeCount()).toBe(0)
+      samples.push({ repeat, metadata, released })
+    } finally { stop(); f.pool.dispose() }
+  }
+  for (const action of ['repeat', 'metadata', 'released'] as const)
+    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+      expect(samples[1]![action].work[counter], `${action}:${counter}`).toBe(samples[0]![action].work[counter])
+})
