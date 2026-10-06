@@ -40,6 +40,44 @@ describe('createCommandEnvironment', () => {
     expect(environment.env.PATH).toBe(environment.pathEntries.join(delimiter))
   })
 
+  it('reads the current Windows Path from the registry and adds installer folders', async () => {
+    const queried: string[] = []
+    const environment = await createCommandEnvironment({
+      platform: 'win32',
+      env: {
+        Path: 'C:\\Stale\\bin',
+        USERPROFILE: 'C:\\Users\\dev',
+        APPDATA: 'C:\\Users\\dev\\AppData\\Roaming',
+        LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+        SystemRoot: 'C:\\Windows',
+      },
+      machineHome: 'C:\\Users\\dev',
+      accountInfo: () => ({ homedir: 'C:\\Users\\dev' }),
+      queryRegistry: async (key) => {
+        queried.push(key)
+        return key.startsWith('HKLM')
+          ? '\r\nHKEY_LOCAL_MACHINE\\...\\Environment\r\n    Path    REG_EXPAND_SZ    %SystemRoot%\\system32;C:\\Program Files\\Git\\cmd\r\n'
+          : '\r\nHKEY_CURRENT_USER\\Environment\r\n    Path    REG_SZ    C:\\Users\\dev\\AppData\\Local\\Fresh;%UNSET%\\x\r\n'
+      },
+    })
+    expect(queried).toEqual([
+      'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+      'HKCU\\Environment',
+    ])
+    expect(environment.source).toBe('registry')
+    expect(environment.pathEntries).toEqual([
+      'C:\\Windows\\system32',
+      'C:\\Program Files\\Git\\cmd',
+      'C:\\Users\\dev\\AppData\\Local\\Fresh',
+      '%UNSET%\\x',
+      'C:\\Stale\\bin',
+      join('C:\\Users\\dev', '.local', 'bin'),
+      join('C:\\Users\\dev', '.bun', 'bin'),
+      join('C:\\Users\\dev\\AppData\\Roaming', 'npm'),
+      join('C:\\Users\\dev\\AppData\\Local', 'mise', 'shims'),
+    ])
+  })
+
   it('does not treat systemd INVOCATION_ID as desktop supervision', async () => {
     let called = false
     const environment = await createCommandEnvironment({

@@ -270,11 +270,11 @@ function inventoryPlatformFields(
   p: NodeJS.Platform,
 ): Pick<Inventory, 'os' | 'arch' | 'podiumVersion'> {
   const a = process.arch
-  if (p !== 'linux' && p !== 'darwin')
+  if (p !== 'linux' && p !== 'darwin' && p !== 'win32')
     log.warn('unsupported platform, reporting linux', { platform: p })
   if (a !== 'x64' && a !== 'arm64') log.warn('unsupported arch, reporting x64', { arch: a })
   return {
-    os: p === 'darwin' ? 'darwin' : 'linux',
+    os: p === 'darwin' || p === 'win32' ? p : 'linux',
     arch: a === 'arm64' ? 'arm64' : 'x64',
     podiumVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
   }
