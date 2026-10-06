@@ -61,7 +61,14 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
       let view!: ReturnType<typeof render>
       const record = async (action: string, run: () => void) => {
         projectKeyReads = 0
-        const result = await measureWork(async () => { await act(async () => run()); await settle() }, { pool })
+        const result = await measureWork(async () => {
+          await act(async () => run()); await settle()
+          if (action === 'open') {
+            if (tab === 'updates') await view.findByRole('button', { name: 'Check now' })
+            if (tab === 'repos') await view.findByText('project-0')
+            if (tab === 'devices') await view.findByText('Phone 0')
+          }
+        }, { pool })
         console.log('SETTINGS_WORK', JSON.stringify({ scale, tab, action, projectKeyReads, ...result.work }))
       }
       await record('open', () => { view = render(<Surface />); if (tab === 'projects') fireEvent.click(view.getByLabelText('Manage projects')) })
@@ -69,7 +76,7 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
       await record('setting', () => { if (tab === 'projects') fireEvent.click(view.getByLabelText('Move Project 0 down')); else if (tab === 'sessions') fireEvent.click(view.container.querySelector('[data-slot="switch"]')!); else ui.set('probe-setting', 'changed') })
       await record('device', () => publish({ machines: machines.map((row, i) => i === 0 ? { ...row, name: 'Renamed machine' } : row) }))
       await record('repository', () => publish({ repos: repos.map((row, i) => i === 0 ? { ...row, path: '/renamed-project' } : row) }))
-      await record('heartbeat', () => pool.applyLocals({ coarseNow: Date.now() + 5000 }))
+      await record('heartbeat', () => pool.applyLocals({ selectedIssueId: null, coarseNow: Date.now() + 5000 }, new Set(['coarseNow'])))
       view.unmount(); await settle()
     }
     pool.dispose(); vi.unstubAllGlobals()
