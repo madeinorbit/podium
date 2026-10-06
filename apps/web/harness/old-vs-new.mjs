@@ -15,7 +15,8 @@ const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const controlOnly=process.argv.includes('--control-only')
-const heartbeatOnly=process.argv.includes('--heartbeat-only')
+const regionsOnly=process.argv.includes('--regions-only')
+const heartbeatOnly=regionsOnly || process.argv.includes('--heartbeat-only')
 const backgroundOnly=heartbeatOnly || process.argv.includes('--background-only')
 const terminalProbe=process.argv.includes('--terminal-probe')
 const tasksProbe=process.argv.includes('--tasks-probe')
@@ -59,6 +60,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,tasksProbe,
   heartbeatOnly,
+  regionsOnly,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -797,6 +799,7 @@ async function background(f) {
     })
     save()
   }
+  if(regionsOnly)return
   const metricWindow=async(kind,perform,profiled=false)=>{
     const before=await metrics(f.cdp), load=loadavg(), stop=await trace(f.cdp)
     if(profiled){await f.cdp.send('Profiler.enable');await f.cdp.send('Profiler.setSamplingInterval',{interval:100});await f.cdp.send('Profiler.start')}
