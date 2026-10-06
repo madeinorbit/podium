@@ -1,6 +1,7 @@
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import { headerStats, storeStats } from '@podium/client-core/perf'
+import { storeStats } from '@podium/client-core/perf'
+import { headerStats } from '../../../tests/worklist/harness/src/perf/header'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { asIssueId, asUserId } from '@podium/model/browser'

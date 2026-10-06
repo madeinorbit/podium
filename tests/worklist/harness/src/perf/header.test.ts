@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { headerStats, measureHeader, measureLegacyHeader } from './header-perf'
-import { storeStats } from './store-stats'
+import { headerStats, measureHeader, measureLegacyHeader } from './header'
+import { storeStats } from '@podium/client-core/perf'
 
 afterEach(() => { headerStats.disable(); headerStats.reset(); storeStats.enable(false); storeStats.reset() })
 describe('header derivation counters', () => {

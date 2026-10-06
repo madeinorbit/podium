@@ -1,6 +1,5 @@
 import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
-import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
@@ -49,7 +48,7 @@ function createHeaderViews(pool: MobxPool) {
   // Header summaries allocate fresh records; compare their values explicitly.
   const cache = keyedComputed(
     (key: string) => debugName(() => `header.${key}`),
-    (key: string, read: () => unknown) => measureHeader(`pool.${key.split(':')[0]}`, read),
+    (_key: string, read: () => unknown) => read(),
     { equals: compareStructural },
   )
   let sessions: HeaderSessions | undefined

@@ -3,7 +3,7 @@ import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 
-import { headerStats } from '@podium/client-core/perf'
+import { headerStats } from './perf/header'
 import {
   checkHeader,
   legacyHeaderSnapshot,

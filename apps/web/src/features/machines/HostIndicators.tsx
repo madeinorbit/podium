@@ -1,4 +1,3 @@
-import { measureHeader } from '@podium/client-core/perf'
 import {
   hostAgentsViewFromCounts,
   hostDiskView,
@@ -390,7 +389,7 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
   const host = usePoolMetric(id)
   const machine = usePoolMachine(host?.machineId)
   const aggregate = usePoolHostAggregate(host?.machineId)
-  return measureHeader('pool.metricRow', () =>
+  return (
     host ? (
       <HeaderMachineChip
         host={host}
@@ -402,7 +401,7 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
         reclaimCount={reclaimCount}
         onInfo={onInfo}
       />
-    ) : null,
+    ) : null
   )
 })
 

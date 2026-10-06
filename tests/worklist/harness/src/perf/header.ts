@@ -1,4 +1,4 @@
-import { recordSliceDerivation } from './store-stats'
+import { recordSliceDerivation } from '@podium/client-core/perf'
 
 /** Bounded, opt-in counters. They retain names and counts, never payloads. */
 let enabled = false
