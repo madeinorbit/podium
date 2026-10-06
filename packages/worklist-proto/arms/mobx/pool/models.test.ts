@@ -11,6 +11,8 @@
  * the independent legacy projection), and the flags
  * normalized (`pinned` a boolean, `sortKey` null when absent). Checked here
  * against the fed row by those rules.
+ * Repository paths are joined from the normalized companion, whose canonical
+ * path can differ from an issue's historical checkout path in this corpus.
  */
 
 import { issueDisplayTitle } from '@podium/client-core/values'
@@ -34,6 +36,7 @@ describe('schema fields on models', () => {
     const projections = new Map<string, (typeof corpus.issueProjections)[number]>(
       corpus.issueProjections.map((issue) => [issue.id, issue]),
     )
+    const repos = new Map(corpus.repoProjections.map((repo) => [String(repo.id), repo]))
     const replay = createReplaySource({
       // SliceIssue is the worklist payload. The schema test also feeds the
       // normalized projection's required fields (priority, type, labels).
@@ -57,7 +60,12 @@ describe('schema fields on models', () => {
       issue.id, issueDisplayTitle(issue, legacy.sessions, legacy.allWorktreePaths),
     ]))
     expect(titles.get('i1405'), 'the draft-title contract regression').toBe('New Codex session')
-    const handle = harnessMobxPoolArm.create(replay.source, locals.source)
+    const handle = harnessMobxPoolArm.create({
+      ...replay.source,
+      companions: () => corpus.repoProjections.map((value) => ({
+        kind: 'repo' as const, id: String(value.id), value,
+      })),
+    }, locals.source)
     try {
       const { pool } = handle
       expect([...ENTITIES].sort()).toEqual((Object.keys(SCHEMA) as EntityName[]).sort())
@@ -65,6 +73,7 @@ describe('schema fields on models', () => {
       let checked = 0
       let answered = 0
       let draftTitles = 0
+      let joinedPaths = 0
       tracked(() => {
         for (const entity of ENTITIES) {
           const spec = SCHEMA[entity]
@@ -79,6 +88,12 @@ describe('schema fields on models', () => {
               const fed = row as Record<string, unknown>
               let want =
                 field === spec.key ? id : fed[spelling[field] ?? field]
+              if (entity === 'issue' && field === 'repoPath' && typeof fed['repoId'] === 'string') {
+                const repo = repos.get(fed['repoId'])
+                expect(repo, `${entity}:${id} has no repository companion`).toBeDefined()
+                want = repo!.repoPath
+                joinedPaths += 1
+              }
               if (entity === 'issue' && IssueModel.answers.has(field)) {
                 if (field === 'pinned') want = want === true
                 else if (field === 'sortKey') want = want ?? null
@@ -115,6 +130,10 @@ describe('schema fields on models', () => {
       expect(checked).toBeGreaterThan(1000)
       expect(answered, 'the row-answered fields were checked').toBeGreaterThan(100)
       expect(draftTitles, 'draft display titles were checked').toBeGreaterThan(0)
+      expect(joinedPaths, 'normalized repository paths were checked').toBeGreaterThan(100)
+      expect(corpus.sliceIssues.some((issue) =>
+        typeof issue.repoId === 'string' && issue.repoPath !== repos.get(issue.repoId)?.repoPath,
+      ), 'the corpus exercises a checkout path that differs from its repository').toBe(true)
     } finally {
       handle.dispose()
       locals.dispose()

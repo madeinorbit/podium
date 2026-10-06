@@ -21,9 +21,9 @@ it('keeps the first-task count current across duplicate deltas, hydration, remov
     { kind: 'issue', id: draft.id, value: undefined },
   ] })
   expect(pool.hasFirstTask).toBe(true)
-  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: 'deleted' } }] })
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: '2020-01-03T00:00:00.000Z' } }] })
   expect(pool.hasFirstTask).toBe(false)
-  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: '' } }] })
+  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: { ...archived, deletedAt: null } }] })
   expect(pool.hasFirstTask).toBe(true)
   pool.apply({ type: 'replace', rows: [] })
   expect(pool.hasFirstTask).toBe(false)

@@ -66,6 +66,7 @@ export function inputFixture(scale: 1 | 4) {
     },
     hostMetrics: { getSnapshot: () => [], subscribe: () => () => {} },
     hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} },
+    headerInputs: { read: () => undefined, onInput: () => () => {} },
   }) as unknown as ClientRuntime
   const change = (patch: Partial<Store>) => {
     state = { ...state, ...patch }
