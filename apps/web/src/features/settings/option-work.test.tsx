@@ -41,6 +41,7 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
     const owner = withKeyedInputs({ getSnapshot: () => state as object, ui, subscribe(wake: () => void) { listeners.add(wake); return () => { listeners.delete(wake) } } })
     const pool = seam.pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     attachSettingsSource(pool, owner); attachPreferenceSource(pool, ui)
+    const rowReads = vi.spyOn(pool, 'row')
     let projectKeyReads = 0
     seam.projects = repos.map((repo, i) => ({ get key() { projectKeyReads++; return `repo-${i}` }, name: `Project ${i}`, aliases: [repo.path] }))
     const settings = normalizeSettings({})
@@ -61,18 +62,22 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
       let view!: ReturnType<typeof render>
       const record = async (action: string, run: () => void) => {
         projectKeyReads = 0
+        rowReads.mockClear()
         const result = await measureWork(async () => {
           await act(async () => run()); await settle()
           if (action === 'open') {
+            if (tab === 'projects') await act(async () => fireEvent.click(view.getByLabelText('Manage projects')))
             if (tab === 'updates') await view.findByRole('button', { name: 'Check now' })
             if (tab === 'repos') await view.findByText('project-0')
             if (tab === 'devices') await view.findByText('Phone 0')
           }
         }, { pool })
-        console.log('SETTINGS_WORK', JSON.stringify({ scale, tab, action, projectKeyReads, ...result.work }))
+        const rowsByEntity: Record<string, number> = {}
+        for (const [entity] of rowReads.mock.calls) rowsByEntity[entity] = (rowsByEntity[entity] ?? 0) + 1
+        console.log('SETTINGS_WORK', JSON.stringify({ scale, tab, action, projectKeyReads, rowsByEntity, ...result.work }))
       }
-      await record('open', () => { view = render(<Surface />); if (tab === 'projects') fireEvent.click(view.getByLabelText('Manage projects')) })
-      expect(view.container.textContent?.length).toBeGreaterThan(20)
+      await record('open', () => { view = render(<Surface />) })
+      expect(view.baseElement.textContent?.length).toBeGreaterThan(20)
       await record('setting', () => { if (tab === 'projects') fireEvent.click(view.getByLabelText('Move Project 0 down')); else if (tab === 'sessions') fireEvent.click(view.container.querySelector('[data-slot="switch"]')!); else ui.set('probe-setting', 'changed') })
       await record('device', () => publish({ machines: machines.map((row, i) => i === 0 ? { ...row, name: 'Renamed machine' } : row) }))
       await record('repository', () => publish({ repos: repos.map((row, i) => i === 0 ? { ...row, path: '/renamed-project' } : row) }))
