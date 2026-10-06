@@ -657,6 +657,7 @@ function useFixturePool(): MobxPool {
           if (name === 'header.views') return fixture.headerViews
           if (name === 'sessionPanes') return fixture.sessionPanes
           if (name === 'settings.views') return fixture.settingsViews ?? (_factory as () => unknown)()
+          if (name === 'web.settings.machines') return (_factory as () => unknown)()
           if (name !== 'missions') throw new Error(`Undeclared component fixture source: ${name}`)
           const byId = new Map<string, IssueViewModel>(
             live.current.issues.map((row) => [row.id as string, row]),
