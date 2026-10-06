@@ -118,6 +118,11 @@ Boat restores a sandbox through a lazy FUSE filesystem (`ascii-lazyfs`) over
 `boat-win.sh` recreates the container from `start-win.sh` on every start, so its
 settings come from this repo, not from whatever a snapshot captured.
 
+5. **Not every boat host has KVM.** Boat places sandboxes on bare-metal hosts (nested KVM,
+   Windows runs) or on Hetzner VMs without `/dev/kvm` (Windows cannot start), and only boat
+   admins can pin the provider. `up` and `resume` check for `/dev/kvm` and retry on another
+   host (delete and re-fork, or stop and resume), up to five times.
+
 ## Re-baking the images
 
 Re-bake `podium-win` when the toolchain pins change, and both images about every 80
