@@ -122,6 +122,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     transcript: {
       initialLimit: INITIAL_LIMIT, pageLimit: PAGE_LIMIT,
       retainHistory: () => presentation.retainHistory,
+      collapseMachineContext: headless,
       visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
       source: {
         read: request => trpc.sessions.transcriptRead.query(request),

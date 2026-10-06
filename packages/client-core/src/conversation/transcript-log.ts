@@ -1,7 +1,10 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { action, makeObservable, observable, observableRef, observableShallow } from 'mobx'
 import { isAskUserQuestion } from '../values/ask-question'
+import { MACHINE_CONTEXT_RE } from '../values/chat'
+import type { HandoffTranscriptPair } from '../values/handoff'
 import { cursorInsertionIndex } from '../values/cursor-order'
+import { parseEnvelopeBatch } from '../values/message-envelope'
 import type {
   TranscriptSourceOptions,
   TranscriptFreshness,
@@ -36,6 +39,9 @@ export interface TranscriptLogOptions extends TranscriptSourceOptions {
   /** The conversation owns real-time scheduling; a standalone log merges immediately. */
   enqueueFrame?: (items: TranscriptItem[], meta: { reset: boolean }) => void
   onChange?: (change: TranscriptChange) => void
+  /** Headless threads prepend machine-authored seed/delta blocks; those are
+   *  not operator prompts. Mirrors the handoff prompt predicate. */
+  collapseMachineContext?: boolean
 }
 
 export class TranscriptLog {
@@ -47,6 +53,9 @@ export class TranscriptLog {
   private positionOffset = 0
   latestOperatorPrompt: string | null = null
   pendingQuestion: TranscriptItem | null = null
+  /** Latest operator prompt with its final answer, maintained per ingested
+   *  item (POD-5652). Readers observe this fact; nothing re-scans held rows. */
+  latestHandoffPair: HandoffTranscriptPair | null = null
   latestRecordedAt: number | null = null
   latestUserId: string | null = null
   head: string | undefined = undefined
@@ -87,6 +96,23 @@ export class TranscriptLog {
   private readonly userEchoes = new Map<string, { text: string; paths: string }>()
   private readonly userTexts = observable.map<string, number>(undefined, { deep: false })
   private readonly userPaths = observable.map<string, number>(undefined, { deep: false })
+  private readonly handoffPrompts = new LatestTranscriptId((id) => this.position(id) ?? -1)
+  private readonly handoffAnswers = new LatestTranscriptId((id) => this.position(id) ?? -1)
+  private readonly handoffAssistants = new LatestTranscriptId((id) => this.position(id) ?? -1)
+  /** Operator text per prompt item, parsed once at ingest and never re-parsed on read. */
+  private readonly handoffOperatorText = new Map<string, string | undefined>()
+  private readonly handoffMarkedAnswers = new Set<string>()
+  /** Identity of the published pair. Compared by reference: a re-filed item
+   *  version swaps its frozen reference, so the pair reforms exactly when
+   *  its content can have changed — and unrelated frames keep it quiet. */
+  private handoffPairIds:
+    | {
+        prompt: TranscriptItem
+        answer: TranscriptItem | undefined
+        legacy: boolean
+        operatorText: string | undefined
+      }
+    | undefined
   private readonly trackEchoes: boolean
   private readonly trackRecordedTime: boolean
 
@@ -100,6 +126,7 @@ export class TranscriptLog {
       byId: observableShallow,
       latestOperatorPrompt: observable,
       pendingQuestion: observableRef,
+      latestHandoffPair: observableRef,
       latestRecordedAt: observable,
       head: observable,
       tail: observable,
@@ -181,6 +208,43 @@ export class TranscriptLog {
       if (next) this.userEchoes.set(item.id, next)
       else this.userEchoes.delete(item.id)
     }
+    this.fileHandoffFacts(item)
+  }
+
+  /** Handoff prompt/answer predicates per ingested item version (POD-5652).
+   *
+   *  The prompt predicate mirrors `isOperatorPrompt`: user role, no
+   *  interrupt, non-blank operator text after one envelope parse. The parse
+   *  runs once here per ingested item and its result is retained; pair reads
+   *  never re-parse. Answer tracking mirrors `pairLatestPromptAndAnswer`: a
+   *  marked final answer wins, else the trailing non-blank assistant turn
+   *  when no marker is held anywhere.
+   */
+  private fileHandoffFacts(item: TranscriptItem): void {
+    let prompt = false
+    if (item.role === 'user' && item.event !== 'interrupt' && item.text.trim().length > 0) {
+      const machineSeed =
+        this.options.collapseMachineContext === true && MACHINE_CONTEXT_RE.test(item.text)
+      if (!machineSeed) {
+        const operatorText = parseEnvelopeBatch(item.text)?.operatorText
+        prompt = operatorText === undefined || operatorText !== ''
+        if (prompt) this.handoffOperatorText.set(item.id, operatorText)
+        else this.handoffOperatorText.delete(item.id)
+      } else {
+        this.handoffOperatorText.delete(item.id)
+      }
+    } else {
+      this.handoffOperatorText.delete(item.id)
+    }
+    this.handoffPrompts.set(item.id, prompt)
+    const marked = item.answer === true
+    if (marked) this.handoffMarkedAnswers.add(item.id)
+    else this.handoffMarkedAnswers.delete(item.id)
+    this.handoffAnswers.set(item.id, marked)
+    this.handoffAssistants.set(
+      item.id,
+      item.role === 'assistant' && item.text.trim().length > 0,
+    )
   }
 
   async start(): Promise<void> {
@@ -589,6 +653,11 @@ export class TranscriptLog {
     this.userItems.set(id, false)
     this.userPrompts.set(id, false)
     this.questions.set(id, false)
+    this.handoffPrompts.set(id, false)
+    this.handoffAnswers.set(id, false)
+    this.handoffAssistants.set(id, false)
+    this.handoffOperatorText.delete(id)
+    this.handoffMarkedAnswers.delete(id)
     this.recordedItems.set(id, false)
     this.recordedAt.delete(id)
     const echo = this.userEchoes.get(id)
@@ -610,10 +679,79 @@ export class TranscriptLog {
     this.latestOperatorPrompt = this.getItem(this.userPrompts.latest())?.text ?? null
     const question = this.getItem(this.questions.latest())
     this.pendingQuestion = question && !question.toolResult ? question : null
+    this.maintainHandoffPair()
     const recorded = this.recordedItems.latest()
     this.latestRecordedAt = recorded === undefined ? null : (this.recordedAt.get(recorded) ?? null)
     this.latestUserId = this.userItems.latest() ?? null
     this.options.onChange?.({ changed, added, rebuild, orderChanged, insertions, removed })
+  }
+
+  /** Recompute the handoff pair from retained per-item facts (POD-5652).
+   *
+   *  Tracker heads plus point lookups only: no scan of held rows, no
+   *  re-parse. The published reference is replaced only when the pair's
+   *  identity changes, so frames that cannot move the pair cost a key
+   *  compare and keep every observer quiet.
+   */
+  private maintainHandoffPair(): void {
+    const promptId = this.handoffPrompts.latest()
+    const prompt = promptId === undefined ? undefined : this.getItem(promptId)
+    if (prompt === undefined || promptId === undefined) {
+      this.handoffPairIds = undefined
+      if (this.latestHandoffPair !== null) this.latestHandoffPair = null
+      return
+    }
+    const promptPos = this.position(promptId)
+    let answer: TranscriptItem | undefined
+    let legacy = false
+    if (promptPos !== undefined) {
+      const markedId = this.handoffAnswers.latest()
+      if (markedId !== undefined) {
+        const markedPos = this.position(markedId)
+        if (markedPos !== undefined && markedPos > promptPos) {
+          answer = this.getItem(markedId)
+        }
+      }
+      if (answer === undefined && this.handoffMarkedAnswers.size === 0) {
+        const assistantId = this.handoffAssistants.latest()
+        if (assistantId !== undefined) {
+          const assistantPos = this.position(assistantId)
+          if (assistantPos !== undefined && assistantPos > promptPos) {
+            answer = this.getItem(assistantId)
+            legacy = answer !== undefined
+          }
+        }
+      }
+    }
+    const operatorText = this.handoffOperatorText.get(promptId)
+    const prev = this.handoffPairIds
+    if (
+      prev &&
+      prev.prompt === prompt &&
+      prev.answer === answer &&
+      prev.legacy === legacy &&
+      prev.operatorText === operatorText
+    ) {
+      return
+    }
+    this.handoffPairIds = { prompt, answer, legacy, operatorText }
+    const itemKey = (item: TranscriptItem): string => item.cursor ?? item.id
+    this.latestHandoffPair = {
+      sessionId: this.sessionId,
+      prompt: {
+        item: operatorText === undefined ? prompt : { ...prompt, text: operatorText },
+        anchor: { sessionId: this.sessionId, itemKey: itemKey(prompt) },
+      },
+      ...(answer
+        ? {
+            answer: {
+              item: answer,
+              anchor: { sessionId: this.sessionId, itemKey: itemKey(answer) },
+              legacy,
+            },
+          }
+        : {}),
+    }
   }
 
   private prepend(fresh: TranscriptItem[], status: Partial<TranscriptState>): void {
@@ -657,6 +795,11 @@ export class TranscriptLog {
       this.userPrompts.clear()
       this.userItems.clear()
       this.questions.clear()
+      this.handoffPrompts.clear()
+      this.handoffAnswers.clear()
+      this.handoffAssistants.clear()
+      this.handoffOperatorText.clear()
+      this.handoffMarkedAnswers.clear()
       this.recordedAt.clear()
       this.recordedItems.clear()
       this.userEchoes.clear()
@@ -681,6 +824,7 @@ export class TranscriptLog {
       this.latestOperatorPrompt = this.getItem(this.userPrompts.latest())?.text ?? null
       const question = this.getItem(this.questions.latest())
       this.pendingQuestion = question && !question.toolResult ? question : null
+      this.maintainHandoffPair()
       const recorded = this.recordedItems.latest()
       this.latestRecordedAt =
         recorded === undefined ? null : (this.recordedAt.get(recorded) ?? null)

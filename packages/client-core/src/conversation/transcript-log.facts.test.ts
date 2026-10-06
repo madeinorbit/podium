@@ -2,9 +2,11 @@ import { reaction } from 'mobx'
 import { TranscriptLog, type TranscriptLogOptions } from './transcript-log'
 const createTranscriptLog = (options: TranscriptLogOptions) => new TranscriptLog(options)
 import { asSessionId, type TranscriptItem } from '@podium/model'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { latestPendingQuestion } from '../values/ask-question'
+import { pairLatestPromptAndAnswer } from '../values/handoff'
+import { parseEnvelopeBatch } from '../values/message-envelope'
 import {
   type TranscriptSourceOptions,
   type TranscriptPage,
@@ -32,6 +34,7 @@ async function fixture(
   initialLimit = 1024,
   retainHistory = true,
   questions?: TranscriptSourceOptions['questions'],
+  collapseMachineContext = false,
 ) {
   let page: TranscriptPage = { items, head: 'head', tail: items.at(-1)?.cursor, hasMore: true }
   let listener: Parameters<TranscriptSource['subscribe']>[2] | undefined
@@ -51,6 +54,7 @@ async function fixture(
     retainHistory: () => retainHistory,
     visible: () => false,
     questions,
+    collapseMachineContext,
   })
   await controller.start()
   return {
@@ -329,4 +333,288 @@ it('does not maintain undeclared echo or timestamp questions', async () => {
   } finally {
     f.controller.dispose()
   }
+})
+
+describe('latest handoff pair (POD-5652)', () => {
+  const sid = asSessionId('facts')
+  const promptOptions = (collapseMachineContext: boolean) => ({
+    collapseMachineContext,
+    operatorTextOf: (text: string) => parseEnvelopeBatch(text)?.operatorText,
+  })
+  const norm = (pair: {
+    prompt: { item: TranscriptItem; anchor: { itemKey: string } }
+    answer?: { item: TranscriptItem; anchor: { itemKey: string }; legacy: boolean }
+  } | null) =>
+    pair
+      ? {
+          prompt: pair.prompt.item.id,
+          text: pair.prompt.item.text,
+          promptKey: pair.prompt.anchor.itemKey,
+          answer: pair.answer?.item.id,
+          legacy: pair.answer?.legacy,
+          answerKey: pair.answer?.anchor.itemKey,
+        }
+      : null
+  const scenarios: Array<{ name: string; items: TranscriptItem[] }> = [
+    {
+      name: 'marked answer',
+      items: [
+        row('prompt', 'user', 1, { text: 'Do it' }),
+        row('working', 'assistant', 2, { text: 'working' }),
+        row('answer', 'assistant', 3, { text: 'done', answer: true }),
+      ],
+    },
+    {
+      name: 'legacy trailing turn',
+      items: [
+        row('prompt', 'user', 1, { text: 'Question' }),
+        row('reply-1', 'assistant', 2, { text: 'first' }),
+        row('reply-2', 'assistant', 3, { text: 'latest' }),
+      ],
+    },
+    {
+      name: 'latest turn only',
+      items: [
+        row('old-prompt', 'user', 1, { text: 'old' }),
+        row('old-answer', 'assistant', 2, { text: 'old done', answer: true }),
+        row('prompt', 'user', 3, { text: 'new' }),
+        row('narration', 'assistant', 4, { text: 'working' }),
+        row('answer', 'assistant', 5, { text: 'new done', answer: true }),
+      ],
+    },
+    {
+      name: 'markers before the prompt win nothing',
+      items: [
+        row('old-answer', 'assistant', 1, { text: 'old done', answer: true }),
+        row('prompt', 'user', 2, { text: 'new' }),
+        row('narration', 'assistant', 3, { text: 'working' }),
+      ],
+    },
+    {
+      name: 'machine seed last',
+      items: [
+        row('prompt', 'user', 1, { text: 'real' }),
+        row('seed', 'user', 2, { text: '[CONCIERGE CONTEXT seed]' }),
+        row('answer', 'assistant', 3, { text: 'done', answer: true }),
+      ],
+    },
+    {
+      name: 'envelope operator text',
+      items: [
+        row('prompt', 'user', 1, {
+          text: '[podium message msg_1 · from issue:POD-1 · to your session · reply: podium mail reply msg_1]\ninternal\n[end podium message msg_1]latest',
+        }),
+        row('answer', 'assistant', 2, { text: 'done', answer: true }),
+      ],
+    },
+    {
+      name: 'no prompt',
+      items: [row('a1', 'assistant', 1, { text: 'one' }), row('a2', 'assistant', 2, { text: 'two' })],
+    },
+    {
+      name: 'prompt without answer',
+      items: [row('a0', 'assistant', 1, { text: 'earlier' }), row('prompt', 'user', 2, { text: 'Q' })],
+    },
+  ]
+
+  for (const collapse of [false, true]) {
+    it(`matches pairLatestPromptAndAnswer across handoff shapes (collapse=${collapse})`, async () => {
+      for (const scenario of scenarios) {
+        const items = scenario.items.map((item) => ({ ...item }))
+        const f = await fixture(items, 1024, true, undefined, collapse)
+        try {
+          const expected = pairLatestPromptAndAnswer(sid, items, promptOptions(collapse))
+          expect(norm(f.controller.latestHandoffPair), scenario.name).toEqual(norm(expected))
+          if (scenario.name === 'machine seed last') {
+            expect(f.controller.latestHandoffPair?.prompt.item.id, scenario.name).toBe(
+              collapse ? 'prompt' : 'seed',
+            )
+          }
+          if (scenario.name === 'envelope operator text') {
+            expect(f.controller.latestHandoffPair?.prompt.item.text).toBe('latest')
+          }
+          f.emit([row('tail', 'assistant', 10, { text: 'tail' })])
+          const after = pairLatestPromptAndAnswer(
+            sid,
+            [...items, f.controller.getItem('tail')!],
+            promptOptions(collapse),
+          )
+          expect(norm(f.controller.latestHandoffPair), `${scenario.name} after tail`).toEqual(
+            norm(after),
+          )
+        } finally {
+          f.controller.dispose()
+        }
+      }
+    })
+  }
+
+  it('ignores interrupts and blanks, and keeps the pair reference quiet on unrelated frames', async () => {
+    const f = await fixture([
+      row('prompt', 'user', 1, { text: 'real' }),
+      row('interrupt', 'user', 2, { text: 'stop', event: 'interrupt' }),
+      row('blank', 'user', 3, { text: '   ' }),
+      row('answer', 'assistant', 4, { text: 'done', answer: true }),
+    ])
+    try {
+      const pair = f.controller.latestHandoffPair
+      expect(pair?.prompt.item.id).toBe('prompt')
+      expect(pair?.answer?.item.id).toBe('answer')
+      f.emit([row('answer', 'assistant', 4, { text: 'done, edited', answer: true })])
+      // The answer version changed, so the pair reforms around the new item.
+      expect(f.controller.latestHandoffPair).not.toBe(pair)
+      expect(f.controller.latestHandoffPair?.answer?.item.text).toBe('done, edited')
+      const current = f.controller.latestHandoffPair
+      f.emit([row('note', 'assistant', 5, { text: 'side note' })])
+      // A marked pair ignores trailing prose: same reference, no observer wake.
+      expect(f.controller.latestHandoffPair).toBe(current)
+    } finally {
+      f.controller.dispose()
+    }
+  })
+
+  it('moves the pair to a newer prompt and forms it from an older page when missing', async () => {
+    const f = await fixture([row('answer', 'assistant', 30, { text: 'orphan', answer: true })])
+    try {
+      expect(f.controller.latestHandoffPair).toBeNull()
+      f.page({
+        items: [
+          row('prompt', 'user', 10, { text: 'older question' }),
+          row('context', 'assistant', 20, { text: 'context' }),
+        ],
+        head: 'old',
+        hasMore: false,
+      })
+      await f.controller.loadOlder()
+      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt')
+      expect(f.controller.latestHandoffPair?.answer?.item.id).toBe('answer')
+      const formed = f.controller.latestHandoffPair
+      f.emit([row('prompt-2', 'user', 40, { text: 'newer' })])
+      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt-2')
+      expect(f.controller.latestHandoffPair?.answer).toBeUndefined()
+      expect(f.controller.latestHandoffPair).not.toBe(formed)
+    } finally {
+      f.controller.dispose()
+    }
+  })
+
+  it('drops the pair with a trimmed prompt and restores it from the page', async () => {
+    const items = [
+      row('prompt', 'user', 1, { text: 'question' }),
+      ...Array.from({ length: 20 }, (_, index) =>
+        row(`a${index}`, 'assistant', index + 2, { text: `line ${index}` }),
+      ),
+    ]
+    const f = await fixture(items, 8, false)
+    try {
+      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt')
+      f.emit([row('fresh', 'assistant', 30, { text: 'fresh' })])
+      expect(f.controller.latestHandoffPair).toBeNull()
+      f.page({
+        items: [row('prompt', 'user', 1, { text: 'question' })],
+        head: 'older',
+        hasMore: false,
+      })
+      await f.controller.loadOlder()
+      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt')
+    } finally {
+      f.controller.dispose()
+    }
+  })
+
+  it('holds open, new-message and older-page reads flat at 1x/4x history', async () => {
+    const samples = []
+    for (const scale of [1, 4] as const) {
+      let fieldReads = 0
+      const counted = (raw: Record<string, unknown>): TranscriptItem => {
+        const out: Record<string, unknown> = {}
+        for (const key of ['role', 'text', 'answer', 'cursor', 'id', 'event'] as const) {
+          Object.defineProperty(out, key, {
+            enumerable: true,
+            get() {
+              fieldReads++
+              return raw[key]
+            },
+          })
+        }
+        for (const key of Object.keys(raw)) {
+          if (!(key in out)) out[key] = raw[key]
+        }
+        return out as unknown as TranscriptItem
+      }
+      const at = (offset: number) =>
+        Buffer.from(JSON.stringify(['file', offset, `id${offset}`, 0])).toString('base64url')
+      const held = [
+        counted({ id: 'prompt', role: 'user', text: 'Hand me the status.', cursor: at(1000) }),
+        ...Array.from({ length: 128 * scale }, (_, index) =>
+          counted({
+            id: `a${index}`,
+            role: 'assistant',
+            text: `progress line ${index}`,
+            cursor: at(1001 + index),
+          }),
+        ),
+        counted({
+          id: 'answer',
+          role: 'assistant',
+          text: 'Finished.',
+          answer: true,
+          cursor: at(1001 + 128 * scale),
+        }),
+      ]
+      const f = await fixture(held, 4096, true)
+      try {
+        const pair = f.controller.latestHandoffPair
+        expect(pair?.prompt.item.id).toBe('prompt')
+        expect(pair?.answer?.item.id).toBe('answer')
+        fieldReads = 0
+        const opened = f.controller.latestHandoffPair
+        const openReads = fieldReads
+        fieldReads = 0
+        f.emit([
+          counted({
+            id: 'new',
+            role: 'assistant',
+            text: 'one more line',
+            cursor: at(1002 + 128 * scale),
+          }),
+        ])
+        const afterNew = f.controller.latestHandoffPair
+        const newReads = fieldReads
+        f.page({
+          items: Array.from({ length: 200 }, (_, index) =>
+            counted({
+              id: `old${index}`,
+              role: 'assistant',
+              text: `older line ${index}`,
+              cursor: at(index),
+            }),
+          ),
+          head: at(0),
+          hasMore: false,
+        })
+        fieldReads = 0
+        await f.controller.loadOlder()
+        const afterPage = f.controller.latestHandoffPair
+        const pageReads = fieldReads
+        expect(opened).toBe(pair)
+        expect(afterNew).toBe(pair)
+        expect(afterPage).toBe(pair)
+        expect(f.controller.items).toHaveLength(held.length + 1 + 200)
+        samples.push({
+          scale,
+          heldItems: held.length,
+          openReads,
+          newReads,
+          pageReads,
+        })
+      } finally {
+        f.controller.dispose()
+      }
+    }
+    expect(samples[1]!.openReads).toBe(samples[0]!.openReads)
+    expect(samples[1]!.newReads).toBe(samples[0]!.newReads)
+    expect(samples[1]!.pageReads).toBe(samples[0]!.pageReads)
+    console.log('[handoff-pair-work1x4x]', JSON.stringify(samples))
+  })
 })

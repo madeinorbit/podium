@@ -1,18 +1,20 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
-  pairLatestPromptAndAnswer,
-  parseEnvelopeBatch,
+  useConversation as useOwnedConversation,
+  useStoreHandle,
+} from '@podium/client-core/react'
+import {
   selectLatestPromptSession,
   type HandoffTranscriptPair,
 } from '@podium/client-core/values'
-import type { TranscriptItem } from '@podium/model/browser'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useObserver } from 'mobx-react-lite'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import {
+  createWebConversation,
+  type WebConversation,
+} from '@/features/chat/use-conversation'
 import type { Trpc } from './trpc'
-
-const INITIAL_LIMIT = 200
-const PAGE_LIMIT = 400
-const MAX_ITEMS = 2_000
 
 type HandoffTranscriptState =
   | { status: 'empty'; session: SessionView | null; pair: null }
@@ -20,108 +22,96 @@ type HandoffTranscriptState =
   | { status: 'ready'; session: SessionView; pair: HandoffTranscriptPair }
   | { status: 'error'; session: SessionView; pair: null }
 
-const transcriptCache = new Map<string, HandoffTranscriptPair | null>()
-
-function mergeOlder(
-  older: readonly TranscriptItem[],
-  current: readonly TranscriptItem[],
-): TranscriptItem[] {
-  const seen = new Set(current.map((item) => item.cursor ?? item.id))
-  return [
-    ...older.filter((item) => {
-      const key = item.cursor ?? item.id
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    }),
-    ...current,
-  ]
-}
-
+/** The handoff reads the session's retained TranscriptLog (POD-5652).
+ *
+ *  The conversation is the same shared instance the chat surface would hold:
+ *  `useOwnedConversation` acquires it from the principal-owned cache, so a
+ *  session opened here and in chat shares one log, one read stream and one
+ *  maintained prompt/answer pair. The hook never fetches or merges transcript
+ *  pages itself; it pages the shared log until the maintained pair resolves.
+ */
 export function useHandoffTranscript(
   active: boolean,
   missionSessions: readonly SessionView[],
 ): HandoffTranscriptState & { retry: () => void } {
-  const { trpc, replica } = useStoreHandle<Trpc>().access
+  const runtime = useStoreHandle<Trpc>()
+  const pool = useWorklistPool()
   const session = useMemo(
     () => (active ? selectLatestPromptSession(missionSessions) : null),
     [active, missionSessions],
   )
-  const cacheKey = session ? `${session.sessionId}\n${session.lastActiveAt}` : null
-  const [retryKey, setRetryKey] = useState(0)
-  const retry = useCallback(() => setRetryKey((key) => key + 1), [])
-  const [state, setState] = useState<HandoffTranscriptState>({
-    status: 'empty',
-    session: null,
-    pair: null,
-  })
+  const sessionId = session?.sessionId
+  const enabled = active && session !== null && pool !== null
+  // Same factory the chat surface registers: whoever creates the shared entry
+  // first, both readers observe the same retained transcript. Thread views
+  // never collide: they acquire under a `sessionId:thread:` cache key.
+  const conversation = useOwnedConversation<WebConversation>(
+    enabled ? sessionId : undefined,
+    () => createWebConversation(runtime, pool!, sessionId!, {}),
+    { enabled },
+  )
+  const transcript = conversation?.transcript
+  const snapshot = useObserver(() => ({
+    pair: transcript?.latestHandoffPair ?? null,
+    initialLoaded: transcript?.initialLoaded ?? false,
+    hasMoreOlder: transcript?.hasMoreOlder ?? false,
+    loadingOlder: transcript?.loadingOlder ?? false,
+  }))
+  const [pageFailed, setPageFailed] = useState(false)
+  const failedRef = useRef(false)
+  useEffect(() => {
+    failedRef.current = false
+    setPageFailed(false)
+  }, [transcript])
 
   useEffect(() => {
-    if (!active || !session || !cacheKey) {
-      setState({ status: 'empty', session: null, pair: null })
-      return
-    }
-
-    const promptOptions = {
-      collapseMachineContext: session.headless === true,
-      operatorTextOf: (text: string) => parseEnvelopeBatch(text)?.operatorText,
-    }
-    const hasCached = transcriptCache.has(cacheKey)
-    const cached = transcriptCache.get(cacheKey)
-    if (hasCached) {
-      setState(
-        cached
-          ? { status: 'ready', session, pair: cached }
-          : { status: 'empty', session, pair: null },
-      )
-      return
-    }
-    const replicaItems = replica.transcriptWindow(session.sessionId)?.items ?? []
-    const seeded = pairLatestPromptAndAnswer(session.sessionId, replicaItems, promptOptions)
-    if (seeded) setState({ status: 'loading', session, pair: seeded })
-    else setState({ status: 'loading', session, pair: null })
-
+    if (!active || !transcript || failedRef.current) return
+    if (transcript.latestHandoffPair !== null) return
     let cancelled = false
     void (async () => {
-      try {
-        let page = await trpc.sessions.transcriptRead.query({
-          sessionId: session.sessionId,
-          direction: 'before',
-          limit: INITIAL_LIMIT,
-        })
-        let items = page.items as TranscriptItem[]
-        let pair = pairLatestPromptAndAnswer(session.sessionId, items, promptOptions)
-        while (!pair && page.hasMore && items.length < MAX_ITEMS && page.head) {
-          page = await trpc.sessions.transcriptRead.query({
-            sessionId: session.sessionId,
-            anchor: page.head,
-            direction: 'before',
-            limit: Math.min(PAGE_LIMIT, MAX_ITEMS - items.length),
-          })
-          items = mergeOlder(page.items as TranscriptItem[], items)
-          pair = pairLatestPromptAndAnswer(session.sessionId, items, promptOptions)
+      while (
+        !cancelled &&
+        !failedRef.current &&
+        transcript.latestHandoffPair === null &&
+        transcript.hasMoreOlder &&
+        !transcript.loadingOlder
+      ) {
+        try {
+          await transcript.loadOlder()
+        } catch {
+          failedRef.current = true
+          if (!cancelled) setPageFailed(true)
+          return
         }
-        if (cancelled) return
-        transcriptCache.set(cacheKey, pair)
-        replica.putTranscriptWindow(session.sessionId, items.slice(-INITIAL_LIMIT))
-        setState(
-          pair ? { status: 'ready', session, pair } : { status: 'empty', session, pair: null },
-        )
-      } catch {
-        if (cancelled) return
-        if (seeded) setState({ status: 'ready', session, pair: seeded })
-        else setState({ status: 'error', session, pair: null })
       }
     })()
-
     return () => {
       cancelled = true
     }
-    // `cacheKey` is the transcript read's semantic identity. Replica refreshes
-    // may replace an equal SessionView object; restarting for that identity-only
-    // change would turn each state write above into another read.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: session identity is deliberately represented by cacheKey.
-  }, [active, cacheKey, replica, retryKey, trpc])
+  }, [
+    active,
+    transcript,
+    snapshot.pair,
+    snapshot.loadingOlder,
+    snapshot.hasMoreOlder,
+    pageFailed,
+  ])
 
-  return { ...state, retry }
+  const retry = useCallback(() => {
+    if (!transcript) return
+    failedRef.current = false
+    setPageFailed(false)
+    void transcript.refresh({ disclose: true }).catch(() => {
+      failedRef.current = true
+      setPageFailed(true)
+    })
+  }, [transcript])
+
+  if (!active || !session) return { status: 'empty', session: null, pair: null, retry }
+  if (snapshot.pair)
+    return { status: 'ready', session, pair: snapshot.pair, retry }
+  if (pageFailed) return { status: 'error', session, pair: null, retry }
+  if (!snapshot.initialLoaded || snapshot.loadingOlder || snapshot.hasMoreOlder)
+    return { status: 'loading', session, pair: null, retry }
+  return { status: 'empty', session, pair: null, retry }
 }

@@ -1,36 +1,71 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { TranscriptLog } from '@podium/client-core/conversation'
 // @vitest-environment happy-dom
-import { asSessionId, type TranscriptItem } from '@podium/model'
+import { asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
+import type { TranscriptPage } from '@podium/client-core/transcript'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useHandoffTranscript } from './use-handoff-transcript'
 
+interface Shell {
+  conversation: { transcript: TranscriptLog; start: () => Promise<void> }
+  read: ReturnType<typeof vi.fn>
+  setPage: (page: TranscriptPage) => void
+  started: boolean
+}
+
 const harness = vi.hoisted(() => {
-  const read = vi.fn()
-  const put = vi.fn()
-  let cached: { items: TranscriptItem[] } | undefined
-  return {
-    read,
-    put,
-    get cached() {
-      return cached
-    },
-    set cached(value: { items: TranscriptItem[] } | undefined) {
-      cached = value
-    },
-    store: {
-      trpc: { sessions: { transcriptRead: { query: read } } },
-      replica: {
-        transcriptWindow: () => cached,
-        putTranscriptWindow: put,
-      },
-    },
-  }
+  const shells = new Map<string, Shell>()
+  return { shells, pool: {} }
 })
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return harness.store } }),
+  useStoreHandle: () => ({ get access() { return {} } }),
+  useConversation: (
+    sessionId: SessionId | undefined,
+    _factory: unknown,
+    options?: { enabled?: boolean },
+  ) => {
+    if (sessionId === undefined || options?.enabled === false) return undefined
+    const shell = harness.shells.get(sessionId)
+    if (shell && !shell.started) {
+      shell.started = true
+      void shell.conversation.start()
+    }
+    return shell?.conversation
+  },
 }))
+
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => harness.pool,
+}))
+
+vi.mock('@/features/chat/use-conversation', () => ({
+  createWebConversation: vi.fn(),
+}))
+
+const at = (offset: number) =>
+  Buffer.from(JSON.stringify(['file', offset, `id${offset}`, 0])).toString('base64url')
+
+function shell(sessionId: string, first: TranscriptPage): Shell {
+  let page = first
+  const read = vi.fn(async () => page)
+  const log = new TranscriptLog({
+    sessionId: asSessionId(sessionId),
+    source: { read, subscribe: () => () => {} },
+    retainHistory: () => true,
+  })
+  const entry: Shell = {
+    conversation: { transcript: log, start: () => log.start() },
+    read,
+    setPage: (next) => {
+      page = next
+    },
+    started: false,
+  }
+  harness.shells.set(sessionId, entry)
+  return entry
+}
 
 const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionView =>
   ({
@@ -45,75 +80,107 @@ const session = (id: string, stamp = '2026-09-01T10:00:00.000Z'): SessionView =>
     transcriptAvailable: true,
   }) as SessionView
 
-const item = (id: string, role: TranscriptItem['role'], text: string): TranscriptItem => ({
+const item = (id: string, role: TranscriptItem['role'], text: string, offset: number): TranscriptItem => ({
   id,
   role,
   text,
+  cursor: at(offset),
 })
 
 beforeEach(() => {
-  harness.read.mockReset()
-  harness.put.mockReset()
-  harness.cached = undefined
+  for (const entry of harness.shells.values()) entry.conversation.transcript.dispose()
+  harness.shells.clear()
 })
 
 describe('useHandoffTranscript', () => {
   it('does no transcript work while inactive', () => {
+    shell('hook-inactive', { items: [], hasMore: false })
     const { result } = renderHook(() => useHandoffTranscript(false, [session('hook-inactive')]))
     expect(result.current.status).toBe('empty')
-    expect(harness.read).not.toHaveBeenCalled()
+    expect(harness.shells.get('hook-inactive')!.read).not.toHaveBeenCalled()
   })
 
-  it('pages backward to the operator prompt and pairs the newer final answer', async () => {
-    harness.read
-      .mockResolvedValueOnce({
-        items: [
-          { ...item('answer', 'assistant', 'Finished.'), answer: true, cursor: 'answer-cursor' },
-        ],
-        hasMore: true,
-        head: 'answer-cursor',
-      })
-      .mockResolvedValueOnce({
-        items: [{ ...item('prompt', 'user', 'Status?'), cursor: 'prompt-cursor' }],
-        hasMore: false,
-        head: 'prompt-cursor',
-      })
-
+  it('pages the shared log to the operator prompt and pairs the final answer', async () => {
+    const entry = shell('hook-paged', {
+      items: [item('answer', 'assistant', 'Finished.', 30)],
+      head: at(30),
+      tail: at(30),
+      hasMore: true,
+    })
     const { result } = renderHook(() =>
       useHandoffTranscript(true, [session('hook-paged', '2026-09-01T10:01:00.000Z')]),
     )
+    // Stage the older page synchronously: the shared log reads it on a
+    // microtask the hook has not reached yet.
+    entry.setPage({
+      items: [
+        item('prompt', 'user', 'Status?', 10),
+        item('context', 'assistant', 'context', 20),
+      ],
+      head: at(10),
+      tail: at(20),
+      hasMore: false,
+    })
     await waitFor(() => expect(result.current.status).toBe('ready'))
-    expect(result.current.pair?.prompt.anchor.itemKey).toBe('prompt-cursor')
-    expect(result.current.pair?.answer?.anchor.itemKey).toBe('answer-cursor')
-    expect(harness.read).toHaveBeenNthCalledWith(2, {
+    expect(result.current.pair?.prompt.item.id).toBe('prompt')
+    expect(result.current.pair?.answer?.item.id).toBe('answer')
+    expect(result.current.pair?.prompt.anchor.itemKey).toBe(at(10))
+    expect(result.current.pair?.answer?.anchor.itemKey).toBe(at(30))
+    expect(entry.read).toHaveBeenNthCalledWith(2, {
       sessionId: 'hook-paged',
-      anchor: 'answer-cursor',
+      anchor: at(30),
       direction: 'before',
       limit: 400,
     })
   })
 
-  it('seeds from replica data, retries a failed read, and writes the refreshed tail', async () => {
-    harness.cached = { items: [item('seed-prompt', 'user', 'Cached question')] }
-    harness.read.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({
-      items: [
-        item('fresh-prompt', 'user', 'Fresh question'),
-        { ...item('fresh-answer', 'assistant', 'Fresh answer'), answer: true },
-      ],
-      hasMore: false,
+  it('reports an older-page failure and retries into a ready pair', async () => {
+    const entry = shell('hook-retry', {
+      items: [item('answer', 'assistant', 'Finished.', 30)],
+      head: at(30),
+      tail: at(30),
+      hasMore: true,
     })
-
     const { result } = renderHook(() =>
       useHandoffTranscript(true, [session('hook-retry', '2026-09-01T10:02:00.000Z')]),
     )
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    expect(result.current.pair?.prompt.item.id).toBe('seed-prompt')
-
+    // Fail the hook's older-page read, not the log's initial refresh: queue
+    // synchronously so it lands on the second source call.
+    entry.read.mockRejectedValueOnce(new Error('offline'))
+    await waitFor(() => expect(result.current.status).toBe('error'))
+    entry.setPage({
+      items: [
+        item('prompt', 'user', 'Fresh question', 10),
+        item('answer', 'assistant', 'Fresh answer', 30),
+      ],
+      head: at(10),
+      tail: at(30),
+      hasMore: false,
+    })
     act(() => result.current.retry())
-    await waitFor(() => expect(result.current.pair?.prompt.item.id).toBe('fresh-prompt'))
-    expect(harness.put).toHaveBeenCalledWith(
-      'hook-retry',
-      expect.arrayContaining([expect.objectContaining({ id: 'fresh-answer' })]),
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    expect(result.current.pair?.prompt.item.id).toBe('prompt')
+  })
+
+  it('follows a new message on the shared log', async () => {
+    const entry = shell('hook-live', {
+      items: [
+        item('prompt', 'user', 'Status?', 10),
+        item('reply-1', 'assistant', 'first', 20),
+      ],
+      head: at(10),
+      tail: at(20),
+      hasMore: false,
+    })
+    const { result } = renderHook(() =>
+      useHandoffTranscript(true, [session('hook-live', '2026-09-01T10:03:00.000Z')]),
     )
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    expect(result.current.pair?.answer?.item.id).toBe('reply-1')
+    expect(result.current.pair?.answer?.legacy).toBe(true)
+    act(() => {
+      entry.conversation.transcript.merge([item('reply-2', 'assistant', 'latest', 40)])
+    })
+    await waitFor(() => expect(result.current.pair?.answer?.item.id).toBe('reply-2'))
   })
 })

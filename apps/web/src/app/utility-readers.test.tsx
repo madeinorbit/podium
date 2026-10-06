@@ -6,8 +6,9 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
+import { TranscriptLog } from '@podium/client-core/conversation'
 import type { IssueNavigationModel } from '@podium/client-core/values'
-import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId, type SessionId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -34,12 +35,45 @@ vi.mock('./store', async () => {
   return { useRuntimeSelector: core.useRuntimeSelector }
 })
 
+// The handoff reads the session's shared conversation. Stand in a thin shell
+// holding a REAL retained TranscriptLog: the hook under test only touches
+// conversation.transcript, while the shell boundary itself is owned by the
+// conversation suites.
+const conversationShells = vi.hoisted(() => new Map<string, { conversation: { transcript: TranscriptLog; start: () => Promise<void> }; started: boolean }>())
+vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/client-core/react')>()
+  return {
+    ...actual,
+    useConversation: (
+      sessionId: SessionId | undefined,
+      _factory: unknown,
+      options?: { enabled?: boolean },
+    ) => {
+      if (sessionId === undefined || options?.enabled === false) return undefined
+      const shell = conversationShells.get(sessionId)
+      if (shell && !shell.started) {
+        shell.started = true
+        void shell.conversation.start()
+      }
+      return shell?.conversation
+    },
+  }
+})
+vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => ({}),
+}))
+vi.mock('@/features/chat/use-conversation', () => ({
+  createWebConversation: vi.fn(),
+}))
+
 afterEach(() => {
   cleanup()
   resetUsageCache()
   resetPolledQueryCache()
   storeStats.enable(false)
   storeStats.reset()
+  for (const shell of conversationShells.values()) shell.conversation.transcript.dispose()
+  conversationShells.clear()
 })
 
 const session = {
@@ -111,6 +145,16 @@ function setup() {
   const store = createSubscriptionStore(snapshot, undefined, owner)
   const subscribe = vi.fn(store.subscribe)
   fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))
+  const log = new TranscriptLog({
+    sessionId: session.sessionId,
+    source: { read: reads.transcript, subscribe: () => () => {} },
+    cache: { read: replica.transcriptWindow, write: replica.putTranscriptWindow },
+    retainHistory: () => true,
+  })
+  conversationShells.set(session.sessionId, {
+    conversation: { transcript: log, start: () => log.start() },
+    started: false,
+  })
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <StoreProvider
