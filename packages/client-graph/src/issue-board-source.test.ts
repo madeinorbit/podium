@@ -413,3 +413,21 @@ it('follows the open issue through the keyed locals (POD-5433)', () => {
     pool.dispose()
   }
 })
+
+
+it('releases the board owner once and refuses reads after disposal', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  const stop = vi.fn()
+  const source = createIssueBoardSource(pool, {
+    readLocal: () => null,
+    onLocals: () => stop,
+  })
+  try {
+    expect(source.read('issueBoardWindow', 'current')).toEqual({ openIssueId: null })
+    source.dispose()
+    source.dispose()
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(source.disposed).toBe(true)
+    expect(source.read('issueBoardWindow', 'current')).toBe(LOADING)
+  } finally { source.dispose(); pool.dispose() }
+})

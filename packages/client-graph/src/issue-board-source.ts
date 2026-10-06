@@ -36,7 +36,7 @@ import {
 } from './issue-board-schema'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
-import type { PoolSource } from './source-registry'
+import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -96,7 +96,7 @@ export function createIssueBoardSource(
       return () => { stopTable(); stopFeed() }
     },
   })
-  let disposed = false
+  const frame = defineSource({ readById, release })
   const open = observable.box(owner?.readLocal('openIssueId') ?? null)
   // Keyed (POD-5433): only an open-issue change wakes the board.
   const stopOwner =
@@ -104,7 +104,7 @@ export function createIssueBoardSource(
       runInAction(() => open.set(owner.readLocal('openIssueId'))),
     ) ?? (() => {})
   function memo<T>(key: string, read: () => T): T {
-    if (disposed) return LOADING as T
+    if (frame.disposed) return LOADING as T
     return (key.startsWith('placement:') ? placements : cache)(key, read) as T
   }
   function facts(id: string): Loaded<IssueViewModel> {
@@ -195,7 +195,7 @@ export function createIssueBoardSource(
     return result
   }
   function sessions(id: string): Loaded<SessionView[]> {
-    return disposed ? LOADING : roster(id).get()
+    return frame.disposed ? LOADING : roster(id).get()
   }
   function cardSessions(id: string): Loaded<SessionView[]> {
     return memo(`visibleSessions:${id}`, () => {
@@ -300,7 +300,7 @@ export function createIssueBoardSource(
   let stopTable: (() => void) | undefined
   const indexDemand = createAtom('IssueBoard@residentIndex', undefined, releaseIndex)
   function ensureIndex() {
-    if (stopTable || disposed) return
+    if (stopTable || frame.disposed) return
     stopTable = observe(pool.tables.issue, (change) => {
       if (change.type === 'add') track(change.name)
       if (change.type === 'delete') {
@@ -737,76 +737,71 @@ export function createIssueBoardSource(
       }
     })
   }
-  const source: PoolSource<keyof IssueBoardSourceRows> = {
-    read(entity, id) {
-      switch (entity) {
-        case 'issueBoardWindow':
-          return { openIssueId: open.get() ? asIssueId(open.get()!) : null }
-        case 'issueBoardQuery':
-          return queryIds(JSON.parse(id))
-        case 'issueBoardCatalog':
-          return catalog(id === 'true')
-        case 'issueBoardModel':
-          return board(JSON.parse(id))
-        case 'issueBoardColumn':
-          return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
-        case 'issueBoardOpenIds': {
-          const options = JSON.parse(id)
-          return layout.openIds(options, options.id)
-        }
-        case 'issueBoardMenu':
-          return menu(JSON.parse(id))
-        case 'issueBoardDropIndex': {
-          const index = layout.dropIndex(JSON.parse(id))
-          return index === LOADING ? LOADING : { index }
-        }
-        case 'issueExplorerModel':
-          return explorer(JSON.parse(id))
-        case 'issueBoardRow':
-          return issue(id)
-        case 'issueBoardCard':
-          return card(JSON.parse(id))
-        case 'issueBoardSessions':
-          return sessions(id)
-        case 'issueBoardProjection': {
-          let view = projections.get(id)
-          if (!view) {
-            const [entity, key] = JSON.parse(id) as [
-              'issueBoardModel' | 'issueExplorerModel',
-              string,
-            ]
-            view = createBoardProjection(
-              () => pool.row(entity, key),
-              () => {
-                if (projections.get(id) === view) projections.delete(id)
-              },
-            )
-            projections.set(id, view)
-          }
-          return view
-        }
+  function readById(entity: keyof IssueBoardSourceRows, id: string): ReturnType<PoolSource<keyof IssueBoardSourceRows>['read']> {
+    switch (entity) {
+      case 'issueBoardWindow':
+        return { openIssueId: open.get() ? asIssueId(open.get()!) : null }
+      case 'issueBoardQuery':
+        return queryIds(JSON.parse(id))
+      case 'issueBoardCatalog':
+        return catalog(id === 'true')
+      case 'issueBoardModel':
+        return board(JSON.parse(id))
+      case 'issueBoardColumn':
+        return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
+      case 'issueBoardOpenIds': {
+        const options = JSON.parse(id)
+        return layout.openIds(options, options.id)
       }
-    },
-    dispose() {
-      if (disposed) return
-      disposed = true
-      stopOwner()
-      layout.dispose()
-      releaseIndex()
-      tabCounts.dispose()
-      for (const projection of projections.values()) projection.dispose()
-      for (const stop of stops.values()) stop()
-      for (const result of [...rosters.values()]) result.dispose()
-      rosters.clear()
-      stops.clear()
-      cache.clear()
-      placements.clear()
-      catalogEntry.clear()
-      runInAction(() => buckets.clear())
-    },
+      case 'issueBoardMenu':
+        return menu(JSON.parse(id))
+      case 'issueBoardDropIndex': {
+        const index = layout.dropIndex(JSON.parse(id))
+        return index === LOADING ? LOADING : { index }
+      }
+      case 'issueExplorerModel':
+        return explorer(JSON.parse(id))
+      case 'issueBoardRow':
+        return issue(id)
+      case 'issueBoardCard':
+        return card(JSON.parse(id))
+      case 'issueBoardSessions':
+        return sessions(id)
+      case 'issueBoardProjection': {
+        let view = projections.get(id)
+        if (!view) {
+          const [entity, key] = JSON.parse(id) as [
+            'issueBoardModel' | 'issueExplorerModel',
+            string,
+          ]
+          view = createBoardProjection(
+            () => pool.row(entity, key),
+            () => {
+              if (projections.get(id) === view) projections.delete(id)
+            },
+          )
+          projections.set(id, view)
+        }
+        return view
+      }
+    }
   }
-  return {
-    ...source,
+  function release(): void {
+  stopOwner()
+  layout.dispose()
+  releaseIndex()
+  tabCounts.dispose()
+  for (const projection of projections.values()) projection.dispose()
+  for (const stop of stops.values()) stop()
+  for (const result of [...rosters.values()]) result.dispose()
+  rosters.clear()
+  stops.clear()
+  cache.clear()
+  placements.clear()
+  catalogEntry.clear()
+  runInAction(() => buckets.clear())
+  }
+  return Object.assign(frame, {
     board,
     columnIds: layout.columnIds,
     openIds: layout.openIds,
@@ -822,5 +817,5 @@ export function createIssueBoardSource(
       demandKeys: [...cache.keys()].filter((key) => key.startsWith('query:')).length + layout.stats().demandKeys,
       cached: cache.size + placements.size + catalogEntry.size + layout.stats().cached,
     }),
-  }
+  })
 }
