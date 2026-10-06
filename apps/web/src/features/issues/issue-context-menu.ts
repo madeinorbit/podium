@@ -104,8 +104,8 @@ export function describeCascade(taskCount: number, sessionCount: number): string
 
 /** Raw attachments have one owning issue. Confirmations need their maintained
  * totals, not the IDs of hidden history rows. */
-export function cascadeSessionCount(issues: readonly Pick<IssueNavigationModel, 'sessionSummary'>[]): number {
-  return issues.reduce((count, issue) => count + issue.sessionSummary.total, 0)
+export function cascadeSessionCount(issues: readonly Partial<Pick<IssueNavigationModel, 'sessionSummary' | 'memberSessionIds'>>[]): number {
+  return issues.reduce((count, issue) => count + (issue.sessionSummary?.total ?? issue.memberSessionIds?.length ?? 0), 0)
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
