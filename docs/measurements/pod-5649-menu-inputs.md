@@ -76,5 +76,21 @@ Baseline: 311 MiB peak process, 10,191 MiB minimum MemAvailable. Candidate:
 - Focused probe: one executed test, all four routes and five windows at 1x/4x.
 - Issue-menu pool inputs and sidebar menu resolver: four executed tests in two
   focused files, including cold unique sender and pending payload behavior.
-- Landing checks are recorded on the issue after they finish. Census classifications
-  remain unchanged; fingerprint updates are not claims that other debt is fixed.
+- Full `bun run typecheck`: all 31 package scopes, 29/29 successful Turbo tasks.
+- `bun run test`: lean gate green, 154 tests in 4/1828 node-project files;
+  span-effect, interaction-scan, MobX-private, untracked-read and clock-read gates
+  green. Interaction census: 2,318 fingerprints, zero ratchet errors.
+- Normal `apps/web` build and bundle-budget check: green.
+- Full `speed:structural` under `meter:flatblock`: 21 passed, 2 failed, 7 skipped.
+  The executable census remains red. All ten reported unexpected counters match
+  the documented pilot census in `pod-5710-known-failures.json`: seven sidebar
+  counters (POD-5716), the existing folded-header counter (POD-5639/POD-5716), and
+  two accepted addressed MRU walks (POD-5708). The separate declared-query screen
+  failure is the documented issue-detail guard pair (POD-5618), 55/151 and 49/145.
+  No new unowned counter or menu failure appeared. Peak process: 5,986 MiB;
+  minimum MemAvailable: 5,544 MiB.
+- POD-4286 confirmed those exact failures on 2026-10-06 and authorized landing
+  after the green web build, requesting no untouched-baseline comparison.
+
+Census classifications remain unchanged; shifted fingerprints and removed scan
+sites do not claim that the documented failures or other debt were repaired.
