@@ -1,4 +1,7 @@
 import { worklistGroups } from './groups'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { debugName } from '../debug-name'
+import { sidebarActivityAt, sidebarAttention, sidebarNested, sidebarOwnAttention, sidebarSeatActivity } from './sidebar-attention'
 import { sidebarRosterView } from './sidebar-roster'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
@@ -11,7 +14,7 @@ import { hostOf, type IssueModel, type ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { attentionGroup, LOADING, type Loaded } from './rollup'
+import { attentionGroup, askingOf, phaseOf, LOADING, type Loaded } from './rollup'
 import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
 
@@ -93,8 +96,8 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
 const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
 
 /** One drawn issue payload, shared only while a screen observes it. */
-export const sidebarIssueRow = cachedGroup(
-  'sidebar', sidebarValues,
+export const sidebarIssueRow = keyedComputed<IssueModel, Loaded<SidebarRowValues>, [MobxPool]>(
+  model => debugName(() => `IssueModel@${model.id}.sidebar`), sidebarValues, { context: model => model },
 )
 
 /** Formal unit counts, without the sidebar's labels, seats or attention payload. */
@@ -109,7 +112,7 @@ export const sidebarIssueProgress = cachedGroup('sidebarProgress', (model: Issue
   a.total === b.total && a.done === b.done && a.run === b.run && a.review === b.review &&
   a.stall === b.stall && a.block === b.block && a.wait === b.wait))
 
-function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
+function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<SidebarRowValues> {
   const host = hostOf(model)
   const own = host.rollupInputs.loadedIssue(model.id)
   if (own === LOADING) return LOADING
@@ -124,12 +127,16 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
     },
     SIDEBAR_ISSUE_OMISSIONS,
   )
-  const agg = model.aggregate
+  const ownAttention = sidebarOwnAttention(model, pool)
+  const agg = sidebarAttention(model, pool)
+  const phase = phaseOf(agg, facts.finished)
+  const asking = askingOf(agg, facts.finished)
+  const activityAt = sidebarActivityAt(model, pool)
   const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   // The own seats' rows, by id: a heartbeat redraws this row only when the
   // seat is its own (an ancestor's payload carries ids, POD-5423).
   const sessions: SliceSession[] = []
-  for (const id of model.ownAttention.sessionIds ?? []) {
+  for (const id of ownAttention.sessionIds ?? []) {
     const seat = host.row('session', id)
     if (seat !== undefined && seat !== LOADING) sessions.push(seat as SliceSession)
   }
@@ -158,7 +165,7 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   const fromChildren = model.unitsBelow.members > 0
   const progress = sidebarIssueProgress(model)
   if (progress === LOADING) return LOADING
-  const decision = model.ownAttention.deciding ? facts.decision : null
+  const decision = ownAttention.deciding ? facts.decision : null
   let continuation: SidebarRowValues['continuation'] = null
   if (targetId) {
     if (host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
@@ -179,21 +186,21 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   const descendantUnread =
     issue.readAt &&
     Number.isFinite(readMs) &&
-    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (model.seatActivity ?? 0) > readMs) &&
-    model.nested.length > 0
+    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (sidebarSeatActivity(model, pool) ?? 0) > readMs) &&
+    sidebarNested(model, pool).length > 0
   return {
     idNumber: model.seq,
     color: own.color ?? null,
     title: model.title,
     timing: sidebarTimingFromFacts(
       sessionFacts,
-      model.phase,
+      phase,
       facts.finished,
-      model.activityAt,
+      activityAt,
       agg.decidingAt,
     ),
-    working: model.working,
-    asking: model.asking,
+    working: agg.working,
+    asking,
     originTick,
     decision,
     mergeCommits: decision === 'merge' ? (own.gitState?.ahead ?? 0) : 0,
@@ -201,12 +208,12 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
     fromChildren,
     statusFromChildren: model.nestParent === null && fromChildren,
     gitState: own.gitState,
-    unread: !model.working && (model.unread || Boolean(descendantUnread)),
+    unread: !agg.working && (model.unread || Boolean(descendantUnread)),
     errorClass: facts.finished ? null : sessionFacts.errorClass,
     internal: own.audience === 'agent',
-    ...sidebarLifecycle(issue, model.asking, host.inputs.passed, host.inputs.reached),
+    ...sidebarLifecycle(issue, asking, host.inputs.passed, host.inputs.reached),
     draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
-    firstSessionId: model.ownAttention.firstSessionId ?? null,
+    firstSessionId: ownAttention.firstSessionId ?? null,
     continuation,
     fleet: sessionFacts.fleet,
     issue,
@@ -214,7 +221,7 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
     aggregateSessionIds,
     awaitingFirstPrompt:
       own.isDraftVessel === true &&
-      model.phase === 'queued' &&
+      phase === 'queued' &&
       aggregateSessionIds.length > 0 &&
       sessionFacts.allUnstarted,
   }
@@ -263,7 +270,7 @@ export class SidebarIndex {
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
     const model = this.pool.issue(id)
-    if (model !== undefined) return sidebarIssueRow(model)
+    if (model !== undefined) return sidebarIssueRow(model, this.pool)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined
   }
 
@@ -276,7 +283,7 @@ export class SidebarIndex {
   active(id: string, state: SidebarState): boolean {
     const model = this.pool.issue(id)
     if (model?.selected !== true) return false
-    const row = sidebarIssueRow(model)
+    const row = sidebarIssueRow(model, this.pool)
     return (
       row !== undefined &&
       row !== LOADING &&

@@ -1,4 +1,5 @@
 import { sidebarView } from './sidebar'
+import { sidebarActivityAt, sidebarAttention } from './sidebar-attention'
 import { worklistGroups } from './groups'
 import { keyedComputed } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
@@ -6,7 +7,6 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import { compareShallow, computed, type IComputedValue } from 'mobx'
 import type { MobxPool } from '../pool'
 import type { IssueModel } from '../models'
-import { cachedGroup } from '../cached'
 import { debugName } from '../debug-name'
 import { LOADING, type Loaded } from './rollup'
 import { sidebarIssueRow, type SidebarState } from './sidebar'
@@ -41,16 +41,14 @@ export interface MobileWorkSections {
   readonly pending: number
 }
 
-/** Aggregate bookkeeping cannot invalidate the row when its waiting count is unchanged. */
-const waitingCount = cachedGroup('mobileWork.waitingCount', (issue: IssueModel) =>
-  mobileWaitingCount(issue.aggregate, issue.finished === true))
-const issueRow = cachedGroup(
-  'mobileWork',
-  (issue: IssueModel): Loaded<MobileRowValues> => {
-    const sidebar = sidebarIssueRow(issue)
+const issueRow = keyedComputed<IssueModel, Loaded<MobileRowValues>, [MobxPool]>(
+  issue => debugName(() => `IssueModel@${issue.id}.mobileWork`),
+  (issue: IssueModel, pool: MobxPool): Loaded<MobileRowValues> => {
+    const sidebar = sidebarIssueRow(issue, pool)
     return sidebar === LOADING || sidebar === undefined
       ? sidebar
-      : mobileIssueValues(sidebar, waitingCount(issue), issue.activityAt)
+      : mobileIssueValues(sidebar, mobileWaitingCount(sidebarAttention(issue, pool), issue.finished === true),
+          sidebarActivityAt(issue, pool))
   },
 )
 
@@ -66,7 +64,7 @@ export class MobileWorkIndex {
   row(ref: Pick<MobileWorkRef, 'id' | 'kind'>): MobileRowValues | typeof LOADING | undefined {
     if (ref.kind === 'issue') {
       const issue = this.pool.issue(ref.id)
-      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issueRow(issue)
+      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issueRow(issue, this.pool)
     }
     if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
     const row = sidebarView(this.pool).worktree(ref.id)
