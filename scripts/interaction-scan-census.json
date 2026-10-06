@@ -33923,7 +33923,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -40229,7 +40229,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "62008010e87017a4dfdf0c22dffc3c1a27afc4d7a6d2d555157cf611da8c4ece",
+      "tokens": "29fd42c9af232ed4cc27091c21f1ef05ab1b0204f8b868811b2979f7fe8ad7aa",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -40250,7 +40250,7 @@
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "34dbe4959f0714af81421ea27201e2d10846122513f60608fc866a8c5b697de2",
+      "fingerprint": "8585aa418f42d0839dda1c2ffaedc6f4ec05309b5ba5e871f78a471d1b87b22c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44019,6 +44019,7 @@
       "tokens": "a5b0d47b379b85f58aaa5e36860d8ec57eb717df14e36a6c637bb92082dd81c2",
       "gate": [
         "exit:then:563375f1302b2ccd119eafb0d543340fdd7cb4eb1f4b15119ac7c939f374b290",
+        "exit:then:6610e02e65502e288cb1b034493ef060607fa8e8422822fcc20ed0f19acfc381",
         "exit:then:136855555180831af41b22a3a95445ba120b97000ecf3d9659ab492626973079",
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
@@ -44029,7 +44030,7 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "4c7c90783a7908d6330c939f2deab23fa844666b9a3979a0a87b5c31c4d1f8fc",
+      "fingerprint": "ffbeb4f02cb4432528844ff7b9984a231b0814021902dd8a3618acb1238217fd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44045,6 +44046,7 @@
       "tokens": "f92a126997cb134d345624767058676d4c82245cdf458610bc86447bf71d6cbf",
       "gate": [
         "exit:then:563375f1302b2ccd119eafb0d543340fdd7cb4eb1f4b15119ac7c939f374b290",
+        "exit:then:6610e02e65502e288cb1b034493ef060607fa8e8422822fcc20ed0f19acfc381",
         "exit:then:136855555180831af41b22a3a95445ba120b97000ecf3d9659ab492626973079",
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
@@ -44055,7 +44057,7 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "35ee3180485293bb8c1dda0995ce6bbbaba08165acce173b1ff13993b88cb3c0",
+      "fingerprint": "4cc0854441fc79b0fd0e73e82e4d22378cd735fa93e80a2c0cb8342ca35cfa60",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -44071,6 +44073,7 @@
       "tokens": "7b71e183965e9373a2e7a5f625b996d3e1e2bc7bedb118900cf4ba166a429200",
       "gate": [
         "exit:then:563375f1302b2ccd119eafb0d543340fdd7cb4eb1f4b15119ac7c939f374b290",
+        "exit:then:6610e02e65502e288cb1b034493ef060607fa8e8422822fcc20ed0f19acfc381",
         "exit:then:136855555180831af41b22a3a95445ba120b97000ecf3d9659ab492626973079",
         "exit:then:5caadaba7cb74c3c8ee422e09d62192d72873493848e82050244477d5d1f372e",
         "exit:then:5c41bbdfccd93976a02d238277c51e6a943e8b68ca9a7e0917c709a1ef69d158",
@@ -44082,7 +44085,7 @@
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "a35250c84f5ad75d2907b74511c3dbf4dd38dc960ed8a6c000f5edcbc361f06b",
+      "fingerprint": "76a102c6bd8a2ca2233904cf84c3b62978a09428ea8a3c7782e3cbd3e0d08cca",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
