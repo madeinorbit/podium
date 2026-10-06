@@ -144,3 +144,12 @@ it('keeps known POSIX suffix paths literal, including duplicate separators', () 
   const cfg = { cwd: '/repo', knownPaths: new Set([path]), onOpen: () => {} }
   expect(findStyledPathMatches(cells('x.ts', true), cfg)[0]?.path).toBe(path)
 })
+
+
+it('leaves malformed styled Windows paths unlinked and ignores invalid known paths', () => {
+  const cfg = { cwd: String.raw`C:\repo`, knownPaths: new Set([String.raw`C:\repo\...\src\a.ts`]), onOpen: () => {} }
+  expect(findStyledPathMatches(cells(String.raw`...\src\a.ts`, true), cfg)).toEqual([])
+  expect(findStyledPathMatches(cells('src/a.ts', true), cfg)[0]?.path).toBe(String.raw`C:\repo\src\a.ts`)
+  expect(findStyledPathMatches(cells('src/a.ts', true), { ...cfg, cwd: String.raw`C:\repo\...` })).toEqual([])
+  expect(findStyledPathMatches(cells('.../src/a.ts', true), { ...cfg, cwd: '/repo', knownPaths: new Set() })[0]?.path).toBe('/repo/.../src/a.ts')
+})

@@ -35,3 +35,12 @@ it('accepts and canonicalizes Windows dock worktree keys', () => {
   expect(normalizeDockWorktreeKey('\\\\nas\\share\\repo\\')).toBe('\\\\nas\\share\\repo')
   expect(normalizeDockWorktreeKey('C:repo')).toBeNull()
 })
+
+
+it.each(['/a/b/..', '/a//b', '/a/./b'])('preserves persisted POSIX dock key %s', path => {
+  expect(normalizeDockWorktreeKey(path)).toBe(path)
+  expect(normalizeDockWorktreeKey(path + '///')).toBe(path)
+})
+it('refuses malformed Windows dock keys without throwing', () => {
+  expect(normalizeDockWorktreeKey(String.raw`C:\repo\...`)).toBeNull()
+})

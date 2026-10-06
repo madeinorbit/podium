@@ -114,3 +114,9 @@ describe('session card view model', () => {
     expect(sessionTitle(session({ sessionId: asSessionId('c'), title: '  ' }))).toBe('podium')
   })
 })
+
+
+it('falls back to the agent kind for a POSIX root cwd and displays invalid Windows spelling safely', () => {
+  expect(sessionTitle(session({ sessionId: asSessionId('root'), cwd: '/', title: ' ' }))).toBe('claude-code')
+  expect(sessionTitle(session({ sessionId: asSessionId('bad'), cwd: String.raw`C:\repo\...`, title: ' ' }))).toBe('...')
+})

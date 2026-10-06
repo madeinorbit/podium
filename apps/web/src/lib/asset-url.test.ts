@@ -94,3 +94,24 @@ it('resolves Windows preview assets and keeps the HTTP route portable', () => {
   })
   expect(new URL(worktree!).searchParams.get('path')).toBe('D:\\shots\\final.png')
 })
+
+
+it.each(['img.', 'x.', '.../src/a.ts', 'folder /img.png'])('leaves malformed Windows asset %s unlinked but keeps POSIX names', src => {
+  for (const fileDir of ['/r/docs', String.raw`C:\r\docs`]) {
+    const args = { httpOrigin: 'https://podium.test', fileDir, src }
+    const session = assetUrl({ ...args, sessionId: asSessionId('s1') })
+    const worktree = scopedAssetUrl({ ...args, scope: { kind: 'worktree', root: fileDir } })
+    const scopedSession = scopedAssetUrl({ ...args, scope: { kind: 'session', sessionId: asSessionId('s1') } })
+    if (fileDir.startsWith('C:')) {
+      expect(session).toBeNull()
+      expect(worktree).toBeNull()
+      expect(scopedSession).toBeNull()
+    } else {
+      expect(session).toContain('/files/asset?')
+      expect(worktree).toContain('/files/asset?')
+    }
+  }
+})
+it('leaves assets from an invalid Windows directory unlinked', () => {
+  expect(assetUrl({ httpOrigin: 'https://podium.test', sessionId: asSessionId('s1'), fileDir: String.raw`C:\r\...`, src: 'a.png' })).toBeNull()
+})

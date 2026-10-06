@@ -147,3 +147,12 @@ it('does not prepend a relative root twice when deriving the worktree subpath', 
   expect(worktreeSubpath('repo', 'repo')).toBe('')
   expect(worktreeSubpath('repo', 'other/sub')).toBe('')
 })
+
+
+it('Windows worktree indexes fold only ASCII and reject malformed roots/cwds', () => {
+  expect(both(String.raw`C:\worK\secret`, [String.raw`C:\work`])).toEqual({ scan: null, indexed: null })
+  expect(both(String.raw`c:\İ\ABC`, [String.raw`C:\İ`])).toEqual({ scan: String.raw`C:\İ`, indexed: String.raw`C:\İ` })
+  expect(worktreeSubpath(String.raw`C:\İ`, String.raw`C:\İ\abc`)).toBe('abc')
+  expect(both(String.raw`C:\repo\...\a.ts`, [String.raw`C:\repo`])).toEqual({ scan: null, indexed: null })
+  expect(both(String.raw`C:\repo\...`, [String.raw`C:\repo\...`])).toEqual({ scan: null, indexed: null })
+})

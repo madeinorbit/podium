@@ -5,9 +5,10 @@ import type { HeaderRows } from './header-schema'
 import { createIssueQuestions } from './shared/issue-questions'
 import { createReaderIndex } from './shared/reader-questions'
 import { createRelationIndex } from './shared/relation-index'
-import { longestPrefixPath, SCHEMA } from './shared/schema'
+import { longestPrefixPath, prefixCandidates, SCHEMA } from './shared/schema'
 import { createSessionActivityIndex } from './shared/session-activity'
 import { createSessionQuestions } from './shared/session-questions'
+import { unstarted } from './worklist/sidebar-row'
 import { repoLabelOf } from './worklist/groups'
 
 const cases = [
@@ -73,4 +74,29 @@ describe.each(cases)('machine paths: current client graph under %s', (root, alia
       expect(repoLabelOf(root)).toBe(root === '/Repo' ? 'Repo' : 'Podium')
     } finally { stop() }
   })
+})
+
+
+it('keeps POSIX root prefix scans consistent with indexed prefix candidates', () => {
+  expect(longestPrefixPath('/x', ['/'])).toBeNull()
+  expect([...prefixCandidates('/x')]).not.toContain('/')
+  expect(longestPrefixPath('/', ['/'])).toBe('/')
+  expect(longestPrefixPath('/x/y', ['/', '/x'])).toBe('/x')
+  expect(longestPrefixPath(String.raw`C:\x`, ['C:\\'])).toBe('C:\\')
+  expect(unstarted({ cwd: '/', title: '/', agentKind: 'codex' } as never)).toBe(false)
+})
+it('does not crash graph indexes or labels on malformed Windows paths', () => {
+  const root = String.raw`C:\repo\...`
+  const cwd = root + String.raw`\src\a.ts`
+  const relations = createRelationIndex(SCHEMA)
+  relations.begin()
+  relations.changed('worktree', root, false, { path: root })
+  relations.changed('session', 'bad', false, { sessionId: 'bad', cwd, agentKind: 'codex', status: 'live' })
+  relations.flush()
+  expect(relations.forward('session', 'bad', 'worktree')).toBeNull()
+  expect(repoLabelOf(root)).toBe('...')
+  const questions = createSessionQuestions(() => false)
+  questions.set('bad', { sessionId: 'bad', cwd, agentKind: 'codex', lastActiveAt: at })
+  expect(questions.hasWithin(String.raw`C:\repo`)).toBe(false)
+  expect(longestPrefixPath(cwd, [String.raw`C:\repo`])).toBeNull()
 })

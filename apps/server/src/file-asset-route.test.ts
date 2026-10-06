@@ -1,6 +1,7 @@
 // apps/server/src/file-asset-route.test.ts
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
+import { isAllowedRoot } from './root-allowlist'
 import { type AssetReader, registerAssetRoute } from './file-asset-route'
 
 const stub = (r: Awaited<ReturnType<AssetReader['readAsset']>>): AssetReader => ({
@@ -281,5 +282,16 @@ it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: rejects ambigu
   const res = await app.request(`/files/asset?root=${encodeURIComponent(root)}&path=shot.png`)
   expect(res.status).toBe(403)
   expect(allowsRoot).not.toHaveBeenCalled()
+  expect(readAsset).not.toHaveBeenCalled()
+})
+
+
+it('refuses a Unicode lookalike worktree root before reading an asset', async () => {
+  const readAsset = vi.fn(async () => ({ ok: true }))
+  const app = new Hono()
+  registerAssetRoute(app, { allowsRoot: root => isAllowedRoot([String.raw`C:\work`], root), readAsset })
+  const root = String.raw`C:\worK\secret`
+  const res = await app.request(`/files/asset?root=${encodeURIComponent(root)}&path=shot.png`)
+  expect(res.status).toBe(403)
   expect(readAsset).not.toHaveBeenCalled()
 })

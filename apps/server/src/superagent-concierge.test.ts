@@ -730,3 +730,10 @@ it.each(['/src/podium', String.raw`C:\Src\Podium`])('machine paths: session titl
   await settle()
   expect(turnReqs.at(-1)?.contextPrompt).toContain('path regression worker · claude-code')
 })
+
+
+it('keeps malformed Windows identity/display paths non-throwing without Unicode key aliases', () => {
+  const path = String.raw`C:\repo\...`
+  expect(conciergeRepoPath(conciergeThreadId(path))).toBe(String.raw`c:\repo\...`)
+  expect(conciergeThreadId(String.raw`C:\work`)).not.toBe(conciergeThreadId(String.raw`C:\worK`))
+})

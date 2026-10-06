@@ -148,7 +148,11 @@ describe('machine paths: review namespace and segment guards', () => {
     const root = String.raw`C:\repo`
     const path = root + '\\' + segment
     expect(isValidMachinePath(path)).toBe(false)
-    expect(() => normalizeMachinePath(path)).toThrow('invalid Windows path segment')
+    expect(normalizeMachinePath(path)).toBe(path)
+    expect(machinePathBasename(path)).toBe(segment)
+    expect(machinePathKey(path)).toBe(path.replace('C:', 'c:'))
+    expect(machinePathHasSuffix(path, segment)).toBe(false)
+    expect(machinePathAncestors(path)).toEqual([])
     expect(isMachinePathWithinRoot(root, path)).toBe(false)
     expect(machinePathRelativeToRoot(root, path)).toBeNull()
     expect(isMachinePathWithinRoot(path, path)).toBe(false)
@@ -174,4 +178,36 @@ it.each([
   [String.raw`\\nas\share\repo`, [String.raw`\\nas\share\repo`, '\\\\nas\\share\\']],
 ])('machine paths: ancestor roots for %s', (path, ancestors) => {
   expect(machinePathAncestors(path)).toEqual(ancestors)
+})
+
+
+describe('machine paths: conservative Windows case comparisons', () => {
+  it('slices original segments even when Unicode lowercase would change their length', () => {
+    expect(machinePathRelativeToRoot(String.raw`C:\İ`, String.raw`C:\İ\abc`)).toBe('abc')
+    expect(machinePathRelativeToRoot(String.raw`C:\İ`, String.raw`c:\İ\ABC`)).toBe('ABC')
+    expect(machinePathRelativeToRoot(String.raw`C:\İ`, String.raw`C:\i\abc`)).toBeNull()
+  })
+  it('never aliases the Kelvin sign to ASCII k in authorization, identity or suffixes', () => {
+    const root = String.raw`C:\work`
+    const other = String.raw`C:\worK\secret`
+    expect(isMachinePathWithinRoot(root, other)).toBe(false)
+    expect(machinePathRelativeToRoot(root, other)).toBeNull()
+    expect(machinePathsEqual(root, String.raw`c:\worK`)).toBe(false)
+    expect(machinePathHasSuffix(String.raw`C:\worK\secret`, 'work/secret')).toBe(false)
+    expect(machinePathKey(String.raw`C:\İ\WORK`)).toBe(String.raw`c:\İ\work`)
+    expect(machinePathRelativeToRoot(root, String.raw`c:\WORK\Secret`)).toBe('Secret')
+    expect(machinePathRelativeToRoot('/İ', '/İ/abc')).toBe('abc')
+    expect(isMachinePathWithinRoot('/work', '/worK/secret')).toBe(false)
+  })
+  it('retains invalid segments even when a following parent would erase them', () => {
+    const invalid = String.raw`C:\repo\...\..\src\a.ts`
+    expect(normalizeMachinePath(invalid)).toBe(invalid)
+    expect(isMachinePathWithinRoot(String.raw`C:\repo`, normalizeMachinePath(invalid))).toBe(false)
+  })
+  it('keeps literal POSIX basenames and has no basename for a filesystem root', () => {
+    expect(machinePathBasename('/')).toBe('')
+    expect(machinePathBasename('///')).toBe('')
+    expect(machinePathBasename('/a/b/..')).toBe('..')
+    expect(machinePathBasename('/a/.')).toBe('.')
+  })
 })

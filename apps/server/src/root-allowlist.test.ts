@@ -49,3 +49,10 @@ it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: refuses Window
   expect(isAllowedRoot([String.raw`C:\repo`], String.raw`C:\repo` + '\\' + segment)).toBe(false)
   expect(isAllowedRoot(['/repo'], '/repo/' + segment)).toBe(true)
 })
+
+
+it('does not authorize a Unicode folder whose JS lowercase aliases a registered root', () => {
+  expect(isAllowedRoot([String.raw`C:\work`], String.raw`C:\worK\secret`)).toBe(false)
+  expect(isAllowedRoot([String.raw`C:\work`], String.raw`c:\WORK\secret`)).toBe(true)
+  expect(isAllowedRoot(['/work'], '/worK/secret')).toBe(false)
+})
