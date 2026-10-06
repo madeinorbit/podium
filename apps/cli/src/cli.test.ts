@@ -125,6 +125,19 @@ describe('ordinary local setup inference', () => {
     expect(shouldInferLocalSetupDefault({}, {})).toBe(false)
     expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['setup'])).toBe(false)
     expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['--takeover'])).toBe(true)
+    // The desktop's own launch (POD-2508): a fresh install enrolls its machine from here.
+    expect(
+      shouldInferLocalSetupDefault({}, { PODIUM_DESKTOP_SUPERVISED: '1' }, [
+        'parent',
+        '--takeover',
+      ]),
+    ).toBe(true)
+    expect(
+      shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['daemon', '--takeover']),
+    ).toBe(false)
+    expect(
+      shouldInferLocalSetupDefault({ localSetupDefault: true }, {}, ['--takeover', 'parent']),
+    ).toBe(false)
   })
 })
 
@@ -506,7 +519,10 @@ describe('resolvePlan — utility subcommands', () => {
     // launch path must not pre-judge flags it has no table for.
     expect(plan({}, ['issue', 'list', '--stage', 'in_progress']).kind).toBe('issue')
     expect(plan({}, ['machine', 'show', 'box', '--json']).kind).toBe('machine')
-    expect(plan({}, ['machines', 'adopt', 'box', '--for', 'member'])).toMatchObject({ kind: 'machine', args: ['adopt', 'box', '--for', 'member'] })
+    expect(plan({}, ['machines', 'adopt', 'box', '--for', 'member'])).toMatchObject({
+      kind: 'machine',
+      args: ['adopt', 'box', '--for', 'member'],
+    })
     expect(plan({}, ['logs', 'server', '-f']).kind).toBe('logs')
   })
 

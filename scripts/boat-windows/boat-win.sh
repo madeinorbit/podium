@@ -9,9 +9,11 @@
 #   boat-win.sh sync ID [REF]         ship the local checkout (REF, default HEAD) to C:\src\podium
 #   boat-win.sh win ID [CMD...]       run a PowerShell command in the guest (no CMD: interactive)
 #   boat-win.sh pull ID GUESTPATH LOCALPATH   copy a file out of the guest
-#   boat-win.sh bun ID FILE [ARGS]    run a local .ts/.js file with the guest's Bun (cwd C:\src\podium)
+#   boat-win.sh bun ID FILE [ARGS]    run a local .ts file in the guest checkout (Bun, source conditions)
 #   boat-win.sh gui ID CMD...         run PowerShell in the signed-in desktop session (GUI apps)
 #   boat-win.sh shot ID OUT.png       screenshot of the Windows desktop
+#   boat-win.sh click ID X Y          left-click at screen pixel X,Y (as in a shot)
+#   boat-win.sh type ID TEXT          type into the focused window (SendKeys syntax: {ENTER}, ^a, …)
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
 #   boat-win.sh stop ID               shut Windows down cleanly, then stop (snapshot) the sandbox
 #   boat-win.sh resume ID             resume a stopped sandbox and wait for Windows SSH
@@ -115,10 +117,17 @@ for s in json.load(sys.stdin)["sandboxes"]:
     boat scp "$id:/home/user/win/shared/out.bin" "$dst" >/dev/null
     ;;
   bun)
+    # Copied INTO the checkout (C:\src\podium\apps\cli\.boat-run) so workspace packages resolve.
     need_id "${1:-}"; id="$1"; file="$2"; shift 2
-    name="run-$(basename "$file")"
-    boat scp "$file" "$id:/home/user/win/shared/$name" >/dev/null
-    ps "$id" "Copy-Item -Force \\\\host.lan\\Data\\$name \$env:TEMP\\$name; cd C:\\src\\podium; & \"\$env:LOCALAPPDATA\\mise\\installs\\bun\\1.4.2\\bin\\bun.exe\" \"\$env:TEMP\\$name\" $*"
+    name="$(basename "$file")"
+    boat scp "$file" "$id:/home/user/win/shared/run-$name" >/dev/null
+    ps "$id" "New-Item -ItemType Directory -Force C:\\src\\podium\\apps\\cli\\.boat-run | Out-Null; Copy-Item -Force \\\\host.lan\\Data\\run-$name C:\\src\\podium\\apps\\cli\\.boat-run\\$name; cd C:\\src\\podium\\apps\\cli; & \"\$env:LOCALAPPDATA\\mise\\installs\\bun\\1.4.2\\bin\\bun.exe\" --conditions=@podium/source .boat-run\\$name $*"
+    ;;
+  click|type)
+    need_id "${1:-}"; id="$1"; shift
+    boat scp "$(dirname "$0")/click.ps1" "$id:/home/user/win/shared/click.ps1" >/dev/null
+    if [[ "$cmd" == click ]]; then args="-X $1 -Y $2"; else args="-Text '${*//\'/\'\'}'"; fi
+    "$0" gui "$id" "& \\\\host.lan\\Data\\click.ps1 $args"
     ;;
   gui|shot)
     need_id "${1:-}"; id="$1"; shift

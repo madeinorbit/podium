@@ -344,7 +344,11 @@ export function shouldInferLocalSetupDefault(
     runtime.localSetupDefault === true || env.PODIUM_DESKTOP_SUPERVISED === '1'
   const host = env.PODIUM_HOST ?? '127.0.0.1'
   const loopback = host === '127.0.0.1' || host === '::1' || host === 'localhost'
-  const ordinaryLaunch = argv.every((token) => token === '--takeover')
+  // The desktop shell launches `parent --takeover` (POD-2508); the source launcher, a bare
+  // `--takeover`. Anything else is an explicit command that must not get a default.
+  const ordinaryLaunch = argv.every(
+    (token, index) => token === '--takeover' || (index === 0 && token === 'parent'),
+  )
   return launcherTrusted && loopback && ordinaryLaunch
 }
 
@@ -741,7 +745,8 @@ export function resolvePlan(
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
-  if (argv[0] === 'machine' || argv[0] === 'machines') return { kind: 'machine', args: argv.slice(1) }
+  if (argv[0] === 'machine' || argv[0] === 'machines')
+    return { kind: 'machine', args: argv.slice(1) }
   if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
@@ -1146,7 +1151,8 @@ export function daemonOptionsForPlan(
   if (!serverUrl)
     throw new Error('podium daemon mode needs a serverUrl (config.serverUrl or --server)')
 
-  const localAuth = plan.mode === 'all-in-one' ? { machineId: hostMachineId ?? readHostMachineId() } : {}
+  const localAuth =
+    plan.mode === 'all-in-one' ? { machineId: hostMachineId ?? readHostMachineId() } : {}
 
   return {
     serverUrl,
@@ -1561,13 +1567,27 @@ export async function main(
 
   let plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
   // A direct remote daemon launch still needs a supervisor to own pairing and the key.
-  if (plan.kind === 'in-process' && plan.modePlan.mode === 'daemon' && !plan.localDaemon
-    && process.env.PODIUM_UNDER_PARENT !== '1') {
+  if (
+    plan.kind === 'in-process' &&
+    plan.modePlan.mode === 'daemon' &&
+    !plan.localDaemon &&
+    process.env.PODIUM_UNDER_PARENT !== '1'
+  ) {
     if (!plan.modePlan.serverUrl) throw new Error('daemon mode needs a server URL')
-    config = { ...config, mode: 'daemon', serverUrl: plan.modePlan.serverUrl,
-      ...(plan.modePlan.pairCode ? { pairCode: plan.modePlan.pairCode } : {}) }
+    config = {
+      ...config,
+      mode: 'daemon',
+      serverUrl: plan.modePlan.serverUrl,
+      ...(plan.modePlan.pairCode ? { pairCode: plan.modePlan.pairCode } : {}),
+    }
     saveConfig(config)
-    plan = { kind: 'parent', port: plan.port, includeDaemon: true, includeServer: false, takeover: plan.takeover }
+    plan = {
+      kind: 'parent',
+      port: plan.port,
+      includeDaemon: true,
+      includeServer: false,
+      takeover: plan.takeover,
+    }
   }
 
   switch (plan.kind) {
@@ -2020,9 +2040,9 @@ export async function main(
           saveSupervisorState(stateDir(), supervisorState)
         },
         onGrant: (grant, authority) => {
-          void updateRunner.accept(grant, true, false, authority).catch((error) =>
-            updateRunner.reportGrantRefusal(grant, error),
-          )
+          void updateRunner
+            .accept(grant, true, false, authority)
+            .catch((error) => updateRunner.reportGrantRefusal(grant, error))
         },
         onConnected: () => updateRunner.replay(),
         onPaired: () => {
@@ -2048,7 +2068,12 @@ export async function main(
       }
       const { startParentWithUpdateConfirmation } = await import('./parent-boot-confirmation')
       await startParentWithUpdateConfirmation(parent, updateRunner, async () => {
-        const control = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter, parent.bootHealthSignal)
+        const control = await startMachineUpdateControl(
+          runtimeDir,
+          updateRunner,
+          nativeAdapter,
+          parent.bootHealthSignal,
+        )
         if (parent.bootHealthSignal.aborted) await control.close()
         else updateControl = control
       })
