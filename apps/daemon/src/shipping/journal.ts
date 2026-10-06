@@ -18,6 +18,7 @@ import {
   type ShippingJobResult as ShippingJobResultValue,
   shippingJobRequestFingerprint,
 } from '@podium/protocol/daemon'
+import { fsyncPath } from '@podium/runtime/fsync'
 
 const MAX_LOG_LINES = 64
 const MAX_LOG_LINE_BYTES = 2_048
@@ -97,12 +98,7 @@ export class ShippingJobJournal {
     const existed = existsSync(dir)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     if (!existed) {
-      const parent = openSync(dirname(dir), 'r')
-      try {
-        fsyncSync(parent)
-      } finally {
-        closeSync(parent)
-      }
+      fsyncPath(dirname(dir))
       this.crashPoint?.('after-parent-directory-fsync')
     }
   }
@@ -211,12 +207,7 @@ export class ShippingJobJournal {
     this.crashPoint?.('after-file-fsync')
     renameSync(temporary, target)
     this.crashPoint?.('after-rename')
-    const directory = openSync(this.dir, 'r')
-    try {
-      fsyncSync(directory)
-    } finally {
-      closeSync(directory)
-    }
+    fsyncPath(this.dir)
     this.crashPoint?.('after-directory-fsync')
     return next
   }

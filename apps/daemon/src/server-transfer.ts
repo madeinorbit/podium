@@ -32,6 +32,7 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { configPath, stateDir } from '@podium/runtime/config'
+import { fsyncPathAsync } from '@podium/runtime/fsync'
 import { bumpInstallationGeneration } from '@podium/runtime/installation-identity'
 import { validatePublicUrl } from '@podium/runtime/setup'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -46,9 +47,7 @@ import type { ControlHandlers, DaemonContext } from './control/context'
 const TRANSFER_DIR = '.server-transfer'
 const MAX_TOTAL_BYTES = 512 * 1024 * 1024
 const PORTABLE_ROOTS = ['transcripts', 'artifacts', 'uploads'] as const
-const PORTABLE_ROOT_FILES = [
-  'podium.db',
-] as const
+const PORTABLE_ROOT_FILES = ['podium.db'] as const
 
 type StageState = 'staging' | 'validated' | 'promoting' | 'promoted' | 'aborted' | 'uncertain'
 interface PromotionInventoryEntry {
@@ -234,15 +233,6 @@ function stagePartPath(transferId: string, path: string): string {
   return join(stageRoot(transferId), 'parts', path)
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
 async function ensureRealDirectory(path: string): Promise<void> {
   const existing = await lstat(path).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return undefined
@@ -284,7 +274,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
     await handle.close()
   }
   await rename(temp, path)
-  await syncDirectory(dirname(path))
+  await fsyncPathAsync(dirname(path))
 }
 
 async function readMeta(transferId: string): Promise<StageMeta> {
@@ -315,7 +305,7 @@ async function acquireLock(transferId: string): Promise<void> {
         JSON.stringify({ pid: process.pid, transferId, startedAt: Date.now() }),
       )
       await handle.sync()
-      await syncDirectory(root())
+      await fsyncPathAsync(root())
       heldLock = { transferId, handle }
       return
     } catch (error) {
@@ -338,7 +328,7 @@ async function acquireLock(transferId: string): Promise<void> {
       }
       if (alive) fail('refused', `another transfer is active: ${owner.transferId ?? 'unknown'}`)
       await rm(lockPath(), { force: true })
-      await syncDirectory(root())
+      await fsyncPathAsync(root())
     }
   }
 }
@@ -348,7 +338,7 @@ async function releaseLock(transferId: string): Promise<void> {
   await heldLock.handle.close().catch(() => {})
   heldLock = undefined
   await rm(lockPath(), { force: true })
-  await syncDirectory(root())
+  await fsyncPathAsync(root())
 }
 
 function digestManifest(manifest: ServerTransferManifest): string {
@@ -412,8 +402,11 @@ async function candidateProof(meta: StageMeta): Promise<ServerTransferProof> {
       | undefined
     if (integrity?.integrity_check !== 'ok')
       fail('candidate-invalid', 'candidate database failed integrity_check')
-    const target = db.prepare('SELECT id FROM machines WHERE id = ? AND revoked_at IS NULL').get(meta.targetMachineId)
-    if (!target) fail('identity-mismatch', 'target machine has no active enrollment in the candidate database')
+    const target = db
+      .prepare('SELECT id FROM machines WHERE id = ? AND revoked_at IS NULL')
+      .get(meta.targetMachineId)
+    if (!target)
+      fail('identity-mismatch', 'target machine has no active enrollment in the candidate database')
     const feed = db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get() as
       | { feed_id?: string; epoch?: string }
       | undefined
@@ -554,7 +547,7 @@ async function prepare(
       } finally {
         await handle.close()
       }
-      await syncDirectory(dirname(path))
+      await fsyncPathAsync(dirname(path))
     }
     const meta: StageMeta = {
       version: 1,
@@ -721,7 +714,7 @@ async function validate(
     if (path === part) {
       await ensureRealDirectory(dirname(final))
       await rename(part, final)
-      await syncDirectory(dirname(final))
+      await fsyncPathAsync(dirname(final))
     }
   }
   meta.proof = await candidateProof(meta)
@@ -840,13 +833,8 @@ async function persistRecoveryBackups(ctx: DaemonContext, meta: StageMeta): Prom
       try {
         await copyFile(livePath, backupPath, constants.COPYFILE_EXCL)
         await chmodIfNeeded(backupPath, item.mode ?? 0o600)
-        const backup = await open(backupPath, 'r')
-        try {
-          await backup.sync()
-        } finally {
-          await backup.close()
-        }
-        await syncDirectory(dirname(backupPath))
+        await fsyncPathAsync(backupPath)
+        await fsyncPathAsync(dirname(backupPath))
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       }
@@ -901,20 +889,15 @@ async function installPortableFile(
   try {
     await copyFile(source, temp, constants.COPYFILE_EXCL)
     await chmodIfNeeded(temp, entry.mode)
-    const installed = await open(temp, 'r')
-    try {
-      await installed.sync()
-    } finally {
-      await installed.close()
-    }
-    await syncDirectory(dirname(temp))
+    await fsyncPathAsync(temp)
+    await fsyncPathAsync(dirname(temp))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     if (!(await installedFileMatches(temp, entry)))
       fail('uncertain-commit', `stale install candidate conflicts for ${entry.path}`)
   }
   await rename(temp, destination)
-  await syncDirectory(dirname(destination))
+  await fsyncPathAsync(dirname(destination))
 }
 
 async function persistTargetConfig(
@@ -925,13 +908,8 @@ async function persistTargetConfig(
 ): Promise<void> {
   applyTargetServerPromotion({ transferId, publicUrl, bindHost, port })
   const path = configPath()
-  const handle = await open(path, 'r')
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-  await syncDirectory(dirname(path))
+  await fsyncPathAsync(path)
+  await fsyncPathAsync(dirname(path))
 }
 
 function exactServingProof(
@@ -1015,11 +993,18 @@ async function promote(
     // source generation N to N+1, even after config was saved before a crash.
     // Older snapshots have no installation identity to advance.
     const identityDb = openDatabase(join(stateDir(), 'podium.db'))
-    try { bumpInstallationGeneration(identityDb) }
-    finally { identityDb.close() }
-    if (!ctx.promoteMachineAssignment) fail('uncertain-commit', 'target has no server assignment transition')
-    await ctx.promoteMachineAssignment({ sourceMachineId: meta.sourceMachineId,
-      targetMachineId: meta.targetMachineId, requestId: meta.transferId })
+    try {
+      bumpInstallationGeneration(identityDb)
+    } finally {
+      identityDb.close()
+    }
+    if (!ctx.promoteMachineAssignment)
+      fail('uncertain-commit', 'target has no server assignment transition')
+    await ctx.promoteMachineAssignment({
+      sourceMachineId: meta.sourceMachineId,
+      targetMachineId: meta.targetMachineId,
+      requestId: meta.transferId,
+    })
     await crashPoint(ctx, 'after-install-before-config')
 
     await stopCandidateListener(msg.transferId)
@@ -1099,7 +1084,7 @@ async function abort(
   await stopCandidateListener(msg.transferId)
   await rm(stageRoot(msg.transferId), { recursive: true, force: true })
   await ensureRealDirectory(root())
-  await syncDirectory(root())
+  await fsyncPathAsync(root())
   await releaseLock(msg.transferId)
   return result(msg.requestId, msg.transferId, 'abort', {
     ok: true,

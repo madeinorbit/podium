@@ -19,22 +19,11 @@
  * real detached-spawn / systemd adapters; `apps/daemon` binds it to whatever host seams
  * its control layer resolves.
  */
+
 import { randomUUID } from 'node:crypto'
-import { type MachineId } from '@podium/model'
-import {
-  closeSync,
-  copyFileSync,
-  existsSync,
-  fsyncSync,
-  linkSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { copyFileSync, existsSync, linkSync, renameSync, unlinkSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { type MachineId } from '@podium/model'
 import {
   configPath,
   forgetConfig,
@@ -44,13 +33,20 @@ import {
   saveConfig,
   stateDir,
 } from './config'
-import { LocalMachineIdentityConflictError, loadMachineState, readMachineState, updateMachineState, readOrCreateDaemonSecret } from './local-machine'
-import type { RunRole } from './run-registry'
+import { fsyncPath } from './fsync'
+import {
+  LocalMachineIdentityConflictError,
+  loadMachineState,
+  readMachineState,
+  readOrCreateDaemonSecret,
+  updateMachineState,
+} from './local-machine'
 import {
   loadSupervisorState,
   prepareTransferAssignment,
   reconcileSupervisorAssignment,
 } from './machine-supervisor'
+import type { RunRole } from './run-registry'
 import {
   assertConfigWritable,
   ephemeralTunnelWarning,
@@ -102,12 +98,7 @@ export interface SourceDemotionResult {
 }
 
 function syncPath(path: string): void {
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
+  fsyncPath(path)
 }
 
 function syncParent(path: string): void {
@@ -142,8 +133,11 @@ export class MachineIdentityConflictError extends Error {
 export function establishTargetMachineId(expected: MachineId, dir: string = stateDir()): MachineId {
   const observed = readMachineState(dir)?.machineId
   if (observed && observed !== expected) throw new MachineIdentityConflictError(expected, observed)
-  try { return loadMachineState(dir, expected).machineId } catch (error) {
-    if (error instanceof LocalMachineIdentityConflictError) throw new MachineIdentityConflictError(expected, error.observed)
+  try {
+    return loadMachineState(dir, expected).machineId
+  } catch (error) {
+    if (error instanceof LocalMachineIdentityConflictError)
+      throw new MachineIdentityConflictError(expected, error.observed)
     throw error
   }
 }

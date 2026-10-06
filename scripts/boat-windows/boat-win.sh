@@ -9,6 +9,7 @@
 #   boat-win.sh sync ID [REF]         ship the local checkout (REF, default HEAD) to C:\src\podium
 #   boat-win.sh win ID [CMD...]       run a PowerShell command in the guest (no CMD: interactive)
 #   boat-win.sh pull ID GUESTPATH LOCALPATH   copy a file out of the guest
+#   boat-win.sh bun ID FILE [ARGS]    run a local .ts/.js file with the guest's Bun (cwd C:\src\podium)
 #   boat-win.sh gui ID CMD...         run PowerShell in the signed-in desktop session (GUI apps)
 #   boat-win.sh shot ID OUT.png       screenshot of the Windows desktop
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
@@ -112,6 +113,12 @@ for s in json.load(sys.stdin)["sandboxes"]:
     need_id "${1:-}"; id="$1"; src="$2"; dst="$3"
     ps "$id" "Copy-Item -Force '$src' \\\\host.lan\\Data\\out.bin"
     boat scp "$id:/home/user/win/shared/out.bin" "$dst" >/dev/null
+    ;;
+  bun)
+    need_id "${1:-}"; id="$1"; file="$2"; shift 2
+    name="run-$(basename "$file")"
+    boat scp "$file" "$id:/home/user/win/shared/$name" >/dev/null
+    ps "$id" "Copy-Item -Force \\\\host.lan\\Data\\$name \$env:TEMP\\$name; cd C:\\src\\podium; & \"\$env:LOCALAPPDATA\\mise\\installs\\bun\\1.4.2\\bin\\bun.exe\" \"\$env:TEMP\\$name\" $*"
     ;;
   gui|shot)
     need_id "${1:-}"; id="$1"; shift

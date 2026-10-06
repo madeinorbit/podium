@@ -1,6 +1,7 @@
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, open, readFile, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { fsyncPath } from '@podium/runtime/fsync'
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -8,15 +9,6 @@ function processIsAlive(pid: number): boolean {
     return true
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
-}
-
-function fsyncDirectory(path: string): void {
-  const handle = openSync(path, 'r')
-  try {
-    fsyncSync(handle)
-  } finally {
-    closeSync(handle)
   }
 }
 
@@ -49,7 +41,7 @@ export class TransferLock {
             `${JSON.stringify({ pid: process.pid, acquiredAt: this.now().toISOString() })}\n`,
           )
           await handle.sync()
-          fsyncDirectory(dirname(this.path))
+          fsyncPath(dirname(this.path))
           this.handle = handle
           return
         } catch (error) {
@@ -69,7 +61,7 @@ export class TransferLock {
           throw new Error('another server transfer is active')
         }
         await rm(this.path, { force: true })
-        fsyncDirectory(dirname(this.path))
+        fsyncPath(dirname(this.path))
       }
     }
   }
@@ -81,7 +73,7 @@ export class TransferLock {
     await handle.close()
     if (existsSync(this.path)) {
       await rm(this.path, { force: true })
-      fsyncDirectory(dirname(this.path))
+      fsyncPath(dirname(this.path))
     }
   }
 }

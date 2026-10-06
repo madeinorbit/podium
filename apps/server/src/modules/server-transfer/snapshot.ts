@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
-import { copyFile, lstat, mkdir, open, readdir, rename, rm, statfs } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, readdir, rename, rm, statfs } from 'node:fs/promises'
 import { dirname, join, posix, relative, sep } from 'node:path'
 import type { MachineId } from '@podium/model'
 import {
@@ -9,15 +9,14 @@ import {
   type ServerTransferManifest,
   type ServerTransferManifestEntry,
 } from '@podium/protocol'
+import { fsyncPathAsync } from '@podium/runtime/fsync'
 
 /**
  * Server authority moves through the authenticated transfer channel: both the
  * database-backed update-signing key and Connect identity belong to the server,
  * unlike machine credentials and runtime files. Neither is a generic file RPC.
  */
-const ROOT_FILES = [
-  'podium.db',
-] as const
+const ROOT_FILES = ['podium.db'] as const
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
@@ -90,24 +89,6 @@ async function sha256(path: string): Promise<string> {
   return digest.digest('hex')
 }
 
-async function syncFile(path: string): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY)
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY)
-  try {
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
 async function snapshotEntry(
   stateRoot: string,
   packageDir: string,
@@ -131,7 +112,7 @@ async function snapshotEntry(
   const temporary = `${destination}.${process.pid}.tmp`
   await copyFile(source, temporary, constants.COPYFILE_EXCL)
   try {
-    await syncFile(temporary)
+    await fsyncPathAsync(temporary)
     const after = await lstat(source)
     if (
       !after.isFile() ||
@@ -144,7 +125,7 @@ async function snapshotEntry(
       throw new Error(`portable source changed while snapshotting: ${portablePath}`)
     }
     await rename(temporary, destination)
-    await syncDirectory(dirname(destination))
+    await fsyncPathAsync(dirname(destination))
   } catch (error) {
     await rm(temporary, { force: true })
     throw error
@@ -219,7 +200,7 @@ export async function createPortableSnapshot(input: {
   const packageBytes = files.reduce((sum, entry) => sum + entry.size, 0)
   if (packageBytes > MAX_TRANSFER_BYTES)
     throw new Error('portable state exceeds the transfer limit')
-  await syncDirectory(input.packageDir)
+  await fsyncPathAsync(input.packageDir)
   return manifestWithDigest({
     formatVersion: SERVER_TRANSFER_FORMAT_VERSION,
     operationId: input.operationId,

@@ -1,3 +1,4 @@
+import { fsyncPath } from './fsync'
 import { createHash } from 'node:crypto'
 import {
   closeSync,
@@ -225,14 +226,7 @@ function persistJson(path: string, value: unknown): void {
     closeSync(fd)
   }
   renameSync(temporary, path)
-  // Windows does not expose directory handles through Node's openSync.
-  if (process.platform === 'win32') return
-  const directory = openSync(runtimeDir, 'r')
-  try {
-    fsyncSync(directory)
-  } finally {
-    closeSync(directory)
-  }
+  fsyncPath(runtimeDir)
 }
 
 /** The plain-service guard calls this only after the candidate exited and the

@@ -15,11 +15,8 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
-  closeSync,
   copyFileSync,
   existsSync,
-  fsyncSync,
-  openSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -28,6 +25,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
+import { fsyncPath } from '@podium/runtime/fsync'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 const log = createLogger('server:migrations')
@@ -132,12 +130,7 @@ export function backupDatabase(
     for (const suffix of suffixes) {
       const temp = `${partialPath}${suffix}`
       copyFileSync(`${dbPath}${suffix}`, temp)
-      const fd = openSync(temp, 'r')
-      try {
-        fsyncSync(fd)
-      } finally {
-        closeSync(fd)
-      }
+      fsyncPath(temp)
     }
 
     // Sidecars become visible first; the main filename is the trust marker and
@@ -149,12 +142,7 @@ export function backupDatabase(
 
     // Persist the directory entry before the update operation records this path
     // and asks the coordinator to restart onto code that may run migrations.
-    const dirFd = openSync(dir, 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
+    fsyncPath(dir)
   } catch (err) {
     log.warn('database snapshot did not complete; removing its unpublished files', {
       path: partialPath,

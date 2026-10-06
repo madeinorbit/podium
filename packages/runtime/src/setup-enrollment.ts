@@ -1,10 +1,14 @@
-import { machineHelloTranscript, type MachineChallenge } from '@podium/protocol'
-/** Local setup intent is a request, never authority. The server owns its actor and result. */
-import { closeSync, fsyncSync, openSync } from 'node:fs'
-import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
+import { type MachineChallenge, machineHelloTranscript } from '@podium/protocol'
 import { stateDir } from './config'
-import { createMachineCredential, machinePublicKeyWire, readMachineCredential, signWithMachine } from './machine-credential'
+import { fsyncPath } from './fsync'
+import {
+  createMachineCredential,
+  machinePublicKeyWire,
+  readMachineCredential,
+  signWithMachine,
+} from './machine-credential'
 import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 
 export interface SetupEnrollmentRequest {
@@ -17,8 +21,7 @@ export interface SetupEnrollmentRequest {
 }
 
 function syncPath(path: string): void {
-  const fd = openSync(path, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
+  fsyncPath(path)
 }
 function persist(dir: string, state: ReturnType<typeof loadSupervisorState>): void {
   saveSupervisorState(dir, state)
@@ -26,11 +29,16 @@ function persist(dir: string, state: ReturnType<typeof loadSupervisorState>): vo
   syncPath(dir)
 }
 
-export function prepareSetupEnrollment(agentExecution: boolean, preauthorized = false, dir = stateDir()): SetupEnrollmentRequest {
+export function prepareSetupEnrollment(
+  agentExecution: boolean,
+  preauthorized = false,
+  dir = stateDir(),
+): SetupEnrollmentRequest {
   const state = loadSupervisorState(dir)
   if (state.setupEnrollment) {
     const key = readMachineCredential(dir)
-    if (!key || machinePublicKeyWire(key) !== state.setupEnrollment.publicKey) throw new Error('setup request key is unavailable')
+    if (!key || machinePublicKeyWire(key) !== state.setupEnrollment.publicKey)
+      throw new Error('setup request key is unavailable')
     syncPath(join(dir, 'machine.key'))
     persist(dir, state)
     return state.setupEnrollment
@@ -38,19 +46,34 @@ export function prepareSetupEnrollment(agentExecution: boolean, preauthorized = 
   const key = createMachineCredential(dir)
   syncPath(join(dir, 'machine.key'))
   syncPath(dir)
-  const request = { requestId: randomUUID(), machineId: state.machineId,
-    publicKey: machinePublicKeyWire(key), agentExecution, preauthorized }
+  const request = {
+    requestId: randomUUID(),
+    machineId: state.machineId,
+    publicKey: machinePublicKeyWire(key),
+    agentExecution,
+    preauthorized,
+  }
   state.setupEnrollment = request
   persist(dir, state)
   return request
 }
 
-export function confirmSetupEnrollment(requestId: string, publicKey: string, dir = stateDir()): SetupEnrollmentRequest {
+export function confirmSetupEnrollment(
+  requestId: string,
+  publicKey: string,
+  dir = stateDir(),
+): SetupEnrollmentRequest {
   const state = loadSupervisorState(dir)
   const request = state.setupEnrollment
   const key = readMachineCredential(dir)
-  if (!request || request.requestId !== requestId || request.publicKey !== publicKey
-    || !key || machinePublicKeyWire(key) !== publicKey) throw new Error('setup enrollment confirmation does not match the persisted request')
+  if (
+    !request ||
+    request.requestId !== requestId ||
+    request.publicKey !== publicKey ||
+    !key ||
+    machinePublicKeyWire(key) !== publicKey
+  )
+    throw new Error('setup enrollment confirmation does not match the persisted request')
   state.enrolledPublicKey = publicKey
   delete state.token
   persist(dir, state)
@@ -60,7 +83,8 @@ export function confirmSetupEnrollment(requestId: string, publicKey: string, dir
 /** The supervisor signs only for its own machine; private key bytes never cross the channel. */
 export function signMachineHello(challenge: MachineChallenge, dir = stateDir()): string {
   const state = loadSupervisorState(dir)
-  if (challenge.machineId !== state.machineId || challenge.expiresAtMs <= Date.now()) throw new Error('invalid machine hello challenge')
+  if (challenge.machineId !== state.machineId || challenge.expiresAtMs <= Date.now())
+    throw new Error('invalid machine hello challenge')
   const key = readMachineCredential(dir)
   if (!key) throw new Error('machine enrollment has not persisted a key')
   if (key.pendingRotation) throw new Error('machine credential rotation is awaiting confirmation')

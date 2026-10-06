@@ -1,16 +1,20 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import type { MachineId } from '@podium/model'
-import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
+import type { MachineId } from '@podium/model'
 import { stateDir } from './config'
+import { fsyncPath } from './fsync'
 
 export { stateDir }
 export const MACHINE_STATE_FILE = 'machine.json'
 const LEGACY_FILES = ['machine.id', 'daemon.json', 'supervisor.json', 'connectivity.json'] as const
 
 export class LocalMachineIdentityConflictError extends Error {
-  constructor(readonly expected: MachineId, readonly observed: MachineId) {
+  constructor(
+    readonly expected: MachineId,
+    readonly observed: MachineId,
+  ) {
     super(`machine identity ${observed} conflicts with ${expected}`)
     this.name = 'LocalMachineIdentityConflictError'
   }
@@ -29,25 +33,35 @@ export interface MachineState {
   importedFiles: Partial<Record<(typeof LEGACY_FILES)[number], string>>
 }
 function readOptional(path: string): string | undefined {
-  try { return readFileSync(path, 'utf8') } catch (error) {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
 }
 function object(raw: string, path: string): Record<string, unknown> {
   const value: unknown = JSON.parse(raw)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`invalid machine state at ${path}`)
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error(`invalid machine state at ${path}`)
   return value as Record<string, unknown>
 }
-function digest(raw: string): string { return createHash('sha256').update(raw).digest('hex') }
+function digest(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex')
+}
 function sync(path: string): void {
-  const fd = openSync(path, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
+  fsyncPath(path)
 }
 function parseMachine(raw: string, path: string): MachineState {
   const value = object(raw, path)
-  if (value.version !== 1 || typeof value.machineId !== 'string' || !value.machineId.trim()
-    || !value.importedFiles || typeof value.importedFiles !== 'object') throw new Error(`invalid machine state at ${path}`)
+  if (
+    value.version !== 1 ||
+    typeof value.machineId !== 'string' ||
+    !value.machineId.trim() ||
+    !value.importedFiles ||
+    typeof value.importedFiles !== 'object'
+  )
+    throw new Error(`invalid machine state at ${path}`)
   return value as unknown as MachineState
 }
 
@@ -67,8 +81,12 @@ function finishImport(dir: string, state: MachineState): void {
     const path = join(dir, name)
     const raw = readOptional(path)
     if (raw === undefined) continue
-    if (digest(raw) !== expected) throw new Error(`legacy machine state changed during migration: ${path}`)
-    try { unlinkSync(path); removed = true } catch (error) {
+    if (digest(raw) !== expected)
+      throw new Error(`legacy machine state changed during migration: ${path}`)
+    try {
+      unlinkSync(path)
+      removed = true
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
   }
@@ -86,14 +104,20 @@ function persist(dir: string, state: MachineState, exclusive: boolean): void {
     else renameSync(temporary, path)
     sync(dir)
   } finally {
-    try { unlinkSync(temporary) } catch (error) {
+    try {
+      unlinkSync(temporary)
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
   }
 }
 
 /** One-time file import, not database reconciliation or owner inference. */
-export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allowCreate = true): MachineState {
+export function loadMachineState(
+  dir = stateDir(),
+  expectedId?: MachineId,
+  allowCreate = true,
+): MachineState {
   mkdirSync(dir, { recursive: true })
   let current = readMachineState(dir)
   if (!current) {
@@ -120,35 +144,55 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
         const section = name.slice(0, -5) as 'daemon' | 'supervisor' | 'connectivity'
         sections[section] = data
         if (section !== 'connectivity') {
-          if (typeof data.machineId !== 'string' || !data.machineId.trim()) throw new Error(`invalid legacy identity in ${name}`)
+          if (typeof data.machineId !== 'string' || !data.machineId.trim())
+            throw new Error(`invalid legacy identity in ${name}`)
           legacyIds[section === 'daemon' ? 'daemon.json' : 'supervisor.json'] = data.machineId
         }
       }
     }
-    const legacyId = legacyIds['supervisor.json'] ?? legacyIds['daemon.json'] ?? legacyIds['machine.id']
-    if (legacyId === undefined && !expectedId && !allowCreate) throw new Error('machine identity is missing')
+    const legacyId =
+      legacyIds['supervisor.json'] ?? legacyIds['daemon.json'] ?? legacyIds['machine.id']
+    if (legacyId === undefined && !expectedId && !allowCreate)
+      throw new Error('machine identity is missing')
     const machineId = (legacyId ?? expectedId ?? randomUUID()) as MachineId
-    if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)
-    const candidate: MachineState = { version: 1, machineId, ...sections, ...(legacy ? { legacy } : {}), importedFiles }
+    if (expectedId !== undefined && machineId !== expectedId)
+      throw new LocalMachineIdentityConflictError(expectedId, machineId)
+    const candidate: MachineState = {
+      version: 1,
+      machineId,
+      ...sections,
+      ...(legacy ? { legacy } : {}),
+      importedFiles,
+    }
     let published = false
-    try { persist(dir, candidate, true); published = true } catch (error) {
+    try {
+      persist(dir, candidate, true)
+      published = true
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
     current = readMachineState(dir)
     if (!current) throw new Error('machine state publication failed')
-    if (published && !isDeepStrictEqual(current, candidate)) throw new Error('machine state verification failed')
+    if (published && !isDeepStrictEqual(current, candidate))
+      throw new Error('machine state verification failed')
     // A winner may have imported a different snapshot. Never delete inputs on that basis.
     for (const [name, hash] of Object.entries(importedFiles)) {
-      if (current.importedFiles[name as keyof typeof importedFiles] !== hash) throw new Error('concurrent machine migration input changed')
+      if (current.importedFiles[name as keyof typeof importedFiles] !== hash)
+        throw new Error('concurrent machine migration input changed')
     }
   }
-  if (expectedId !== undefined && current.machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, current.machineId)
+  if (expectedId !== undefined && current.machineId !== expectedId)
+    throw new LocalMachineIdentityConflictError(expectedId, current.machineId)
   finishImport(dir, current)
   return current
 }
 
 /** All role writers merge through this owner, preserving unrelated sections and import receipts. */
-export function updateMachineState(dir: string, change: (state: MachineState) => void, expectedId?: MachineId): MachineState {
+export function updateMachineState(
+  dir: string,
+  change: (state: MachineState) => void,
+  expectedId?: MachineId,
+): MachineState {
   const state = loadMachineState(dir, expectedId)
   const id = state.machineId
   change(state)

@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { fsyncPath } from './fsync'
 
 export interface PendingGrant {
   grantId: string
@@ -101,14 +102,10 @@ function writeFileDurable(path: string, data: string): void {
  *  process can observe, and platforms differ on whether a directory is even
  *  openable for fsync — so it must never turn a successful write into a throw. */
 function syncDirectory(dir: string): void {
-  let fd: number | undefined
   try {
-    fd = openSync(dir, 'r')
-    fsyncSync(fd)
+    fsyncPath(dir)
   } catch {
     // ignored, see above
-  } finally {
-    if (fd !== undefined) closeSync(fd)
   }
 }
 
