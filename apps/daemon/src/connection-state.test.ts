@@ -1829,6 +1829,33 @@ describe('podium connect locator rescue (POD-4533)', () => {
     await h.state.close()
   })
 
+  it('a rebooting server: an address published minutes into the outage is found within ~15 s (POD-3274)', async () => {
+    // Measured on the lab before this: a 90 s reboot published at 105 s and the
+    // joined machine came back at 137 s, because the backoff had stretched the
+    // gap between asks. The steady window bounds the lag to about one ask.
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
+      versions: {
+        'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+    let elapsedMs = 0
+    while (elapsedMs < 105_000) elapsedMs += await failNextDial(h)
+    h.republish([{ url: 'https://new.example', priority: 100 }])
+    const publishedAt = elapsedMs
+    while (loadConfig().serverUrl === 'wss://old.example' && elapsedMs < publishedAt + 120_000) {
+      elapsedMs += await failNextDial(h)
+    }
+    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    // At most one 15 s ask interval, rounded up to the 5 s reconnect tick.
+    expect(elapsedMs - publishedAt).toBeLessThanOrEqual(20_000)
+    await h.state.close()
+  })
+
   it('a healthy link performs zero resolutions over a long run (POD-4646)', async () => {
     // Fake the global clock BEFORE the link exists, so a poll armed at connect
     // time on the real timers would be advanced below, not escape the test.
@@ -1862,7 +1889,7 @@ describe('podium connect locator rescue (POD-4533)', () => {
     }
   })
 
-  it('the re-arm is bounded: a ten-minute outage resolves 9 times, not once per tick (POD-4646, POD-3274)', async () => {
+  it('the re-arm is bounded: ~15 s through the first ten minutes, not once per tick (POD-4646, POD-3274)', async () => {
     const h = rescueHarness({
       // The record never moves on: every resolution finds only the dead url.
       recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
@@ -1880,12 +1907,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
       ticks += 1
     }
     // Backoff 0.5+1+2+4 s, then 5 s a tick: 123 reconnect ticks cover ten
-    // minutes. Resolutions: one at the drop, then once each of 2, 4, 8, 16, 32,
-    // 64, 128 s of backoff has passed and then every 300 s — at 3.5, 7.5, 17.5,
-    // 37.5, 72.5, 137.5, 267.5 and 567.5 s: nine in all, where a fixed 30 s
-    // re-arm made 21 and kept asking every ~35 s for ever.
+    // minutes. Resolutions: one at the drop, then after 2, 4 and 8 s of backoff
+    // (3.5, 7.5, 17.5 s), then every 15 s (every third 5 s tick) through the
+    // ten-minute window — 43 in all. A rebooting server is found within about
+    // one ask of publishing; after the window the asks slow to every 5 min.
     expect(ticks).toBe(123)
-    expect(h.locatorReads()).toHaveLength(9)
+    expect(h.locatorReads()).toHaveLength(43)
     // Nothing was adopted and nothing probed the dead url it keeps skipping.
     expect(loadConfig().serverUrl).toBe('wss://old.example')
     expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
@@ -2040,15 +2067,22 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
 })
 
 describe('locatorAskDelayMs: the re-ask schedule (POD-3274)', () => {
-  it('starts at 2 s, doubles to 128 s, then holds at five minutes', () => {
-    const exact = () => 0.5
-    expect([1, 2, 3, 4, 5, 6, 7, 8, 50].map((n) => locatorAskDelayMs(n, exact))).toEqual([
-      2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 300_000, 300_000,
-    ])
+  const exact = () => 0.5
+
+  it('asks after 2, 4 and 8 s, then every 15 s for the first ten minutes of an outage', () => {
+    expect([1, 2, 3].map((n) => locatorAskDelayMs(n, 0, exact))).toEqual([2_000, 4_000, 8_000])
+    expect(locatorAskDelayMs(4, 20_000, exact)).toBe(15_000)
+    expect(locatorAskDelayMs(30, 599_999, exact)).toBe(15_000)
+  })
+
+  it('slows to every five minutes once the outage has lasted ten', () => {
+    expect(locatorAskDelayMs(40, 600_000, exact)).toBe(300_000)
+    expect(locatorAskDelayMs(90, 3_600_000, exact)).toBe(300_000)
   })
 
   it('jitters each wait by ±50%, so a stranded fleet does not ask in lockstep', () => {
-    expect(locatorAskDelayMs(8, () => 0)).toBe(150_000)
-    expect(locatorAskDelayMs(8, () => 0.999_999)).toBe(450_000)
+    expect(locatorAskDelayMs(40, 600_000, () => 0)).toBe(150_000)
+    expect(locatorAskDelayMs(40, 600_000, () => 0.999_999)).toBe(450_000)
+    expect(locatorAskDelayMs(5, 60_000, () => 0)).toBe(7_500)
   })
 })

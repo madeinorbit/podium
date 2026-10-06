@@ -105,30 +105,42 @@ const QUEUE_DRAIN_RETRY_MS = 500
 const FLAPPING_DROP_THRESHOLD = 3
 /**
  * When the locator is asked again during one outage (POD-4646, reshaped by
- * POD-3274): the first ask is immediate, then after each of these amounts of
- * backoff since the previous ask, then every `LOCATOR_ASK_MAX_MS` for as long
- * as the outage lasts.
+ * POD-3274). The first ask is immediate; the next three come after 2, 4 and
+ * 8 s of backoff; then every `LOCATOR_ASK_STEADY_MS` until the outage has
+ * lasted `LOCATOR_FAST_WINDOW_MS`; then every `LOCATOR_ASK_MAX_MS`.
  *
- * FAST FIRST. A rotating tunnel's new address is published a few seconds
- * after the drop — podium-tunnel holds it until the name resolves — so the
- * immediate ask often finds only the dead address, and the next must come
- * seconds later, not half a minute. Measured on the lab: a 30 s re-arm left a
- * joined machine on a dead address for ~35 s after its server was reachable.
+ * FAST FIRST: a crashed or restarted tunnel publishes its new address a few
+ * seconds after the drop (podium-tunnel holds it until the name resolves).
  *
- * THEN SLOW, AND BOUNDED. A server that is simply off gets about a dozen asks
- * in its first hour per machine and one every five minutes after, instead of
- * one every ~35 s for ever. Each wait is jittered ±50%, so a fleet stranded by
- * the same outage does not ask in lockstep when Connect or the server returns.
+ * STEADY THROUGH A REBOOT: a rebooting server publishes minutes into the
+ * outage. A backoff that kept doubling found it one whole gap late — measured
+ * on the lab, a 90 s reboot was followed 31 s after the address was out.
+ * Asking every ~15 s for ten minutes bounds that lag to about one ask.
+ *
+ * THEN SLOW: a server that is simply off settles at one ask per five minutes.
+ * Every wait is jittered ±50%, so a fleet stranded by the same outage does
+ * not ask in lockstep when Connect or the server returns.
  *
  * Measured in scheduled backoff, not wall clock: each reconnect tick adds the
- * delay it armed, and real time between asks is at least that sum.
+ * delay it armed, and real time is at least that sum.
  */
-const LOCATOR_ASK_SCHEDULE_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000] as const
+const LOCATOR_ASK_FIRST_MS = [2_000, 4_000, 8_000] as const
+const LOCATOR_ASK_STEADY_MS = 15_000
+const LOCATOR_FAST_WINDOW_MS = 10 * 60_000
 const LOCATOR_ASK_MAX_MS = 300_000
 
-/** The backoff to sit through before ask number `asked + 1`, jittered ±50%. */
-export function locatorAskDelayMs(asked: number, random: () => number = Math.random): number {
-  const base = LOCATOR_ASK_SCHEDULE_MS[asked - 1] ?? LOCATOR_ASK_MAX_MS
+/**
+ * The backoff to sit through before the next ask, jittered ±50%. `asked` is how
+ * many asks this outage has made; `outageMs` the backoff it has scheduled so far.
+ */
+export function locatorAskDelayMs(
+  asked: number,
+  outageMs: number,
+  random: () => number = Math.random,
+): number {
+  const base =
+    LOCATOR_ASK_FIRST_MS[asked - 1] ??
+    (outageMs < LOCATOR_FAST_WINDOW_MS ? LOCATOR_ASK_STEADY_MS : LOCATOR_ASK_MAX_MS)
   return Math.round(base * (0.5 + random()))
 }
 
@@ -317,8 +329,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
    * it only advances while the link is down.
    */
   let locatorBackoffSinceAttemptMs = 0
-  /** How much backoff the next ask waits for; see LOCATOR_ASK_SCHEDULE_MS. */
+  /** How much backoff the next ask waits for; see locatorAskDelayMs. */
   let locatorNextAskMs = 0
+  /** Backoff scheduled since this outage began; picks fast window or slow tail. */
+  let locatorOutageMs = 0
   /** A resolution is still running; never stack a second on top of it. */
   let locatorInFlight = false
   let lastSocketError: string | undefined
@@ -513,8 +527,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   /**
    * THE LOCATOR RESCUE (POD-4533): find the server again through Podium
    * Connect, then dial the answer instead of the dead URL. Asked at once when
-   * an outage begins, and again on `LOCATOR_ASK_SCHEDULE_MS` while it lasts
-   * (POD-4646, POD-3274).
+   * an outage begins, and again on the `locatorAskDelayMs` schedule while it
+   * lasts (POD-4646, POD-3274).
    *
    * Triggered from `scheduleReconnect` only — a failed dial on startup, or a
    * dropped link — never on a timer and never while healthy. A box paired
@@ -598,7 +612,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const due = locatorAsksThisOutage === 0 || locatorBackoffSinceAttemptMs >= locatorNextAskMs
     if (due && !locatorInFlight) {
       locatorAsksThisOutage += 1
-      locatorNextAskMs = locatorAskDelayMs(locatorAsksThisOutage, deps.random)
+      locatorNextAskMs = locatorAskDelayMs(locatorAsksThisOutage, locatorOutageMs, deps.random)
       locatorBackoffSinceAttemptMs = 0
       locatorInFlight = true
       void attemptLocatorResolution()
@@ -610,6 +624,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         })
     }
     locatorBackoffSinceAttemptMs += armedDelayMs
+    locatorOutageMs += armedDelayMs
   }
 
   const scheduleReconnect = (): void => {
@@ -770,6 +785,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     locatorAsksThisOutage = 0
     locatorBackoffSinceAttemptMs = 0
     locatorNextAskMs = 0
+    locatorOutageMs = 0
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     log.info('daemon link established', {
