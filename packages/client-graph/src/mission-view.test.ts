@@ -6,6 +6,7 @@ import { MobxPool } from './pool'
 import { missionView, readMissionHandoff, readMissionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
+import { sessionSeats } from './session-seats'
 
 const stamp = '2026-10-01T12:00:00Z', now = Date.parse(stamp)
 const coldRoot = () => issue('root', { stage: 'done', closedAt: '2026-09-20T12:00:00Z', updatedAt: '2026-09-20T12:00:00Z' })
@@ -82,6 +83,24 @@ it('counts a closed archive without observing prompt, activity or handoff histor
     expect(count).toBe(2)
     expect(history).not.toHaveBeenCalled()
   } finally { stop() }
+})
+
+it('shares the observed seat flag when pane reads change a present session', () => {
+  const live = session('live', 'root', { archived: false, status: 'live' })
+  const { pool, reader } = open([issue('root')], [live])
+  const stopSeat = autorun(() => { sessionSeats(pool).seat('live') })
+  let count: number | typeof LOADING = LOADING
+  const stopArchive = autorun(() => { count = reader.historyRosterCount('root') })
+  const raw = vi.spyOn(reader, 'rawSession')
+  try {
+    expect(count).toBe(0)
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'live', value: { ...live, readAt: null, unread: true } }] })
+    expect(count).toBe(0)
+    expect(raw).not.toHaveBeenCalled()
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'live', value: { ...live, archived: true } }] })
+    pool.hydrate()
+    expect(count).toBe(1)
+  } finally { stopArchive(); stopSeat() }
 })
 
 it('passes an unloaded child through its own and every ancestor rollup', () => {
