@@ -20,12 +20,10 @@ import type {
   ThreadId,
   WorkState} from '@podium/model'
 import { asThreadId } from '@podium/model'
-import { createLogger } from '@podium/logger'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
-  type SessionIdentifierResolution,
-} from '@podium/protocol'
+  type SessionIdentifierResolution} from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
@@ -37,8 +35,7 @@ import {
   newChatMessageId,
   type OutboxSettlements,
   outboxChatSends,
-  sendChatThroughOutbox,
-} from './chat-send'
+  sendChatThroughOutbox} from './chat-send'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import type {
   DockTab,
@@ -50,8 +47,7 @@ import type {
   RecentFileEntry,
   TabId,
   WorkspaceLayout,
-  WorkspaceMap,
-} from '../values'
+  WorkspaceMap} from '../values'
 import {
   activateTab,
   closePane,
@@ -64,13 +60,11 @@ import {
   reposToViews,
   resizeSplit,
   splitPane,
-  tabIdFor,
-} from '../values'
+  tabIdFor} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
   createReplicatedLayoutController,
-  type ReplicatedLayoutController,
-} from './replicated-layout'
+  type ReplicatedLayoutController} from './replicated-layout'
 import {
   currentWorkspace,
   NAVIGATION_LOADING,
@@ -82,8 +76,7 @@ import {
   workspaceKeyForState,
   workspacesPatch,
   workspaceWritePatch,
-  overlayState,
-} from './state'
+  overlayState} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 

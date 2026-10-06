@@ -7,13 +7,11 @@ import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } f
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
-  readAuthenticatedTextPreview,
-} from '../client/authenticated-assets'
+  readAuthenticatedTextPreview} from '../client/authenticated-assets'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
-import { FileText, X } from './icons'
 import { PressableScale } from './PressableScale'
 
 function FileChip({ label, onPress }: { label: string; onPress?: () => void }) {

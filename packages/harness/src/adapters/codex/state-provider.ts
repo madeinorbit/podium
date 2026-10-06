@@ -1,3 +1,4 @@
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 /**
  * THE CODEX STATE PROVIDER (POD-4520): the state section's live half
  * (spec §4.5: "screen and hook-derived agent state, causal fingerprints").
@@ -22,44 +23,32 @@ import type {
   AgentObservation,
   AgentObservationAckMessage,
   ProviderCursor,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
+  SessionObservationCheckpointV1} from '@podium/protocol'
 import { fileMtimeIso } from '../../agent-state/boot-time.js'
 import {
   type AgentStateEvent,
   type AgentStateProvider,
   withStateChannel,
-  withStateChannelEvent,
-} from '../../agent-state/types.js'
+  withStateChannelEvent} from '../../agent-state/types.js'
 import {
   cleanCodexTitle,
   codexPromptTitle,
-  isInteractiveCodexSource,
-} from './discovery.js'
+  isInteractiveCodexSource} from './discovery.js'
 import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
 import { LineDecoder } from '../../jsonl-stream.js'
-import { fileMtimeIso } from '../../agent-state/boot-time.js'
 import { initialAgentState, reduceAgentState } from '../../observer.js'
-import {
-  type AgentStateEvent,
-  type AgentStateProvider,
-  withStateChannel,
-  withStateChannelEvent,
-} from '../../agent-state/types.js'
 import {
   PODIUM_CODEX_HOOK_SOCKET_ENV,
   PODIUM_CODEX_HOOK_URL_ENV,
   codexInstrumentation,
   codexQuestionSummary,
   isCodexQuestionTool,
-  translateCodexEvent,
-} from './instrumentation.js'
+  translateCodexEvent} from './instrumentation.js'
 import {
   CODEX_TRUST_SUMMARY,
   classifyCodexScreen,
   classifyCodexVerdict,
-  codexUsageLimitSummary,
-} from './state.js'
+  codexUsageLimitSummary} from './state.js'
 
 export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 export {
