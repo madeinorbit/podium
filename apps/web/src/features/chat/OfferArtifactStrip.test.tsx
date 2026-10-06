@@ -23,7 +23,9 @@ let issues: IssueViewModel[] = []
 let publication = 0
 const storeListeners = new Set<() => void>()
 let storeSnapshot = {
-  get issues() { return issues },
+  get issues() {
+    return issues
+  },
   httpOrigin: 'http://h',
   openArtifact,
   openFileInWorktree,
@@ -103,8 +105,13 @@ beforeEach(() => {
   openFileInWorktree.mockClear()
   publication = 0
   storeSnapshot = {
-    get issues() { return issues },
-    httpOrigin: 'http://h', openArtifact, openFileInWorktree, publication,
+    get issues() {
+      return issues
+    },
+    httpOrigin: 'http://h',
+    openArtifact,
+    openFileInWorktree,
+    publication,
   }
 })
 
