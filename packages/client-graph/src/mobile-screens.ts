@@ -66,11 +66,12 @@ function screenSnapshot<T extends object>(
   data: IComputedValue<T | typeof LOADING>,
   keys: readonly (keyof T)[],
   overrides: Partial<{ [K in keyof T]: IComputedValue<T[K] | typeof LOADING> }> = {},
+  identities: readonly (keyof T)[] = [],
 ): IComputedValue<T | typeof LOADING> {
   const fields = keys.map(key => [key, overrides[key] ?? computed(() => {
     const value = data.get()
     return value === LOADING ? LOADING : value[key]
-  }, { equals: compareShallow })] as const)
+  }, { equals: identities.includes(key) ? Object.is : compareShallow })] as const)
   return computed(() => {
     const entries = fields.map(([key, field]) => [key, field.get()] as const)
     if (entries.some(([, value]) => value === LOADING)) return LOADING
@@ -359,6 +360,7 @@ export function createMobileScreenReader(pool: MobxPool) {
       computed(() => settled(() => readDeck(id, mode))),
       ['root', 'rows', 'members', 'issueIds', 'deck', 'sessions', 'archivedCount', 'titles',
         'progress', 'departures', 'continuation', 'note', 'presence', 'rowPresentation'],
+      {}, ['root', 'deck'],
     ))
   }
   function readDeck(id: string | null, mode: FlightDeckMode): MissionViewValues {
@@ -407,6 +409,7 @@ export function createMobileScreenReader(pool: MobxPool) {
     return memo(`mission:${id}`, () => screenSnapshot(
       computed(() => settled(() => readMissionData(id))),
       ['root', 'issues', 'sessions', 'missionSessions', 'progress'],
+      {}, ['root'],
     ))
   }
   function readMissionData(id: string | null): MobileMissionData {
