@@ -77,11 +77,13 @@ export function useHandoffTranscript(
     // flag on a headless no-op and stall the post-refresh refire. A shared
     // warm conversation already has it and pages immediately.
     if (pair !== null || !initialLoaded || !hasMoreOlder || loadingOlder) return
-    let cancelled = false
     flightRef.current = true
     // One page per effect run. Completion surfaces through the log's own
     // observables (loadingOlder flip, pair formation, hasMore change), which
-    // re-run this effect while another page is due.
+    // re-run this effect while another page is due. The handlers always
+    // report: a refire between settle and delivery only observes the flight
+    // flag, so gating delivery on cancellation would swallow real failures.
+    // Reporting to an unmounted hook is a React-ignored no-op.
     void transcript.loadOlder().then(
       () => {
         flightRef.current = false
@@ -89,12 +91,9 @@ export function useHandoffTranscript(
       () => {
         flightRef.current = false
         failedRef.current = true
-        if (!cancelled) setPageFailed(true)
+        setPageFailed(true)
       },
     )
-    return () => {
-      cancelled = true
-    }
   }, [active, transcript, pair, initialLoaded, hasMoreOlder, loadingOlder, pageFailed])
 
   const retry = useCallback(() => {
