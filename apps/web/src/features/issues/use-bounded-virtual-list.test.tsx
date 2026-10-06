@@ -106,6 +106,8 @@ describe('bounded variable-height issue window', () => {
       console.info('board viewport ID reads', JSON.stringify({ scale, selection, scrolling }))
       return { selection, scrolling }
     })
+    expect(counts[0]!.selection).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS * 2)
+    expect(counts[0]!.scrolling).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS * 2)
     expect(counts[1]).toEqual(counts[0])
   })
 

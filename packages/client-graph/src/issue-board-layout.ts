@@ -74,6 +74,10 @@ export function createBoardLayout(pool: MobxPool) {
   })
   const matching = keyedComputed('IssueBoard.matchingIds', (key: string): Loaded<string[]> => {
     const query = JSON.parse(key) as BoardQuery
+    // Text owns only its candidate IDs. Keep the scalar filter answer shared
+    // while typing, instead of rebuilding it for every matching issue.
+    const { text: _text, ...filter } = query.filter ?? {}
+    const facetKey = JSON.stringify({ kind: 'board', filter, showAgentTasks: query.showAgentTasks })
     countIssueBoard('queries')
     const needle = query.filter?.text?.trim() ?? ''
     const text = needle ? textIds(needle) : undefined
@@ -81,7 +85,7 @@ export function createBoardLayout(pool: MobxPool) {
     for (const id of pool.queries.ids(questionOf(query))) {
       if (text && !text.has(id)) continue
       if (!scope(JSON.stringify([id, query.showAgentTasks ?? false]))) continue
-      const matches = matchesFacet(JSON.stringify([id, key]))
+      const matches = matchesFacet(JSON.stringify([id, facetKey]))
       if (matches === LOADING) return LOADING
       if (!matches) continue
       if (query.filter?.status === 'ready' || query.filter?.status === 'deferred') {

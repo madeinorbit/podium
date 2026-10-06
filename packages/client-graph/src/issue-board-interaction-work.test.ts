@@ -55,5 +55,7 @@ it('keeps broad-search scalar reads and context-menu facts bounded at 1x and 4x'
       pool.dispose()
     }
   })
+  expect(measurements[0]!.search).toBeLessThanOrEqual(8)
+  expect(measurements[0]!.contextMenu).toBeLessThanOrEqual(8)
   expect(measurements[1]).toEqual(measurements[0])
 })

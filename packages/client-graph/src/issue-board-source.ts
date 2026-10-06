@@ -645,14 +645,9 @@ export function createIssueBoardSource(
   const board = layout.board
   function menu(options: { ids: string[]; agents: boolean }) {
     return memo(`menu:${JSON.stringify(options)}`, () => {
-      const choices = catalog(options.agents)
-      if (!choices || choices === LOADING) return LOADING
-      const issues: IssueViewModel[] = [], allIssues: IssueViewModel[] = [], seats = new Map<string, SessionView>()
-      for (const id of choices.scope) {
-        const row = facts(id)
-        if (row === LOADING) return LOADING
-        if (row) allIssues.push(row)
-      }
+      const issues: IssueViewModel[] = [], seats = new Map<string, SessionView>()
+      // The menu reads addressed origins itself and opens choice catalogs
+      // only for the relevant submenu. Its trigger needs selected rows only.
       for (const id of options.ids) {
         const row = issue(id), roster = sessions(id)
         if (row === LOADING || roster === LOADING) return LOADING
@@ -660,7 +655,7 @@ export function createIssueBoardSource(
         for (const seat of roster ?? []) seats.set(seat.sessionId, seat)
       }
       return {
-        issues, allIssues, sessions: [...seats.values()],
+        issues, allIssues: issues, sessions: [...seats.values()],
         repos: headerView(pool).ids('repository').flatMap(id => {
           const row = headerView(pool).row('repository', id)
           return row ? [row] : []

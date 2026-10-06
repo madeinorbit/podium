@@ -22,6 +22,7 @@ export interface VirtualIssueItem {
 
 interface Layout {
   keys: readonly string[]
+  indexes: ReadonlyMap<string, number>
   offsets: number[]
   sizes: number[]
   totalSize: number
@@ -92,9 +93,8 @@ export function useBoundedVirtualList({
   const nodesRef = useRef(new Map<string, HTMLElement>())
   const callbacksRef = useRef(new Map<string, RefCallback<HTMLElement>>())
   const observerRef = useRef<ResizeObserver | null>(null)
-  const layoutRef = useRef<Layout>({ keys: [], offsets: [], sizes: [], totalSize: 0 })
-  const priorLayoutRef = useRef<Layout>({ keys: [], offsets: [], sizes: [], totalSize: 0 })
-  const signatureRef = useRef('')
+  const layoutRef = useRef<Layout>({ keys: [], indexes: new Map(), offsets: [], sizes: [], totalSize: 0 })
+  const priorLayoutRef = useRef<Layout>({ keys: [], indexes: new Map(), offsets: [], sizes: [], totalSize: 0 })
   const [revision, setRevision] = useState(0)
   const [viewport, setViewport] = useState({ top: 0, height: 0 })
   const viewportFrameRef = useRef<number | null>(null)
@@ -103,8 +103,10 @@ export function useBoundedVirtualList({
     void revision
     const offsets: number[] = []
     const itemSizes: number[] = []
+    const indexes = new Map<string, number>()
     let cursor = 0
     for (const key of keys) {
+      indexes.set(key, offsets.length)
       offsets.push(cursor)
       const size = sizesRef.current.get(key) ?? estimateSize
       itemSizes.push(size)
@@ -112,6 +114,7 @@ export function useBoundedVirtualList({
     }
     return {
       keys,
+      indexes,
       offsets,
       sizes: itemSizes,
       totalSize: Math.max(0, cursor - (keys.length > 0 ? gap : 0)),
@@ -163,7 +166,7 @@ export function useBoundedVirtualList({
       if (Math.abs(oldSize - measured) < 0.5) return
 
       const currentLayout = layoutRef.current
-      const index = currentLayout.keys.indexOf(key)
+      const index = currentLayout.indexes.get(key) ?? -1
       const itemStart = index < 0 ? 0 : (currentLayout.offsets[index] ?? 0)
       const scroll = scrollRef.current
       const beforeTop = localScrollTop(scroll, containerRef?.current)
@@ -187,7 +190,7 @@ export function useBoundedVirtualList({
           continue
         }
         const evictedSize = sizesRef.current.get(evicted) as number
-        const evictedIndex = currentLayout.keys.indexOf(evicted)
+        const evictedIndex = currentLayout.indexes.get(evicted) ?? -1
         const evictedStart =
           evictedIndex < 0 ? Number.POSITIVE_INFINITY : (currentLayout.offsets[evictedIndex] ?? 0)
         if (evictedStart < beforeTop) anchorDelta += estimateSize - evictedSize
@@ -244,14 +247,15 @@ export function useBoundedVirtualList({
   )
 
   // Keep the same visible row at the same pixel when expansion, filtering or a
-  // replica update inserts/removes rows above it.
-  const signature = keys.join('\0')
+  // replica update inserts/removes rows above it. ID snapshots are immutable;
+  // their identity already signals changes without joining the whole column
+  // on selection, heartbeat, or scroll renders.
   useLayoutEffect(() => {
     const previous = layout
     // layoutRef already points at the current render, so retain the prior
     // render's geometry separately.
     const prior = priorLayoutRef.current
-    if (signatureRef.current && signatureRef.current !== signature && prior.keys.length > 0) {
+    if (prior.keys !== layout.keys && prior.keys.length > 0) {
       const scroll = scrollRef.current
       const top = localScrollTop(scroll, containerRef?.current)
       // Only the section intersecting a shared grouped-list viewport may move
@@ -259,24 +263,23 @@ export function useBoundedVirtualList({
       if (scroll && top < prior.totalSize && top + scroll.clientHeight > 0) {
         const anchorIndex = itemAt(prior, Math.max(0, top))
         const anchorKey = prior.keys[anchorIndex]
-        const currentIndex = anchorKey ? previous.keys.indexOf(anchorKey) : -1
+        const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
         if (currentIndex >= 0) {
           const delta = (previous.offsets[currentIndex] ?? 0) - (prior.offsets[anchorIndex] ?? 0)
           if (delta !== 0) scroll.scrollTop += delta
         }
       }
     }
-    signatureRef.current = signature
     priorLayoutRef.current = previous
     publishViewport()
-  }, [signature, layout, scrollRef, containerRef, publishViewport])
+  }, [layout, scrollRef, containerRef, publishViewport])
 
   const focusKey = pinnedKeys.find((candidate): candidate is string =>
-    Boolean(candidate && keys.includes(candidate)),
+    Boolean(candidate && layout.indexes.has(candidate)),
   )
   useLayoutEffect(() => {
     if (!focusKey) return
-    const index = layout.keys.indexOf(focusKey)
+    const index = layout.indexes.get(focusKey) ?? -1
     const scroll = scrollRef.current
     if (index < 0 || !scroll) return
     const container = containerRef?.current
@@ -314,7 +317,7 @@ export function useBoundedVirtualList({
   for (let index = start; index < end; index++) indexes.add(index)
   for (const key of pinnedKeys) {
     if (!key) continue
-    const index = keys.indexOf(key)
+    const index = layout.indexes.get(key) ?? -1
     if (index >= 0) indexes.add(index)
   }
   const items = [...indexes]
