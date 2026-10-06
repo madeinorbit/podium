@@ -148,7 +148,7 @@ describe('HostConnection: which request an ERR refuses', () => {
     conn.onError((e) => errors.push(e.message))
     conn.signal(28)
     expect((await conn.status()).alive).toBe(true)
-    expect(errors).toEqual(['signal unsupported on Windows; ignored'])
+    expect(errors).toEqual(['podium-host: signal unsupported on Windows; ignored (err 7)'])
   })
 
   it('an ERR naming a write rejects exactly that write; earlier writes and a resize are untouched', async () => {
