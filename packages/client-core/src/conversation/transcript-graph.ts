@@ -303,7 +303,7 @@ export class TranscriptGraph {
       const groups: TranscriptGraphInsertion[][] = []
       for (const insertion of insertions) {
         const previous = groups.at(-1)
-        if (previous?.[0]?.before === insertion.before) previous.push(insertion)
+        if (previous && previous[0]!.before === insertion.before) previous.push(insertion)
         else groups.push([insertion])
       }
       let head = this.fileIds[0]

@@ -146,4 +146,9 @@ it('retains coalesced prefix pages and tail appends in their source order', () =
     { id: 'tail' }, { id: 'oldest', before: 'first' },
   ] })
   expect(f.graph.blockIds.slice()).toEqual(['oldest', 'first', 'second', 'held', 'tail'])
+  f.apply({ changed: [prose('new-tail'), user('new-head')], insertions: [
+    { id: 'new-tail' }, { id: 'new-head', before: 'oldest' },
+  ] })
+  expect(f.graph.blockIds[0]).toBe('new-head')
+  expect(f.graph.blockIds.at(-1)).toBe('new-tail')
 })
