@@ -143,7 +143,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         handle.settleLoads()
       })
       const id = ctx.targets.visibleRootId
-      const before = tracked(() => sidebarIssueRow(pool.issue(id)!))
+      const before = tracked(() => sidebarIssueRow(pool.issue(id)!, pool))
       if (before === undefined || before === LOADING)
         throw new Error('roster head fixture did not load')
       const next = before.sessions.find(
@@ -166,7 +166,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       assertReads(moved, { readsPerChange: 3 })
       const readHead = () =>
         tracked(() => {
-          const row = sidebarIssueRow(pool.issue(id)!)
+          const row = sidebarIssueRow(pool.issue(id)!, pool)
           return row === undefined || row === LOADING ? null : row.firstSessionId
         })
       expect(readHead(), 'cached ID follows the promoted roster head').toBe(next)

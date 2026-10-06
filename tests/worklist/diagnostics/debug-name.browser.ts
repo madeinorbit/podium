@@ -37,7 +37,7 @@ pool.apply({ type: 'replace', rows })
 const stops = [autorun(() => {
   for (let i = 0; i < count; i++) {
     const issue = pool.model('issue', `heap-issue-${i}`)!
-    void sidebarIssueRow(issue)
+    void sidebarIssueRow(issue, pool)
     void issue.presence
     void pool.model('session', `heap-session-${i}`)!.retention
   }

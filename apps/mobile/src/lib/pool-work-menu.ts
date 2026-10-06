@@ -6,6 +6,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import { discoveredPlacement } from '@podium/client-core/values'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import type { WorkIssueMenuTarget } from './work-menu'
 
 export interface PoolWorkMenuData {
@@ -24,7 +25,7 @@ export function resolvePoolWorkMenu(
 ): PoolWorkMenuData | null {
   return allowImperativeRead(() => {
     const model = pool.issue(id)
-    const raw = pool.row('issue', id)
+    const raw = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
     if (!model || !raw || raw === LOADING) return null
     // Only the Closed lane shows the inverse-fold eligibility. Live menus
     // acquire close concerns on the status press, rather than warming rollups.

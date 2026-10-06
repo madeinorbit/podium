@@ -65,7 +65,7 @@ const seat = cachedGroup('sidebar.seat', (session: SessionModel) => {
   const raw = hostOf(session).row('session', session.id)
   return raw === LOADING || raw === undefined ? raw : seatVerdictOf(raw as SliceSession)
 })
-const facts = memo('facts', (issue, pool) => ownFactsOf(pool.row('issue', issue.id)))
+const facts = memo('facts', issue => ownFactsOf(hostOf(issue).rollupInputs.loadedIssue(issue.id)))
 
 export const sidebarOwnAttention = memo('own', (issue, pool) => {
   const host = hostOf(issue)

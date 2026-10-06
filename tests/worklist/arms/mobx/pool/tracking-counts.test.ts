@@ -279,7 +279,7 @@ function paintWindow(pool: MobxPool): () => void {
             if (!model.inMemory) return
             void model.id
             for (const field of ROW_DISPLAYED_FIELDS) void model[field]
-            void sidebarIssueRow(model)
+            void sidebarIssueRow(model, pool)
           },
           { name: `paint.row.${id}` },
         ),
