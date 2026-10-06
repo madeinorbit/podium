@@ -12,7 +12,7 @@ import {
   usableMachines,
 } from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, preferredMachineChoices } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, machinePathBasename, preferredMachineChoices } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -54,7 +54,7 @@ import {
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
-  return repo.name ?? repo.path.split('/').filter(Boolean).pop() ?? repo.path
+  return repo.name ?? (machinePathBasename(repo.path) || repo.path)
 }
 
 /**
