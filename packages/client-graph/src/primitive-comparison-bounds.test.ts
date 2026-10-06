@@ -123,7 +123,7 @@ describe('comparison primitive costs (128/512 compared elements)', () => {
 it.each(changes)('cachedKey/keyedComputed only reruns the addressed key: %s', change => {
   const run = (scale: number) => {
     const probe = workProbe()
-    const rows = observable.map(Array.from({ length: 128 * scale }, (_, index) => [`key-${index}`, index] as const))
+    const rows = observable.map<string, number>(Array.from({ length: 128 * scale }, (_, index) => [`key-${index}`, index] as const))
     const read = cachedKey('primitive', 'row', id => { probe.count('reads'); return rows.get(id) })
     const stops = [...rows.keys()].map(id => autorun(() => read(id)))
     try {
