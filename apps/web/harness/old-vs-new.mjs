@@ -314,6 +314,17 @@ async function ready(page,{controlById=false}={}) {
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
 }
+async function revealSidebarGroup(page,issue) {
+  const scope=`group:${issue.repoId??issue.repoPath}`
+  const window=page.locator(`[data-drag-scope="${scope}"]`).first()
+  const group=await window.count()?window.locator('xpath=ancestor::*[@data-testid="project-group"][1]'):page.getByTestId('project-group').filter({has:page.getByTestId('project-group-label').filter({hasText:issue.repoPath.split('/').at(-1)})}).first()
+  const label=group.getByTestId('project-group-label')
+  if(await group.getAttribute('data-collapsed')==='true')await label.click()
+  // Match the heartbeat recipe: scroll the real project label and let the
+  // viewport mount its rows. All of this is outside measured action windows.
+  await label.scrollIntoViewIfNeeded();await frames(page);await frames(page)
+  return page.locator(`[data-drag-scope="${scope}"]`).first()
+}
 async function revealSidebarIssue(page,id,{scroll=true}={}) {
   const row=page.locator(`aside [data-issue-row="${id}"]`).first()
   const finish=async()=>{
@@ -324,16 +335,8 @@ async function revealSidebarIssue(page,id,{scroll=true}={}) {
   if(await row.count())return finish()
   const issue=controls.find(control=>control.issue.id===id)?.issue??issuesById.get(id)
   if(!issue)throw Error(`No fixture issue for sidebar preparation: ${id}`)
-  const scope=`group:${issue.repoId??issue.repoPath}`
-  let window=page.locator(`[data-drag-scope="${scope}"]`).first()
-  const group=await window.count()?window.locator('xpath=ancestor::*[@data-testid="project-group"][1]'):page.getByTestId('project-group').filter({has:page.getByTestId('project-group-label').filter({hasText:issue.repoPath.split('/').at(-1)})}).first()
-  const label=group.getByTestId('project-group-label')
-  if(await group.getAttribute('data-collapsed')==='true')await label.click()
-  // Match the heartbeat recipe: scroll the real project label and let the
-  // viewport mount its rows. All of this is outside measured action windows.
-  await label.scrollIntoViewIfNeeded();await frames(page);await frames(page)
+  const window=await revealSidebarGroup(page,issue)
   if(await row.count())return finish()
-  window=page.locator(`[data-drag-scope="${scope}"]`).first()
   const geometry=await window.evaluate(node=>{
     let scroller=node.parentElement
     while(scroller&&!/(auto|scroll)/.test(getComputedStyle(scroller).overflowY))scroller=scroller.parentElement
@@ -500,7 +503,8 @@ async function runActions(f) {
       }
     })
     await attempt('sidebar-group-fold',async()=>{
-      await revealSidebarIssue(page,largeMissionTargets[0].id)
+      // A root can already be mounted in Pinned while its project is off screen.
+      await revealSidebarGroup(page,rankedCorpusRoots[0])
       const ids=corpus.issues.filter(issue=>issue.repoId===groupCorpusRepoId).map(issue=>issue.id)
       const target=await page.evaluate(ids=>{
         const wanted=new Set(ids),groups=[...document.querySelectorAll('aside [data-testid="project-group"]')]
@@ -925,6 +929,8 @@ async function background(f) {
   }
   if(heartbeatOnly)return
   if(outputAvailable)for(let i=0;i<samples+diagnosticSamples;i++)await metricWindow('session-output',async()=>output(targetSession,`comparison output ${i}\r\n`))
+  // The coverage smoke witnesses background delivery, not minute-long idle CPU.
+  if(matrixSmoke)return
   // Approximate the historical operator publication rates, using synthetic
   // payloads. Host/draft/conversation events were not output frames; do not
   // silently substitute terminal activity for them.
@@ -1051,6 +1057,15 @@ try {
   if(mode==='timing') {
     if(!backgroundOnly) {
       await runActions(f)
+      if(matrixSmoke) {
+        const expected=[...controls.map(control=>control.issue.id),...largeMissionTargets.map(issue=>issue.id)]
+        const reached=new Set(result.sidebarPreparations?.map(row=>row.issueId)??[])
+        const missing=expected.filter(id=>!reached.has(id))
+        const cases=['sidebar-select','sidebar-group-collapse','sidebar-group-expand','sidebar-drag-start','sidebar-drag-drop','mark-read','mission-switch','large-mission-switch','issue-rename']
+        const incomplete=cases.filter(name=>result.actions.filter(row=>row.action===name).length!==samples)
+        result.matrixTargetCoverage={expected,reached:expected.filter(id=>reached.has(id)),missing,incomplete};save()
+        if(missing.length||incomplete.length)throw Error('Matrix smoke target coverage incomplete: '+JSON.stringify(result.matrixTargetCoverage))
+      }
       result.actionPhaseComplete=true;save()
       // Optimistic rename can finish before its final server publication. Reset
       // after the whole action phase, and identify the control by its stable ID.
