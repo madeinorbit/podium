@@ -1,6 +1,6 @@
 /** Product time reads use DeadlineClock's tracked or explicit maintenance API. */
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { relative } from 'node:path'
 import ts from 'typescript'
 import { productionFiles } from './check-interaction-scans'
 
@@ -48,8 +48,8 @@ export function bareClockReads(source: string, file = 'reader.ts'): string[] {
 
 export function checkClockReads(root = process.cwd()): string[] {
   return productionFiles(root)
-    .filter(file => file !== 'packages/mobx-helpers/src/clock.ts')
-    .flatMap(file => bareClockReads(readFileSync(join(root, file), 'utf8'), file))
+    .filter(file => relative(root, file) !== 'packages/mobx-helpers/src/clock.ts')
+    .flatMap(file => bareClockReads(readFileSync(file, 'utf8'), relative(root, file)))
 }
 
 if (import.meta.main) {
