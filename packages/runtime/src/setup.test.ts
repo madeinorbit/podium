@@ -1,10 +1,10 @@
-import { loadSupervisorState } from './machine-supervisor'
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from './config'
 import { encodeJoin } from './join'
+import { loadSupervisorState } from './machine-supervisor'
 import {
   applyJoin,
   applyLocalSetupDefault,
@@ -12,6 +12,7 @@ import {
   applyPublicUrl,
   applyServerUrl,
   applySetup,
+  commandExists,
   consumePairCode,
   ephemeralTunnelWarning,
   fetchRemoteAppUrl,
@@ -19,7 +20,6 @@ import {
   fetchTargetAppUrl,
   fetchTargetServerIdentity,
   getUpdateChannel,
-  commandExists,
   networkOptionCommand,
   networkOptionTool,
   setUpdateChannel,
@@ -280,7 +280,12 @@ describe('setup core', () => {
     })
 
     it('applyServerUrl preserves the identity when re-pointing without a probe', () => {
-      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example', installationId: ID, installationPublicKey: KEY })
+      saveConfig({
+        mode: 'daemon',
+        serverUrl: 'wss://old.example',
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
       applyServerUrl('https://new.example')
       expect(loadConfig()).toMatchObject({
         serverUrl: 'wss://new.example',
@@ -290,7 +295,12 @@ describe('setup core', () => {
     })
 
     it('applyServerUrl adopts a probed identity on an explicit re-point', () => {
-      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example', installationId: ID, installationPublicKey: KEY })
+      saveConfig({
+        mode: 'daemon',
+        serverUrl: 'wss://old.example',
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
       applyServerUrl('https://new.example', undefined, {
         installationId: ID2,
         installationPublicKey: KEY2,
@@ -334,9 +344,7 @@ describe('setup core', () => {
         installationId: ID,
         installationPublicKey: KEY,
       })
-      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
-        'https://api.example.com/version',
-      )
+      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe('https://api.example.com/version')
     })
 
     it('is undefined for a server that names no installation — never fails the join', async () => {
@@ -356,9 +364,7 @@ describe('setup core', () => {
         installationId: ID,
         installationPublicKey: KEY,
       })
-      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
-        'https://api.example.com/version',
-      )
+      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe('https://api.example.com/version')
     })
   })
 
@@ -462,6 +468,20 @@ describe('setup core', () => {
       agentExecution: true,
     })
     expect(loadConfig()).toMatchObject({ mode: 'all-in-one', updateChannel: 'edge' })
+  })
+  it('applyLocalSetupDefault enrolls an all-in-one saved without a credential', () => {
+    // The web setup's applyMode saves the mode alone; before the desktop launch was
+    // recognised nothing enrolled this machine afterwards, and its daemon never connected.
+    saveConfig({ mode: 'all-in-one' })
+    expect(applyLocalSetupDefault()).toBe('applied')
+    expect(loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment).toMatchObject({
+      preauthorized: true,
+      agentExecution: true,
+    })
+    // Once a request exists, a later launch leaves it alone.
+    const request = loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment
+    expect(applyLocalSetupDefault()).toBe('configured')
+    expect(loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment).toEqual(request)
   })
   it('applyLocalSetupDefault never replaces an explicit advanced choice', () => {
     saveConfig({ mode: 'server', publicUrl: 'https://relay.example' })

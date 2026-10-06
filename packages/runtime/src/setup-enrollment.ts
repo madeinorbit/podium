@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { type MachineChallenge, machineHelloTranscript } from '@podium/protocol'
 import { stateDir } from './config'
 import { fsyncPath } from './fsync'
+import { readMachineState } from './local-machine'
 import {
   createMachineCredential,
   machinePublicKeyWire,
@@ -10,6 +11,16 @@ import {
   signWithMachine,
 } from './machine-credential'
 import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
+
+/**
+ * Whether this state dir can authenticate a daemon, or will once the server confirms:
+ * an enrolled key, a supervisor token, a pending setup request, or a legacy daemon token.
+ */
+export function hasMachineCredential(dir = stateDir()): boolean {
+  const supervisor = loadSupervisorState(dir)
+  if (supervisor.enrolledPublicKey || supervisor.token || supervisor.setupEnrollment) return true
+  return typeof readMachineState(dir)?.daemon?.token === 'string'
+}
 
 export interface SetupEnrollmentRequest {
   requestId: string
