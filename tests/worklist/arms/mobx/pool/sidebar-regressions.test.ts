@@ -668,6 +668,11 @@ describe('POD-5058 staffed continuation preference', () => {
 })
 
 describe('POD-5059 section label from root rows', () => {
+  // Known failures owned by POD-5719 (Bug: Sidebar keeps old repo path after
+  // rename): after updateRepoPath the pool sidebar rows keep the projection's
+  // denormalized repoPath while the legacy oracle joins the live repo row.
+  // These two cases fail on exactly that field until that issue lands; their
+  // bodies are unchanged and must not be skipped or weakened.
   it.each([
     false,
     true,
