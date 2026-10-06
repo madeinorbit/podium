@@ -1,5 +1,4 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { headerView } from '@podium/client-graph/header-views'
+import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
@@ -15,13 +14,12 @@ import {
   launchAgentKind,
   machineViewsFromWire,
   type RepoNavView,
-  reposToViews,
   resolveSpawnTargetMachine,
   spawnTargetForRepo,
   usableMachines,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { AgentKind, GitRepositoryWire, MachineId, MachineWire } from '@podium/model'
+import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
 import { type Dispatch, type SetStateAction, useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
@@ -64,55 +62,7 @@ const EMPTY_INPUTS = {
   lastUsedByRepo: new Map<string, number>(),
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
-/** Only displayed machine/project rows. History defaults are scalar questions. */
-function readLaunchInputs(pool: MobxPool) {
-  const machines = headerView(pool).machines()
-  const scans = headerEntities(pool).repositoryRootIds().flatMap((id) => {
-    const row = pool.row('repository', id) as GitRepositoryWire | undefined
-    return row && typeof row !== 'symbol' ? [row] : []
-  })
-  const window = pool.row('commandWindow', 'window')
-  const pins: { repos: readonly string[]; worktrees: readonly string[] } =
-    window && typeof window !== 'symbol' ? window.pins : { repos: [], worktrees: [] }
-  const allProjects: RepoNavView[] = reposToViews(scans).map((repo) => ({
-    ...repo,
-    worktrees: repo.worktrees.map((tree) => ({
-      ...tree,
-      repoName: repo.name,
-      sessions: [],
-      issues: [],
-    })),
-  }))
-  const projects = allProjects.map((repo) => ({
-    ...repo,
-    worktrees: repo.worktrees.filter((tree) => !pins.worktrees.includes(tree.path)),
-  }))
-  const lastUsedByRepo = new Map(
-    allProjects.map((repo) => [
-      repo.path,
-      pool.queries.activity({
-        kind: 'commandRootActivity',
-        roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
-        match: 'exact',
-      }),
-    ]),
-  )
-  const repos = [
-    ...pins.repos.flatMap((path) => projects.filter((repo) => repo.path === path)),
-    ...projects.filter((repo) => !pins.repos.includes(repo.path) && repo.worktrees.length > 0),
-  ].sort(
-    (a, b) =>
-      (lastUsedByRepo.get(b.path) ?? 0) - (lastUsedByRepo.get(a.path) ?? 0) ||
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-  )
-  const eligible = usableMachines(machineViewsFromWire(machines))
-  return {
-    machines,
-    repos,
-    lastUsedByRepo,
-    recentMachine: pool.queries.latestMachineSession(eligible.map((machine) => machine.id)),
-  }
-}
+const readLaunchInputs = (pool: MobxPool) => launchOptionViews(pool).newWork()
 function usePoolLaunchInputs() {
   return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
 }
@@ -366,10 +316,10 @@ function NewWorkLauncher({
 
   // The shell rides at the END of the list: it is the escape hatch, not a peer
   // of the models above it.
-  const modelOptions: CatalogOption[] = [
+  const modelOptions = useMemo<CatalogOption[]>(() => [
     ...allConnectorModelOptions(catalog, served),
     { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
-  ]
+  ], [catalog, served])
   /**
    * A REMEMBERED PICK THE MACHINE NO LONGER OFFERS FALLS BACK TO AUTO.
    *

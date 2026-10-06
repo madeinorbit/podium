@@ -13,7 +13,8 @@ import { useLaunchInputs } from '../client/use-launch-inputs'
 import {
   AUTO,
   allConnectorModelLabel,
-  allConnectorModelOptions,
+  modelOptions as agentModelOptions,
+  encodeModelPick,
   decodeModelPick,
   effortOptionsForModel,
   ISSUE_AGENT_KINDS,
@@ -123,13 +124,14 @@ export function LaunchConfigurationFields({
       label: issueAgentLabel(kind, served),
     })),
   ]
+  const liveModels = catalog[effective.agentKind]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
     if (!hasLiveAgentCatalog) return [{ value: AUTO, label: 'Auto' }]
-    const group = issueAgentLabel(effective.agentKind, served)
-    return allConnectorModelOptions(catalog, served)
-      .filter((option) => option.value === AUTO || option.group === group)
-      .map(({ value: optionValue, label }) => ({ value: optionValue, label }))
-  }, [catalog, effective.agentKind, hasLiveAgentCatalog, served])
+    return agentModelOptions(effective.agentKind, liveModels, served)
+      .map(({ value: optionValue, label }) => ({
+        value: optionValue === AUTO ? AUTO : encodeModelPick(effective.agentKind, optionValue), label,
+      }))
+  }, [liveModels, effective.agentKind, hasLiveAgentCatalog, served])
   const decoded = decodeModelPick(effective.modelPick)
   const effortOptions = hasLiveAgentCatalog
     ? effortOptionsForModel(

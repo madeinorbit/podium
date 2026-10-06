@@ -34,6 +34,9 @@ export function createHeaderRepositoryRelations() {
   const roots = observable.map<string, readonly RankedId[]>(undefined, { deep: false })
   const rootIds = computed(() => [...roots.values()].flat()
     .sort((a, b) => a.rank - b.rank).map(value => value.id), { equals: compareStructural })
+  const groupIds = computed(() => [...roots.entries()]
+    .sort((a, b) => a[1][0]!.rank - b[1][0]!.rank).map(([id]) => id),
+    { equals: compareStructural })
   const linked = observable.map<string, number>(undefined, { deep: false })
   const scopeAnswers = new Map<string, KeyedAnswer<Scope>>()
   const firstScopes = observable.map<string, Scope>(undefined, { deep: false })
@@ -183,6 +186,8 @@ export function createHeaderRepositoryRelations() {
       return EMPTY
     },
     rootIds: () => rootIds.get(),
+    groupIds: () => groupIds.get(),
+    groupRoots: (id: string) => roots.get(id)?.map(root => root.id) ?? EMPTY,
     flush,
     shippingScope(
       cwd: string,

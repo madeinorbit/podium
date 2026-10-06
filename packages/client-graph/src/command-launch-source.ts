@@ -54,17 +54,20 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     private readonly pool: MobxPool,
     runtime: ClientRuntime<PodiumClientApi>,
   ) {
-    this.catalog = computed(
-      (): CommandLaunchRows['commandCatalog'] => ({
-        repositories: this.orders.get('commandRepository') ?? [],
-        repos: this.orders.get('commandRepo') ?? [],
-        worktrees: this.orders.get('commandWorktree') ?? [],
-        machines: this.orders.get('commandMachine') ?? [],
-        issues: pool.queries.ids({ kind: 'commandIssues' }).sort(),
-        sessions: this.sessionOrder(),
-      }),
-      { equals: compareStructural },
-    )
+    // Stable facade: reading one catalog field never subscribes to session or
+    // issue membership, nor compares the other catalog arrays.
+    const issues = computed(() => pool.queries.ids({ kind: 'commandIssues' }).sort(),
+      { equals: compareStructural })
+    const sessions = computed(() => this.sessionOrder(), { equals: compareStructural })
+    const order = (entity: CommandEntity) => this.orders.get(entity) ?? []
+    this.catalog = {
+      get repositories() { return order('commandRepository') },
+      get repos() { return order('commandRepo') },
+      get worktrees() { return order('commandWorktree') },
+      get machines() { return order('commandMachine') },
+      get issues() { return issues.get() },
+      get sessions() { return sessions.get() },
+    } satisfies CommandLaunchRows['commandCatalog']
     // Keyed (POD-5433): the window wakes on its own locals; machines and
     // repos arrive by id, and a repo change re-links only the sessions under
     // a path whose targets moved.
@@ -183,7 +186,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       const groupId =
         discovery.repoId ??
         (origin || `__no_remote__:${discovery.machineId ?? ''}:${discovery.path}`)
-      scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path) }])
+      scans.push([id, { ...discovery, groupId, linked: linked.has(discovery.path), order: scans.length }])
       for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])
         add(repositoriesByRoot, root, id)
       if (linked.has(discovery.path)) continue
@@ -207,6 +210,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
             ...(discovery.repoId ? { repoId: discovery.repoId } : {}),
             repositoryId: id,
             groupId,
+            order: trees.length,
           },
         ])
         add(worktreesByPath, tree.path, treeId)
@@ -300,7 +304,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
     return (
       entity === 'commandCatalog' && id === 'catalog'
-        ? this.catalog.get()
+        ? this.catalog
         : this.tables[entity].get(id)
     ) as Loaded<PoolSourceRows[K]>
   }

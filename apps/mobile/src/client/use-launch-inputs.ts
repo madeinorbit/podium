@@ -1,18 +1,12 @@
 import { headerView } from '@podium/client-graph/header-views'
-import { type RepoView, reposToViews } from '@podium/client-core/values'
+import type { RepoView } from '@podium/client-core/values'
+import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import type { MachineWire } from '@podium/model'
 import { useCallback } from 'react'
 import { useMobilePoolProjection } from './mobile-pool'
 
 const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineWire[] }
-/** Existing resident header membership; entity values come only through pool.row. */
-function readRepositories(pool: MobxPool) {
-  return headerView(pool).ids('repository').flatMap((id) => {
-    const row = pool.row('repository', id) as GitRepositoryWire | undefined
-    return row && typeof row !== 'symbol' ? [row] : []
-  })
-}
 export function useLaunchInputs(repoPath: string) {
   const read = useCallback(
     (pool: MobxPool) => ({
@@ -29,24 +23,7 @@ export function useLaunchRepositoryCount() {
   return useMobilePoolProjection(readRepositoryCount, 0)
 }
 
-/** The existing cold scalar answers history; only the visible repository
- * catalog is materialized for this picker. */
-function readRepositoryPaths(pool: MobxPool): string[] {
-  const repos = reposToViews(readRepositories(pool)).map((repo) => ({
-    repo,
-    at: pool.queries.activity({
-      kind: 'commandRootActivity',
-      roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
-      match: 'within',
-    }),
-  }))
-  return repos
-    .sort(
-      (a, b) =>
-        b.at - a.at || a.repo.path.localeCompare(b.repo.path, undefined, { sensitivity: 'base' }),
-    )
-    .map(({ repo }) => repo.path)
-}
+const readRepositoryPaths = (pool: MobxPool) => launchOptionViews(pool).repositoryPaths()
 const NO_REPOSITORIES: string[] = []
 export function useLaunchRepositoryPaths() {
   return useMobilePoolProjection(readRepositoryPaths, NO_REPOSITORIES)
