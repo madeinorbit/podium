@@ -19,7 +19,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
-import { sessionSeats, type SeatRelation } from './session-seats'
+import type { SeatRelation } from './session-seats'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -844,14 +844,12 @@ export class MissionViewReader {
   private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
     return this.seatIdValues(JSON.stringify([relation, id, archived]))
   }
-  /** Share the pool's seat state with navigation and the folded header. A
-   * pane's read-marker change must not re-evaluate a second archived flag
-   * against the same display row. Only an incomplete summary needs its row. */
+  /** Share the maintained flag with navigation's seat state. History fields
+   * and read markers never invalidate these membership-only partitions.
+   * A source without scalar facts still settles from the addressed row. */
   private archivedSession(id: string): Loaded<boolean> {
-    const seat = sessionSeats(this.pool).seat(id)
-    if (seat === LOADING || seat === undefined) return seat
-    if (seat.seat === 'seated') return false
-    if (seat.seat === 'retired') return true
+    const archived = this.pool.queries.sessionArchived(id)
+    if (archived !== undefined) return archived
     const row = this.rawSession(id)
     return row === LOADING || row === undefined ? row : Boolean(row.archived)
   }
