@@ -98,7 +98,7 @@ export function ManageProjectsButton(): JSX.Element {
                     {project.name}
                   </span>
                   <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                    {project.aliases.find(isAbsoluteMachinePath) ?? project.key}
+                    {project.aliases.find(path => isAbsoluteMachinePath(path)) ?? project.key}
                   </span>
                 </span>
                 <Button

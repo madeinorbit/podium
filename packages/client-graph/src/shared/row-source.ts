@@ -32,7 +32,7 @@ import {
   parseSessionUserStateRowId,
   repoNameFromOrigin,
   sessionUserStateRowId,
-} from '@podium/model/browser'
+} from '@podium/model'
 import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'

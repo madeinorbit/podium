@@ -1,7 +1,6 @@
 import { resolveMachinePath } from '@podium/model'
 import type { FileScope } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
-import { resolveAgainstCwd } from './file-path'
 import { currentWorkspaceSlug } from './workspace-request'
 
 /**

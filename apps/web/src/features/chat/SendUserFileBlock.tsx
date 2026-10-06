@@ -5,7 +5,6 @@ import { FileText } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
-import { resolveAgainstCwd } from '@/lib/file-path'
 
 /**
  * The agent sharing files with the user (SendUserFile). Images render as

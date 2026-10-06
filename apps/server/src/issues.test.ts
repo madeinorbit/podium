@@ -1,3 +1,4 @@
+import { sameWorktreePath } from './modules/issues/service/worktree-safety'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6376,7 +6377,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       ok: true,
       output: gitWorktreeList([{ path: root, branch: 'main' }, { path: worktree.replaceAll('\\', '/'), branch: 'issue/claimed' }]),
     } : { ok: true, output: '' })
-    const inventory = await h.svc.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
     expect(inventory.candidates).toEqual([expect.objectContaining({ issueId: claimed, present: true })])
     expect(inventory.orphans).toEqual([])
   })

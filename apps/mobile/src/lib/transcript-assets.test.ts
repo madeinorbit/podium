@@ -20,7 +20,7 @@ describe('sessionAssetUrl', () => {
   })
 })
 
-describe('pathBasename', () => {
+describe('machinePathBasename', () => {
   it('returns the final non-empty segment', () => {
     expect(machinePathBasename('/work/shots/final.png')).toBe('final.png')
   })
