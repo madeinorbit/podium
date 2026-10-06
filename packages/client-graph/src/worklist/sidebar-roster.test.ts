@@ -200,11 +200,19 @@ async function evictionWork(scale: number, plant = false) {
       value: { sessionId: 'another-unowned', cwd: unowned, issueId: null,
         agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() } as never }] })
     if (!plant) expect(band).toBe(before)
+    pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'another-unowned', value: undefined },
+      { kind: 'session', id: `seat-${paths.length}`, value: undefined },
+    ] })
+    expect(band.ids).toEqual([])
     stop()
-    runInAction(() => {
+    const detached = await measureWork(async () => {
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
+    }, { pool })
+    expect(Object.keys(detached.work.derivationsBy).filter(name => name.includes('rosterPath.'))).toEqual([])
+    runInAction(() => {
       // An imperative read inside the action still sees the current facts.
-      expect(roster.band(group).ids).toEqual([paths[0], unowned])
+      expect(roster.band(group).ids).toEqual([paths[0]])
     })
     return { removed: removed.work.elements, restored: restored.work.elements }
   } finally { stop(); planted?.mockRestore(); pool.dispose() }
