@@ -547,7 +547,9 @@ export function createIssueBoardSource(
         .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))
       if (Number.isFinite(at)) pool.clock.passed(at + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)
     }
-    return confirmedWorkingAgentCount(seats, pool.clock.trackedNow())
+    // The count's time value pairs with the exact per-seat expiry deadlines
+    // above, so read it untracked: a minute tick must not wake the card.
+    return confirmedWorkingAgentCount(seats, pool.clock.peekNow())
   }
   function progress(id: string) {
     if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null
