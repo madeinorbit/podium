@@ -154,7 +154,7 @@ it.each([false, true])('tracks only addressed activity paths, exact matches and 
 
 it.each([false, true])('restores activity subscriptions when a parked session becomes visible (external source: %s)', external => {
   const resume = { kind: 'codex-thread', value: 'activity-twins' }
-  const parked = session('parked', '/target/child', { resume, issueId: 'selected' })
+  const parked = session('parked', '/target/child', { resume, issueId: 'selected', status: 'exited', stoppedAt: old })
   const winner = session('winner', '/other', { resume, issueId: 'selected', status: 'hibernated' })
   const f = suppliedPool(external, [parked, winner])
   const values: number[] = []
