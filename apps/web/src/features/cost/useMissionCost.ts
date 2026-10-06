@@ -75,7 +75,12 @@ export function useMissionCost(
     [cohortRows.data],
   )
   return useMemo(
-    () => ({ view: task.data === null ? null : taskCostView(task.data, cohort) }),
+    // The chip and its popover use the server's own/rollup aggregates, never
+    // session rows. Leave transcript pricing/folding to the task detail reader;
+    // one new transcript must not make this total reprice the task's history.
+    () => ({
+      view: task.data === null ? null : taskCostView({ ...task.data, sessions: [] }, cohort),
+    }),
     [task.data, cohort],
   )
 }

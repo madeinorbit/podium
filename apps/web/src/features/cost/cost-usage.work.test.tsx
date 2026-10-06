@@ -105,10 +105,10 @@ function buckets(extra = 0): UsageBucketWire[] {
 function setup(history: number) {
   let cost = wire(history)
   let usage = buckets()
-  const rows = taskRows()
   const reads = {
     task: vi.fn(async () => cost),
-    tasks: vi.fn(async () => rows),
+    // RPC responses own fresh arrays, even when their contents are unchanged.
+    tasks: vi.fn(async () => taskRows()),
     usage: vi.fn(async () => ({ hostname: 'fixture', buckets: usage })),
     quota: vi.fn(async () => []),
   }
@@ -136,18 +136,13 @@ function setup(history: number) {
       </StoreProvider>
     )
   }
-  function publish(sessionUpdate: boolean) {
-    snapshot = sessionUpdate
-      ? { ...snapshot, sessions: counted('residentHistory', [...snapshot.sessions, {
-          sessionId: asSessionId('incoming-session'), archived: false,
-          lastActiveAt: new Date(NOW).toISOString(),
-        }]) }
-      : { ...snapshot, coarseNow: NOW + 1_000 }
-    store.publish(snapshot, new Set(sessionUpdate ? ['sessions'] : ['coarseNow']))
+  function heartbeat() {
+    snapshot = { ...snapshot, coarseNow: NOW + 1_000 }
+    store.publish(snapshot, new Set(['coarseNow']))
   }
   return {
     trpc, reads, Wrapper, subscribe,
-    heartbeat: () => publish(false),
+    heartbeat,
     sessionUpdate: () => {
       // Preparing the incoming snapshot is outside the reader measurement.
       const next = { ...snapshot, sessions: counted('residentHistory', [...snapshot.sessions, {
@@ -159,7 +154,10 @@ function setup(history: number) {
         store.publish(snapshot, new Set(['sessions']))
       }
     },
-    addTranscript: () => { cost = wire(history + 1) },
+    addTranscript: () => {
+      cost = { ...wire(history + 1),
+        rollup: { models: [model(3_000_000)], messages: 75, sessionCount: history + 1 } }
+    },
     addUsage: () => { usage = buckets(1) },
   }
 }
@@ -191,8 +189,8 @@ for (const scale of [1, 4]) {
       })
       expect(mount.residentHistory ?? 0).toBe(0)
       if (surface === 'MissionCostChip' || surface === 'useMissionCost' || surface === 'useTaskCost') {
-        // Baseline proof: the chip currently folds the same history as full task detail.
-        expect(mount.hiddenTranscripts).toBe(history)
+        // Task detail requests the sessions; the mission total and popover do not.
+        expect(mount.hiddenTranscripts ?? 0).toBe(surface === 'useTaskCost' ? history : 0)
         expect(ctx.reads.task).toHaveBeenCalledTimes(1)
       }
       if (surface === 'MissionCostChip') {
@@ -203,6 +201,13 @@ for (const scale of [1, 4]) {
         expect(document.querySelectorAll('.usage-tasks tbody tr')).toHaveLength(6)
         expect(document.querySelectorAll('.usage-hour')).toHaveLength(168)
         expect(mount.hiddenTranscripts ?? 0).toBe(0)
+        expect(mount.requestedBuckets).toBe(24)
+      }
+      if (surface === 'useTaskCosts') {
+        expect(getValue()).toMatchObject({ rows: expect.arrayContaining([
+          expect.objectContaining({ estCostUsd: 5, rollupCostUsd: 5, windowCostUsd: 5 }),
+        ]) })
+        expect(mount.requestedTasks).toBe(12)
       }
       expect(ctx.subscribe).not.toHaveBeenCalled()
       const unchanged = getValue()
@@ -218,7 +223,24 @@ for (const scale of [1, 4]) {
       ctx.addUsage()
       const refresh = await capture(() => { vi.advanceTimersByTime(90_000) })
       if (surface === 'MissionCostChip' || surface === 'useMissionCost' || surface === 'useTaskCost')
-        expect(refresh.hiddenTranscripts).toBe(history + 1)
+        expect(refresh.hiddenTranscripts ?? 0).toBe(surface === 'useTaskCost' ? history + 1 : 0)
+      if (surface === 'useMissionCost' || surface === 'useTaskCost') {
+        expect(getValue()).toMatchObject({ view: {
+          own: { estCostUsd: 5 }, rollup: { estCostUsd: 15 },
+          ratePerReplyUsd: 0.2,
+        } })
+      }
+      if (surface === 'UsageView') expect(refresh.requestedBuckets).toBe(25)
+      if (surface === 'MissionCostChip') {
+        expect(screen.getByTestId('mission-cost-chip').textContent).toContain('$15')
+        const disclosure = await capture(() => {
+          fireEvent.click(screen.getByTestId('mission-cost-chip'))
+        })
+        expect(screen.getByTestId('mission-cost-popover')).toBeTruthy()
+        expect(disclosure.hiddenTranscripts ?? 0).toBe(0)
+        expect(disclosure.requestedTasks).toBe(6)
+        report.missionDisclosure = disclosure
+      }
       report[surface] = { mount, sessionUpdate, heartbeat, incomingRpcAnswer: refresh }
       cleanup()
     }
