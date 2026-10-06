@@ -106,7 +106,7 @@ describe('declared pool first-task value', () => {
   it('tracks cold summary changes, eviction, and replacement without retaining a task', () => {
     const archived = issue({ archived: true })
     const { pool, source, load } = makePool([archived])
-    const projection = createPoolProjection(pool, (owner) => owner.hasFirstTask)
+    const projection = createPoolProjection(pool, (owner) => settingsHasFirstTask(owner))
     const wake = vi.fn()
     const stop = projection.subscribe(wake)
     try {
@@ -133,7 +133,7 @@ describe('declared pool first-task value', () => {
   it('does not recompute task existence on selection or an unrelated heartbeat', () => {
     const { pool } = makePool([issue()])
     const read = vi.spyOn(pool, 'undeletedIssueCount', 'get')
-    const projection = createPoolProjection(pool, (owner) => owner.hasFirstTask)
+    const projection = createPoolProjection(pool, (owner) => settingsHasFirstTask(owner))
     const stop = projection.subscribe(() => {})
     read.mockClear()
     try {

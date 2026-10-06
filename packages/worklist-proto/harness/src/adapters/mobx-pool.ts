@@ -191,7 +191,7 @@ function layoutIds(layout: Layout): string[] {
 export function visibleOrderOf(pool: MobxPool): readonly string[] {
   const layout = worklistGroups(pool).layout
   const ids = layoutIds(layout)
-  const ranks = new Map<string, ReturnType<typeof pool.groups.rankOf>>()
+  const ranks = new Map<string, ReturnType<ReturnType<typeof worklistGroups>['rankOf']>>()
   for (const id of ids) ranks.set(id, worklistGroups(pool).rankOf(id))
   return ids.sort((a, b) => compareRank(ranks.get(a)!, ranks.get(b)!))
 }

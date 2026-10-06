@@ -1,3 +1,4 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
 /**
  * Issue chip styles over the real Markdown output and per-reference pool
  * subscriptions. The left column shows undecorated Markdown; the right shows
@@ -104,7 +105,7 @@ column('Undecorated Markdown', 'before')
 const after = column('Live pool references', 'after')
 const stop = bindIssueRefAnchors(after, {
   watch(ref, paint) {
-    const view = createPoolProjection(pool, () => pool.references.read(ref))
+    const view = createPoolProjection(pool, () => referenceView(pool).read(ref))
     const update = () => {
       const model = view.getSnapshot()
       paint(typeof model === 'symbol' ? 'loading' : (model ?? null))
