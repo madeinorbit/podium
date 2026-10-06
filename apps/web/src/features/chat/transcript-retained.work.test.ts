@@ -1,6 +1,7 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
+import { URL as NodeURL } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import { ConversationPresentation } from './conversation-presentation'
@@ -31,6 +32,9 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
   }
   vi.stubGlobal('self', scope)
   vi.stubGlobal('Worker', BridgeWorker)
+  // The bridge runs under Bun with file: module URLs. happy-dom's browser URL
+  // rejects that base before Worker construction; the worker handler itself is real.
+  vi.stubGlobal('URL', NodeURL)
   await import('./transcript-compute.worker')
   const item = (at: number): TranscriptItem => ({ id: `item-${at}`, role: at % 4 === 0 ? 'user' : 'assistant',
     cursor: Buffer.from(JSON.stringify(['file', at, `item-${at}`, 0])).toString('base64url'),
