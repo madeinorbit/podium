@@ -246,7 +246,7 @@ for (const action of run.actions) {
     }
     const classification = {
       kind: bucket(chain),
-      storeDerive: chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica|store)|packages\/client-graph\/|packages\/worklist-proto\/shared\/src\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file)),
+      storeDerive: chain.some(({source}) => source && /packages\/client-core\/(?:src\/)?(engine|viewmodels|replica|store)|packages\/client-graph\/|tests\/worklist\/shared\/src\/|apps\/(?:web|mobile)\/src\/.*store/.test(source.file)),
       unmapped: chain.some(({frame, source}) => frame.url.endsWith('.js') && !source),
     }
     classifications.set(sample, classification)

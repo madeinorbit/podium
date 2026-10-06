@@ -70,7 +70,7 @@ export function inventoryErrors(reads: readonly UntrackedRead[], inventory = UNT
 export function productionUntrackedReads(root: string): UntrackedRead[] {
   const reads: UntrackedRead[] = []
   const excluded = new Set(['node_modules', 'dist', 'build', 'test', 'tests', '__tests__', '__snapshots__',
-    'harness', 'diagnostics', 'worklist-proto', '.expo', '.turbo'])
+    'harness', 'diagnostics', '.expo', '.turbo'])
   const walk = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)

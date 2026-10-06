@@ -1,30 +1,7 @@
-# @podium/worklist-tests
+# Worklist test support
 
-Round-two worklist prototypes (POD-4442, methodology `docs/plans/pod-4286-prototype-methodology.md`
-rev 4). Three independent, first-principles implementations of the frozen slice
-(`docs/plans/pod-4441-round-two-slice.md`), each as good as its approach allows, none bolted
-onto the current code, all fed only by the kernel's per-row change stream.
+This private test workspace holds the retained worklist corpus, correctness oracle, work meters, scenario engines and pool regression harness. Product entries do not import it. The retired hand arm and its tracking baseline are deleted.
 
-## Folders and who may write in them
+Run individual files through `bun run test:file -- tests/worklist/<path>`. Native files route through the workspace config, which aliases React Native to its web test renderer. The structural command retains the existing MobX reader bounds and expected-failure ownership.
 
-- `shared/` — harness contracts, generators, probes and tests; product schema, row/local
-  feeds and slice types are imported from `@podium/client-graph`. Owned by the slice spec (POD-4442). Frozen shapes every arm, the fixture,
-  the oracle and the harness build against. Changes need the coordinator (POD-4286 session A).
-  No imports from legacy view-model / slice / mission / presentation / replica-view code.
-- `arms/hand/` — owned by the hand-rolled arm (POD-4446). Incremental view maintenance
-  with typed deltas; no whole-table enumeration on ordinary deltas.
-- `arms/mobx/` — tests and prototype UI over `@podium/client-graph`; the product
-  tracked object graph and write layer live in that package.
-- `arms/tanstack/` — deleted in POD-4550 (round two eliminated TanStack DB; see
-  `docs/decisions/4441-round-two-decision.md`).
-- `harness/` — owned by the measurement harness (POD-4445). The fixture + oracle (POD-4443)
-  and the row stream + scenarios (POD-4444) land here unless those issues relocate them with
-  coordinator approval.
-
-## Rules for every folder
-
-- Greenfield: no imports from `packages/client-core/src/viewmodels/`, `slices/`, `mission.ts`,
-  `presentation/`, `replica/issue-view*` (H4 shape review gate).
-- The coarse clock is data (`SliceLocals.coarseNow`), never `Date.now()` in a derivation.
-- Selection is a local, never a row field.
-- No app imports this package: it must not enter the web bundle budget or the app builds.
+`harness/src/fixture` builds synthetic data, `shared/src/scenarios.ts` owns disposable scenario engines, and `harness/src/work-meter.ts` counts work from outside product readers. `arms/mobx` contains pool regression tests and renderer adapters over the product module factories. The lean comparison wrapper imported the deleted hand implementation and was retired with it.

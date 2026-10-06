@@ -12,9 +12,6 @@
  * - DERIVATIONS: derivation bodies run. Every MobX computed body
  *   (`ComputedValue.computeValue_`) and every reaction body (`Reaction.track`:
  *   autoruns, reactions and `observer` renders all run through it), and every
- *   hand-rolled cell body (`CellGraph.run`: `arms/hand/pool/cells.ts` — patched
- *   here, from OUTSIDE the hand arm, as the MobX patch is; nothing in the
- *   hand arm counts itself, POD-4934).
  * - ELEMENTS: the DISTINCT collection elements the arm iterated. Array, Set
  *   and Map iteration (`for…of`, spreads, `Array.from`, `new Set(iterable)`:
  *   all go through the patched iterators), `forEach` and the Array callback
@@ -125,7 +122,7 @@ export function insideArm<T>(fn: () => T): T {
 
 /** Work counted by one `measureWork`. */
 export interface WorkCounts {
-  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked, plus hand cell bodies run. */
+  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked,  */
   derivations: number
   /** Bodies run per named derivation/consumer; a cheap reader cannot hide a growing one. */
   derivationsBy: Record<string, number>
@@ -137,7 +134,7 @@ export interface WorkCounts {
   /**
    * `elements` split by the derivation that walked them (its name with
    * digits folded to `#`, so every node of one kind shares a key — a MobX
-   * derivation or a hand cell, POD-4934), or
+   * derivation), or
    * {@link ARM_CODE} for the arm's code outside any derivation. An element
    * two derivations walk counts in both.
    */

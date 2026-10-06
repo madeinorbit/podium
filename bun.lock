@@ -540,44 +540,6 @@
         "react-dom": ">=19",
       },
     },
-    "packages/worklist-proto": {
-      "name": "@podium/worklist-proto",
-      "version": "0.0.0",
-      "dependencies": {
-        "@podium/client-graph": "workspace:*",
-        "@podium/harness": "workspace:*",
-        "@podium/mobx-helpers": "workspace:*",
-        "@podium/protocol": "workspace:*",
-        "@tanstack/react-virtual": "3.14.13",
-        "mobx": "7.0.3",
-        "mobx-react-lite": "5.0.3",
-      },
-      "devDependencies": {
-        "@babel/core": "7.29.0",
-        "@babel/eslint-parser": "7.29.9",
-        "@babel/plugin-syntax-typescript": "7.27.1",
-        "@playwright/test": "^1.60.0",
-        "@podium/client-core": "workspace:*",
-        "@podium/model": "workspace:*",
-        "@podium/sync": "workspace:*",
-        "@types/node": "^24.0.0",
-        "@types/react": "^19.0.0",
-        "@types/react-dom": "^19.0.0",
-        "eslint": "9.39.2",
-        "eslint-plugin-mobx": "0.0.14",
-        "happy-dom": "^20.10.2",
-        "react": "19.2.7",
-        "react-dom": "19.2.7",
-        "react-native": "0.86.0",
-        "react-native-web": "0.21.2",
-        "typescript": "^7.0.2",
-        "vite": "^8.0.16",
-        "vitest": "5.0.0-beta.6",
-      },
-      "peerDependencies": {
-        "react": ">=19",
-      },
-    },
     "scripts": {
       "name": "@podium/scripts",
       "version": "0.0.0",
@@ -678,6 +640,44 @@
       "devDependencies": {
         "@types/node": "^25.9.1",
         "@types/ws": "^8.5.13",
+      },
+    },
+    "tests/worklist": {
+      "name": "@podium/worklist-tests",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/client-graph": "workspace:*",
+        "@podium/harness": "workspace:*",
+        "@podium/mobx-helpers": "workspace:*",
+        "@podium/protocol": "workspace:*",
+        "@tanstack/react-virtual": "3.14.13",
+        "mobx": "7.0.3",
+        "mobx-react-lite": "5.0.3",
+      },
+      "devDependencies": {
+        "@babel/core": "7.29.0",
+        "@babel/eslint-parser": "7.29.9",
+        "@babel/plugin-syntax-typescript": "7.27.1",
+        "@playwright/test": "^1.60.0",
+        "@podium/client-core": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/sync": "workspace:*",
+        "@types/node": "^24.0.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "eslint": "9.39.2",
+        "eslint-plugin-mobx": "0.0.14",
+        "happy-dom": "^20.10.2",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
+        "react-native": "0.86.0",
+        "react-native-web": "0.21.2",
+        "typescript": "^7.0.2",
+        "vite": "^8.0.16",
+        "vitest": "5.0.0-beta.6",
+      },
+      "peerDependencies": {
+        "react": ">=19",
       },
     },
     "tooling/tsconfig": {
@@ -1456,7 +1456,7 @@
 
     "@podium/web": ["@podium/web@workspace:apps/web"],
 
-    "@podium/worklist-proto": ["@podium/worklist-proto@workspace:packages/worklist-proto"],
+    "@podium/worklist-tests": ["@podium/worklist-tests@workspace:tests/worklist"],
 
     "@quansync/fs": ["@quansync/fs@1.0.0", "", { "dependencies": { "quansync": "^1.0.0" } }, "sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ=="],
 
@@ -3694,7 +3694,7 @@
 
     "@podium/web/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
-    "@podium/worklist-proto/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
+    "@podium/worklist-tests/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
 
     "@quansync/fs/quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
 
@@ -4086,7 +4086,7 @@
 
     "@podium/terminal-client-react/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
-    "@podium/worklist-proto/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+    "@podium/worklist-tests/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@react-native/babel-plugin-codegen/@react-native/codegen/@babel/core": ["@babel/core@7.29.7", "", { "dependencies": { "@babel/code-frame": "^7.29.7", "@babel/generator": "^7.29.7", "@babel/helper-compilation-targets": "^7.29.7", "@babel/helper-module-transforms": "^7.29.7", "@babel/helpers": "^7.29.7", "@babel/parser": "^7.29.7", "@babel/template": "^7.29.7", "@babel/traverse": "^7.29.7", "@babel/types": "^7.29.7", "@jridgewell/remapping": "^2.3.5", "convert-source-map": "^2.0.0", "debug": "^4.1.0", "gensync": "^1.0.0-beta.2", "json5": "^2.2.3", "semver": "^6.3.1" } }, "sha512-RgHBCvtjbOK2gXSNBNIkNoEc9qoVEtau3hj8gEqKQuL3HZAibKarWFEI3Lfm6EYKkLalOh8eSrj9b+ch9H/VBA=="],
 

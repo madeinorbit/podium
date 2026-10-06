@@ -20,7 +20,7 @@ export const nodeTestExclude = [
   'apps/mobile/**',
   // The G4 native lane (POD-4445) renders the legacy control in React Native
   // primitives: same hazard, same remedy. Those suites run under the
-  // worklist-proto package config, which carries the react-native-web alias;
+  // worklist test workspace config, which carries the react-native-web alias;
   // the node lane must not collect them.
   'tests/worklist/harness/native/**',
 ]

@@ -7,7 +7,7 @@ import { moduleGraphOf, specifiersOf } from '../entry-pin'
 const PROTOTYPE = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
   : join(process.cwd(), 'tests/worklist')
-const PRODUCT = join(PROTOTYPE, '../client-graph')
+const PRODUCT = join(PROTOTYPE, '../../packages/client-graph')
 
 describe('product worklist package boundary', () => {
   it('public data, shared and React entries reach the one pool without prototype machinery', () => {
@@ -34,11 +34,11 @@ describe('product worklist package boundary', () => {
       expect(
         file,
         'no dependency on prototype code, even through a relative re-export',
-      ).not.toContain('/worklist-proto/')
+      ).not.toMatch(/\/(?:worklist-proto|tests\/worklist)\//)
       const imports = specifiersOf(readFileSync(file, 'utf-8'))
       expect(
         imports.filter((specifier) =>
-          /worklist-proto|react-virtual|react-native|^node:/.test(specifier),
+          /worklist-proto|tests\/worklist|@podium\/worklist-tests|react-virtual|react-native|^node:/.test(specifier),
         ),
         file,
       ).toEqual([])

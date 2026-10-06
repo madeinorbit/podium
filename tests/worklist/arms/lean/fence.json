@@ -1,6 +1,0 @@
-{
-  "enumeration": ["src/derive.ts"],
-  "tables": ["issue", "session", "worktree", "repo"],
-  "store": ["src/pool.ts", "src/derive.ts"],
-  "rows": ["src/window.tsx"]
-}

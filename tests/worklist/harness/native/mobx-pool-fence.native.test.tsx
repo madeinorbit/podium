@@ -7,7 +7,7 @@
  * the count on this renderer.
  *
  * RENDERER (stated limitation). `react-native` resolves to `react-native-web`
- * under the worklist-proto package config — the same mapping `expo export -p
+ * under the worklist test workspace package config — the same mapping `expo export -p
  * web` builds against and `apps/mobile/vitest.config.ts` uses — so this mounts
  * real RN primitives (`View`/`Text`) counted by the same `RowShell`
  * profilers. The real React Native test renderer (`react-test-renderer`) is
@@ -71,7 +71,7 @@ import { writeResult } from '../src/results'
 installMobxWarnTrap()
 
 const RENDERER =
-  'react-native-web aliased from react-native under the worklist-proto vitest config ' +
+  'react-native-web aliased from react-native under the worklist test workspace vitest config ' +
   '(same mapping as apps/mobile/vitest.config.ts and expo export -p web); ' +
   'no react-test-renderer in any repo lane'
 
