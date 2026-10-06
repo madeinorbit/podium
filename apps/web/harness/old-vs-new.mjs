@@ -288,6 +288,10 @@ async function makePage() {
     }
     const startupObserver=new MutationObserver(observeStartup)
     startupObserver.observe(document,{subtree:true,childList:true,attributes:true,characterData:true})
+    // A warm viewport can finish positioning after its final DOM mutation.
+    // Keep the same visible, hit-tested boundary until layout makes it true.
+    const pollStartup=()=>{observeStartup();if(!window.__comparisonStartup)requestAnimationFrame(pollStartup)}
+    requestAnimationFrame(pollStartup)
   },{now:corpus.fixedNow})
   const cdp=await context.newCDPSession(page); await cdp.send('Performance.enable',{timeDomain:'threadTicks'})
   return {page,context,cdp}
