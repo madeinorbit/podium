@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createDurableProcess, sweepStaleDurableBindTemps } from '../src/durable-process'
 import {
   connectHost,
   HOST_TAIL,
@@ -20,7 +21,6 @@ import {
   spawnHostAgent,
 } from '../src/host'
 import { hostBinFeatures, resolveHostBin } from '../src/host-bin'
-import { createDurableProcess, sweepStaleDurableBindTemps } from '../src/durable-process'
 
 const windows = process.platform === 'win32'
 const connections: HostConnection[] = []
