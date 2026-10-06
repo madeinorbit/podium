@@ -3679,8 +3679,8 @@ export function checkWorldIndexBoundary(file: string, source: string): Violation
 
 /** The pool takes runtime ports, never engine values. App product code takes
  * pool APIs, never fixture oracles. Tests and explicitly separate harnesses
- * can wire those implementations; known product leaks are counted in the
- * legacy allowlist until POD-5544 removes them. */
+ * can wire those implementations; shipped app code cannot reach the retained
+ * oracles or test workspace. */
 export function checkClientGraphBoundaries(file: string, source: string): Violation[] {
   if (isTestFile(file) || /\/harness\//.test(file)) return []
   const graph = file.startsWith('packages/client-graph/src/')
@@ -3767,7 +3767,8 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       app &&
       (/^@podium\/client-graph\/diagnostics(?:\/|$)/.test(ref.specifier) ||
-        (path !== null && /^packages\/client-graph\/(?:src\/)?diagnostics(?:\/|$)/.test(path)))
+        (path !== null && /^(?:packages\/client-graph\/(?:src\/)?diagnostics|tests\/worklist)(?:\/|$)/.test(path)) ||
+        /^@podium\/worklist-tests(?:\/|$)/.test(ref.specifier))
     ) {
       violations.push({
         file,
@@ -3880,7 +3881,6 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // not an enumerated list) — so the exemption has to be explicit rather than
   // arriving free because nobody thought of `table`.
   'packages/client-core/src/perf/switch-trace.ts',
-  'apps/web/src/perf/large-state.frontend-perf.tsx',
   // Console output behind its own enable flag — the diagnostics ARE the feature.
   'packages/terminal-client/src/terminal-diagnostics.ts',
   // Build-time stdout belongs to the CLI category.
@@ -3981,24 +3981,11 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   'apps/web/harness/workspace-private-replay.ts',
   // Feature proof and replay files (POD-5615): browser evidence and operator
   // replay scripts whose printed output is the verdict.
-  'apps/web/src/features/files/file-viewer-proof.ts',
-  'apps/web/src/features/superagent/browser-proof.ts',
-  'apps/web/src/features/superagent/operator-replay.ts',
   // API types build script (POD-5615): build-time stdout, same category as the
   // test-fixture build output above.
   'packages/api-types/build.ts',
   // Client-graph diagnostics replays (POD-5615): offline replay and measurement
   // tools whose printed evidence is the product.
-  'tests/worklist/diagnostics/automation-replay.ts',
-  'tests/worklist/diagnostics/command-launch-replay.ts',
-  'tests/worklist/diagnostics/debug-name-heap.ts',
-  'tests/worklist/diagnostics/input-mechanisms.ts',
-  'tests/worklist/diagnostics/notice-replay.ts',
-  'tests/worklist/diagnostics/projection-comparison-mechanism.ts',
-  'tests/worklist/diagnostics/session-pane-replay.ts',
-  'tests/worklist/diagnostics/shell-red-controls.ts',
-  'tests/worklist/diagnostics/shell-replay.ts',
-  'tests/worklist/diagnostics/workflow-replay.ts',
 ])
 
 /**

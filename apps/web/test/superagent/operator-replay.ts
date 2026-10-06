@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { hostname, homedir } from 'node:os'
 import { join } from 'node:path'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../../../tests/worklist/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { SuperThreadView } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FEED_EVENT_KINDS, issueEventRowId, type IssueEventWire } from '@podium/model'
@@ -14,7 +14,7 @@ import { MobxPool } from '@podium/client-graph'
 import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SOURCE_KEY, SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
 import { NoticeSource, NOTICE_SOURCE_KEY } from '@podium/client-graph/notice-source'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
-import { checkSuperagent } from '../../../../../tests/worklist/diagnostics/superagent-check'
+import { checkSuperagent } from '../../../../tests/worklist/diagnostics/superagent-check'
 
 
 interface ReplayDatabase {

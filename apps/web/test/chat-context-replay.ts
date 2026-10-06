@@ -21,7 +21,7 @@ import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SUMMARIES } fro
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
-import { checkChatContext } from '../src/features/chat/chat-context-check'
+import { checkChatContext } from './chat/chat-context-check'
 
 
 let phase = 0, httpStatus: number | undefined

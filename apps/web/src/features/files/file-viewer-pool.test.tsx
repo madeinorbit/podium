@@ -24,13 +24,13 @@ import { GitPanelView } from '../git/GitPanelView'
 import { parseStatus } from '../git/git-panel'
 import { FileBrowserModal } from './FileBrowserModal'
 import { FilePanel } from './FilePanel'
-import { checkFileViewerPreferences, FILE_VIEWER_PREFERENCE_KEYS } from './file-viewer-check'
+import { checkFileViewerPreferences, FILE_VIEWER_PREFERENCE_KEYS } from '../../../test/files/file-viewer-check'
 import {
   createFileViewerFixture,
   VIEWER_FILES,
   VIEWER_SCOPE,
   VIEWER_TABS,
-} from './file-viewer-fixture'
+} from '../../../test/files/file-viewer-fixture'
 import { useFileDocument } from './useFileDocument'
 import { WorktreeFileTree } from './WorktreeFileTree'
 

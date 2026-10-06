@@ -9,11 +9,11 @@ import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { DiffSheet } from '../git/DiffSheet'
-import { GitPanelView } from '../git/GitPanelView'
-import { parseStatus } from '../git/git-panel'
-import { FileBrowserModal } from './FileBrowserModal'
-import { FilePanel } from './FilePanel'
+import { DiffSheet } from '../../src/features/git/DiffSheet'
+import { GitPanelView } from '../../src/features/git/GitPanelView'
+import { parseStatus } from '../../src/features/git/git-panel'
+import { FileBrowserModal } from '../../src/features/files/FileBrowserModal'
+import { FilePanel } from '../../src/features/files/FilePanel'
 import { checkFileViewerPreferences } from './file-viewer-check'
 import {
   createFileViewerFixture,
@@ -21,7 +21,7 @@ import {
   VIEWER_SCOPE,
   VIEWER_TABS,
 } from './file-viewer-fixture'
-import { WorktreeFileTree } from './WorktreeFileTree'
+import { WorktreeFileTree } from '../../src/features/files/WorktreeFileTree'
 import '@/index.css'
 
 const fixture = createFileViewerFixture(5600, 5014),

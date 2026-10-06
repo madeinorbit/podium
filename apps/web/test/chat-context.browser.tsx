@@ -14,7 +14,7 @@ import { Profiler, StrictMode, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ChatComposer } from '../src/features/chat/ChatComposer'
-import { checkChatContext } from '../src/features/chat/chat-context-check'
+import { checkChatContext } from './chat/chat-context-check'
 import { OfferArtifactStrip } from '../src/features/chat/OfferArtifactStrip'
 import {
   useChatArtifactIssue,

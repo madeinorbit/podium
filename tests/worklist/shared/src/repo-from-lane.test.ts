@@ -13,7 +13,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createPlainTables as createMobxPlainTables,
   ingestOut as mobxIngestOut,
@@ -27,10 +27,9 @@ import {
   isLaneRow,
   laneRepoId,
   repoFieldOf,
-  repoLaneCalls,
-  resetRepoLaneCalls,
   type RepoLaneOps,
 } from '@podium/client-graph/shared/repo-from-lane'
+import * as composer from '@podium/client-graph/shared/repo-from-lane'
 import type { RowRecord } from './stats'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
@@ -46,7 +45,7 @@ interface FakeTables {
 }
 
 /** Slot writes plus an engine-like `repo.worktrees` index over the lanes. */
-function fakeOps(tables: FakeTables, requireRelations = false): RepoLaneOps & { calls: string[] } {
+function fakeOps(tables: FakeTables): RepoLaneOps & { calls: string[] } {
   const calls: string[] = []
   const membersOf = (repoId: string): string[] => {
     const out: string[] = []
@@ -79,7 +78,6 @@ function fakeOps(tables: FakeTables, requireRelations = false): RepoLaneOps & { 
     // it from the lanes: by the time the takeover reads it, the leaving lane
     // has already left the worktree table.
     repoWorktreeMembers: (repoId) => membersOf(repoId),
-    requireRelations,
   }
 }
 
@@ -201,7 +199,7 @@ describe('repo-from-lane composition', () => {
     expect(repoFieldOf(rawRepo(), 'prefix')).toBe('POD')
   })
 
-  it('without relations the mobx policy drops and the hand policy throws', () => {
+  it('without relations the holding repo leaves with its lane', () => {
     const mobxTables: FakeTables = { worktree: new Map(), repo: new Map() }
     const mobx = fakeOps(mobxTables)
     mobx.repoWorktreeMembers = () => undefined
@@ -211,11 +209,6 @@ describe('repo-from-lane composition', () => {
     ingestWorktreeRecord(mobx, '/repo', undefined)
     expect(mobxTables.repo.has('r1')).toBe(false)
 
-    const handTables: FakeTables = { worktree: new Map(), repo: new Map() }
-    const hand = fakeOps(handTables, true)
-    hand.repoWorktreeMembers = () => undefined
-    ingestWorktreeRecord(hand, '/repo', lane('/repo', 'r1'))
-    expect(() => ingestWorktreeRecord(hand, '/repo', undefined)).toThrow(/keeps no relations/)
   })
 })
 
@@ -369,23 +362,25 @@ describe('every worktree record passes through the shared composer', () => {
     }
     const out = mobxIngestOut()
     const repo = target.write.repo as Map<string, object>
-    resetRepoLaneCalls()
+    const consumed = vi.spyOn(composer, 'ingestWorktreeRecord')
+    try {
     const [w1, w2, issue, w3, ...rest] = script.records
     mobxIngestRecord(target, w1!, out)
     mobxIngestRecord(target, w2!, out)
     // POD-5423 finding 12: w2 carries the same repo facts, so the holder stays.
     expect(repo.get('r1')).toBe(script.a)
     mobxIngestRecord(target, issue!, out)
-    expect(repoLaneCalls.worktreeRecords).toBe(2)
+    expect(consumed).toHaveBeenCalledTimes(2)
     mobxIngestRecord(target, w3!, out)
     expect(repo.get('r1')).toBe(script.a)
     for (const record of rest) mobxIngestRecord(target, record, out)
-    expect(repoLaneCalls.worktreeRecords).toBe(script.worktreeRecords)
+    expect(consumed).toHaveBeenCalledTimes(script.worktreeRecords)
     expectScriptedHoldings(
       repo,
       target.write.worktree as Map<string, object>,
       script,
     )
+    } finally { consumed.mockRestore() }
   })
 
 })

@@ -13,7 +13,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConciergeButton } from './ConciergeButton'
-import { createSuperagentFixture } from './fixture'
+import { createSuperagentFixture } from '../../../test/superagent/fixture'
 import { SuperagentView } from './SuperagentView'
 
 // The conversation is POD-5173's separately allocated surface. This proof

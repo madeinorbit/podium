@@ -1,3 +1,4 @@
+import { compareRows } from './row-order'
 /**
  * POD-4547 (L1b) — the ordering and grouping keys against the slice spec's
  * worked example (`docs/plans/pod-4441-round-two-slice.md` §3.9) and each
@@ -7,7 +8,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   compareClosedFold,
-  compareRows,
   groupKeyOf,
   rankOf,
   sliceRowOf,

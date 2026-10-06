@@ -34,7 +34,7 @@ export default defineConfig({
     setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
     include: [
-      'src/perf/large-state.frontend-perf.tsx',
+      'test/perf/large-state.frontend-perf.tsx',
       'src/features/issues/IssuesKanban.test.tsx',
     ],
     reporters: ['verbose'],

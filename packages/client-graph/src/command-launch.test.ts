@@ -418,7 +418,9 @@ describe('declared command and launch targets', () => {
       const faulty = await fixture()
       const fault = vi.spyOn(faulty.pool.queries, 'activity').mockReturnValue(0)
       try {
+        faulty.settle()
         const broken = commandLaunchViews(faulty.pool).launch()
+        expect(broken && broken !== LOADING).toBeTruthy()
         expect(broken && broken !== LOADING ? broken.usage : undefined).not.toEqual(expected)
       } finally {
         fault.mockRestore()

@@ -506,18 +506,13 @@ export function compareRank(a: RowRank, b: RowRank): number {
   return a.id.localeCompare(b.id)
 }
 
-/** `compareRank` over views; for `Array.prototype.sort`. */
-export function compareRows(a: RowView, b: RowView): number {
-  return compareRank(rankOf(a), rankOf(b))
-}
-
 /**
  * Closed-fold order: newest `foldAt` first; ties keep the open order (legacy
  * sorts the fold stably over already R-ORDERed rows, `folds.ts:214-220`).
  */
 export function compareClosedFold(a: RowView, b: RowView): number {
   const d = (Date.parse(b.foldAt) || 0) - (Date.parse(a.foldAt) || 0)
-  return d !== 0 ? d : compareRows(a, b)
+  return d !== 0 ? d : compareRank(rankOf(a), rankOf(b))
 }
 
 // -----------------------------------------------------------------------------

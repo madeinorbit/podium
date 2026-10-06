@@ -8,13 +8,13 @@ import type {} from './acceptance.browser'
 
 const countsOnly = process.argv.includes('--counts-only'), origin = 'http://127.0.0.1:45164', output = '.artifacts/superagent'
 await mkdir(output, { recursive: true })
-const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/src/features/superagent/acceptance.vite.mjs', '--port', '45164', '--strictPort'], { stdio: ['ignore', 'ignore', 'inherit'] })
+const server = spawn(process.execPath, ['apps/web/node_modules/vite/bin/vite.js', '--config', 'apps/web/test/superagent/acceptance.vite.mjs', '--port', '45164', '--strictPort'], { stdio: ['ignore', 'ignore', 'inherit'] })
 const exited = new Promise<void>((resolve, reject) => { server.once('exit', () => resolve()); server.once('error', reject) })
 console.log(`Superagent fixture Vite PID ${server.pid}`)
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
   const deadline = Date.now() + 60000
-  const path = '/src/features/superagent/acceptance.browser.html'
+  const path = '/test/superagent/acceptance.browser.html'
   while (true) {
     try { if ((await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(2000) })).ok) break } catch {}
     if (Date.now() > deadline || server.exitCode !== null) throw new Error('Superagent fixture did not start')

@@ -3,7 +3,7 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import type { SuperThreadView } from '@podium/client-core/values'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { asSessionId, issueEventRowId } from '@podium/model'
-import { createHeaderFixture } from '../../../test/header-fixture'
+import { createHeaderFixture } from '../header-fixture'
 
 export function createSuperagentFixture(issues = 32, sessions = 32) {
   const base = createHeaderFixture(issues, sessions)

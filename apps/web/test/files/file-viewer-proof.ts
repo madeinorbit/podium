@@ -32,7 +32,7 @@ const exited = new Promise<void>((resolve, reject) => {
 console.log(`File-viewer fixture Vite PID ${server.pid}`)
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
-  const path = '/src/features/files/file-viewer.browser.html',
+  const path = '/test/files/file-viewer.browser.html',
     deadline = Date.now() + 60000
   while (true) {
     try {

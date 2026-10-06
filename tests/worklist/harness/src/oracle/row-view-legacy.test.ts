@@ -1,3 +1,4 @@
+import { compareRows } from '../../../shared/src/row-order'
 /**
  * POD-4547 (L1b) — differential check of the row view's ordering and grouping
  * keys against the LEGACY sort and fold, over the live-shaped fixture corpus.
@@ -17,7 +18,6 @@ import { describe, expect, it } from 'vitest'
 import {
   compareClosedFold,
   compareRank,
-  compareRows,
   groupKeyOf,
   rankOf,
   type RowView,

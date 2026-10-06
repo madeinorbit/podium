@@ -1,6 +1,6 @@
 /**
- * Architecture-manifest entries stay EMPTY (POD-335). The legacy rules also
- * use this ledger; the counted diagnostics debt below is owned by POD-5544.
+ * Architecture-manifest entries stay EMPTY (POD-335). The legacy diagnostics debt
+ * was retired when its fixture and oracle callers moved out of app source.
  *
  * WHAT THIS FILE WAS. A phase-mapped ledger of known violations: each entry
  * recorded a rule, a file, how many times it occurred there, and the phase that
@@ -34,20 +34,4 @@
 
 import type { AllowlistEntry } from './architecture-manifest'
 
-export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
-  ...(
-    [
-      ['apps/web/src/features/chat/chat-context-test-fixture.ts', 2],
-      ['apps/web/src/features/chat/chat-context-check.ts', 2],
-      ['apps/web/src/features/superagent/operator-replay.ts', 2],
-      ['apps/web/src/features/superagent/acceptance.browser.tsx', 2],
-      ['apps/web/src/features/files/file-viewer-check.ts', 1],
-    ] as const
-  ).map(([file, count]) => ({
-    rule: 'apps-client-graph-diagnostics',
-    file,
-    count,
-    phase: 'POD-5544',
-    note: 'Existing pilot fixture/oracle import; POD-5544 removes it. New imports and stale counts fail.',
-  })),
-]
+export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = []

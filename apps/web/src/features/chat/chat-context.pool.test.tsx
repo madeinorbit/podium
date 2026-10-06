@@ -19,7 +19,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { createRef, StrictMode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { createChatContextFixture } from './chat-context-test-fixture'
+import { createChatContextFixture } from '../../../test/chat/chat-context-test-fixture'
 import '@/test-support/model-catalog-mock'
 
 const f = vi.hoisted(() => ({

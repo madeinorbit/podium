@@ -528,7 +528,7 @@ describe('test lane configuration', () => {
 
   it('keeps the frontend performance lane deterministic and explicit', () => {
     expect(config(frontendPerfConfig).test?.include).toEqual([
-      'src/perf/large-state.frontend-perf.tsx',
+      'test/perf/large-state.frontend-perf.tsx',
       'src/features/issues/IssuesKanban.test.tsx',
     ])
     expect(config(frontendPerfConfig).test?.retry).toBe(0)

@@ -120,6 +120,8 @@ describe('pool runtime boundaries', () => {
     "const oracle = require('@podium/client-graph/diagnostics/reference-state')",
     "type Oracle = import('@podium/client-graph/diagnostics/reference-state').ReferenceState",
     "import { referenceState } from '../../../../packages/client-graph/diagnostics/reference-state.js'",
+    "import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'",
+    "import type { FixtureCorpus } from '@podium/worklist-tests'",
   ])('plants an app diagnostics dependency and stops the gate: %s', (source) => {
     const violations = rules(app, source)
     expect(violations).toHaveLength(1)
@@ -151,24 +153,11 @@ describe('pool runtime boundaries', () => {
     ).toHaveLength(1)
   })
 
-  it('counts existing diagnostics exceptions, refuses growth and refuses stale counts', () => {
-    const allowed = BOUNDARY_ALLOWLIST.filter(
-      (entry) => entry.rule === 'apps-client-graph-diagnostics',
-    )
-    const existing = allowed.flatMap((entry) => {
-      expect(entry.phase).toBe('POD-5544')
-      return checkClientGraphBoundaries(
-        entry.file,
-        readFileSync(join(REPO_ROOT, entry.file), 'utf8'),
-      )
-    })
-    expect(applyAllowlist(existing, allowed)).toEqual({ warnings: existing, errors: [], stale: [] })
-    const extra = rules(
-      allowed[0]!.file,
-      "import { probe } from '@podium/client-graph/diagnostics/probe'",
-    )
-    expect(applyAllowlist([...existing, ...extra], allowed).errors).toEqual(extra)
-    expect(applyAllowlist(existing.slice(1), allowed).stale).toHaveLength(1)
+  it('keeps the retired diagnostics allowance empty and rejects a new app leak', () => {
+    const allowed = BOUNDARY_ALLOWLIST.filter(entry => entry.rule === 'apps-client-graph-diagnostics')
+    expect(allowed).toEqual([])
+    const planted = rules(app, "import { probe } from '@podium/client-graph/diagnostics/probe'")
+    expect(applyAllowlist(planted, allowed)).toEqual({ warnings: [], errors: planted, stale: [] })
   })
 
   it('has no engine value dependency in the real product pool', () => {
@@ -258,7 +247,7 @@ describe('console-ownership (POD-1905)', () => {
       'packages/client-core/src/logging/crash.ts',
       'packages/client-core/src/perf/switch-trace.ts',
       'packages/terminal-client/src/terminal-diagnostics.ts',
-      'apps/web/src/perf/large-state.frontend-perf.tsx',
+      'apps/web/test/perf/large-state.frontend-perf.tsx',
     ]) {
       expect(checkConsoleOwnership(file, "console.warn('x')")).toEqual([])
     }
@@ -2072,7 +2061,7 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     for (const file of [
       'apps/web/harness/cost-entry.tsx',
       'apps/mobile/harness/agent-mark-entry.tsx',
-      'apps/web/src/perf/large-state.frontend-perf.tsx',
+      'apps/web/test/perf/large-state.frontend-perf.tsx',
     ]) {
       expect(checkHarnessVendorLiterals(file, literal, LITERALS), file).toEqual([])
     }

@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url'
 import { mergeConfig } from 'vite'
 // This runner configuration stays JavaScript so importing the Vite plugins
 // does not add their ambient types to the application's TypeScript program.
-import base from '../../../vite.sidebar-pool-perf.config.ts'
+import base from '../../vite.sidebar-pool-perf.config.ts'
 
 export default mergeConfig(base, {
   plugins: [{ name: 'superagent-owned-boundary', enforce: 'pre', transform(_code, id) {

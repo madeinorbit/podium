@@ -69,21 +69,6 @@ export function repoFieldOf(row: LaneStoredRow, field: string): unknown {
 }
 
 /**
- * Test-only consumption pin (POD-4695 addendum 2): incremented once per
- * `ingestWorktreeRecord` call, so the guard test can assert that every
- * worktree record an arm ingests passed through this composer. A renamed
- * local copy produces the same table contents but never touches this
- * counter, which is what tells delegation apart from duplication.
- * Production code never reads it; reset it with `resetRepoLaneCalls()`.
- */
-export const repoLaneCalls = { worktreeRecords: 0 }
-
-/** Reset the consumption pin before a scripted sequence. */
-export function resetRepoLaneCalls(): void {
-  repoLaneCalls.worktreeRecords = 0
-}
-
-/**
  * What the composition needs from a pool. The two arms' put/drop count
  * differently (MobX slot writes, hand deltas), so the arms pass their own
  * slot writes as closures and this module owns only the routing.
@@ -97,13 +82,9 @@ export interface RepoLaneOps {
   dropRepo(id: string): void
   /**
    * The maintained `repo.worktrees` members, or undefined on a target that
-   * keeps no relations (a replace staging table). The MobX pool drops the
-   * repo then; the hand pool throws (its staging never hands a repo over, so
-   * reaching here without relations is a programming error): pass
-   * `requireRelations: true` for the throwing policy.
+   * keeps no relations (a replace staging table). The repo leaves then.
    */
   repoWorktreeMembers(repoId: string): Iterable<string> | undefined
-  requireRelations?: boolean
 }
 
 /**
@@ -120,9 +101,6 @@ function releaseRepoRow(ops: RepoLaneOps, lane: LaneStoredRow): void {
     return
   const members = ops.repoWorktreeMembers(repoId)
   if (members === undefined) {
-    if (ops.requireRelations === true) {
-      throw new Error(`[pool] repo ${repoId} changes lanes on a target that keeps no relations`)
-    }
     ops.dropRepo(repoId)
     return
   }
@@ -142,7 +120,6 @@ export function ingestWorktreeRecord(
   id: string,
   value: LaneStoredRow | undefined,
 ): void {
-  repoLaneCalls.worktreeRecords += 1
   const previous = ops.getWorktree(id)
   if (value === undefined) {
     if (previous !== undefined) {

@@ -15,7 +15,7 @@ import { isMarkdownPath } from '../src/features/files/file-kind'
 import {
   checkFileViewerPreferences,
   type FileViewerPreference,
-} from '../src/features/files/file-viewer-check'
+} from './files/file-viewer-check'
 
 if (hostname() !== 'ludovico') throw new Error('Operator file-mode replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(
