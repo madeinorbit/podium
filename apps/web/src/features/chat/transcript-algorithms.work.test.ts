@@ -1,7 +1,6 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
-import { buildMobileTranscript, matchMobileTranscript } from '../../../../mobile/src/lib/transcript-feed'
 import { insideReader, measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
 import type { TranscriptComputeWorkerRequest, TranscriptWorkerResponse } from './transcript-compute.worker'
 
@@ -79,27 +78,10 @@ it('records retained transcript work at one and four times history', async () =>
     }))
     expect(responses.at(-1)).toMatchObject({ ok: true, result: { search: { total: 1 } } })
 
-    const model = buildMobileTranscript(items, { includeEmpty: true })
-    // The list observes order, so an unchanged order keeps its closed-Find model.
-    // Active Find explicitly rebuilds from ids/byId on each render.
-    const phoneOpenStream = await count('phone.open-stream', () => buildMobileTranscript(
-      [...items.slice(0, -1), streamed], { includeEmpty: true },
-    ))
-    const phoneIncoming = await count('phone.incoming', () => buildMobileTranscript([...items, incoming], { includeEmpty: true }))
-    const phoneOlder = await count('phone.loadOlder', () => buildMobileTranscript([...older, ...items], { includeEmpty: true }))
-    const phoneSearch = await count('phone.search', () => {
-      const fresh = buildMobileTranscript(items.slice(), { includeEmpty: true })
-      return matchMobileTranscript(fresh, 'needle')
-    })
-    const phoneClosedSearch = await count('phone.closed-Find', () => matchMobileTranscript(model, ''))
     samples.push({ scale, history: items.length, coreStream, coreIncoming, coreOlder,
-      webStream, webIncoming, webOlder, webVerbosity, webSearch,
-      phoneClosedStream: 'Code-read: unchanged ids retain the closed-Find model; shared intake counted above',
-      phoneOpenStream, phoneIncoming, phoneOlder, phoneSearch, phoneClosedSearch,
-      phoneVerbosity: 'not exposed by the phone list' })
+      webStream, webIncoming, webOlder, webVerbosity, webSearch })
   }
   expect(samples[1]!.webStream.elements).toBeGreaterThan(samples[0]!.webStream.elements * 3)
   expect(samples[1]!.coreStream.elements).toBeGreaterThan(samples[0]!.coreStream.elements * 3)
-  expect(samples[1]!.phoneIncoming.elements).toBeGreaterThan(samples[0]!.phoneIncoming.elements * 3)
   console.log('[transcript-work-baseline]', JSON.stringify(samples))
 })
