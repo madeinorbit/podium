@@ -8,11 +8,14 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Alert, Platform } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
+import type { MobileClientSession } from '@podium/protocol'
+import type { HostMetricsWire } from '@podium/model'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -25,6 +28,8 @@ const seams = vi.hoisted(() => ({
   switch: vi.fn(async () => {}),
   back: vi.fn(),
   replace: vi.fn(),
+  devices: [] as MobileClientSession[],
+  reloadDevices: () => {},
 }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
@@ -35,7 +40,10 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
       seams.host!.host.usePoolProjection(...args) as T,
   }
 })
-vi.mock('expo-router', () => ({ useRouter: () => ({ back: seams.back, replace: seams.replace }) }))
+vi.mock('expo-router', () => ({
+  useRouter: () => ({ back: seams.back, replace: seams.replace }),
+  useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
+}))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: async () => {},
@@ -72,9 +80,17 @@ vi.mock('../client/ServerProfileGate', () => ({
     updateCredential: seams.credential,
   }),
 }))
-vi.mock('../client/connected-devices', () => ({
-  useConnectedDevices: () => ({ sessions: [], loading: false, failed: false }),
+vi.mock('../client/connected-devices-api', () => ({ readConnectedDevices: async () => seams.devices }))
+vi.mock('../client/connected-devices', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../client/connected-devices')>(),
+  useConnectedDevices: () => {
+    const feed = (awaitedDevicesHook)()
+    seams.reloadDevices = feed.reload
+    return feed
+  },
 }))
+// Obtain the real focus-owned feed while retaining its reload seam for the probe.
+const { useConnectedDevices: awaitedDevicesHook } = await vi.importActual<typeof import('../client/connected-devices')>('../client/connected-devices')
 vi.mock('../lib/build-stamp', () => ({
   useBuildStamp: () => ({ text: 'synthetic.invalid\nserver 1 · app 1', reload() {} }),
 }))
@@ -95,6 +111,7 @@ const { createMobilePool, useMobilePool } = await import('../client/mobile-pool'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  seams.devices = []
   ;(Platform as { OS: string }).OS = 'ios'
 })
 afterEach(() => {
@@ -105,9 +122,9 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount() {
+async function mount(count = 8, scale?: number) {
   seams.host = createMobilePool(false)
-  const data = createHeaderFixture(8, 8),
+  const data = createHeaderFixture(count, count),
     errors: string[] = [],
     seen: unknown[] = []
   // Include archived, deleted and draft rows in the count, and resume twins in
@@ -145,7 +162,7 @@ async function mount() {
     runtime = useStoreHandle() as ClientRuntime
 
     seen.push(useMobilePool())
-    return <SettingsScreen />
+    return insideReader('phone.SettingsScreen', () => SettingsScreen())
   }
   storeStats.enable()
   storeStats.reset()
@@ -168,7 +185,7 @@ async function mount() {
   )
   await waitFor(
     () => {
-      expect(rowValue(view.container, 'Tasks')).toBe('8')
+      expect(rowValue(view.container, 'Tasks')).toBe(String(count))
       expect(rowValue(view.container, 'Sessions')).toBe(
         String(referenceState(runtime).sessions.length),
       )
@@ -180,8 +197,43 @@ async function mount() {
     data.publishMetrics(0)
   })
   await waitFor(() => expect(view.getByText('Host 1')).toBeTruthy())
+  if (scale) {
+    const machines = Array.from({ length: 16 * scale }, (_, i) => ({ id: `host-${i}`, name: `Host ${i + 1}`, hostname: `host-${i}`, online: true, lastSeenAt: '2026-10-06T10:00:00Z' }))
+    const template = data.inputs().metrics[0]!
+    const hosts = machines.map(row => ({ ...template, machineId: row.id, hostname: row.hostname }))
+    await act(async () => {
+      ;(runtime.hub as unknown as { emit(kind: string, value: unknown): void }).emit('machines', machines)
+      data.publishHostMetrics(hosts as HostMetricsWire[])
+    })
+  }
   return { data, view, runtime, errors, seen }
 }
+
+it('measures phone settings and its real device feed at 1x and 4x', async () => {
+  for (const scale of [1, 4]) {
+    seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({ sessionId: `device-${i}`, userId: 'operator', label: 'mobile', deviceId: `device-${i}`, deviceName: `Phone ${i}`, platform: 'ios', lastSeenAt: '2026-10-06T10:00:00Z', createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-11-01T10:00:00Z', current: false }))
+    const opened = await measureWork(async () => mount(24 * scale, scale))
+    const current = opened.value
+    const retained = current.seen.at(-1) as MobxPool
+    expect(retained).toBeTruthy()
+    console.log('SETTINGS_WORK', JSON.stringify({ scale, tab: 'phone', action: 'open', ...opened.work }))
+    const record = async (action: string, run: () => void) => {
+      const measured = await measureWork(async () => {
+        await act(async () => run())
+        for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve() })
+      }, { pool: retained })
+      console.log('SETTINGS_WORK', JSON.stringify({ scale, tab: 'phone', action, ...measured.work }))
+    }
+    await record('setting', () => fireEvent.change(current.view.getByLabelText('Server name'), { target: { value: 'Renamed phone' } }))
+    await record('device', () => { seams.devices = seams.devices.map((row, i) => i === 0 ? { ...row, deviceName: 'Updated phone' } : row); seams.reloadDevices() })
+    await record('repository', () => current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }))
+    const cursor = vi.spyOn(current.runtime.replica, 'getCursor').mockReturnValue(42)
+    await record('heartbeat', () => current.data.replica.onKernelEvent({ type: 'cursor', cursor: { feedId: 'synthetic', epoch: 'one', seq: 42 }, watermarkOnly: true }))
+    expect(rowValue(current.view.container, 'Sync cursor')).toBe('42')
+    expect(current.errors).toEqual([])
+    cursor.mockRestore(); current.view.unmount()
+  }
+}, 30_000)
 function rowValue(container: HTMLElement, label: string): string | undefined {
   return (
     [...container.querySelectorAll('div')].find(
