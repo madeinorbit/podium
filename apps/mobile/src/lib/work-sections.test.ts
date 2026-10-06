@@ -4,6 +4,8 @@ import {
   type MobileWorkRef,
   type MobileWorkSection,
 } from '@podium/client-graph/worklist/mobile'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { MobileNativeSections, MobileSearchSections, workGroupFoldKey } from './work-sections'
 
@@ -29,11 +31,50 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       ...groups.flatMap((group) => [...group.rows, ...group.snoozedRows, ...group.closedRows]),
     ].map((row) => [row.id, row]),
   )
+  // Screen views live in the pool source registry (their owner disposes
+  // them): the fixture provides the same create-once seam.
+  const views = new Map<string, unknown>()
+  // knownIssue echoes back what the fixture files below: flat visible rows.
+  const filed = new Map<
+    string,
+    { rank: Record<string, unknown>; placement: Record<string, unknown>; visible: boolean }
+  >()
   const lane = (name: 'rows' | 'snoozedRows' | 'closedRows') => ({
     lane: (key: string) =>
       groups.find((group) => group.key === key)?.[name].map((row) => row.id) ?? [],
   })
   const pool = {
+    sources: {
+      view: (key: string, create: () => unknown) => {
+        if (!views.has(key)) views.set(key, create())
+        return views.get(key)
+      },
+    },
+    // Screen views read known ranks, selection and worklist demand off the
+    // pool; the fixture has no demand to record.
+    knownIssue: (id: string) => filed.get(id),
+    selection: {
+      keys: (): IterableIterator<string> => [][Symbol.iterator](),
+    },
+    worklist: {
+      need: () => {},
+    },
+    // The sidebar roster observes these; the fixture files nothing through
+    // the kernel, so they stay empty and roster lanes resolve empty.
+    clock: {
+      current: 0,
+      peekNow: () => 0,
+      reached: () => true,
+      passed: () => {},
+    },
+    tables: {
+      session: observable.map<string, unknown>(),
+      worktree: observable.map<string, unknown>(),
+    },
+    graph: {
+      many: () => [],
+      one: () => null,
+    },
     groups: {
       pinnedRootIds: pinned.map((row) => row.id),
       rootOpen: lane('rows'),
@@ -49,10 +90,52 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     },
     issue: (id: string) =>
       facts.has(id)
-        ? { mobileWaitingCount: Number(facts.get(id)!.waiting), aggregate: { pending: 0 } }
+        ? {
+            mobileWaitingCount: Number(facts.get(id)!.waiting),
+            aggregate: {
+              pending: 0,
+              // Waiting is an addressed fact the product reads off
+              // aggregate.railWaiting, never off mobileWaitingCount.
+              ...(facts.get(id)!.waiting
+                ? { railWaiting: { decisions: 1, open: 1, finished: 0 } }
+                : {}),
+            },
+          }
         : undefined,
     row: () => undefined,
   } as unknown as MobxPool
+  // File every row into the groups view the mobile sections read: pinned to
+  // the PINNED lane, open/snoozed/closed rows to their group lane with the
+  // snooze band. Ranks are id-ordered; fixture rows carry no sort keys.
+  const rank = (id: string, band: 0 | 1 | 2) => ({
+    band,
+    unkeyed: 1 as const,
+    sortKey: '',
+    createdMs: 0,
+    seq: 0,
+    id,
+  })
+  const file = (id: string, groupKey: string, lane: 'pinned' | 'rows' | 'snoozedRows' | 'closedRows') => {
+    const placement = {
+      pinned: lane === 'pinned',
+      repoKey: groupKey,
+      label: groupKey,
+      closed: lane === 'closedRows',
+      dismissed: false,
+      foldMs: 0,
+    }
+    const rowRank = rank(id, lane === 'snoozedRows' ? 2 : 1)
+    filed.set(id, { rank: rowRank as Record<string, unknown>, placement, visible: true })
+    worklistGroups(pool as unknown as MobxPool).file(id, { placement, rank: rowRank })
+  }
+  runInAction(() => {
+    for (const row of pinned) file(row.id, '', 'pinned')
+    for (const group of groups) {
+      for (const row of group.rows) file(row.id, group.key, 'rows')
+      for (const row of group.snoozedRows) file(row.id, group.key, 'snoozedRows')
+      for (const row of group.closedRows) file(row.id, group.key, 'closedRows')
+    }
+  })
   return new MobileWorkIndex(pool).sections()
 }
 const bandKeys = (split: ReturnType<typeof nativeSections>) =>
@@ -212,9 +295,35 @@ describe('MobileSearchSections', () => {
   ])
   const pool = () =>
     ({
-      clock: { current: 0, reached: () => {} },
+      clock: { current: 0, reached: () => true, passed: () => {} },
+      inputs: { reached: () => true, passed: () => {} },
+      selection: {
+        keys: (): IterableIterator<string> => [][Symbol.iterator](),
+        size: 0,
+      },
       queries: { localTextIds: () => new Set<string>() },
       mobileWork: { row: ({ id }: { id: string }) => rows.get(id) },
+      // Worktree labels resolve through the sidebar view now: lane rows by
+      // path plus a session roster per lane. The seat id only opens the
+      // roster gate; it resolves to no session and contributes nothing.
+      row: (entity: string, id: string) => {
+        if (entity !== 'worktree') return undefined
+        const row = rows.get(id)
+        return row === undefined
+          ? undefined
+          : { repoName: row.label, repoPath: `/${row.id}`, branch: row.branch }
+      },
+      model: (entity: string) =>
+        entity === 'worktree' ? { roster: { ids: ['search-seat'], pending: 0 } } : undefined,
+      sources: {
+        view: (() => {
+          const views = new Map<string, unknown>()
+          return (key: string, create: () => unknown) => {
+            if (!views.has(key)) views.set(key, create())
+            return views.get(key)
+          }
+        })(),
+      },
     }) as unknown as MobxPool
   const band: MobileWorkSection = {
     key: 'project:/r',
@@ -275,6 +384,35 @@ describe('MobileSearchSections', () => {
       const calls = { textPasses: 0, issueRows: 0, treeRows: 0 }
       const graph = {
         clock: { current: 0, reached: () => {} },
+        selection: {
+          keys: (): IterableIterator<string> => [][Symbol.iterator](),
+          size: 0,
+        },
+        // Worktree labels resolve through the sidebar view now, so the
+        // bounded reads are pool.row calls: one per worktree ref, never an
+        // issue row. The legacy mobileWork seam below is dead.
+        row: (entity: string, id: string) => {
+          if (entity === 'issue') {
+            calls.issueRows++
+            return undefined
+          }
+          if (entity !== 'worktree') return undefined
+          calls.treeRows++
+          const tree = trees.find((t) => t.id === id)
+          return tree === undefined
+            ? undefined
+            : { repoName: tree.label, repoPath: `/${tree.id}`, branch: null }
+        },
+        model: () => undefined,
+        sources: {
+          view: (() => {
+            const views = new Map<string, unknown>()
+            return (key: string, create: () => unknown) => {
+              if (!views.has(key)) views.set(key, create())
+              return views.get(key)
+            }
+          })(),
+        },
         queries: {
           localTextIds: (needle: string) => {
             calls.textPasses++
@@ -282,16 +420,6 @@ describe('MobileSearchSections', () => {
             const out = new Set<string>()
             for (const [id, title] of titles) if (title.includes(n)) out.add(id)
             return out
-          },
-        },
-        mobileWork: {
-          row: ({ id, kind }: { id: string; kind: 'issue' | 'worktree' }) => {
-            if (kind === 'issue') {
-              calls.issueRows++
-              return undefined
-            }
-            calls.treeRows++
-            return { label: trees.find((t) => t.id === id)?.label ?? '' }
           },
         },
       } as unknown as MobxPool
@@ -319,9 +447,10 @@ describe('MobileSearchSections', () => {
       expect(calls.textPasses).toBe(1)
       // No issue row is read or painted while matching — matched or not.
       expect(calls.issueRows).toBe(0)
-      // Worktree labels are short strings read once each; the count is the
-      // worktree count, independent of the issue corpus.
-      expect(calls.treeRows).toBe(trees.length)
+      // Worktree labels are short lane strings read twice each (the LOADING
+      // gate plus the lane); the count is twice the worktree count,
+      // independent of the issue corpus.
+      expect(calls.treeRows).toBe(trees.length * 2)
       cells.push({
         scale,
         issues: issueCount + snoozed.length + closed.length,
