@@ -15,6 +15,7 @@ import { createPoolHost } from './pool-host'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+const PROJECTION_NAME = 'PoolProjectionProbe'
 const cleanups: (() => void)[] = []
 afterEach(() => {
   for (const stop of cleanups.splice(0).reverse()) stop()
@@ -29,7 +30,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     read: (pool: MobxPool) => T,
     options?: Parameters<typeof original>[2],
   ) => {
-    const view = original(pool, read, options)
+    const view = original(pool, read, { ...options, name: PROJECTION_NAME })
     const subscribe = vi.spyOn(view, 'subscribe')
     subscriptions.push(() => subscribe.mock.calls.length)
     return view
@@ -144,6 +145,11 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
     observers: () => getObserverTree(pool!.selection).observers?.length ?? 0,
+    // The host also owns a standing sidebar selection reaction. Count this
+    // probe's projection separately; unmount still checks every observer.
+    projectionObservers: () =>
+      getObserverTree(pool!.selection).observers?.filter((observer) => observer.name === PROJECTION_NAME)
+        .length ?? 0,
     unmount,
     render,
     focus: (value: boolean) => {
@@ -179,7 +185,7 @@ describe('real host projection read counts', () => {
   it('keeps a visited fold lazy while hidden and releases its dependencies on unmount', async () => {
     const fixture = await mount(false, true, true)
     fixture.focus(false)
-    expect(fixture.observers()).toBe(1)
+    expect(fixture.projectionObservers()).toBe(1)
     const reads = fixture.reads(), renders = fixture.renders()
     await fixture.select('another-target')
     await fixture.select('projection-target')
