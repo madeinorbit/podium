@@ -101,4 +101,10 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
   }
   console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
+  for (const action of ['catalog', 'usage', 'heartbeat', 'closed-heartbeat']) {
+    const one = samples[0]!.cells.find(cell => cell.action === action)!.rows ?? 0
+    const four = samples[1]!.cells.find(cell => cell.action === action)!.rows ?? 0
+    expect(four, `${surface} ${action} rows`).toBe(one)
+    expect(four, `${surface} ${action} row ceiling`).toBeLessThanOrEqual(8)
+  }
 }, 60_000)

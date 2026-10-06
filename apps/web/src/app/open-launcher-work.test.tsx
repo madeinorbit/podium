@@ -2,6 +2,7 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { GitRepositoryWire } from '@podium/model/browser'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -82,9 +83,18 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New panel' })) })
     cells.push(await measured('closed-heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' })))
     expect(fatal).not.toHaveBeenCalled()
+    expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
+    expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
     samples.push({ scale, repositories: repos.length, sessions: 128 * scale, cells })
     app.unmount(); cleanup()
   }
   console.info('[supported launcher NewPanelMenu]', JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
+  for (const sample of samples) {
+    const heartbeat = sample.cells.find(cell => cell.action === 'heartbeat')!
+    const closed = sample.cells.find(cell => cell.action === 'closed-heartbeat')!
+    expect(heartbeat.rows).toBe(closed.rows)
+    expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
+    expect(sample.cells.find(cell => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(4)
+  }
 }, 60_000)
