@@ -53,8 +53,8 @@ const settle = async () => {
 function projectDialog() {
   const save = vi.fn(async () => {})
   seam.projects = [
-    { key: 'repo-a', name: 'Alpha', aliases: ['/alpha'] },
-    { key: 'repo-b', name: 'Beta', aliases: ['/beta'] },
+    { key: 'repo-a', name: 'Alpha', aliases: ['repo-a', '/alpha'] },
+    { key: 'repo-b', name: 'Beta', aliases: ['repo-b', '/beta'] },
   ]
   seam.owner = { sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] }, setSidebarSettings: save }
   const view = render(<ManageProjectsButton />)
