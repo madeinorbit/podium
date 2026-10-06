@@ -3,6 +3,8 @@
  * can see. Each counting rule has a case that would read 0 if the rule were
  * deleted.
  */
+import { createColdIndex } from '@podium/client-graph/shared/cold-index'
+import { SCHEMA } from '@podium/client-graph/shared/schema'
 import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import type { RowSource } from '../arm'
@@ -88,6 +90,40 @@ describe('feed door', () => {
     })
     expect(fence.isBorrowed(events[0]!.rows[0]!.value)).toBe(true)
     expect(events[0]!.rows[1]!.value).toBeUndefined()
+  })
+
+  it('keeps borrowed publications associated with their original relation deltas', () => {
+    const fence = createReadFence({ enabled: true })
+    const index = createColdIndex(SCHEMA)
+    const inner = { ...staticSource([]), index, cold() { return this.index } }
+    const wrapped = fence.wrapSource(inner)
+    const queries = wrapped.cold!()
+    expect(wrapped.cold!()).toBe(queries)
+    const borrowed: RowSourceEvent[] = []
+    wrapped.subscribe(event => borrowed.push(event))
+    const raw: RowSourceEvent[] = [
+      { type: 'replace', rows: [sessionRow('s0', 'i1')] },
+      { type: 'update', rows: [sessionRow('s0', 'i2')] },
+    ]
+    for (const [at, event] of raw.entries()) {
+      index.apply(event)
+      inner.emit(event)
+      const received = borrowed[at]!
+      expect(received).not.toBe(event)
+      expect(fence.isBorrowed(received.rows[0]!.value)).toBe(true)
+      const delta = index.changes(event)
+      expect(delta.buckets.length).toBeGreaterThan(0)
+      expect(index.changes(received)).not.toBe(delta)
+      expect(queries.changes(received)).toBe(delta)
+      expect(queries.changes(event)).toBe(delta)
+      expect(queries.version).toBe(index.version)
+      expect(queries.count('session')).toBe(1)
+      expect(fence.stats().rows).toBe(0)
+      if (at > 0) expect(queries.changes(borrowed[at - 1]!)).toBe(index.changes(raw[at - 1]!))
+    }
+    expect((borrowed[1]!.rows[0]!.value as { issueId: string }).issueId).toBe('i2')
+    expect(fence.stats().byEntity).toEqual({ session: 1 })
+    expect(fence.stats().accesses.field).toBe(1)
   })
 
   it('borrows and counts repository and machine companions without losing their source binding', () => {
