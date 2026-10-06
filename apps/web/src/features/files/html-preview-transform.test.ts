@@ -163,7 +163,9 @@ it('inlines Windows stylesheets and resolves their asset directory on the machin
 it.each(['/r/docs', String.raw`C:\r\docs`])('keeps a preview alive with trailing-dot assets under %s', fileDir => {
   const settings = (window as unknown as Window).happyDOM.settings
   const previous = settings.disableCSSFileLoading
+  const previousSuccess = settings.handleDisabledFileLoadingAsSuccess
   settings.disableCSSFileLoading = true
+  settings.handleDisabledFileLoadingAsSuccess = true
   try {
     const source = '<img src="img."><style>.x{background:url(x.)}</style><link rel="stylesheet" href="style.">'
     const reads: string[] = []
@@ -189,5 +191,6 @@ it.each(['/r/docs', String.raw`C:\r\docs`])('keeps a preview alive with trailing
     }
   } finally {
     settings.disableCSSFileLoading = previous
+    settings.handleDisabledFileLoadingAsSuccess = previousSuccess
   }
 })
