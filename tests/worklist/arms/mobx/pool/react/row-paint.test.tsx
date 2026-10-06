@@ -63,12 +63,10 @@ function changePaintField(base: SidebarRowValues, path: readonly string[]): Side
   if (source[0] === 'display') source.shift()
   if (source[0] === 'origin') source[0] = 'originTick'
   if (source[0] === 'errorLine') {
-    next.errorClass = 'unknown'
-    return next
+    return { ...next, errorClass: 'unknown' }
   }
   if (source[0] === 'statusLine') {
-    next.continuation = { kind: 'continued', ref: 'SYN-3' }
-    return next
+    return { ...next, continuation: { kind: 'continued', ref: 'SYN-3' } }
   }
   const previous = at(base, source)
   const changed = typeof previous === 'boolean' ? !previous
