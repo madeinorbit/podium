@@ -18898,28 +18898,6 @@
     },
     {
       "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/merge",
-      "rule": "loop:for-of",
-      "tokens": "3429875fdb369d306b8b9b0a2237b9a7e99d21d60ed4d22fa2a679ad503d3e16",
-      "gate": [
-        "exit:then:c43e8c57ccec5b6cd84a76b71db82a2d02afd65be1a45156c24952b5d117e6a4",
-        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
-      ],
-      "fingerprint": "6678e36d5749a674dc2d4d1bb8cc3c9666cdbe616288a5097ea6ebb24b42ecb8",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
       "holder": "TranscriptLog/merge/bounded",
       "rule": "helper-consumer",
       "tokens": "12862e0ac72c76c1fae271e057264c6f4de16cec95b0a71f246504a46b6cbe7f",
@@ -18931,154 +18909,6 @@
         "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
       ],
       "fingerprint": "c062d0956250ab8c906beb46993213bf3e3fbea526ff4b41c70b6987bdb0949d",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/merge/merged",
-      "rule": "helper-consumer",
-      "tokens": "320535e22dab92bd9b2ca195fa25a257baf7454ca01921944285f7ace102ae93",
-      "gate": [
-        "exit:then:2628b3194dd7b56ae1d75a01a5923ea1b5f4270655e285a7936877596729daf7",
-        "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3"
-      ],
-      "origin": [
-        "680c523382e0416c93bc6170515617cdd3d6418ee4bf033d7d20f46c1e654063"
-      ],
-      "fingerprint": "ada5aefb7dcd6224528b526455ff434d5ab98b85095d426e1d75811694a0ada7",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch",
-      "rule": "loop:for-of",
-      "tokens": "ff36351acd3fbfdec3cfc1c0fa56bd8f478b4cb35b84f3c6be035d855e4453a0",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "6ad2e3a257a0a877c1b9cc7f76317254a12a930f95c2872d52f8c7d1afe65984",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/added",
-      "rule": "consume:filter",
-      "tokens": "fddd3eaa4898b51a0711cd63fdae2b54677fb3b75189a8a48ebb1a2172381403",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "5fa0a0b03ee9b3eefe7a6b6596622f768a4ca4e38555cb5512b8451f812ab749",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "spread",
-      "tokens": "162ac2dc7255264c8674769460fcced3ca85c2a191ea8849facb4734dfca6e6e",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e",
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "b045c9171bba5dee5051175992a03c1f24d7587f76e6675bb082ac150b3c9d0f",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "materialize:Map",
-      "tokens": "6b47111b332c97732c1543a7fb49ac32ee968223be89f73d3e5ebafee5f3055e",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "d2574efd0bb8d818713332a4aacf2979924098b112c84e5b139d0a989effb658",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "enumerate:values",
-      "tokens": "62ee3c8c6b3c806e6b8204235dc2772d63ccd4e9a0c3adf199cfb47c67c0983a",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "16f94a549d8c19b9fe2bd0ff8e730794cd39309e08eed46a4ee86637fc8e024e"
-      ],
-      "fingerprint": "db7f76e3f10d36e3f5d68c557c693b0b3ffa5fab0fb50e714f3d568ec4fc1868",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5621",
-      "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/patch/changed",
-      "rule": "consume:map",
-      "tokens": "30ef85262f8855c5b03df0e6a4a16eae6c6a35536ee8a5ed7037a6ce29a7a766",
-      "gate": [
-        "then:22416f6d691462f5367dbc5720356f5150cb0007b10ba85ef74bcca7690c68a3",
-        "else:48c1fc434753cdfe66d669879b11233d7719447232c4fa1ccb5f1bcbc28ec61a"
-      ],
-      "origin": [
-        "de5ef7e414b79bd86810cdfb95e45aa1b6d8f1a50cb87f3e3f15688b1ac858b7"
-      ],
-      "fingerprint": "fb5b589db91ea6fb8826dd08d6428d2c259b4a16fb4f06c05e98126b1793b04c",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5621",
@@ -21277,76 +21107,17 @@
     },
     {
       "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "freshOlderTranscriptPage",
-      "rule": "consume:filter",
-      "tokens": "b353cd3a03865ac80baf4621da8fb53897d83a5f30e6e9804e3b9c9e2932d170",
-      "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
-      ],
-      "origin": [
-        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
-      ],
-      "fingerprint": "29953e000723bf5c1bfcd4c39274dd54528837d5766cf2aba00cb62af659f182",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of freshOlderTranscriptPage",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "freshOlderTranscriptPage",
-      "rule": "consume:filter",
-      "tokens": "b353cd3a03865ac80baf4621da8fb53897d83a5f30e6e9804e3b9c9e2932d170",
-      "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
-      ],
-      "origin": [
-        "57517aef9b35fec9794f0b461f4ad437773d38d955e3d7c87611ce62c30c665e"
-      ],
-      "fingerprint": "5ee3274da4b5ca1ebb7655d39b473e75bea6dcec409c4e7a2a77f422cce8750d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of freshOlderTranscriptPage",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "freshOlderTranscriptPage/seen",
-      "rule": "materialize:Set",
-      "tokens": "76192f021054071b6a2ed1bf7600b45f0c838a93f93c26f01a76c5096452aee2",
-      "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
-      ],
-      "origin": [
-        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
-      ],
-      "fingerprint": "7a7c197271480fc7d00cf1bf921981445d9a2739f466fe427b772893d44a6973",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of freshOlderTranscriptPage/seen",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "freshOlderTranscriptPage/seen",
       "rule": "consume:map",
       "tokens": "fcd63f9bf8f77b588139727328cb1a0c13016894f65d2502b0c6367ba074f6a2",
       "gate": [
-        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a",
+        "else:864390c65f63d76039fa33aaf14b0dfd3a180797717326de560cd0936bfebe6c"
       ],
       "origin": [
         "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
       ],
-      "fingerprint": "9f3d5ee67bad9e70aae938a68098ecf2eb6e80d4eb7039de8075cfa90f482de2",
+      "fingerprint": "3e5fc97f1eef05444641e15dd8f60086a138e2869227b0740d97e476c4b6febb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21650,43 +21421,6 @@
       "trigger": "Invocation of prependTranscriptItems",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "prependTranscriptItems/fresh",
-      "rule": "reader-summary",
-      "tokens": "f5ed06efd0786b45019b755b2a294703050229ba59196169f826d6a6865fbc8f",
-      "gate": [],
-      "origin": [
-        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
-      ],
-      "fingerprint": "b7a741a0e0326d3b9e3d2c4591d2763d895d629fa382a3b7cac7385a4f737dae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of prependTranscriptItems/fresh",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/transcript/merge.ts",
-      "holder": "prependTranscriptItems/fresh",
-      "rule": "helper-consumer",
-      "tokens": "7cc3a95483975c4df6fba414c9673ddedbfae902e681b47ec608f82f6b10d521",
-      "gate": [],
-      "origin": [
-        "70e2d0feda762536600f3bb34b92a04e8cd6bd35a2bee7ea6091449bbe633067",
-        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
-      ],
-      "fingerprint": "ea2a319ee231722dec9f633325ea00cf92f42ea0104d0e692c9c34bc108f340d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of prependTranscriptItems/fresh",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -45486,26 +45220,6 @@
     },
     {
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
-      "holder": "SuperagentScreen/SuperagentScreen",
-      "rule": "reader-summary",
-      "tokens": "8da34759b0b379867c1f4547d4ffbc5949870d8dda64c052f8c075f7e54f741f",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
-        "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
-      ],
-      "fingerprint": "4f12d80f688b592229ea6c41989a67c11df84c5b934b16b72cd5732b84f6c098",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Superagent screen reads its existing pool superagent slice.",
-      "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
-      "reason": "Wrapping the screen in observer moves the reader-summary fingerprint but does not repair the inherited catalogue demand.",
-      "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen/attachments",
       "rule": "reader-summary",
       "tokens": "e5423cf28dab6839ac44e92b3ed30ae915df5c38d8e6661ba806813d5dde0883",
@@ -45594,56 +45308,18 @@
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
         "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
         "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
-        "exit:then:f980b00660b3549535d9db334b4698787619f7d663d6c08ae4a51ab3070eb151",
+        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "a3c49019b89c55dad216f71845342b2ef3aa9dbfa352658112724905bd116b69"
+        "c2c2e20f84b0fbd306ee4f8b0880088d3bb4f278de24e7a821a233ad5f100751"
       ],
-      "fingerprint": "3ac0d77752f14bc4a2d9caa40a4f27a9f72a1716caf6d07f6772823524e8f840",
+      "fingerprint": "d84c44f1a249258ade31be79552cc2264f2c70e8646d08a9fb3961ab1484ca08",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Send a turn to the selected superagent thread.",
       "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/composer",
-      "rule": "helper-consumer",
-      "tokens": "8d3980aca9e4f89f078b6e68af87ae4f6a3a4118c83a3017b30421553dd8f746",
-      "gate": [
-        "exit:then:f980b00660b3549535d9db334b4698787619f7d663d6c08ae4a51ab3070eb151"
-      ],
-      "origin": [
-        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
-      ],
-      "fingerprint": "590b1eedfa1c85ee81072d9bc4acd1a81b1d3247ff7c5ad9854bda4bfb9f1738",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Compute composer state immediately before one addressed delivery.",
-      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "useConversation/conversation/useOwnedConversation:callback",
-      "rule": "reader-summary",
-      "tokens": "cfc236e87b19dc579c97944555af5ca6145c83d7fe27413335006f7fb26acf76",
-      "gate": [],
-      "origin": [
-        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
-      ],
-      "fingerprint": "81456d9a30060c49b7933eff279cb1be3be148baf376445795bca98c14d74b4c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
-      "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
       "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
@@ -50201,6 +49877,304 @@
       "bound": "The requested catalog has no cardinality cap; later session updates read only their addressed answer.",
       "reason": "Existing session catalog acquisition moved to the ordered query seed; its classification is preserved.",
       "guard": "packages/client-graph/src/issue-explorer-catalog.test.ts"
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "freshOlderTranscriptPage",
+      "rule": "consume:filter",
+      "tokens": "c87d5243f67d3052584026d97f9da4780c1612fc6e8b396a6ccd5ecb0a554011",
+      "gate": [
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
+      ],
+      "origin": [
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
+      ],
+      "fingerprint": "a68c306c9c53a86984d9db065a283544ca0a7f15187e2afdebc7007d4eeb9f2a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of freshOlderTranscriptPage",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "freshOlderTranscriptPage/seen",
+      "rule": "materialize:Set",
+      "tokens": "870f964c650e210dce08805d1880e6a471b7b595bd4525be506191637f526013",
+      "gate": [
+        "exit:then:3e6fdd9b2ab033fe67ac5307e578f3e0e7eb584c8878520fe3cc6c2bdcce4c9a"
+      ],
+      "origin": [
+        "344a9533d88e1fbf8e042743d74bc1d0182f12eeaf33b125fda01b2a5d0cff6e"
+      ],
+      "fingerprint": "7d71182e9e8eb247fcbfabad5012a2ac23ca59ec698b251e5cbefd99beab5f5a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of freshOlderTranscriptPage/seen",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "prependTranscriptItems/fresh",
+      "rule": "reader-summary",
+      "tokens": "8bc2e06d5d591743de5664cf7b75dfea8782911a13c663634153efa118f95287",
+      "gate": [],
+      "origin": [
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
+      ],
+      "fingerprint": "65f6a88f49a882cf90a3fe1160084b3b0308adfefa20cc15a0bacc0372c00f97",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of prependTranscriptItems/fresh",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/transcript/merge.ts",
+      "holder": "prependTranscriptItems/fresh",
+      "rule": "helper-consumer",
+      "tokens": "cfca9176b20fed0113f8af709d3b78a07ea243001ad53ff68d5b78d4b1eea7e3",
+      "gate": [],
+      "origin": [
+        "70e2d0feda762536600f3bb34b92a04e8cd6bd35a2bee7ea6091449bbe633067",
+        "94756c03c4c8e18ee6afaeceaab51b77ec28676c37fffca5ee86e278d6dc4aed"
+      ],
+      "fingerprint": "a17a77afac9d358a3c525a5a0b5738430271a7e3be8368cb4ac735644a5397ff",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of prependTranscriptItems/fresh",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
+      "holder": "SuperagentScreen/SuperagentScreen",
+      "rule": "reader-summary",
+      "tokens": "3df57da7aae59eb1260c455b93088816b353974d4947deeb8cefcdec02fbac01",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
+        "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
+      ],
+      "fingerprint": "3f2de890259bb7b702dcc3696afd5d63da484e11c700b6ad5c81de3e348e4355",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Superagent screen reads its existing pool superagent slice.",
+      "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
+      "reason": "Wrapping the screen in observer moves the reader-summary fingerprint but does not repair the inherited catalogue demand.",
+      "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/deliver/callback/composer",
+      "rule": "helper-consumer",
+      "tokens": "f54975096bfab8f410984f8ea1e8e7c3629ff5d38d52b2d41619d3349b5fcc43",
+      "gate": [
+        "exit:then:a3e659ec020000ca628ed8c31aad0daa69f6a5b0193b8e18c8aa599d7689c355"
+      ],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+      ],
+      "fingerprint": "b2d02f79c1c2c9f4cd86ac514096457282551a9fe6fec748b2aa728fa3f721d1",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Compute composer state immediately before one addressed delivery.",
+      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "useConversation/conversation/useOwnedConversation:callback",
+      "rule": "reader-summary",
+      "tokens": "9c1800b84b512f06f9b6711244ba5b033db9f56ced18201ea1a491279f2b3194",
+      "gate": [],
+      "origin": [
+        "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
+      ],
+      "fingerprint": "c67c330373ff0b60ee37e51ccaf766a1ade0e662cc02d5ffd3ca734904005696",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
+      "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
+      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/applyFrame",
+      "rule": "consume:map",
+      "tokens": "0618e3e19e6e57bc69cd7a85c574bbbdce2405d8b5497c51b567b77c7216d610",
+      "gate": [],
+      "origin": [
+        "65b9644711ffb7f3e0a7f6af3e24b8adf79d6b8533a6e996c3ef54c25e511e5b"
+      ],
+      "fingerprint": "813cf4812776fde6100a25439da67063deeb9e4e1934692ddbeea07d617d8e48",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/applyFrame",
+      "rule": "loop:for-of",
+      "tokens": "aa880e243c9ca2a32d0484ba1f39ad4eda4d6dbf7c4adbe5c0cd76fd6d87a7ba",
+      "gate": [],
+      "origin": [
+        "65b9644711ffb7f3e0a7f6af3e24b8adf79d6b8533a6e996c3ef54c25e511e5b",
+        "bc75ac1357e9472c9fe2d1f0e9649508a89ccb619de2620738d3b0b79e403a2a"
+      ],
+      "fingerprint": "a788de36d983c6b0610b38fac13edbebcaab8e7cc215bb8214928db70bdfa5f3",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/applyFrame",
+      "rule": "enumerate:values",
+      "tokens": "fb2c1a57da2b51ebdeae8420b6af6dee1f238ccbf8b3b22fa3cb1a1267ed2da1",
+      "gate": [],
+      "origin": [
+        "bc75ac1357e9472c9fe2d1f0e9649508a89ccb619de2620738d3b0b79e403a2a"
+      ],
+      "fingerprint": "ccc81195ec52e97093fb6c870a48d8eb4a85187f5562e46194a1e36c238d7442",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/applyFrame",
+      "rule": "materialize:Map",
+      "tokens": "7f0c59468ad55a798d9c0d32b76df3dbc691384bbe57b5ad3e8868a9996e2f85",
+      "gate": [],
+      "origin": [
+        "65b9644711ffb7f3e0a7f6af3e24b8adf79d6b8533a6e996c3ef54c25e511e5b"
+      ],
+      "fingerprint": "cf1e27fab1cb91e4355c528f1b512a0b2cf6b1dff9219d16a65968be49369756",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "spread",
+      "tokens": "c55290d871600dc740a8f0bcadb5851d181a15a3630e86c88df1fcc2afe2d7fb",
+      "gate": [],
+      "origin": [
+        "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
+      ],
+      "fingerprint": "1adac85d48a84e264f28dcae7affa9ec40342a462b00ef598dd03ae0d63e6afb",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "consume:forEach",
+      "tokens": "281dbea10c0c7f2777c8c08e807d584e3721a952708fe0e322d9882eef7bd505",
+      "gate": [],
+      "origin": [
+        "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
+      ],
+      "fingerprint": "24f327787d1af6b6436f36e3077d59520760d6a5521b062eb02fd3b5ad42efec",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "consume:map",
+      "tokens": "80d46ebca6de3c28879ea495e4ceb265e7f9e2ecf4232eb53f7b9e10fe617e6a",
+      "gate": [],
+      "origin": [
+        "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
+      ],
+      "fingerprint": "3e6c956789e938963d7b4cde821c64efac484f578583cca2f636c1d6537b4742",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "spread",
+      "tokens": "ecf5785a3d5ca06f922973caa42e1f31ac86aaf5c22af95d7c7e269bcdcff424",
+      "gate": [],
+      "origin": [
+        "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
+      ],
+      "fingerprint": "4de603f5f1494321b43f178cade6d47081aac1acde49f1b89cb6114e3d6fb71d",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "enumerate:forEach",
+      "tokens": "281dbea10c0c7f2777c8c08e807d584e3721a952708fe0e322d9882eef7bd505",
+      "gate": [],
+      "origin": [
+        "dbb7c8fa981e10f654659f6bfff62b69c2e96d742a4376b66f2dbf41da75c329"
+      ],
+      "fingerprint": "733a002a66c660d72669e803ff2b0d7e804410e01bb39334e39eea9bf34ce27f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
     }
   ]
 }
