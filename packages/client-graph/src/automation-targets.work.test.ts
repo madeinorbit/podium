@@ -88,6 +88,15 @@ async function measured(scale: 1 | 4, plant = false) {
     }, { pool: f.pool })
     expect(value.pending).toBe(0)
     expect(value.ids.map(id => view.target(id)?.value)).toEqual(['/project', '/other', '__global__'])
+    const reopen = await measureWork(async () => {
+      const warm = createPoolProjection(f.pool, read, { name: 'consumer:automation-form.warm' })
+      let release = () => {}
+      try {
+        const snapshot = warm.getSnapshot()
+        release = warm.subscribe(() => { warm.getSnapshot() })
+        expect(snapshot).toBe(value)
+      } finally { release(); warm.dispose() }
+    }, { pool: f.pool })
     const repoId = settingsRepositoryId(f.repos[0]!)
     const catalog = await measureWork(async () => {
       insideArm(() => {
@@ -103,7 +112,7 @@ async function measured(scale: 1 | 4, plant = false) {
       await flush()
     }, { pool: f.pool })
     expect(value.ids.map(id => view.target(id)?.value)).toEqual(['/project', '/other', '__global__'])
-    return { open: open.work, catalog: catalog.work, heartbeat: heartbeat.work }
+    return { open: open.work, reopen: reopen.work, catalog: catalog.work, heartbeat: heartbeat.work }
   } finally {
     stop(); projection.dispose(); f.pool.dispose()
   }
@@ -118,7 +127,7 @@ it('measures real automation target open, catalog update and heartbeat at 1x/4x'
   const one = await measured(1), four = await measured(4)
   console.info('[automation target work]', JSON.stringify({ one, four }))
   if (process.env.PODIUM_AUTOMATION_BASELINE === '1') return
-  for (const action of ['catalog', 'heartbeat'] as const)
+  for (const action of ['reopen', 'catalog', 'heartbeat'] as const)
     for (const kind of ['rows', 'derivations', 'elements'] as const)
       expect(targetWork(four[action], kind), `${action} ${kind} grew with hidden worktrees`).toBeLessThanOrEqual(targetWork(one[action], kind))
   const plantedOne = await measured(1, true), plantedFour = await measured(4, true)

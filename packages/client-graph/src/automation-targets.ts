@@ -24,7 +24,13 @@ export function createAutomationTargets(pool: MobxPool) {
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   const catalog = () => memo('targetCatalog', () => pool.row('settingsCatalog', 'catalog'))
-  const path = (id: string): string => (JSON.parse(id) as [string, string])[1]
+  const path = (id: string): string => {
+    const value = memo(`targetPath:${id}`, () => {
+      const row = pool.row('settingsRepository', id)
+      return row === LOADING ? LOADING : row?.path
+    })
+    return value === LOADING ? '' : value ?? ''
+  }
   const byPath = () => memo('targetPaths', () => {
     const rows = catalog()
     const paths = new Map<string, string[]>()
@@ -162,11 +168,11 @@ export function createAutomationTargets(pool: MobxPool) {
       const saved = currentPath === null ? undefined : fixedQuery(currentPath).get()
       const ids = choices === LOADING || global === LOADING || saved === LOADING ? EMPTY_IDS
         : joinQueryResults(saved ? [choices ?? EMPTY_IDS, global ?? EMPTY_IDS, saved] : [choices ?? EMPTY_IDS, global ?? EMPTY_IDS])
-      return { ids, excluded, pending }
+      return { ids, excluded, pending: pending ? 1 : 0 }
     })
   }
   function target(id: string): AutomationTarget | undefined {
-    return memo(`target:${id}`, () => {
+    return memo<AutomationTarget | undefined>(`target:${id}`, () => {
       if (id === GLOBAL) return { value: GLOBAL, label: 'Global (home directory)', availability: 'available' }
       if (id.startsWith(SAVED)) {
         const value = id.slice(SAVED.length), availability = savedState(value)
