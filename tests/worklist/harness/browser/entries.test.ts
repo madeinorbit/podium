@@ -38,7 +38,7 @@ describe('browser entries mount the round-three pools', () => {
       join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
     )
     expect(graph, 'the product pool under the adapter').toContain(
-      resolve(PACKAGE_DIR, '@podium/client-graph/pool.ts'),
+      resolve(PACKAGE_DIR, '../../packages/client-graph/src/pool.ts'),
     )
   })
 
@@ -49,11 +49,11 @@ describe('browser entries mount the round-three pools', () => {
         join(PACKAGE_DIR, 'harness/src/adapters/mobx-pool.ts'),
       )
       expect(graph, `${name}: the product pool under the adapter`).toContain(
-        resolve(PACKAGE_DIR, '@podium/client-graph/pool.ts'),
+        resolve(PACKAGE_DIR, '../../packages/client-graph/src/pool.ts'),
       )
       // POD-5432: the arm owns optimism through the product's transaction log.
       expect(graph, `${name}: the product transaction log`).toContain(
-        resolve(PACKAGE_DIR, '@podium/client-graph/write/transactions.ts'),
+        resolve(PACKAGE_DIR, '../../packages/client-graph/src/write/transactions.ts'),
       )
     }
   })

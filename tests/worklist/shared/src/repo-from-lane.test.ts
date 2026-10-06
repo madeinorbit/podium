@@ -35,7 +35,7 @@ import type { RowRecord } from './stats'
 const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
   : join(process.cwd(), 'tests', 'worklist')
-const SHARED_COMPOSER = resolve(PACKAGE_DIR, '@podium/client-graph/shared/repo-from-lane.ts')
+const SHARED_COMPOSER = resolve(PACKAGE_DIR, '../../packages/client-graph/src/shared/repo-from-lane.ts')
 
 // ------------------------------------------------------------------ fakes
 
@@ -215,10 +215,10 @@ describe('repo-from-lane composition', () => {
 // ------------------------------------------------------------------ Part B
 
 const ARM_TABLES = [
-  resolve(PACKAGE_DIR, '@podium/client-graph/tables.ts'),
+  resolve(PACKAGE_DIR, '../../packages/client-graph/src/tables.ts'),
 ]
 const FIELD_LAYERS = [
-  resolve(PACKAGE_DIR, '@podium/client-graph/models.ts'),
+  resolve(PACKAGE_DIR, '../../packages/client-graph/src/models.ts'),
 ]
 
 function codeOf(file: string): string {
