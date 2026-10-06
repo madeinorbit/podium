@@ -18,6 +18,8 @@ import {
   ensureSourceRustHost,
   HOST_FEATURES,
   hostBinFeatures,
+  hostBinaryName,
+  hostSupported,
   RUST_HOST_BINARY,
   resolveHostBin,
   sourceRustHostCacheDir,
@@ -338,12 +340,12 @@ describe('podium-host on Windows', () => {
     delete process.env.PODIUM_HOST_BIN
     resolveHostBin({ fresh: true })
   })
-  it('resolves to nothing and builds nothing', () => {
+  it('supports native Windows hosts and still refuses an invalid override', () => {
     stubPlatform('win32')
     process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    delete process.env.PODIUM_HOST_BIN
-    expect(ensureSourceRustHost()).toBeUndefined()
+    expect(hostSupported('win32')).toBe(true)
+    expect(hostBinaryName()).toBe('podium-host.exe')
   })
 })
 

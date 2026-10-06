@@ -82,7 +82,7 @@ it.each([
   expect(noDurableBackendRefusal()).toContain('podium-host')
 })
 
-it('names Windows, where podium-host does not run yet, in its own words', () => {
-  expect(noDurableBackendRefusal('win32')).toContain('podium-host does not run on Windows')
+it('names a missing Windows host in its own words', () => {
+  expect(noDurableBackendRefusal('win32')).toContain('podium-host is missing on this Windows machine')
   expect(noDurableBackendRefusal('linux')).toContain('podium-host is missing')
 })

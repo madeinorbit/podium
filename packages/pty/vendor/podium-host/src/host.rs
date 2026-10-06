@@ -306,7 +306,7 @@ impl Host {
     }
 
     /// The pty master while it is open (None without a pty, or once closed).
-    fn pty(&self) -> Option<&File> {
+    fn pty(&self) -> Option<&Io> {
         self.io
             .as_ref()
             .filter(|_| self.has_pty)

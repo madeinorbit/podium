@@ -5,7 +5,7 @@ import { asSessionId } from '@podium/model'
 import { durableInstanceComponent, durableSessionLabel } from '@podium/runtime/instance'
 import { unixSocketPathFits } from '@podium/runtime/unix-socket'
 import { afterEach, describe, expect, it } from 'vitest'
-import { hostSocketDir, hostSocketPath, liveHostSocket } from './host.js'
+import { hostEndpointForMarker, hostSocketDir, hostSocketPath, liveHostSocket } from './host.js'
 
 /**
  * POD-4986: with abduco gone, podium-host is the only durable host, so a named
@@ -60,5 +60,17 @@ describe('the host socket directory of a named instance', () => {
     server = createServer((c) => c.destroy())
     await new Promise<void>((resolve) => server?.listen(legacy, resolve))
     expect(await liveHostSocket('podium-x', e)).toBe(legacy)
+  })
+})
+
+// Pure platform mapping: no Windows process is needed to prove isolation.
+describe('Windows host endpoint names', () => {
+  it('bounds paths, folds Windows case, and separates roots and instances', () => {
+    const marker = 'C:\\state\\hosts\\default\\label.sock'
+    const pipe = hostEndpointForMarker(marker, 'win32')
+    expect(pipe).toMatch(/^\\\\\.\\pipe\\podium-host-[a-f0-9]{64}$/)
+    expect(hostEndpointForMarker(marker.toUpperCase(), 'win32')).toBe(pipe)
+    expect(hostEndpointForMarker(`${marker}other`, 'win32')).not.toBe(pipe)
+    expect(hostEndpointForMarker(marker, 'linux')).toBe(marker)
   })
 })
