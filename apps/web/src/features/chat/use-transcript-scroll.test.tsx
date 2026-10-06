@@ -36,6 +36,7 @@ function Harness({
   sessionId = 'session-1',
   onFollowChange,
   aliases,
+  lookupAnchorRow,
 }: {
   keys?: string[]
   moreAbove?: boolean
@@ -44,6 +45,7 @@ function Harness({
   sessionId?: string
   onFollowChange?: (following: boolean) => void
   aliases?: Record<string, string[]>
+  lookupAnchorRow?: (key: string) => number | undefined
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   api = useTranscriptScroll({
@@ -58,6 +60,7 @@ function Harness({
     loadOlder,
     rowsToRender: keys,
     onFollowChange,
+    lookupAnchorRow,
   })
   return (
     <>
@@ -340,6 +343,17 @@ describe('transcript scrolling', () => {
         aliases={{ regrouped: ['older-tool', 'row-0'] }}
       />,
     )
+    expect(scroller().scrollTop).toBe(280)
+    expect(top('regrouped')).toBe(-80)
+    expect(api.atBottom).toBe(false)
+  })
+
+  it('resolves a rekeyed anchor through the retained model without a DOM alias list', () => {
+    renderHarness(<Harness />)
+    scrollTo(80)
+    const lookupAnchorRow = vi.fn((key: string) => key === 'row-0' ? 2 : undefined)
+    renderHarness(<Harness keys={['older-a', 'older-b', 'regrouped', ...held.slice(1)]} lookupAnchorRow={lookupAnchorRow} />)
+    expect(lookupAnchorRow).toHaveBeenCalledWith('row-0')
     expect(scroller().scrollTop).toBe(280)
     expect(top('regrouped')).toBe(-80)
     expect(api.atBottom).toBe(false)
