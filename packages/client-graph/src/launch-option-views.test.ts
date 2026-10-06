@@ -147,7 +147,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     projects = views.newWork()
   })
   try {
-    expect(views.repositories()).toEqual(reposToViews(repos))
+    expect(views.origin('/first').repo).toEqual(reposToViews(repos)[0])
     expect(views.catalog().repoPaths).toEqual(['/first', '/second'])
     expect(views.catalog().initialRepoPath).toBe('/first')
     expect(projects.repos).toMatchObject([{ path: '/first', worktrees: [] }])

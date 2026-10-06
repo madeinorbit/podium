@@ -27,11 +27,6 @@ export function launchOptionViews(pool: MobxPool) {
         })
       return reposToViews(scans)[0]
     })
-    const repositories = computed(() =>
-      headerEntities(pool)
-        .repositoryGroupIds()
-        .flatMap((id) => repository(id) ?? []),
-    )
     const machines = computed(() => headerView(pool).machines())
     const rootKey = keyedComputed(
       'launch.roots',
@@ -162,7 +157,6 @@ export function launchOptionViews(pool: MobxPool) {
       }
     })
     return {
-      repositories: () => repositories.get(),
       repositoryPaths: () => paths.get(),
       newWork: () => work.get(),
       catalog: () => catalog.get(),
