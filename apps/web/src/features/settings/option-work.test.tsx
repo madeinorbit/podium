@@ -45,7 +45,7 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
     seam.projects = repos.map((repo, i) => ({ get key() { projectKeyReads++; return `repo-${i}` }, name: `Project ${i}`, aliases: [repo.path] }))
     const settings = normalizeSettings({})
     const trpc = {
-      settings: { get: { query: async () => settings }, viewer: { query: async () => ({ permitted: {} }) }, secretPresence: { query: async () => ({}) } },
+      settings: { get: { query: async () => settings }, viewer: { query: async () => ({ permitted: {} }) }, secretPresence: { query: async () => [] } },
       accounts: { list: { query: async () => [] } },
       setup: { channel: { query: async () => ({ channel: 'stable', envForced: false }) }, info: { query: async () => ({ appVersion: '1.0.0' }) }, setChannel: { mutate: async () => ({ channel: 'edge', envForced: false }) } },
       updates: { fleet: { query: async () => ({ targetVersion: null, machines: [] }) }, proposal: { query: async () => null } },
