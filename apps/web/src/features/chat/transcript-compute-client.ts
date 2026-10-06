@@ -112,6 +112,10 @@ export class TranscriptComputeClient {
     | undefined
   private workerUnavailable = false
 
+  constructor(private readonly createWorker = () => new Worker(
+    new URL('./transcript-compute.worker.ts', import.meta.url), { type: 'module' },
+  )) {}
+
   get usesWorker(): boolean {
     return !this.workerUnavailable && typeof Worker === 'function'
   }
@@ -120,9 +124,7 @@ export class TranscriptComputeClient {
     if (this.worker) return this.worker
     if (this.workerUnavailable || typeof Worker !== 'function') return undefined
     try {
-      const worker = new Worker(new URL('./transcript-compute.worker.ts', import.meta.url), {
-        type: 'module',
-      })
+      const worker = this.createWorker()
       worker.onmessage = (
         event: MessageEvent<TranscriptWorkerResponse | TranscriptComputeWorkerError>,
       ) => {

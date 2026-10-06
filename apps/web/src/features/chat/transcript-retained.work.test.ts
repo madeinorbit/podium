@@ -1,7 +1,6 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
-import { URL as NodeURL } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import { ConversationPresentation } from './conversation-presentation'
@@ -32,9 +31,6 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
   }
   vi.stubGlobal('self', scope)
   vi.stubGlobal('Worker', BridgeWorker)
-  // The bridge runs under Bun with file: module URLs. happy-dom's browser URL
-  // rejects that base before Worker construction; the worker handler itself is real.
-  vi.stubGlobal('URL', NodeURL)
   await import('./transcript-compute.worker')
   const item = (at: number): TranscriptItem => ({ id: `item-${at}`, role: at % 4 === 0 ? 'user' : 'assistant',
     cursor: Buffer.from(JSON.stringify(['file', at, `item-${at}`, 0])).toString('base64url'),
@@ -43,9 +39,8 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
   for (const scale of [1, 4]) {
     const items = Array.from({ length: 512 * scale }, (_, at) => item(at))
     let page = { items, head: items[0]!.cursor, hasMore: true }
-    const client = new TranscriptComputeClient()
+    const client = new TranscriptComputeClient(() => new BridgeWorker() as unknown as Worker)
     expect(client.usesWorker).toBe(true)
-    expect(() => new URL('./transcript-compute.worker.ts', import.meta.url)).not.toThrow()
     let retainedSource: TranscriptGraphSource | undefined
     const computeGraph = client.computeGraph.bind(client)
     vi.spyOn(client, 'computeGraph').mockImplementation((source, ...args) => {
@@ -80,8 +75,14 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     try {
       const stream = await count('retainedWeb.stream', () => log.merge([{ ...items.at(-1)!, text: 'streamed token' }]))
       const incoming = await count('retainedWeb.incoming', () => log.merge([item(items.length)]))
-      page = { items: [item(-2), item(-1), items[0]!], head: item(-2).cursor, hasMore: false }
+      page = { items: [item(-2), item(-1), items[0]!], head: item(-2).cursor, hasMore: true }
       const older = await count('retainedWeb.older', () => log.loadOlder())
+      const coalesced = await count('retainedWeb.coalesced', async () => {
+        log.merge([{ ...item(items.length), text: 'coalesced stream' }])
+        page = { items: [item(-4), item(-3)], head: item(-4).cursor, hasMore: false }
+        await log.loadOlder()
+        log.merge([item(items.length + 1)])
+      })
       const search = await count('retainedWeb.search', () => presentation.setQuery('needle'))
       const cursor = await count('retainedWeb.cursor', () => presentation.moveCursor(1))
       let verbosityResult: ReturnType<TranscriptComputeClient['computeGraph']> | undefined
@@ -91,11 +92,11 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
       expect((await verbosityResult)!.search.total).toBe(0)
       expect(presentation.search.total).toBe(1)
       expect(presentation.block(items.at(-1)!.id)?.item.text).toBe('streamed token')
-      expect(log.ids.length).toBe(items.length + 3)
-      samples.push({ scale, history: items.length, stream, incoming, older, search, cursor, verbosity })
+      expect(log.ids.length).toBe(items.length + 6)
+      samples.push({ scale, history: items.length, stream, incoming, older, coalesced, search, cursor, verbosity })
     } finally { stop(); presentation.dispose(); log.dispose(); client.dispose() }
   }
-  for (const name of ['stream', 'incoming', 'older', 'search', 'cursor', 'verbosity'] as const) {
+  for (const name of ['stream', 'incoming', 'older', 'coalesced', 'search', 'cursor', 'verbosity'] as const) {
     // Small MobX subscriber differences are allowed; a retained-history walk
     // would grow fourfold and exceed this bound by hundreds of elements.
     expect(samples[1]![name].elements).toBeLessThanOrEqual(samples[0]![name].elements + 20)

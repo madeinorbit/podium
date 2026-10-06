@@ -297,6 +297,32 @@ export class TranscriptGraph {
       const held = this.items.get(item.id)
       return held !== undefined && relationship(held) !== relationship(item)
     })
+    // Credit coalescing can combine successive pages and tail appends. Retain
+    // their source order and process each sparse batch against its own head.
+    if (!removed.length && !identityChanged && !append && !beforeHead) {
+      const groups: TranscriptGraphInsertion[][] = []
+      for (const insertion of insertions) {
+        const previous = groups.at(-1)
+        if (previous?.[0]?.before === insertion.before) previous.push(insertion)
+        else groups.push([insertion])
+      }
+      let head = this.fileIds[0]
+      const oneSided = groups.every(group => {
+        const before = group[0]!.before
+        if (before !== undefined && before !== head) return false
+        if (before !== undefined || head === undefined) head = group[0]!.id
+        return true
+      })
+      if (groups.length > 1 && oneSided) {
+        const inserted = new Set(insertions.map(insertion => insertion.id))
+        const values = new Map(change.changed.map(item => [item.id, item]))
+        this.apply({ changed: change.changed.filter(item => !inserted.has(item.id)) })
+        for (const group of groups) this.apply({
+          changed: group.map(insertion => values.get(insertion.id)!), insertions: group,
+        })
+        return
+      }
+    }
     // An authoritative topology edit remains a cold replacement. Ordinary
     // frames and one-sided pages preserve all unaffected cells and indexes.
     if (removed.length || identityChanged || (!append && !beforeHead)) {

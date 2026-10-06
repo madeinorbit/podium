@@ -138,3 +138,12 @@ it('selects the last result and last supplied effects without demanding all prog
   f.apply({ changed: [result('first')] })
   expect(f.graph.block('call')?.item.toolEffects).toBeUndefined()
 })
+
+it('retains coalesced prefix pages and tail appends in their source order', () => {
+  const f = fixture([prose('held')])
+  f.apply({ changed: [user('first'), prose('second'), prose('tail'), user('oldest')], insertions: [
+    { id: 'first', before: 'held' }, { id: 'second', before: 'held' },
+    { id: 'tail' }, { id: 'oldest', before: 'first' },
+  ] })
+  expect(f.graph.blockIds.slice()).toEqual(['oldest', 'first', 'second', 'held', 'tail'])
+})
