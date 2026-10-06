@@ -9,7 +9,7 @@ import { sidebarView, type SidebarSections } from './sidebar'
 import { expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
 import { MobxPool } from '../pool'
-import { insideReader, measureWork } from '../../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 
 const NOW = Date.parse('2026-10-03T12:00:00Z')
 const LANE = '/synthetic/lane'
@@ -213,7 +213,7 @@ async function evictionWork(scale: number, plant = false) {
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
     }, { pool })
     expect(Object.keys(detached.work.derivationsBy).filter(name =>
-      /\.(?:hasCandidates|rosterPaths|rosterIds)$/.test(name))).toEqual([])
+      /\.(?:hasCandidates|rosterIds)(?:\.|$)/.test(name))).toEqual([])
     runInAction(() => {
       // An imperative read inside the action still sees the current facts.
       expect(roster.band(group).ids).toEqual([paths[0]])
@@ -274,5 +274,50 @@ it('preserves snoozed-head names, roster-only bands and empty project affordance
     expect(sections.bands.map(band => band.key)).toEqual(['/repo-a', '/repo-b'])
     expect(sections.bands[0]).toMatchObject({ label: 'repo-a', snoozedIds: ['snoozed'], worktreeIds: [], startFirstTask: false })
     expect(sections.bands[1]).toBe(emptyProject)
+  } finally { stop(); pool.dispose() }
+})
+
+
+it('keeps demanded roster groups current across membership moves and replacement', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const path = '/moving/seat'
+  const lane = { path, repoId: 'first', repoPath: '/moving', repoName: 'First' }
+  const seat = { sessionId: 'moving-seat', cwd: path, issueId: null,
+    agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() }
+  const roster = sidebarRosterView(pool)
+  let first!: ReturnType<typeof roster.band>
+  let second!: ReturnType<typeof roster.band>
+  const stop = autorun(() => {
+    first = roster.band('first')
+    second = roster.band('second')
+  })
+  try {
+    expect(first.ids).toEqual([])
+    expect(second.ids).toEqual([])
+    pool.apply({ type: 'update', rows: [
+      { kind: 'worktree', id: path, value: lane as never },
+      { kind: 'session', id: seat.sessionId, value: seat as never },
+    ] })
+    expect(first).toMatchObject({ ids: [path], label: 'First' })
+    const originalIds = first.ids
+    pool.apply({ type: 'update', rows: [
+      { kind: 'worktree', id: path, value: { ...lane, repoId: 'second', repoName: 'Second' } as never },
+    ] })
+    expect(first.ids).toEqual([])
+    expect(second).toMatchObject({ ids: [path], label: 'Second' })
+    expect(originalIds).toEqual([path])
+    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: path, value: undefined }] })
+    expect(second.ids).toEqual([])
+    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: path, value: lane as never }] })
+    expect(first.ids).toEqual([path])
+    pool.apply({ type: 'replace', rows: [] })
+    expect(first.ids).toEqual([])
+    expect(second.ids).toEqual([])
+    pool.apply({ type: 'replace', rows: [
+      { kind: 'worktree', id: path, value: lane as never },
+      { kind: 'session', id: seat.sessionId, value: seat as never },
+    ] })
+    expect(first.ids).toEqual([path])
+    expect(second.ids).toEqual([])
   } finally { stop(); pool.dispose() }
 })

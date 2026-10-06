@@ -17,6 +17,7 @@ import { LOADING } from './rollup'
 import { retains, retentionOf } from './visible'
 import { SortedLanes } from './sorted-lanes'
 import { nextUp } from '../clock'
+import { createQueryResult } from '../query-result'
 import { isExcluded } from '../shared/predicates'
 
 export interface SidebarOwner {
@@ -43,20 +44,41 @@ export class SidebarRosterIndex {
   private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projectCounts') })
   private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
-  /** Group membership comes from the existing relation bucket. Path-only
-   * groups have no repo foreign key and use their existing resident lane. */
-  private readonly groupPaths = cachedKey('pool.sidebar', 'rosterPaths', key => {
-    const paths = [...this.pool.graph.many('repo', key, 'worktrees')]
-    return paths.length === 0
-      ? this.paths.lane(key).slice()
-      : paths.filter(path => this.lanes.has(path)).sort()
-  }, compareStructural)
-  private readonly groupIds = cachedKey('pool.sidebar', 'rosterIds', key =>
-    this.groupPaths(key).filter(path => this.hasCandidates(path)), compareStructural)
-  // The lane snapshot and metadata record are freshly assembled on a change.
+  /** Membership is filed by ingest; eligibility is a tracked row answer.
+   * The existing query owns its ordered snapshot and releases every row
+   * observer when the last group reader goes away. */
+  private readonly groupResults = new Map<string, ReturnType<typeof createQueryResult<string>>>()
+  private readonly groupListeners = new Map<string, Set<(path: string | undefined) => void>>()
+  private groupIds(key: string): readonly string[] {
+    let result = this.groupResults.get(key)
+    if (!result) {
+      result = createQueryResult({
+        name: `pool.sidebar.rosterIds.${key}`,
+        ids: () => this.paths.lane(key),
+        has: path => this.paths.has(path) && this.worktrees.get(path)?.group === key,
+        read: path => this.hasCandidates(path) ? path : undefined,
+        subscribe: changed => {
+          let listeners = this.groupListeners.get(key)
+          if (!listeners) {
+            listeners = new Set()
+            this.groupListeners.set(key, listeners)
+          }
+          listeners.add(changed)
+          return () => {
+            listeners.delete(changed)
+            if (!listeners.size) this.groupListeners.delete(key)
+          }
+        },
+        released: () => this.groupResults.delete(key),
+      })
+      this.groupResults.set(key, result)
+    }
+    const ids = result.get()
+    return ids === LOADING || ids === undefined ? EMPTY : ids
+  }
   private readonly bands = keyedComputed((key: string) => debugName(() => `pool.sidebar.rosterBand.${key}`), (key: string) => {
     return this.bandOf(key, this.groupIds(key))
-  }, { equals: compareStructural })
+  }, { equals: (before, after) => before.ids === after.ids && before.label === after.label && before.repoPath === after.repoPath })
   private bandOf(key: string, ids: readonly string[]) {
     const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
     const lane = head === LOADING ? undefined : head as SliceWorktree | undefined
@@ -67,7 +89,7 @@ export class SidebarRosterIndex {
   private readonly deadlines: number[] = []
   private now: number
 
-  /** Ownership is a read-time answer, independent of the filing reaction. */
+  /** Ownership is a read-time answer, independent of membership filing. */
   private readonly owner = cachedKey('pool.sidebar', 'owner', (id): SidebarOwner => {
     const issue = this.pool.knownIssue(id)
     const standing = issue?.standing
@@ -116,6 +138,7 @@ export class SidebarRosterIndex {
 
   dispose(): void {
     for (const stop of this.stops) stop()
+    for (const result of [...this.groupResults.values()]) result.dispose()
     this.clear()
   }
 
@@ -158,7 +181,7 @@ export class SidebarRosterIndex {
     else this.worktrees.set(path, { group: lane.repoId ?? lane.repoPath, project })
     if (lane && lane.path === lane.repoPath && lane.projectRoot !== false) this.projects.add(path)
     else this.projects.delete(path)
-    this.filePath(path)
+    this.filePath(path, previous?.group)
   }
   advanceClock(now: number): void {
     const previous = this.now
@@ -243,10 +266,14 @@ export class SidebarRosterIndex {
     this.filePath(previous.path)
   }
 
-  private filePath(path: string): void {
+  private filePath(path: string, previousGroup = this.worktrees.get(path)?.group): void {
     const group = this.worktrees.get(path)?.group
     const present = (this.lanes.get(path)?.size ?? 0) > 0
-    this.paths.file(path, present ? group : undefined, path)
+    if (!this.paths.file(path, present ? group : undefined, path)) return
+    if (previousGroup !== undefined)
+      for (const changed of this.groupListeners.get(previousGroup) ?? []) changed(path)
+    if (group !== undefined && group !== previousGroup)
+      for (const changed of this.groupListeners.get(group) ?? []) changed(path)
   }
 
   private schedule(id: string, at: number): void {
@@ -277,6 +304,8 @@ export class SidebarRosterIndex {
     this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear(); this.bands.clear()
+    for (const listeners of [...this.groupListeners.values()])
+      for (const changed of [...listeners]) changed(undefined)
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0
   }
 }
