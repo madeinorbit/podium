@@ -15,6 +15,7 @@
 #   boat-win.sh click ID X Y [TEXT]   left-click at screen pixel X,Y (as in a shot), then type TEXT
 #                                     (SendKeys syntax: {ENTER}, ^a, …). Type in the SAME call: a
 #                                     separate call's helper process takes the keyboard focus.
+#   boat-win.sh window ID W H         resize the desktop app's window to W x H pixels
 #   boat-win.sh app ID [EXE]          (re)start the desktop app with WebView2 remote debugging on
 #   boat-win.sh ui ID STEP...         drive the app UI by text (see ui.ts); `ui ID shot OUT.png` fetches it
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
@@ -146,6 +147,11 @@ for s in json.load(sys.stdin)["sandboxes"]:
     boat scp "$(dirname "$0")/click.ps1" "$id:/home/user/win/shared/click.ps1" >/dev/null
     text="${*//\'/\'\'}"
     "$0" gui "$id" "& \\\\host.lan\\Data\\click.ps1 -X $x -Y $y${text:+ -Text '$text'}"
+    ;;
+  window)
+    need_id "${1:-}"; id="$1"
+    boat scp "$(dirname "$0")/window.ps1" "$id:/home/user/win/shared/window.ps1" >/dev/null
+    "$0" gui "$id" "& \\\\host.lan\\Data\\window.ps1 -Width ${2:-1200} -Height ${3:-760}"
     ;;
   app)
     need_id "${1:-}"; id="$1"
