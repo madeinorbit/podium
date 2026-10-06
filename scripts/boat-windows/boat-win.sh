@@ -165,8 +165,9 @@ for s in json.load(sys.stdin)["sandboxes"]:
       ps "$id" '& \\host.lan\Data\gui.ps1 -Command (Get-Content -Raw \\host.lan\Data\gui-cmd.ps1)'
     else
       [[ -n "${1:-}" ]] || die "missing output path"
-      ps "$id" 'Remove-Item -Force C:\shot.png -EA 0; & \\host.lan\Data\gui.ps1 -Shot C:\shot.png; Copy-Item -Force C:\shot.png \\host.lan\Data\shot.png'
-      boat scp "$id:/home/user/win/shared/shot.png" "$1" >/dev/null
+      ps "$id" 'Remove-Item -Force \\host.lan\Data\shot.png -EA 0; & \\host.lan\Data\gui.ps1 -Shot C:\shot.png; Copy-Item -Force C:\shot.png \\host.lan\Data\shot.png' || die "screenshot failed"
+      rm -f "$1"
+      boat scp "$id:/home/user/win/shared/shot.png" "$1" >/dev/null || die "could not copy the screenshot"
     fi
     ;;
   desktop)
