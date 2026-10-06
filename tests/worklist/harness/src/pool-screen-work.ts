@@ -255,6 +255,7 @@ export async function poolScreenCellsAt(
   /** Mount only these readers: a focused gate for one screen's fix. The
    * full guard mounts every reader, as the app does. */
   only?: ReadonlySet<string>,
+  actions: readonly ScreenAction[] = SCREEN_ACTIONS,
 ): Promise<ScreenWorkRun> {
   // POD-5466: installed before the engine starts, so every timer the app
   // schedules, the startup ones included, is tagged and can be settled.
@@ -262,7 +263,7 @@ export async function poolScreenCellsAt(
   try {
     const ctx = await startScenarioEngine(scale, { ownRows: true })
     try {
-      return await measureScreenCells(ctx, scale, ledger, onCell, only)
+      return await measureScreenCells(ctx, scale, ledger, onCell, only, actions)
     } finally {
       ctx.engine.destroy()
     }
@@ -284,6 +285,7 @@ async function measureScreenCells(
   ledger: AsyncLedger,
   onCell?: (cell: ScreenWorkCell) => void,
   only?: ReadonlySet<string>,
+  selectedActions: readonly ScreenAction[] = SCREEN_ACTIONS,
 ): Promise<ScreenWorkRun> {
   const progress = (message: string) => process.stdout.write(`[screen work] ${scale}x ${message}\n`)
   progress('kernel ready')
@@ -710,7 +712,7 @@ async function measureScreenCells(
           throw new Error('Machine flip did not reach its joined session')
       }
     }
-    for (const action of SCREEN_ACTIONS) {
+    for (const action of selectedActions) {
       const before = neighbourhood()
       const tag = `${scale}x ${action}`
       const settle = (owner: string | null) =>
