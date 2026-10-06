@@ -40958,15 +40958,15 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/cache/keyedComputed:callback",
+      "holder": "settled",
       "rule": "reader-summary",
       "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
       "gate": [],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
       ],
-      "fingerprint": "4f8796d377b467eafd0c51d50e13059affaabf9c6a7eb6ee908c8c504b26f049",
+      "fingerprint": "b0a943958c76949129658e03a5ccd4b3a0a892e9ca65e0a4f58bd27710400ff3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40977,34 +40977,15 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/cache/keyedComputed:callback",
-      "rule": "reader-summary",
-      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "holder": "createMobileScreenReader/deck/memo:callback",
+      "rule": "helper-consumer",
+      "tokens": "d65915df94d8bf68546bdc5b27c722ef938ddc186784ecf40d8bcf6cdc0e44af",
       "gate": [],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
       ],
-      "fingerprint": "90beb067fd84a75f97e77e71c04ade307e6292194b7db2f910e43e841dab6d27",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/cache/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck",
-      "rule": "reader-summary",
-      "tokens": "58527a6bbe12bac7e0e7fe747d54973308c3c0037c7ee41535f97be1a1d54d3a",
-      "gate": [],
-      "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
-      ],
-      "fingerprint": "3be37718114d8b0acc8add311a9c26d1150faded5e8e34851ff3de7249da429f",
+      "fingerprint": "361b92562c8bc7f7146944266159ce60008baa196756918f8b06bb2fb092c91d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41015,16 +40996,16 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/crew",
+      "holder": "createMobileScreenReader/readDeck/crew",
       "rule": "materialize:Map",
       "tokens": "0c1aaf94d19c9d3949e415d6dbd8246602f1e492de605bf7aa23973f50866a3b",
       "gate": [
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d"
       ],
-      "fingerprint": "52d6d6c7e04c9d3742fc41b7f2deeacc779be8fcb03ce74014789c2557f42084",
+      "fingerprint": "0eb70d374f7cad5c2112bf06040d777b70deaae7ea8dcdb00e401ee5cfebb5b0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41035,16 +41016,16 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/crew",
+      "holder": "createMobileScreenReader/readDeck/crew",
       "rule": "consume:map",
       "tokens": "3ee01f0c173a9b17e0f8c7034fd3c4f2b48d2785a2c89df18e2ba9e7e44c6270",
       "gate": [
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d"
       ],
-      "fingerprint": "9ce9d8646af67bbd81ac69fc863643c1f71f306ee7fb16d3c13372bff3040595",
+      "fingerprint": "d14cd9bfb744adff784657c077788df6e36f08a75aca7a56722598372b44f866",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41055,17 +41036,17 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readDeck/sessions",
       "rule": "consume:sort",
       "tokens": "71067339a7099630c739b984e8586bd747fc166ee2aecb5bdd0a1eda798a6abd",
       "gate": [
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
       ],
-      "fingerprint": "72554f2677f1fa246e6a7b36fb581267f558161888d75be2f987f51e93f9ad2a",
+      "fingerprint": "39be6e56589743275cc823698e28e7d0a5f83a4b752f9e5adbfe1d38e2b45c91",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41076,17 +41057,17 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readDeck/sessions",
       "rule": "spread",
       "tokens": "ed740c96501e3d30dd6088de78513b934c1122a0cf90f0a780581fb708796649",
       "gate": [
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
       ],
-      "fingerprint": "7a1a72a62e7d66011bd310efe874af0e3f7fca9d62f086d99351bbd6c8b10843",
+      "fingerprint": "991a1a7187b03af8f8185de1f0d9d9651399fd48d77e0973b7e1da4c77c2a0ca",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41097,16 +41078,16 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readDeck/sessions",
       "rule": "enumerate:values",
       "tokens": "155475621ac5b1caabb302c435dededf8ac1e7fbe53ebcc150f234e7c2738b8d",
       "gate": [
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
       ],
-      "fingerprint": "7ecd59a679947d266baa81cf8046510d722b8681a11b63ebc4a156516b1192c3",
+      "fingerprint": "8c31c67379d14c16c865e318ebb67a0791d83acf6d1470c3b4adba9fb436ca0b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41117,57 +41098,15 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/memo",
-      "rule": "reader-summary",
-      "tokens": "8c3fbe32500365c237ea6a5507e3c149695293bb7520544c29db768b4092cf1a",
-      "gate": [
-        "else:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
-      ],
-      "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
-      ],
-      "fingerprint": "32a18bfdf47183f27dcfb8c6a0eaeb6a19c613f50f9a1beb6c0447ff28ccfac1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/memo",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/memo",
-      "rule": "reader-summary",
-      "tokens": "8c3fbe32500365c237ea6a5507e3c149695293bb7520544c29db768b4092cf1a",
-      "gate": [
-        "else:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
-      ],
-      "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
-      ],
-      "fingerprint": "948c0f68bc54b0b23687d030a6f5f518f7a14050765c556b72d091a0c940c3a0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/memo",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission",
-      "rule": "reader-summary",
-      "tokens": "b7662fcc8f230097574afba94ba8b0becd1926942f113d469506750b2a5545f4",
+      "holder": "createMobileScreenReader/readMission/memo:callback",
+      "rule": "helper-consumer",
+      "tokens": "d53d8ab514bab60ffc51ce644464d73f0c48f11aab27689c755baf8ef78f92a3",
       "gate": [],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
       ],
-      "fingerprint": "063bb18c771a73a31cc09c2c3b9a482819a44e91c765c21ef934229f0eeabef0",
+      "fingerprint": "0cf5b020296b0e13d5d6c5d5e5eb94f00f0fbeb854f703fc4051c9cf3215fb13",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41178,7 +41117,7 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readMissionData/sessions",
       "rule": "consume:map",
       "tokens": "3ee01f0c173a9b17e0f8c7034fd3c4f2b48d2785a2c89df18e2ba9e7e44c6270",
       "gate": [
@@ -41186,9 +41125,9 @@
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761"
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
       ],
-      "fingerprint": "1044a500dcf6183218d4688b0c21cfcd9933dbacfab9d784843804133ad6a881",
+      "fingerprint": "5eb0a1df6125b665839910e06ab50061848969fc1f4b5eafb47798d65650517c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41199,7 +41138,7 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readMissionData/sessions",
       "rule": "spread",
       "tokens": "9fdb76b2f440a2890a5978a5089663ba96f2e92519c2ceeef6d2f552708ba7fc",
       "gate": [
@@ -41207,10 +41146,10 @@
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
       ],
-      "fingerprint": "3c72f39e1475410aa0d0e4b8c5d3fdd0aa87096a1b89f0c93dadd0dd99ab7a66",
+      "fingerprint": "9f76f74f998e79fbf54b7abd96b49108a8f854fcf4d34134b410a765a4117d71",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41221,7 +41160,7 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readMissionData/sessions",
       "rule": "enumerate:values",
       "tokens": "237d00c17be0d97131240a75108b79b5a94f79669589f69fe3ce1de46264dcf6",
       "gate": [
@@ -41229,9 +41168,9 @@
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79"
       ],
-      "fingerprint": "a83c0651eaca35fd8d751d746d36f2414d4a1263a9a652adfb16cd89bcc7ede0",
+      "fingerprint": "13011cfe80f65fb98d585f214261f18c2339e9c7a5c62fc33e20e60c84289586",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41242,7 +41181,7 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readMissionData/sessions",
       "rule": "materialize:Map",
       "tokens": "0c1aaf94d19c9d3949e415d6dbd8246602f1e492de605bf7aa23973f50866a3b",
       "gate": [
@@ -41250,9 +41189,9 @@
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761"
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
       ],
-      "fingerprint": "ad697958cd0fe374096ea129c2c313e925b483461ce7c143fa9286cadd1bfff0",
+      "fingerprint": "7af307124a4f0a829bef40ed202fb8155f809f7c5b1461d3392212a8c2081aa5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41263,7 +41202,7 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/sessions",
+      "holder": "createMobileScreenReader/readMissionData/sessions",
       "rule": "consume:sort",
       "tokens": "b937fc64da53a144ed34f93ee32320ba8daf3b4dedf7162ba2237c02b26b4c03",
       "gate": [
@@ -41271,10 +41210,10 @@
         "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb"
       ],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
       ],
-      "fingerprint": "d83fa1464c2237a4a62d35b764b836c309c98fb0472be4d7b66b4fbb5f8d649a",
+      "fingerprint": "1de1af7696c9c906abeb2a4f2c5edd82d0c6325a50a25325ef498e974224208c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41285,16 +41224,16 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/tasks/memo:callback",
+      "holder": "createMobileScreenReader/readTasks",
       "rule": "loop:for-of",
       "tokens": "07b0a7ee94700add249ec00c48a689f589766866c1a1c1568f80cc4fc1862ebc",
       "gate": [
         "exit:then:fe1f864645b4a817d48d8fd0e7daa3a9d53184f7d8a4ba98d07b786b2bcc1fb2"
       ],
       "origin": [
-        "e5e4261cb58833a101c41f089cdcf54a4f8fa16f51600f43989e3f17c3f4f820"
+        "dcb716b6d9a08706dd67ec52039aea1fe732981f2172d2b01158bbd2bba0584b"
       ],
-      "fingerprint": "1da6f0e0ef75e6180d2a16bd58da0113c0cb93bf18fdad68c1623bf25f4b4d9e",
+      "fingerprint": "2b70371aa79e28ab8e2394d5972f5baa0e16d18839338fda23539e867c70315c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -41305,17 +41244,17 @@
     },
     {
       "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/tasks/memo:callback/emit/callback",
+      "holder": "createMobileScreenReader/readTasks/emit/callback",
       "rule": "helper-consumer",
-      "tokens": "43661ec8c8de4331859d176f46b613c18ed108cfbf40fb74fe4ef194277fb67b",
+      "tokens": "75671b3b701c82b00cec12f39fb61fd4fdc6841a37265fac58cdbeb2a52e9d79",
       "gate": [
         "exit:then:53954cfe92b1b3a5818b5c74b6069dd7d023ec6919c0fbb720f2253817dfa868",
         "then:c206573d10c3cdac00015117591121611ece4ace7db346f1b8d5cb98b77bf2c5"
       ],
       "origin": [
-        "fc55075bb1cc3110f6f12ca0906271e41dcd30ef3e42a9edddf21af506ca3719"
+        "833f6bb2bc3f1141e59b4ede812eefb197f7292e69c7e16b34be50df3c5b415d"
       ],
-      "fingerprint": "e90845c442a0a645003e6a6bcf9734db671bfbaa5358368927a45b2c24d97511",
+      "fingerprint": "92c6de9765d7b33a93cdde0cb64bb9ad0826a870bc8a5b2c3cfb039bd3ead315",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43630,13 +43569,13 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "issueRow",
       "rule": "reader-summary",
-      "tokens": "0b2f429dcef6760ec92df8f90196731e045a49d2b3bdf7070242876d2500e278",
+      "tokens": "7d6a3f2352e9e3ec8deb49059e67efa676d66f913f1c84d1bab046f0dbcc8106",
       "gate": [],
       "origin": [
         "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
-      "fingerprint": "7f076ed95c7e42a99dafb9bcd56aa3cea07af341a722c4917d7f5a6b52571535",
+      "fingerprint": "07aa3071d95af718def2bc038e509aa3459dd26366b9031d33f43fc22bdd81be",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43671,7 +43610,7 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "issueRow/cachedGroup:callback",
       "rule": "reader-summary",
-      "tokens": "53443d62054cc5a852d0bcc94e796b0d1b066f8ea58aeaa04e297f30d4d3ec3d",
+      "tokens": "d6d3f7126fd1a1faf1ab51a561d9a9d24772537227cfda1c80433b0a8fedbed6",
       "gate": [
         "else:84540e276edc5ac4b635be84082a14c098bfeba2bb7e6339d9dd3f4522c02432"
       ],
@@ -43679,7 +43618,7 @@
         "ce34b0cad6f75c5d17a3bffd0aee1c7a8c8eb2d311a57c9c096e43c857b67ec9",
         "f446a587c64b7ca7655f470f2b480381aeaeeafddaafdfdea5180c567a71aced"
       ],
-      "fingerprint": "8f753c42983059e7a693a6ebae978929b522c193e86f34ac1b39d165f5ae2864",
+      "fingerprint": "eb9263f3ef8c87966860857efb251a9636e053b28fd65ed3a04b457ad087178f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43710,12 +43649,12 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "MobileSectionsView/keyedComputed:callback",
       "rule": "reader-summary",
-      "tokens": "c05d7f21e91beeb341112e890e6280d797d315225908346f425c19b217aca92c",
+      "tokens": "6192093bd8d50a0eeb1289a064644cc01e3f0521975f8a6dcde86d6d416b328b",
       "gate": [],
       "origin": [
         "d6d1e34820530425562afaaaddc07a110e914dc6e4ff7b7a21ed8d2ca41f94c4"
       ],
-      "fingerprint": "3744015ab3c121932e928f2070fdb84f7134fb528bc32bf96644b6e4fb6db5dd",
+      "fingerprint": "55f96659d076c5e6632b3f9c912be3273f92e73c5c28f98d6da31bbab7512310",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45317,54 +45256,10 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
-      ],
-      "fingerprint": "753d3c4db4a52f8c5efcbecdf795dc45e2e2c132527934ffd427f9616c3397c6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
       "fingerprint": "63f072daa2ef24d2a75ebcf89a818cc2707309541ef5dab2e5b7e881ebfaccdc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
-      ],
-      "fingerprint": "c03c07c189348eae6714730e73cb408892c43a2f655d91695199b325bf5da8e2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45423,51 +45318,9 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
-      ],
-      "fingerprint": "4757e2cd9fc9757e89f067b2c2be7490922f2be83602c1d29872983974ee8afe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
         "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
       ],
       "fingerprint": "4c488a5f5b48491ca58b9579278534378121e4f1b60e6f372ad217de4b762342",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
-      ],
-      "fingerprint": "5fe1ce797bded99270242a6046cf49e3abbf1c5d39918609743610a705a4de9d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -45569,28 +45422,6 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "44aac667f539c7a9ec2dd6e82ed8d9c646aa71815b86f2f6ac8484e714aa23bf",
-        "8602938263ff5cb02651408aa6a51a1ae54e8a92d4a58ec7e4046348e3e89b74"
-      ],
-      "fingerprint": "4a94ece41b52d331db0d5e2d36ee50d5eba837f880785a94ad5cdc0927ff1b7d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
@@ -45616,28 +45447,6 @@
         "ffe7b50c338469f5d9ed9e6acd17b5ae445ea8c78ef8168de64a3b23b38c99b5"
       ],
       "fingerprint": "d1d98a849f158f5fa8332b73ece896e535c2e4370c1165682eb98fd0d8a6eb86",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "992781bf56cd3993898485a4a5123ee466fff82b93af1ae1103e1904cd908761",
-        "d91ed13d8bc6825836c4a4b2e82b8b275d4419e48e37e547ba78db800ed0dce4"
-      ],
-      "fingerprint": "e344aa2e6f7e3f50758a611fe18c604cd4db781ee0988520f9aa2d21b96f0553",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -46167,12 +45976,12 @@
       "file": "packages/client-graph/src/worklist/mobile.ts",
       "holder": "MobileSectionsView",
       "rule": "reader-summary",
-      "tokens": "8c47918f62aed71a0a1ace4bbfa8e72a45f309906fbfe0d5e3a2f13c1a18ee65",
+      "tokens": "19f5d3708c0773bd7f5e5cc382162d694da3172ba7b9b3f665f4fa6ad132985d",
       "gate": [],
       "origin": [
         "d6d1e34820530425562afaaaddc07a110e914dc6e4ff7b7a21ed8d2ca41f94c4"
       ],
-      "fingerprint": "e2843333bd9956b8f0e08d070d766a9df551b306f82f839c42acafef8f36ca90",
+      "fingerprint": "c7271bf01b1eeec826b1510f6dd3749db175172d16157fa6bda120412a903b3e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -49245,6 +49054,101 @@
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "packages/client-graph/src/mobile-screens.ts",
+      "holder": "createMobileScreenReader/deck/memo:callback/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "8e78053be969a2759180353fa54391ea5a38ae917c3eaf055f078420f0026df1",
+      "gate": [],
+      "origin": [
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
+      ],
+      "fingerprint": "f4a673049e4055a2646abfbe6d2b9f3fb1117a76b8599e6e4e7f35b0358197e2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createMobileScreenReader/deck",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-screens.ts",
+      "holder": "createMobileScreenReader/deck/memo:callback/computed:callback/settled:callback",
+      "rule": "reader-summary",
+      "tokens": "9b0bfb489459bcfb3a712916e7b32f91134dec3ef8858edfa7b912e843cd5a6a",
+      "gate": [],
+      "origin": [
+        "970f21d5e231a5fe473d09e76d421ade3904253880c03826775d778f8692035d",
+        "97ec599bf1d192dc4193b950e87cd88097c92b04ef7deee62ede2310630bcece"
+      ],
+      "fingerprint": "6692b2e59ccb4b424266217f093a730b6e66b4828270a015ac00d7b6aed98ad0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createMobileScreenReader/deck",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-screens.ts",
+      "holder": "createMobileScreenReader/readMission/memo:callback/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "65394565580716338b88e858251f8a352fae75ebc55418a99eea6e3f4040eb79",
+      "gate": [],
+      "origin": [
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
+      ],
+      "fingerprint": "0cf9f2b99a6e896ebc00226e3631a4e3f66235a4c635e52b5fd70b105d8bd131",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createMobileScreenReader/readMission",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-screens.ts",
+      "holder": "createMobileScreenReader/readMission/memo:callback/computed:callback/settled:callback",
+      "rule": "reader-summary",
+      "tokens": "adaa47a102d73f0a357658b9a2523e692134c4895e7d16aba43ce810ec6f18d8",
+      "gate": [],
+      "origin": [
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
+      ],
+      "fingerprint": "a243c090cf8b97789fd1e7d1d6b783659cbdac4b8de21d30c8be08209c70bbba",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createMobileScreenReader/readMission",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-screens.ts",
+      "holder": "settled",
+      "rule": "reader-summary",
+      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "gate": [],
+      "origin": [
+        "05a6defb6b452ce65eee36679c49e0f1f0bdb65cd5c9d0c1c0b14e7bf2a1aa79",
+        "45aebd964177ef720e7381e880121462d96e5a26d2dc28ec844030fa9d03e0bc"
+      ],
+      "fingerprint": "eba14b8953f227c157a4811323845417f6bf0ec393a751d26a2f858a6dd919d4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createMobileScreenReader/cache/keyedComputed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
