@@ -1,5 +1,6 @@
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
+import { asMachineId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import { useState, type ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -26,7 +27,7 @@ const { NewIssueScreen } = await import('../screens/NewIssueScreen')
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 function fixture(scale: number) {
-  const machines = ['mine', 'remote'].map(id => ({ id, name: id, hostname: id, online: true,
+  const machines = ['mine', 'remote'].map(id => ({ id: asMachineId(id), name: id, hostname: id, online: true,
     lastSeenAt: new Date().toISOString(),
     serviceAssignment: { server: false, agentExecution: true },
     availability: { epoch: 'one', daemon: true, server: false, supervisor: true },
