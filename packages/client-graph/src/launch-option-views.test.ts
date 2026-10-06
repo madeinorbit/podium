@@ -148,13 +148,18 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
   })
   try {
     expect(views.repositories()).toEqual(reposToViews(repos))
+    expect(views.catalog().repoPaths).toEqual(['/first', '/second'])
+    expect(views.catalog().initialRepoPath).toBe('/first')
     expect(projects.repos).toMatchObject([{ path: '/first', worktrees: [] }])
     runInAction(() => pins.set({ repos: [], worktrees: pins.get().worktrees }))
     expect(projects.repos).toEqual([])
     runInAction(() => entities.order('repository', ['r1', 'r0', 'r2']))
     expect(views.repositoryPaths()).toEqual(['/second'])
+    expect(views.catalog().repoPaths).toEqual(['/first', '/second'])
+    expect(views.catalog().initialRepoPath).toBe('/second')
     entities.apply([{ kind: 'repository', id: 'r1', value: undefined }])
     expect(views.repositoryPaths()).toEqual(['/first'])
+    expect(views.catalog().repoPaths).toEqual(['/first'])
   } finally {
     stop()
     activity.mockRestore()

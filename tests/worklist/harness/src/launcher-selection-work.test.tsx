@@ -21,10 +21,7 @@ it('keeps selected-child palette metadata within one addressed neighbourhood', a
   writeFileSync('.artifacts/launcher-selection/work.json', JSON.stringify({ samples, at1x, at4x }, null, 2))
   console.info('[palette selected-child bounds]', JSON.stringify(samples))
   for (const sample of samples) {
-    expect(sample.loaded.rows).toBeLessThanOrEqual(2)
-    expect(sample.loaded.derivations).toBeLessThanOrEqual(1)
-    expect(sample.loaded.elements).toBeLessThanOrEqual(2)
-    expect(sample.displayRef.derivations).toBe(1)
-    expect(sample.displayRef.elements).toBeLessThanOrEqual(1)
+    expect(sample.loaded).toEqual({ rows: 0, derivations: 0, elements: 0 })
+    expect(sample.displayRef).toEqual({ derivations: 0, elements: 0 })
   }
 }, 1_800_000)
