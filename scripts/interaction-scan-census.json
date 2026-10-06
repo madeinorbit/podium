@@ -2471,7 +2471,7 @@
       "file": "apps/mobile/src/screens/WorkListRow.tsx",
       "holder": "PoolWorkRowSlot/PoolWorkRowSlot/read/useCallback:callback/shown",
       "rule": "reader-summary",
-      "tokens": "26e39391e2b3c634179bd3d0be0b7c4a6155258d2fda588020000295eaed8ed4",
+      "tokens": "05f2b5febb695e6cf09ef0251f6b263ef029837e6e661a74c13d45014d7d4d7f",
       "gate": [
         "else:d6964368f80128663f31aca74b8bd8f38338c91477d5ba0b2cbf376ae135165a",
         "then:0a19fccc7869dacfd991b4c29945afccd9a2b9e062be872166a0f6265fef12f5"
@@ -2479,7 +2479,7 @@
       "origin": [
         "0cb7e64b0c6d0ead96950df402ab192a42d215ce2b56e930f944abec3adbf71f"
       ],
-      "fingerprint": "b5d085e84bd206f17a733b31de96500e12a62c646f799e51b104859e62003a7d",
+      "fingerprint": "010ef8ab504f6011cde75ebab62a199d8518cf00d2453a336c69c3320e584edd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -14742,7 +14742,7 @@
       "file": "apps/web/src/features/worklist/pool-sidebar-rail.tsx",
       "holder": "PoolRailTile/PoolRailTile/urgent",
       "rule": "helper-consumer",
-      "tokens": "b7dbbdd216d6db55d46b4a10461aceb3d4879f0984cdc8ffbc8afb5231b9b78a",
+      "tokens": "28bfdd89b788c1b32bb27f76884553af132335822b1a981921722722ccc46709",
       "gate": [
         "exit:then:08e89267f5a96c12d46f606a55c6aed701ec4dc0caad5c6c64c22235878007a3",
         "else:11e13500121e66f2c2780333d3c2d5476f0c448bdd7db2f9469d4e340a25066a"
@@ -14750,7 +14750,7 @@
       "origin": [
         "0937978eea315bb25529c46291bd6d2f0b7416fce4396b53276d6eabb6496876"
       ],
-      "fingerprint": "e7705a7d249e81ed97c9b80365d408bae785abb59d651e39110dfe23ae1df3cf",
+      "fingerprint": "81fcfe5ed04cb73d54645ddb193b414b9ad4965efbfe0d05f058c38e4aa1d390",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39156,12 +39156,12 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/workingAgents",
       "rule": "helper-consumer",
-      "tokens": "8bfbaf737256d1fc1263b839f63bf355d68aeeb89d5242a0014d5b67065eddf1",
+      "tokens": "ac9e3af3df3f2d23420fdad44b4d3f398616829dda4992d9d9cc873b1fc0a0ff",
       "gate": [],
       "origin": [
         "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
       ],
-      "fingerprint": "6ba8c70fde85f9ee20e078aa43634cfbff0dac212d29637d3a4922b44a5e2343",
+      "fingerprint": "398baf7b0fd39aec43f00d16512e3f5a93a70b48b7f6db093d4155fdb1777c92",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
