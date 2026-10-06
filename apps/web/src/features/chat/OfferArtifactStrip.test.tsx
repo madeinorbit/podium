@@ -23,6 +23,7 @@ let issues: IssueViewModel[] = []
 let publication = 0
 const storeListeners = new Set<() => void>()
 let storeSnapshot = {
+  get issues() { return issues },
   httpOrigin: 'http://h',
   openArtifact,
   openFileInWorktree,
@@ -64,7 +65,6 @@ function publishUnchangedSelection(): void {
 }
 
 vi.mock('@/app/store', () => ({
-  useReplicaIssues: () => issues,
   useRuntimeSelector: useTestStoreSelector,
 }))
 
@@ -102,7 +102,10 @@ beforeEach(() => {
   openArtifact.mockClear()
   openFileInWorktree.mockClear()
   publication = 0
-  storeSnapshot = { httpOrigin: 'http://h', openArtifact, openFileInWorktree, publication }
+  storeSnapshot = {
+    get issues() { return issues },
+    httpOrigin: 'http://h', openArtifact, openFileInWorktree, publication,
+  }
 })
 
 afterEach(() => {
