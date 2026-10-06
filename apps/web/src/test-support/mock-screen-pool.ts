@@ -455,6 +455,7 @@ function useFixturePool(): MobxPool {
       },
       clock: {
         current: Date.now(),
+        trackedNow() { return this.current },
         reached: (_at: number) => true,
         passed: (_at: number) => true,
       },
