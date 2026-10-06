@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createServer, request } from 'node:http'
+import { createServer as createNetServer, type Server as NetServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NativeMachineUpdateAdapter } from './machine-update-native'
@@ -99,9 +100,16 @@ export async function startMachineUpdateControl(
       res.writeHead(409).end(JSON.stringify({ error: String(error) }))
     }
   })
+  // Bun's node:http server cannot listen on a Windows named pipe (ENOENT, Bun 1.4.2) while a
+  // node:net server can, so on Windows a net server owns the pipe and hands each connection
+  // to the HTTP server.
+  const listener: NetServer | typeof server =
+    process.platform === 'win32'
+      ? createNetServer((socket) => server.emit('connection', socket))
+      : server
   await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(endpoint.socketPath, resolve)
+    listener.once('error', reject)
+    listener.listen(endpoint.socketPath, resolve)
   })
   if (process.platform !== 'win32') chmodSync(endpoint.socketPath, 0o600)
   const publish = () => {
@@ -113,6 +121,7 @@ export async function startMachineUpdateControl(
   return {
     publish,
     async close() {
+      if (listener !== server) await new Promise<void>((resolve) => listener.close(() => resolve()))
       await new Promise<void>((resolve) => server.close(() => resolve()))
       rmSync(endpoint.socketPath, { force: true })
       try {
