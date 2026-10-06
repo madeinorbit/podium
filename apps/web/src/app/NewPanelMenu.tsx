@@ -10,6 +10,7 @@ import {
   type IssueId,
   type MachineId,
   type MachineWire,
+  machinePathBasename,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
@@ -194,7 +195,7 @@ function NewPanelMenuBody({
     // never has to branch on undefined.
     return {
       path: worktree.repoPath,
-      name: worktree.repoPath.split('/').pop() || worktree.repoPath,
+      name: machinePathBasename(worktree.repoPath) || worktree.repoPath,
       worktrees: [worktree],
       machines: worktree.machineId ? [{ machineId: worktree.machineId, path: worktree.path }] : [],
     }
@@ -395,7 +396,7 @@ function NewPanelMenuBody({
  *  not the place). */
 function worktreeLabel(worktree: WorktreeView, repoView: RepoView): string {
   if (!worktree.isMain && worktree.branch) return worktree.branch
-  return repoView.name || worktree.repoPath.split('/').pop() || worktree.repoPath
+  return repoView.name || machinePathBasename(worktree.repoPath) || worktree.repoPath
 }
 
 /** The "+" menu's Recent-files section (POD-149): strict issue scoping shows a
@@ -444,7 +445,7 @@ function RecentFilesSection({
         >
           <FileTypeIcon name={f.path} size={14} />
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-            {f.path.split('/').pop() || f.path}
+            {machinePathBasename(f.path) || f.path}
           </span>
           <span className={`${MENU_HINT} tabular-nums`}>
             {relativeTime(new Date(f.openedAt).toISOString(), now)}

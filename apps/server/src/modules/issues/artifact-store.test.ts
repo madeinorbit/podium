@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asArtifactId, asIssueId } from '@podium/model'
+import { asArtifactId, asIssueId, joinMachinePath } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_FILE_CAP_BYTES,
@@ -62,6 +62,19 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     })
     expect(slice?.bytes.toString()).toBe('N')
     expect(slice?.size).toBe(3)
+  })
+
+
+  it.each(['/wt', 'C:\\wt', '\\\\nas\\share\\wt'])('machine paths: snapshots remote files and directories under %s', async root => {
+    const path = joinMachinePath(root, 'shots', 'a.png')
+    const dir = joinMachinePath(root, 'shots')
+    const store = new IssueArtifactStore(base, fakeRpc({ [path]: Buffer.from('PNG') }, { [dir]: [{ name: 'a.png', isDir: false }] }))
+    const single = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath: path })
+    expect(single.entry).toBe('a.png')
+    expect(single.files).toEqual([{ path: 'a.png', size: 3 }])
+    const folder = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath: 'shots' })
+    expect(folder.files).toEqual([{ path: 'a.png', size: 3 }])
+    expect((await store.read(asIssueId('iss_1'), folder.artifactId, 'a.png'))?.bytes.toString()).toBe('PNG')
   })
 
   it('stores browser bytes directly without a daemon source file', async () => {
@@ -156,6 +169,23 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     await expect(
       store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'huge.bin' }),
     ).rejects.toThrow(/per-file cap/)
+  })
+
+  it.each(['C:/shot.png', String.raw`\a\b.png`, String.raw`\\a\b.png`])('machine paths: snapshots literal POSIX relative filename %s', async sourcePath => {
+    const store = new IssueArtifactStore(base, fakeRpc({ ['/wt/' + sourcePath]: Buffer.from('PNG') }))
+    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath })
+    expect(snap.entry).toBe(sourcePath === 'C:/shot.png' ? 'shot.png' : sourcePath)
+    expect((await store.read(asIssueId('iss_1'), snap.artifactId, snap.entry))?.bytes.toString()).toBe('PNG')
+  })
+
+  it('machine paths: walks a POSIX directory whose name begins with a drive-like token', async () => {
+    const root = '/wt'
+    const sourcePath = 'C:/shots'
+    const path = '/wt/C:/shots/a.png'
+    const store = new IssueArtifactStore(base, fakeRpc({ [path]: Buffer.from('PNG') }, { '/wt/C:/shots': [{ name: 'a.png', isDir: false }] }))
+    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root, sourcePath })
+    expect(snap.sourcePaths).toEqual(['C:/shots/a.png'])
+    expect(snap.files).toEqual([{ path: 'a.png', size: 3 }])
   })
 
   it('enforces the bundle file-count cap during the walk', async () => {

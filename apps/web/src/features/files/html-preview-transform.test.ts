@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
+import type { Window } from 'happy-dom'
 import { describe, expect, it } from 'vitest'
-import { buildStaticHtmlPreview, rewriteCssUrls } from './html-preview-transform'
+import { scopedAssetUrl } from '@/lib/asset-url'
+import { buildStaticHtmlPreview, linkedStylesheetPathsForStaticHtml, rewriteCssUrls } from './html-preview-transform'
 
 const resolveAsset = (baseDir: string, value: string): string =>
   `/files/asset?base=${encodeURIComponent(baseDir)}&src=${encodeURIComponent(value)}`
@@ -142,3 +144,53 @@ function cspOf(html: string): string {
     doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content') ?? ''
   )
 }
+
+it('inlines Windows stylesheets and resolves their asset directory on the machine', () => {
+  const html = buildStaticHtmlPreview({
+    html: '<link rel="stylesheet" href="style/site.css">',
+    fileDir: 'C:\\repo\\docs',
+    resolveAsset,
+    readTextAsset: (path) =>
+      path === 'C:\\repo\\docs\\style\\site.css'
+        ? '.hero{background:url("../img/hero.png")}'
+        : undefined,
+  })
+  expect(html).toContain('base=C%3A%5Crepo%5Cdocs%5Cstyle')
+  expect(html).not.toContain('<link')
+})
+
+
+it.each(['/r/docs', String.raw`C:\r\docs`])('keeps a preview alive with trailing-dot assets under %s', fileDir => {
+  const settings = (window as unknown as Window).happyDOM.settings
+  const previous = settings.disableCSSFileLoading
+  const previousSuccess = settings.handleDisabledFileLoadingAsSuccess
+  settings.disableCSSFileLoading = true
+  settings.handleDisabledFileLoadingAsSuccess = true
+  try {
+    const source = '<img src="img."><style>.x{background:url(x.)}</style><link rel="stylesheet" href="style.">'
+    const reads: string[] = []
+    const html = buildStaticHtmlPreview({
+      html: source,
+      fileDir,
+      resolveAsset: (baseDir, src) => scopedAssetUrl({ httpOrigin: 'https://podium.test', scope: { kind: 'worktree', root: fileDir }, fileDir: baseDir, src }),
+      readTextAsset: path => { reads.push(path); return undefined },
+    })
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    const paths = linkedStylesheetPathsForStaticHtml(source, fileDir)
+    if (fileDir.startsWith('C:')) {
+      expect(doc.querySelector('img')?.getAttribute('src')).toBe('img.')
+      expect(doc.querySelector('style')?.textContent).toContain('url(x.)')
+      expect(doc.querySelector('link')?.getAttribute('href')).toBe('style.')
+      expect(paths).toEqual([])
+      expect(reads).toEqual([])
+    } else {
+      expect(doc.querySelector('img')?.getAttribute('src')).toContain('/files/asset?')
+      expect(doc.querySelector('style')?.textContent).toContain('/files/asset?')
+      expect(paths).toEqual(['/r/docs/style.'])
+      expect(reads).toEqual(paths)
+    }
+  } finally {
+    settings.disableCSSFileLoading = previous
+    settings.handleDisabledFileLoadingAsSuccess = previousSuccess
+  }
+})

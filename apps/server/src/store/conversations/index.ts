@@ -1,7 +1,7 @@
-import { asMachineId, type MachineId } from '@podium/model'
+import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } from '@podium/model'
 import { and, eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
 import { currentTransaction } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
@@ -250,13 +250,20 @@ export class ConversationIndexRepository {
     const pathFilter = opts.projectPath
       ? sql` AND (c.project_path=${opts.projectPath} OR c.project_path LIKE ${`${opts.projectPath}/%`})`
       : sql``
+    const machineKey = opts.projectPath ? machinePathKey(opts.projectPath) : undefined
+    const windows = machineKey && machinePathSeparator(machineKey) === '\\'
+    const prefix = windows ? machineKey + (machineKey.endsWith('\\') ? '' : '\\') : ''
+    const comparablePath = sql`lower(replace(c.project_path, '/', ${'\\'}))`
+    const machinePathFilter = windows
+      ? sql` AND (${comparablePath} = ${machineKey} OR substr(${comparablePath}, 1, ${prefix.length}) = ${prefix})`
+      : pathFilter
     const topLevel = sql` AND c.parent_conversation_id IS NULL`
     const order = sql` ORDER BY c.updated_at DESC NULLS LAST`
     const query = opts.query?.trim() ?? ''
     let rows: Record<string, unknown>[]
     if (!query) {
       rows = await this.db.all(
-        sql`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}${order}`,
+        sql`SELECT c.* FROM conversations c WHERE 1=1${machinePathFilter}${topLevel}${order}`,
       )
     } else if (this.ftsAvailable) {
       const fts = query
@@ -266,14 +273,14 @@ export class ConversationIndexRepository {
         .join(' ')
       rows = await this.db.all(
         sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
-        WHERE conversations_fts MATCH ${fts}${pathFilter}${topLevel}${order}`,
+        WHERE conversations_fts MATCH ${fts}${machinePathFilter}${topLevel}${order}`,
       )
     } else {
       const like = `%${query}%`
       rows = await this.db.all(
         sql`SELECT c.* FROM conversations c WHERE
         (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
-        ${pathFilter}${topLevel}${order}`,
+        ${machinePathFilter}${topLevel}${order}`,
       )
     }
     // A raw statement returns PHYSICAL column names, so this mapper stays where

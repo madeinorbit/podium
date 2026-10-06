@@ -87,6 +87,13 @@ describe('opencode discovery provider', () => {
     }
   })
 
+  it.each(['/data/ses_test123.session', String.raw`C:\data\ses_test123.session`])('machine paths: summarizes the virtual session filename %s', async path => {
+    home = await mkdtemp(join(tmpdir(), 'podium-opencode-machine-path-'))
+    await seedOpencodeDb(home, { id: 'ses_test123', directory: String.raw`C:\src\podium`, title: 'Windows conversation' })
+    const result = await provider.summarizeFile(home, { path })
+    expect(result.summary).toMatchObject({ id: 'ses_test123', projectPath: String.raw`C:\src\podium`, title: 'Windows conversation' })
+  })
+
   // Discovery reads native SQLite directly; no executable or live process is needed.
   it(
     'summarizes externally launched sessions from native SQLite without a live agent',

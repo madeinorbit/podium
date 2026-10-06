@@ -1,11 +1,11 @@
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathKey } from '@podium/model'
+import { machinePathBasename, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,
   computed,
@@ -13,6 +13,7 @@ import {
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import type { MobxPool } from './pool'
+import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
@@ -121,7 +122,7 @@ export function createCommandLaunchViews(pool: MobxPool) {
         const repoId = scans.find((scan) => scan.repoId !== undefined)?.repoId
         repoViews.push({
           path: first.path,
-          name: repoNameFromOrigin(originUrl) ?? (first.path.split('/').pop() || first.path),
+          name: repoNameFromOrigin(originUrl) ?? (machinePathBasename(first.path) || first.path),
           worktrees,
           machines: scans.flatMap((scan) =>
             scan.machineId ? [{ machineId: scan.machineId, path: scan.path }] : [],
@@ -133,21 +134,21 @@ export function createCommandLaunchViews(pool: MobxPool) {
       const usage: Record<string, number> = {}
       for (const repo of repos) {
         counts.usageQueries++
-        usage[JSON.stringify([repo.machineId ?? '', repo.path])] = pool.queries.activity({
+        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] = pool.queries.activity({
           kind: 'commandRootActivity',
           roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
         })
       }
       const repoTime = (repo: Store['repos'][number]) =>
-        usage[JSON.stringify([repo.machineId ?? '', repo.path])] ?? 0
+        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] ?? 0
       const choices = repos.filter((repo) => repo.kind !== 'worktree')
       const initialRepoPath =
         [...choices].sort((a, b) => repoTime(b) - repoTime(a))[0]?.path ?? repos[0]?.path ?? ''
       const repoChoices = [...choices].sort(
         (a, b) =>
           repoTime(b) - repoTime(a) ||
-          (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
-            b.path.split('/').filter(Boolean).pop() ?? b.path,
+          (machinePathBasename(a.path) || a.path).localeCompare(
+            machinePathBasename(b.path) || b.path,
             undefined,
             { sensitivity: 'base' },
           ),

@@ -5,6 +5,7 @@ import {
   type IssueId,
   isSortKey,
   type MachineId,
+  machinePathBasename,
   type RepoId,
   type SessionId,
   type SessionUserStateWire,
@@ -12,8 +13,8 @@ import {
   spawnedByTag,
   type UserId,
 } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
 import type { SessionValues, SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
@@ -29,12 +30,6 @@ import type { SessionValues, SessionView } from '../session-values'
  * shape — no flicker on reconcile. The builders are unit-tested against the
  * protocol zod schemas so a new required field fails the test, not the UI.
  */
-
-/** Browser-safe basename — the server titles a fresh session `basename(cwd)`. */
-function basename(path: string): string {
-  const parts = path.split('/').filter(Boolean)
-  return parts[parts.length - 1] ?? path
-}
 
 export interface OptimisticSpawnArgs {
   sessionId: SessionId
@@ -56,7 +51,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSe
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,
-    title: basename(args.cwd) || args.cwd,
+    title: machinePathBasename(args.cwd) || args.cwd,
     cwd: args.cwd,
     ...(args.machineId !== undefined ? { machineId: args.machineId } : {}),
     status: 'starting',

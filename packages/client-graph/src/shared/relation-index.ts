@@ -1,3 +1,4 @@
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 /**
  * POD-5407 — THE RELATION INDEX: every declared relation, over every row the
  * feed carries, held once, outside the pool, in plain maps.
@@ -45,6 +46,7 @@ import {
   type EdgeSpec,
   type EntityName,
   extraRootOf,
+  longestPrefixPath,
   type ModelSchema,
   normalizeRootPath,
   type PrefixSpec,
@@ -84,6 +86,10 @@ export function linkInputs(spec: LinkSpec): readonly string[] {
  * matches P when P === R or P starts with `R/`).
  */
 export function* ancestorPaths(normalized: string): Generator<string> {
+  if (machinePathSeparator(normalized) === '\\') {
+    yield* machinePathAncestors(normalized)
+    return
+  }
   yield normalized
   for (let i = normalized.length - 1; i >= 0; i -= 1) {
     if (normalized[i] === '/') yield normalized.slice(0, i)
@@ -307,6 +313,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
 
   function probeRoot(link: Link, normalized: string): string | null {
     const table = roots.get(link.spec.to)
+    if (machinePathSeparator(normalized) === '\\') return longestPrefixPath(normalized, [...(table ?? []), ...(link.extraCounts?.keys() ?? [])])
     for (const candidate of prefixCandidates(normalized)) {
       if (table?.has(candidate) === true) return candidate
       if (link.extraCounts?.has(candidate) === true) return candidate
@@ -315,6 +322,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
   }
 
   function pendingMembers(link: Link, target: string): readonly string[] {
+    target = machinePathKey(target)
     const members = new Set(link.buckets.get(target) ?? NONE)
     for (const [member, added] of pending.get(link)?.get(target) ?? []) {
       if (added) members.add(member)
@@ -326,6 +334,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
   // ------------------------------------------------------------- moves
 
   function move(link: Link, target: string, member: string, added: boolean): void {
+    target = machinePathKey(target)
     let targets = pending.get(link)
     if (targets === undefined) {
       targets = new Map()
@@ -355,6 +364,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
   }
 
   function fileSubset(subset: Subset, target: string, id: string, row: Row): void {
+    target = machinePathKey(target)
     if (!subset.spec.test(row)) {
       dropSubset(subset, target, id)
       return
@@ -370,6 +380,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
   }
 
   function dropSubset(subset: Subset, target: string, id: string): void {
+    target = machinePathKey(target)
     const set = subset.sets.get(target)
     if (set === undefined || !set.has(id)) return
     set.delete(id)
@@ -749,14 +760,14 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
       return link.forwardMany.get(id) ?? NONE
     },
     members(to, id, collection) {
-      return collectionOf(to, collection).buckets.get(id) ?? NONE
+      return collectionOf(to, collection).buckets.get(machinePathKey(id)) ?? NONE
     },
     subset(to, id, collection, subset) {
       const link = collectionOf(to, collection)
       const found = link.subsets.find((each) => each.name === subset)
       if (found === undefined)
         throw new Error(`[pool] ${link.collection} declares no subset "${subset}"`)
-      return found.sets.get(id) ?? NONE
+      return found.sets.get(machinePathKey(id)) ?? NONE
     },
     collapsed: isCollapsed,
     orderKey(entity, id) {

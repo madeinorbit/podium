@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathBasename } from '@podium/model'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure
@@ -277,7 +278,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     run,
     prev,
     next,
-    repoName: issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath,
+    repoName: machinePathBasename(issue.repoPath),
     feed: buildActivityFeed(comments, events),
     mail,
     sessions,

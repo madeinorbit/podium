@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import { machinePathBasename } from '@podium/model'
 import { readIssue } from '../world-index/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
@@ -47,20 +48,19 @@ import { readIssue } from '../world-index/issue-reader'
  */
 
 import { randomUUID } from 'node:crypto'
-import { basename } from 'node:path'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
-  terminalRuntimeDriver,
   asMachineId,
   asSessionId,
   firstAdminMemberId,
-  spawnedByParentSessionId,
   type IssueId,
   type MachineId,
   type SessionId,
   type SessionMeta,
+  spawnedByParentSessionId,
+  terminalRuntimeDriver,
   type UserId,
 } from '@podium/model'
 import type {
@@ -74,8 +74,8 @@ import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
-import { createdByForBinding } from './command-plane'
 import { authorSpawnBinding } from './binding-mint'
+import { createdByForBinding } from './command-plane'
 import { selectHarnessAccountId } from './harness-account'
 import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
@@ -523,7 +523,7 @@ export class SessionStart {
       ownerUserId,
       agentKind: input.agentKind,
       cwd: input.cwd,
-      title: input.title || basename(input.cwd) || input.cwd,
+      title: input.title || machinePathBasename(input.cwd) || input.cwd,
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
       ...(accountId ? { accountId } : {}),

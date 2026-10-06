@@ -1,6 +1,8 @@
-import { isFinished } from './predicates'
 import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
+import { machinePathKey, machinePathsEqual } from '@podium/model'
+import { machinePathBasename } from '@podium/model/browser'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
+import { isFinished } from './predicates'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * `truth` reads server rows; `pooled` folds the supplied per-row transaction
@@ -149,7 +151,7 @@ const NO_PENDING: PendingByRow = {
 }
 
 function repoNameOf(path: string): string {
-  const tail = path.split('/').filter(Boolean).pop()
+  const tail = machinePathBasename(path)
   return tail ?? path
 }
 
@@ -618,7 +620,7 @@ export function createRowSource(
         project.index,
         project.aliases,
         project.name,
-        project.path === repo.path,
+        machinePathsEqual(project.path, repo.path),
       ),
     ]
     for (const wt of repo.worktrees ?? [])
@@ -652,11 +654,11 @@ export function createRowSource(
   function indexFor(repos: readonly RepoEntry[]): RepoIndex {
     if (repoIndex?.from === repos) return repoIndex
     const linked = new Set<string>()
-    for (const repo of repos) for (const wt of repo.worktrees ?? []) linked.add(wt.path)
+    for (const repo of repos) for (const wt of repo.worktrees ?? []) linked.add(machinePathKey(wt.path))
     const roots: RepoEntry[] = []
     const byId = new Map<string, RepoEntry[]>()
     for (const repo of repos) {
-      if (linked.has(repo.path)) continue
+      if (linked.has(machinePathKey(repo.path))) continue
       roots.push(repo)
       const id = repoIdOf(repo)
       if (id === null) continue
@@ -667,7 +669,7 @@ export function createRowSource(
     const groups = new Map<string, RepoEntry[]>()
     for (const repo of roots) {
       const origin = normalizeOriginUrl(repo.originUrl)
-      const key = repoIdOf(repo) ?? (origin || `__no_remote__:${repo.machineId ?? ''}:${repo.path}`)
+      const key = repoIdOf(repo) ?? (origin || `__no_remote__:${repo.machineId ?? ''}:${machinePathKey(repo.path)}`)
       const group = groups.get(key)
       if (group) group.push(repo)
       else groups.set(key, [repo])

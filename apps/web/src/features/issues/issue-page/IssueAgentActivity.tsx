@@ -1,3 +1,4 @@
+import { resolveMachinePath } from '@podium/model/browser'
 /**
  * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the
  * human: artifacts with inline image/video previews plus a lightbox, and
@@ -90,7 +91,7 @@ export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.El
     openFileInWorktree({
       machineId: issue.machineId,
       root,
-      path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+      path: resolveMachinePath(root, a.path),
       issueId: issue.id,
     })
   }

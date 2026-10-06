@@ -1,15 +1,14 @@
-import { sep } from 'node:path'
-import { asMachineId, type SessionId } from '@podium/model'
 import { harnessSupportsHandoff } from '@podium/harness'
+import { asMachineId, isMachinePathWithinRoot, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
+import { exportConversationViaDriver, refuseUnsupportedHandoffHarness } from '../handoff-driver-bridge'
 import {
   appendImportChunk,
   exportHandoffPackage,
   importHandoffPackage,
   readExportChunk,
 } from '../handoff-package'
-import { exportConversationViaDriver, refuseUnsupportedHandoffHarness } from '../handoff-driver-bridge'
 import type { ControlHandlers, DaemonContext } from './context'
 
 type AppliedBindingOutcome = Extract<
@@ -52,10 +51,10 @@ function bindingRefusal(
  * drag the export there — that is exactly what the pin exists to prevent, and honouring
  * it here keeps "never hand off a main checkout" airtight [spec:SP-3f7a].
  */
-function exportCwd(ctx: DaemonContext, sessionId: SessionId, root: string): string {
+export function exportCwd(ctx: DaemonContext, sessionId: SessionId, root: string): string {
   const raw = ctx.sessionCwdTracker.rawCwd(sessionId)
   if (!raw) return root
-  return raw === root || raw.startsWith(`${root}${sep}`) ? raw : root
+  return isMachinePathWithinRoot(root, raw) ? raw : root
 }
 
 async function exportPackage(

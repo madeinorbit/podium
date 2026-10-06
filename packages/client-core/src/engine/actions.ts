@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionView } from '../session-values'
 /**
  * Store actions: the command/UI-state ownership boundary.
@@ -9,6 +10,7 @@ import type { SessionView } from '../session-values'
  * single-operator placement.
  */
 
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   IssueId,
@@ -18,26 +20,15 @@ import type {
   ThreadId,
   WorkState} from '@podium/model'
 import { asThreadId } from '@podium/model'
-import { createLogger } from '@podium/logger'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
-  type SessionIdentifierResolution,
-} from '@podium/protocol'
+  type SessionIdentifierResolution} from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
-import type { NavigationIntent } from './navigation'
-import {
-  discardChatThroughOutbox,
-  newChatMessageId,
-  type OutboxSettlements,
-  outboxChatSends,
-  sendChatThroughOutbox,
-} from './chat-send'
-import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import type {
   DockTab,
   FileScope,
@@ -48,8 +39,7 @@ import type {
   RecentFileEntry,
   TabId,
   WorkspaceLayout,
-  WorkspaceMap,
-} from '../values'
+  WorkspaceMap} from '../values'
 import {
   activateTab,
   closePane,
@@ -62,26 +52,31 @@ import {
   reposToViews,
   resizeSplit,
   splitPane,
-  tabIdFor,
-} from '../values'
+  tabIdFor} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
+  discardChatThroughOutbox,
+  newChatMessageId,
+  type OutboxSettlements,
+  outboxChatSends,
+  sendChatThroughOutbox} from './chat-send'
+import type { NavigationIntent } from './navigation'
+import {
   createReplicatedLayoutController,
-  type ReplicatedLayoutController,
-} from './replicated-layout'
+  type ReplicatedLayoutController} from './replicated-layout'
+import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
   NAVIGATION_LOADING,
   type NavigationProvider,
+  overlayState,
   resolvedWorkspaceKey,
   type WorkspacePatch,
   type WorkspaceSelection,
   workspaceFor,
   workspaceKeyForState,
   workspacesPatch,
-  workspaceWritePatch,
-  overlayState,
-} from './state'
+  workspaceWritePatch} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -453,7 +448,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, Promise<void>>()
   const markRead = <K extends 'issueMarkRead' | 'sessionMarkRead'>(
-    kind: K, id: string, input: OutboxKinds[K],
+    kind: K,
+    id: string,
+    input: OutboxKinds[K],
   ): Promise<void> => {
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
@@ -835,7 +832,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         reposToViews(state.repos)
           .flatMap((repo) => repo.worktrees)
           .map((candidate) => candidate.path)
-          .filter((candidate) => cwd === candidate || cwd.startsWith(`${candidate}/`))
+          .filter((candidate) => isMachinePathWithinRoot(candidate, cwd))
           .sort((a, b) => b.length - a.length)[0] ?? cwd
       const existing = state.fileTabs.find((tab) => tab.id === id)
       const issueId = existing
@@ -846,7 +843,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         ...(worktreePath ? { worktreePath } : {}),
         ...(issueId ? { issueId } : {}),
         fileTab: existing ?? { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) },
-        recentFile: { path, worktreePath, ...(session?.machineId ? { machineId: session.machineId } : {}) },
+        recentFile: {
+          path,
+          worktreePath,
+          ...(session?.machineId ? { machineId: session.machineId } : {}),
+        },
       })
     },
     openFileInWorktree: (args) => {
@@ -862,8 +863,18 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         worktreePath: args.root,
         ...(issueId ? { issueId } : {}),
         ...(args.permanent === false ? { permanent: false } : {}),
-        fileTab: existing ?? { id, scope, path: args.path, worktreePath: args.root, ...(issueId ? { issueId } : {}) },
-        recentFile: { path: args.path, worktreePath: args.root, ...(args.machineId ? { machineId: args.machineId } : {}) },
+        fileTab: existing ?? {
+          id,
+          scope,
+          path: args.path,
+          worktreePath: args.root,
+          ...(issueId ? { issueId } : {}),
+        },
+        recentFile: {
+          path: args.path,
+          worktreePath: args.root,
+          ...(args.machineId ? { machineId: args.machineId } : {}),
+        },
       })
     },
     openArtifact: (args) => {
@@ -877,8 +888,18 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         tabId: id,
         issueId: args.issueId,
         ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
-        fileTab: { id, scope, path: args.path, worktreePath: args.worktreePath ?? '', issueId: args.issueId },
-        recentFile: { path: args.path, worktreePath: args.worktreePath ?? '', artifact: { issueId: args.issueId, artifactId: args.artifactId } },
+        fileTab: {
+          id,
+          scope,
+          path: args.path,
+          worktreePath: args.worktreePath ?? '',
+          issueId: args.issueId,
+        },
+        recentFile: {
+          path: args.path,
+          worktreePath: args.worktreePath ?? '',
+          artifact: { issueId: args.issueId, artifactId: args.artifactId },
+        },
       })
     },
     closeFileTab: (id) => {

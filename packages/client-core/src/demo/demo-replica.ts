@@ -1,3 +1,4 @@
+import { machinePathBasename } from '@podium/model'
 /**
  * Demo mode over the kernel facade (POD-5277) — the SAME data path as real use.
  *
@@ -25,8 +26,8 @@ import {
   type UserId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
-import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
 import { memoryStorage } from '../replica/contract'
+import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
 import { DEMO_ISSUES, DEMO_SESSIONS } from './demo-data'
 
 /** The demo principal. Named rather than borrowed from a real id so nothing in
@@ -89,7 +90,7 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
       id: repoId,
       repoPath: issue.repoPath,
       ...(prefix === undefined ? {} : { prefix }),
-      name: issue.repoPath.split('/').at(-1) ?? issue.repoPath,
+      name: machinePathBasename(issue.repoPath) ?? issue.repoPath,
     })
     for (const dep of issue.deps ?? []) {
       const id = issueDepId(issue.id, dep.id, dep.type)

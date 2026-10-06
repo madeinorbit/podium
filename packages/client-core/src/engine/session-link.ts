@@ -4,6 +4,7 @@
  * the two entry points never describe the same answer differently.
  */
 import type { IssueId, SessionMeta } from '@podium/model'
+import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { reposToViews } from '../values'
 import type { EngineState } from './state'
@@ -34,7 +35,7 @@ export function sessionLinkSelection(
   linkedWorktree?: string | null,
 ): { selectedIssueId?: IssueId; selectedWorktree?: string } {
   const holds = (path: string | null | undefined): path is string =>
-    !!path && (session.cwd === path || session.cwd.startsWith(`${path}/`))
+    !!path && isMachinePathWithinRoot(path, session.cwd)
   const registered = reposToViews(st.repos)
     .flatMap((repo) => repo.worktrees)
     .map((candidate) => candidate.path)

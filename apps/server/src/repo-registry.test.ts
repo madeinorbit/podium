@@ -1,10 +1,12 @@
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId, asRepoId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { browseDirectories, RepoRegistry } from './repo-registry'
+import { browseDirectories, inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
+import { normalizeRepoPath } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -72,4 +74,27 @@ describe('RepoRegistry', () => {
       process.env.HOME = prevHome
     }
   })
+})
+
+
+it.each([
+  ['/repo', '/repo/wt', '/repo/wt/src', '/repository'],
+  ['C:\\repo', 'C:\\repo\\wt', 'c:/REPO/wt/src', 'C:\\repository'],
+])('machine paths: infer the deepest repository root for %s', (root, nested, cwd, sibling) => {
+  expect(inferRepoFromRoots([root, nested], cwd)).toBe(normalizeRepoPath(nested))
+  expect(inferRepoFromRoots([root], sibling)).toBeUndefined()
+})
+
+
+it('machine paths: repo scan matches case-folded keys without rewriting display paths', async () => {
+  const machineId = asMachineId('windows-scan')
+  const root = String.raw`C:\Src\Podium`
+  const repoId = asRepoId('repo-stored')
+  const row = { machineId, path: root, repoId, prefix: null, originUrl: null }
+  const registry = new RepoRegistry({ modules: {
+    machines: { onlineMachineIds: () => [machineId] },
+    rpc: { scanRepos: async () => ({ repositories: [{ path: 'c:/src/podium', kind: 'repository', worktrees: [] }], diagnostics: [] }) },
+  } } as unknown as SessionRegistry, { repos: { listRepos: async () => [row], listRepoPaths: async () => [root] } } as unknown as SessionStore)
+  const result = await registry.scanReposAll()
+  expect(result.repositories).toEqual([expect.objectContaining({ path: 'c:/src/podium', repoId })])
 })

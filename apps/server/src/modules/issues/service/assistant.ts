@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import type { IssueProjection, SessionId } from '@podium/model'
+import { isMachinePathWithinRoot } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
 import type { IssueStore } from './core'
@@ -61,7 +62,7 @@ export class IssueAssistantDigestModule {
     const row = [...this.store.rows.values()].find(
       (r) =>
         r.worktreePath &&
-        (sess.cwd === r.worktreePath || sess.cwd.startsWith(`${r.worktreePath}/`)),
+        (isMachinePathWithinRoot(r.worktreePath, sess.cwd)),
     )
     if (!row) return
     const prev = this.assistantTimers.get(row.id)

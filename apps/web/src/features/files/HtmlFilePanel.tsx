@@ -6,6 +6,7 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
+import { machinePathDirname } from '@podium/model'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
@@ -25,13 +26,6 @@ import { SourceEditor } from './SourceEditor'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
-
-function dirOf(path: string): string {
-  // Artifact-scope paths are relpaths ([spec:SP-0fc9] #441): a slash-less entry
-  // lives at the artifact root, so its dir is '' (not the path itself).
-  const i = path.lastIndexOf('/')
-  return i === -1 ? '' : path.slice(0, i) || '/'
-}
 
 export function HtmlFilePanel({
   scope,
@@ -68,7 +62,7 @@ export function HtmlFilePanel({
   )
   const [cssTextByPath, setCssTextByPath] = useState<Record<string, string>>({})
   const viewRef = useRef<EditorView | null>(null)
-  const fileDir = dirOf(path)
+  const fileDir = machinePathDirname(path)
 
   useEffect(() => {
     if (mobile && mode === 'split') setMode('source')

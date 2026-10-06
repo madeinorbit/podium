@@ -190,3 +190,33 @@ describe('WorktreeFileTree', () => {
     })
   })
 })
+
+it('joins Windows directory entries and opens Windows search results', async () => {
+  const root = 'C:\\repo'
+  listDir.mockReset()
+  openFileInWorktree.mockReset()
+  searchFiles.mockReset()
+  listDir.mockResolvedValue({ ok: true, path: root, entries: [{ name: 'x.ts', isDir: false }] })
+  searchFiles.mockResolvedValue({ paths: ['src\\found.ts'] })
+  render(<WorktreeFileTree root={root} />)
+  fireEvent.keyDown(await screen.findByText('x.ts'), { key: 'Enter' })
+  expect(openFileInWorktree).toHaveBeenCalledWith({
+    machineId: undefined,
+    root,
+    path: 'C:\\repo\\x.ts',
+    permanent: true,
+  })
+  vi.useFakeTimers()
+  const search = screen.getByRole('combobox', { name: 'Search files' })
+  fireEvent.change(search, { target: { value: 'found' } })
+  await act(async () => void vi.advanceTimersByTime(150))
+  await act(async () => void (await Promise.resolve()))
+  expect(screen.getByRole('option', { name: /found\.ts/ })).toBeDefined()
+  fireEvent.keyDown(search, { key: 'Enter' })
+  expect(openFileInWorktree).toHaveBeenLastCalledWith({
+    machineId: undefined,
+    root,
+    path: 'C:\\repo\\src\\found.ts',
+    permanent: true,
+  })
+})

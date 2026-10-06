@@ -205,6 +205,21 @@ function recentSession(cwd: string): SessionMeta {
  * looks. The button keeps its own label when it is the focused thing, which is
  * where "Project:" is worth saying. */
 describe('ColdStartComposer', () => {
+  it.each([
+    '/Users/bob/src/podium',
+    'C:\\src\\podium',
+    'C:/src/podium',
+    '\\\\server\\share\\podium',
+    'C:\\src\\podium\\',
+  ])('names the originless repository in the heading by its folder: %s', (path) => {
+    store.repos.splice(0, store.repos.length, { ...initialRepo, path })
+
+    render(<ColdStartComposer first />)
+
+    expect(screen.getByRole('heading', { name: /Give podium its first mission/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Project: podium' })).toBeTruthy()
+  })
+
   it('starts the prompt in a draft issue for the agent to name', async () => {
     render(<ColdStartComposer first />)
 

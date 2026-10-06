@@ -4,6 +4,7 @@ import {
   partitionStaleSessions,
   type UnifiedWorkRow,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'
@@ -62,7 +63,7 @@ export function UnifiedWorktreeRow({
 }): JSX.Element {
   const { worktree } = row
   const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
-  const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
+  const branch = worktree.branch ?? machinePathBasename(worktree.path)
   const renderRow = (session: SessionView) => {
     const orphan = orphanProvenance(session, issues)
     const attachedIssueDisplayRef = session.issueId

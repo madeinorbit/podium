@@ -1,7 +1,8 @@
 import type { SessionId } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
-import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 import { type DotTone, panelLabel, sessionDotTone } from './session-status'
 
 export interface SessionCardModel {
@@ -19,7 +20,7 @@ export interface SessionCardModel {
 export function sessionTitle(session: SessionView): string {
   const named = session.name?.trim() || session.title?.trim()
   if (named) return named
-  const cwdName = session.cwd.split('/').filter(Boolean).pop()
+  const cwdName = machinePathBasename(session.cwd)
   return cwdName || session.agentKind
 }
 

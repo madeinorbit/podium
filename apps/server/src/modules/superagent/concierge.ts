@@ -3,12 +3,12 @@
  * identity, the repo-scoped system prompt, and the deterministic tracker
  * digest/delta blocks that seed a thread's harness turns.
  */
-import { asThreadId, type IssueReport, type SessionId, type ThreadId } from '@podium/model'
+import { asThreadId, type IssueReport, machinePathKey, type SessionId, type ThreadId } from '@podium/model'
 
 /** Per-repo concierge intake thread (issue #64). One thread per repo path, id
  *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */
 export function conciergeThreadId(repoPath: string): ThreadId {
-  return asThreadId(`concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`)
+  return asThreadId(`concierge_${Buffer.from(machinePathKey(repoPath), 'utf8').toString('base64url')}`)
 }
 
 export function conciergeRepoPath(threadId: ThreadId): string | undefined {

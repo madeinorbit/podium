@@ -1,5 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import type { AutomationId } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import {
   ChevronDown,
   ChevronRight,
@@ -59,15 +60,10 @@ function cardRights(a: Automation): {
   }
 }
 
-/** The repo basename, falling back to the full path — repos are shown by name. */
-function repoLabel(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
-}
-
 /** Where the automation's session spawns: a repo, or the home directory. */
 function targetLabel(a: Automation): string {
   if (a.targetSessionId) return `Session ${a.targetSessionId}`
-  return a.repoPath ? repoLabel(a.repoPath) : 'Global (home directory)'
+  return a.repoPath ? machinePathBasename(a.repoPath) : 'Global (home directory)'
 }
 
 const OUTCOME_LABELS: Record<AutomationRun['outcome'], string> = {

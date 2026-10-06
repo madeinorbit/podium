@@ -7,6 +7,7 @@ import {
   panelLabel,
   reclaimSpaceLabel,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -311,7 +312,7 @@ export function LoadPanel({
                 data.projects.map((project) => (
                   <ProcessRow
                     key={project.root}
-                    name={project.root.split('/').pop() ?? project.root}
+                    name={machinePathBasename(project.root)}
                     title={project.root}
                     detail={project.topProcesses.map((p) => p.name).join(', ')}
                     bytes={project.bytes}

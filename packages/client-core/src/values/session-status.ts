@@ -1,5 +1,3 @@
-import { isFinished } from '@podium/model/browser'
-import type { SessionView } from '../session-values'
 /**
  * F1 — WHAT ONE SESSION IS DOING. The presentation vocabulary every slice
  * speaks (POD-330).
@@ -21,9 +19,11 @@ import type { SessionView } from '../session-values'
 import {
   type AgentKind,
   type IssueProjection,
-  idleVerdictFinishedTurn} from '@podium/model'
+  idleVerdictFinishedTurn, machinePathBasename } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
+import type { SessionView } from '../session-values'
 import { errorPhrase } from './error-phrase'
 import { harnessDescriptorFor } from './harness-labels'
 
@@ -546,7 +546,7 @@ export function isUnstartedSession(s: SessionView): boolean {
     .toLowerCase()
   if (!title) return true
   const boot = [panelLabel(s.agentKind).toLowerCase(), s.agentKind, 'claude code']
-  const cwdBase = s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()
+  const cwdBase = machinePathBasename(s.cwd)?.toLowerCase()
   return boot.includes(title) || title === cwdBase
 }
 

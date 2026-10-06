@@ -1,5 +1,6 @@
-import type { SessionView } from '../session-values'
+import { machinePathDirname, machinePathSeparator, normalizeMachinePath } from '@podium/model'
 import { recordSliceDerivation } from '../perf/store-stats'
+import type { SessionView } from '../session-values'
 
 type UsageSession = Pick<SessionView, 'agentKind' | 'cwd' | 'lastActiveAt'>
 type Material = { cwd: string; lastActiveAt: string }
@@ -39,6 +40,16 @@ export function createRepositoryUsageSelector() {
       const add = (path: string) => {
         if (time > (index.get(path) ?? 0)) index.set(path, time)
       }
+      if (machinePathSeparator(cwd) === '\\') {
+        let ancestor = normalizeMachinePath(cwd).toLowerCase()
+        for (;;) {
+          add(ancestor)
+          const parent = machinePathDirname(ancestor)
+          if (parent === ancestor || parent === '.') break
+          ancestor = parent
+        }
+        continue
+      }
       add(cwd)
       // Exact prefixes before EVERY slash preserve repoUsageAt's literal
       // `cwd === root || cwd.startsWith(root + '/')`, even for trailing slashes.
@@ -57,7 +68,9 @@ export function indexedRepoUsageAt(
   repo: { path: string; worktrees: readonly { path: string }[] },
   usage: ReadonlyMap<string, number>,
 ): number {
-  let max = usage.get(repo.path) ?? 0
-  for (const worktree of repo.worktrees) max = Math.max(max, usage.get(worktree.path) ?? 0)
+  const key = (path: string): string =>
+    machinePathSeparator(path) === '\\' ? normalizeMachinePath(path).toLowerCase() : path
+  let max = usage.get(key(repo.path)) ?? 0
+  for (const worktree of repo.worktrees) max = Math.max(max, usage.get(key(worktree.path)) ?? 0)
   return max
 }

@@ -1,7 +1,17 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { type ArtifactId, asArtifactId, type IssueId, type MachineId } from '@podium/model'
+import { dirname, join, resolve, sep } from 'node:path'
+import {
+  type ArtifactId,
+  asArtifactId,
+  type IssueId,
+  joinMachinePath,
+  type MachineId,
+  machinePathBasename,
+  machinePathSeparator,
+  normalizeMachinePath,
+  resolveMachinePath,
+} from '@podium/model'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 
 /**
@@ -201,7 +211,7 @@ export class IssueArtifactStore {
     const artifactId = asArtifactId(randomBytes(6).toString('hex'))
     const dir = this.artifactDir(o.issueId, artifactId)
     const machine = o.machineId ? { machineId: o.machineId } : {}
-    const abs = (p: string) => (isAbsolute(p) ? p : join(o.root, p))
+    const abs = (p: string) => resolveMachinePath(o.root, p)
     try {
       // Resolve the pull plan: [absolute source path, relpath inside the bundle].
       let plan: Array<{ src: string; rel: string; sourcePath: string }>
@@ -209,14 +219,14 @@ export class IssueArtifactStore {
       if (listed.ok) {
         plan = (await this.walkDir(o.root, o.machineId, listed.path)).map((file) => ({
           ...file,
-          sourcePath: join(o.sourcePath, file.rel),
+          sourcePath: normalizeMachinePath(o.sourcePath + machinePathSeparator(o.root) + file.rel, o.root),
         }))
         if (plan.length === 0) throw new Error(`directory ${o.sourcePath} has no files`)
       } else {
         const paths = [o.sourcePath, ...(o.extraPaths ?? [])]
         plan = paths.map((p) => ({
           src: abs(p),
-          rel: p.split('/').pop() as string,
+          rel: machinePathBasename(p, o.root),
           sourcePath: p,
         }))
       }
@@ -258,13 +268,13 @@ export class IssueArtifactStore {
     const pending: string[] = ['']
     while (pending.length) {
       const relDir = pending.shift() as string
-      const absDir = relDir ? join(dirAbs, relDir) : dirAbs
+      const absDir = relDir ? joinMachinePath(dirAbs, relDir) : dirAbs
       const r = await this.rpc.listDir({ ...machine, root, path: absDir })
       if (!r.ok) throw new Error(r.error ?? `cannot list ${absDir}`)
       for (const e of r.entries) {
         const rel = relDir ? `${relDir}/${e.name}` : e.name
         if (e.isDir) pending.push(rel)
-        else out.push({ src: join(dirAbs, rel), rel })
+        else out.push({ src: joinMachinePath(dirAbs, rel), rel })
         if (out.length > ARTIFACT_FILE_COUNT_CAP) {
           throw new Error(`artifact bundle exceeds ${ARTIFACT_FILE_COUNT_CAP} files`)
         }

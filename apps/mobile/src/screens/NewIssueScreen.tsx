@@ -1,5 +1,5 @@
 import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
-import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
@@ -127,7 +127,7 @@ export function NewIssueScreen() {
         <SectionHeader label="Where" />
         <View style={styles.chipWrap} accessibilityRole="radiogroup">
           {repos.map((repo) => {
-            const name = repo.split('/').filter(Boolean).pop() ?? repo
+            const name = machinePathBasename(repo)
             const active = repoPath === repo
             return (
               <PressableScale

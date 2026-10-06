@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { recordUuid, stampCursors } from '../../store/cursor-codec.js'
+import { codexRecordToItems } from '../codex/transcript.js'
+import { TOOL_INPUT_MAX } from '../shared/tool-input-budget.js'
 import {
   claudeRecordColor,
   claudeRecordModel,
@@ -7,9 +10,6 @@ import {
   claudeToolResultItem,
   toolInputPreview,
 } from './transcript.js'
-import { codexRecordToItems } from '../codex/transcript.js'
-import { recordUuid, stampCursors } from '../../store/cursor-codec.js'
-import { TOOL_INPUT_MAX } from '../shared/tool-input-budget.js'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {
@@ -1104,4 +1104,19 @@ describe('retained shell commands', () => {
       command: 'ls',
     })
   })
+})
+
+
+it.each(['/uploads/shot.png', 'C:\\uploads\\shot.png', 'c:/uploads/shot.png'])('machine paths: Claude file and image labels for %s', path => {
+  const records = [
+    { type: 'attachment', attachment: { type: 'file', filename: path } },
+    { type: 'user', isMeta: true, message: { content: `[Image: source: ${path}]` } },
+    { type: 'user', message: { content: [{ type: 'image', source: { type: 'base64' } }, { type: 'text', text: `[Image: source: ${path}]` }] } },
+    { type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: `look\n[Image: source: ${path}]` } },
+  ]
+  for (const record of records) {
+    const items = claudeRecordToItems(record)
+    expect(items).toHaveLength(1)
+    expect(items[0]?.tags?.[0]?.label).toBe('shot.png')
+  }
 })

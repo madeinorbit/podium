@@ -1,5 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
+import { isAbsoluteMachinePath } from '@podium/model'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -97,7 +98,7 @@ export function ManageProjectsButton(): JSX.Element {
                     {project.name}
                   </span>
                   <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                    {project.aliases.find((alias) => alias.startsWith('/')) ?? project.key}
+                    {project.aliases.find(path => isAbsoluteMachinePath(path)) ?? project.key}
                   </span>
                 </span>
                 <Button

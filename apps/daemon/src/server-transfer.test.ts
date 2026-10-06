@@ -21,10 +21,10 @@ import { canonicalServerTransferManifest } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import {
-  mintInstallationIdentity,
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
   type InstallationIdentity,
+  mintInstallationIdentity,
 } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -246,9 +246,9 @@ describe('server transfer target daemon', () => {
     await rm(stateRoot, { recursive: true, force: true })
   })
 
-  it('rejects unsafe paths before creating a stage', async () => {
+  it.each(['../config.json', 'C:/state/config.json', String.raw`C:\state\config.json`, String.raw`transcripts\session.jsonl`])('machine paths: rejects nonportable transfer entry %s before creating a stage', async path => {
     const transferId = randomUUID()
-    const manifest = [{ path: '../config.json', size: 1, mode: 0o644, sha256: '0'.repeat(64) }]
+    const manifest = [{ path, size: 1, mode: 0o644, sha256: '0'.repeat(64) }]
     const response = await invoke('serverTransferPrepareRequest', {
       type: 'serverTransferPrepareRequest',
       requestId: 'prepare-unsafe',

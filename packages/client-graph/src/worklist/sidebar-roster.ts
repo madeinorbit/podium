@@ -1,4 +1,5 @@
 import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathsEqual } from '@podium/model'
 /** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
  *
@@ -8,16 +9,16 @@ import { keyedComputed } from '@podium/mobx-helpers'
  * never be a retained seat; one only waiting for the load window is filed
  * when it arrives. The former cold lane summaries (one per history session,
  * built at every attach) are gone. */
-import { compareStructural, observable, observe, type ObservableSet } from 'mobx'
-import { debugName } from '../debug-name'
+import { compareStructural, type ObservableSet, observable, observe } from 'mobx'
 import { cachedKey } from '../cached'
+import { nextUp } from '../clock'
+import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
+import { isExcluded } from '../shared/predicates'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { LOADING } from './rollup'
-import { retains, retentionOf } from './visible'
 import { SortedLanes } from './sorted-lanes'
-import { nextUp } from '../clock'
-import { isExcluded } from '../shared/predicates'
+import { retains, retentionOf } from './visible'
 
 export interface SidebarOwner {
   readonly represented: boolean
@@ -139,7 +140,7 @@ export class SidebarRosterIndex {
     }
     if (lane === undefined) this.worktrees.delete(path)
     else this.worktrees.set(path, { group: lane.repoId ?? lane.repoPath, project })
-    if (lane && lane.path === lane.repoPath && lane.projectRoot !== false) this.projects.add(path)
+    if (lane && machinePathsEqual(lane.path, lane.repoPath) && lane.projectRoot !== false) this.projects.add(path)
     else this.projects.delete(path)
     this.filePath(path)
   }

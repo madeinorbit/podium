@@ -28,6 +28,7 @@ import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { sameWorktreePath } from './modules/issues/service/worktree-safety'
 import type { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
@@ -5272,6 +5273,31 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     })
   })
 
+
+  it.each(['/wt/issue-1', 'C:\\wt\\issue-1'])('machine paths: artifact containment and review under %s', async root => {
+    const { svc, snapshot } = await artifactHarness()
+    const w = await svc.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.crud.update(w.id, { worktreePath: root })
+    const full = root + (root.startsWith('C:') ? '\\\\shots\\a.png' : '/shots/a.png')
+    const wire = await svc.crud.panelArtifactAdd(w.id, { path: full })
+    expect(wire.panel?.artifacts[0]?.path).toBe('shots/a.png')
+    expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ root, sourcePath: 'shots/a.png' }))
+    await expect(svc.crud.panelArtifactAdd(w.id, { path: root.startsWith('C:') ? 'D:\\shots\\a.png' : '/elsewhere/a.png' })).rejects.toThrow('outside the owning')
+    await expect(svc.crud.panelArtifactAdd(w.id, { path: root.startsWith('C:') ? '..\\a.png' : '../a.png' })).rejects.toThrow('outside the owning')
+    await expect(svc.crud.update(w.id, { stage: 'review' })).resolves.toBeTruthy()
+  })
+
+  it.each(['C:/shot.png', String.raw`\a\b.png`, String.raw`\\a\b.png`])('machine paths: accepts POSIX evidence named %s', async path => {
+    const { svc, snapshot, sessions } = await artifactHarness()
+    const w = await svc.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.crud.update(w.id, { worktreePath: '/wt' })
+    const wire = await svc.crud.panelArtifactAdd(w.id, { path })
+    expect(wire.panel?.artifacts[0]?.path).toBe(path)
+    expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ root: '/wt', sourcePath: path }))
+    sessions[0]!.issueId = w.id
+    await expect(svc.crud.panelArtifactAdd(w.id, { path, terminalEvidence: true, sourceRoot: '/wt' }, { actorSessionId: asSessionId('/wt') })).resolves.toBeTruthy()
+  })
+
   it('re-add replaces in place under a NEW artifactId and deletes the old dir after commit', async () => {
     const { svc, remove } = await artifactHarness()
     const w = await svc.crud.create({ repoPath: '/r', title: 'X', startNow: false })
@@ -6342,6 +6368,20 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     expect(inventory.reclaimableDiskPaths).toEqual(['/r/.worktrees/claimed'])
   })
 
+  it.each(['/r', String.raw`C:\repo`])('machine paths: worktree inventory recognizes claimed paths under %s', async root => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    await h.store.repos.addRepo(root, h.store.hostMachineId)
+    const worktree = root + '/.worktrees/claimed'
+    const claimed = await closedIssueWithCheckout(h, { path: worktree })
+    h.deps.repoOp = vi.fn(async op => op === 'worktreeList' ? {
+      ok: true,
+      output: gitWorktreeList([{ path: root, branch: 'main' }, { path: worktree.replaceAll('\\', '/'), branch: 'issue/claimed' }]),
+    } : { ok: true, output: '' })
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    expect(inventory.candidates).toEqual([expect.objectContaining({ issueId: claimed, present: true })])
+    expect(inventory.orphans).toEqual([])
+  })
+
   it('releases the whole reclaimable list on one click, reporting what refused', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
     const clean = await closedIssueWithCheckout(h, { title: 'Clean', path: '/r/.worktrees/clean' })
@@ -6625,4 +6665,37 @@ describe('POD-3504 — promise-only issue ports', () => {
     expect(deps.findRepoOnMachine).toHaveBeenCalledWith('/r', machine)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith(machine, found ?? '/r')
   })
+})
+
+
+it.each(['/r', 'C:\\repo'])('machine paths: shared roots remain unowned while nested worktrees attach under %s', async root => {
+  const { svc, store } = await harness()
+  await store.repos.addRepo(root, store.hostMachineId)
+  const w = await svc.crud.create({ repoPath: root, title: 'shared', startNow: false })
+  await expect(svc.crud.update(w.id, { worktreePath: root })).rejects.toThrow('a repository root')
+  expect(await svc.reports.soleOwnerForCwd(root.replaceAll('\\', '/'))).toBeNull()
+  const worktree = root + (root.startsWith('C:') ? '\\.worktrees\\feature' : '/.worktrees/feature')
+  await svc.crud.update(w.id, { worktreePath: worktree })
+  expect(await svc.reports.soleOwnerForCwd(worktree.replaceAll('\\', '/') + '/src')).toBe(w.id)
+})
+
+it.each(['/repo', 'C:\\repo'])('machine paths: worktree creation and qualified issue reference under %s', async root => {
+  const { svc, deps, store } = await harness()
+  await store.repos.addRepo(root, store.hostMachineId)
+  const w = await svc.crud.create({ repoPath: root, title: 'feature', startNow: false })
+  await svc.crud.update(w.id, { branch: 'issue/feature', stage: 'in_progress' })
+  await svc.gitWorkflow.start(w.id)
+  const expected = root + (root.startsWith('C:') ? '\\.worktrees\\issue-feature' : '/.worktrees/issue-feature')
+  expect((await svc.reports.get(w.id))?.worktreePath).toBe(expected)
+  expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: expected }))
+  expect(await svc.reports.resolveRef(`repo#${w.seq}`)).toBe(w.id)
+})
+
+
+it.each([
+  ['/repo/wt/', '/repo/wt', '/repo/WT'],
+  [String.raw`C:\Repo\WT`, 'c:/repo/wt/', 'C:/repo/other'],
+])('machine paths: worktree safety compares keys without rewriting %s', (left, same, other) => {
+  expect(sameWorktreePath(left, same)).toBe(true)
+  expect(sameWorktreePath(left, other)).toBe(false)
 })

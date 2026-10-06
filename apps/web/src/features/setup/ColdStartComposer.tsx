@@ -4,24 +4,24 @@ import {
   AGENT_NOT_READY_COPY,
   activationAgentIsReady,
   activationAgentReadiness,
+  indexedRepoUsageAt,
   launchAgentKind,
   machineViewsFromWire,
-  reposToViews,
-  indexedRepoUsageAt,
   type RepoView,
+  reposToViews,
   usableMachines,
 } from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, preferredMachineChoices } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId, DEFAULT_HARNESS_AGENT, machinePathBasename, preferredMachineChoices } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsCatalog, useSettingsSetupSummary, useSettingsPersistedUiState as usePersistedUiState } from '@/features/settings/readers'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
+import { useSettingsPersistedUiState as usePersistedUiState, useSettingsCatalog, useSettingsSetupSummary } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
@@ -44,17 +44,17 @@ import {
   terminalRuntimeDriver,
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
+import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from './first-task-draft'
-import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {
-  return repo.name ?? repo.path.split('/').filter(Boolean).pop() ?? repo.path
+  return repo.name ?? (machinePathBasename(repo.path) || repo.path)
 }
 
 /**
@@ -382,9 +382,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
       : undefined
   const driverUnavailable =
-    runtimeDriversEnabled &&
-    driverChoice !== HEADED_DRIVER &&
-    selectedHeadlessDriver === undefined
+    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER && selectedHeadlessDriver === undefined
   // An explicit headless pick rides `requestedDriverId`; the headed choice
   // sends NOTHING — omission already means the manifest's terminal driver,
   // which the daemon binds unconditionally (the NewPanelMenu sibling got
@@ -392,9 +390,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   // conditional object is not excess-property-checked, so a wrong name here
   // compiles while `createDraftAgent` silently drops it.
   const requestedDriverId =
-    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER
-      ? selectedHeadlessDriver?.id
-      : undefined
+    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER ? selectedHeadlessDriver?.id : undefined
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -1173,16 +1169,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       aria-label="Driver"
                       className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {driverChoice === HEADED_DRIVER
-                        ? 'Headed'
-                        : runtimeDriverLabel(driverChoice)}
+                      {driverChoice === HEADED_DRIVER ? 'Headed' : runtimeDriverLabel(driverChoice)}
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
                   options={[
-                    ...(availableHeadedDriver
-                      ? [{ value: HEADED_DRIVER, label: 'Headed' }]
-                      : []),
+                    ...(availableHeadedDriver ? [{ value: HEADED_DRIVER, label: 'Headed' }] : []),
                     ...availableHeadlessDrivers.map((driver) => ({
                       value: driver.id,
                       label: runtimeDriverLabel(driver.id),
@@ -1320,8 +1312,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           {ready && !machineDenied && !busy && !error && !draft.pendingIssueId && (
             <aside aria-label="Prompt tip" className="cold-start-tip">
               <p>
-                For complex tasks, be ambitious. Discuss the full scope with your agent and have
-                it organise everything. Try:
+                For complex tasks, be ambitious. Discuss the full scope with your agent and have it
+                organise everything. Try:
               </p>
               <blockquote>
                 "You are the coordinator of this epic. Break this into sub-tasks, delegate

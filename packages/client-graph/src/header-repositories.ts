@@ -1,4 +1,4 @@
-import { normalizeOriginUrl } from '@podium/model/browser'
+import { machinePathAncestors, machinePathKey, machinePathSeparator, machinePathsEqual, normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable } from 'mobx'
 import type { HeaderRows } from './header-schema'
 import { createKeyedAnswer, type KeyedAnswer } from './query-result'
@@ -12,6 +12,7 @@ type Identity = {
   repoId: string | undefined
 }
 type Scope = {
+  worktreePath: string
   order: number
   memberOrder: number
   repositoryId: string
@@ -21,8 +22,8 @@ type Scope = {
 type RankedId = { id: string; rank: number }
 const scopeOrder = (a: Scope, b: Scope) => a.order - b.order || a.memberOrder - b.memberOrder
 const scopeKey = (path: string, machineId?: string) =>
-  JSON.stringify([path, 'machine', machineId ?? null])
-const anyScopeKey = (path: string) => JSON.stringify([path, 'any'])
+  JSON.stringify([machinePathKey(path), 'machine', machineId ?? null])
+const anyScopeKey = (path: string) => JSON.stringify([machinePathKey(path), 'any'])
 const EMPTY: readonly string[] = []
 
 /** Identity relations in the existing header owner. Payloads stay in its
@@ -45,7 +46,7 @@ export function createHeaderRepositoryRelations() {
   const active = (id: string) => !positions || positions.has(id)
   const eligible = (group: string) =>
     (groups.get(group)?.snapshot() ?? []).flatMap(({ id }) =>
-      linked.has(facts.get(id)!.path) ? [] : [id],
+      linked.has(machinePathKey(facts.get(id)!.path)) ? [] : [id],
     )
   function scopeMember(key: string, id: string, value?: Scope) {
     let answer = scopeAnswers.get(key)
@@ -95,7 +96,7 @@ export function createHeaderRepositoryRelations() {
         for (const path of new Set([fact.path, ...fact.links])) {
           const memberId = JSON.stringify([id, path])
           for (const key of [anyScopeKey(path), scopeKey(path, fact.machineId)]) {
-            scopeMember(key, memberId, value)
+            scopeMember(key, memberId, { ...value, worktreePath: path })
             members.push({ key, id: memberId })
           }
         }
@@ -117,15 +118,15 @@ export function createHeaderRepositoryRelations() {
   }
   function contribute(id: string, fact: Identity, delta: 1 | -1) {
     dirtyScopes.add(fact.group)
-    member(paths, fact.path, id, delta === 1)
+    member(paths, machinePathKey(fact.path), id, delta === 1)
     member(groups, fact.group, id, delta === 1)
     for (const path of fact.links) {
-      const before = linked.get(path) ?? 0,
+      const before = linked.get(machinePathKey(path)) ?? 0,
         count = before + delta
-      if (count) linked.set(path, count)
-      else linked.delete(path)
+      if (count) linked.set(machinePathKey(path), count)
+      else linked.delete(machinePathKey(path))
       if (!!before !== !!count)
-        for (const member of paths.get(path)?.snapshot() ?? [])
+        for (const member of paths.get(machinePathKey(path))?.snapshot() ?? [])
           dirtyScopes.add(facts.get(member.id)!.group)
     }
   }
@@ -136,7 +137,7 @@ export function createHeaderRepositoryRelations() {
         path: row.path,
         group:
           row.repoId ??
-          (normalizeOriginUrl(row.originUrl) || `local:${row.machineId ?? ''}:${row.path}`),
+          (normalizeOriginUrl(row.originUrl) || `local:${row.machineId ?? ''}:${machinePathKey(row.path)}`),
         links: row.worktrees.map((tree) => tree.path),
         arrival: previous?.arrival ?? arrival++,
         machineId: row.machineId || undefined,
@@ -163,7 +164,7 @@ export function createHeaderRepositoryRelations() {
           after = next.has(id)
         if (before !== after) contribute(id, fact, after ? 1 : -1)
         if (before && after && (previous?.get(id) ?? fact.arrival) !== next.get(id)) {
-          member(paths, fact.path, id, true)
+          member(paths, machinePathKey(fact.path), id, true)
           member(groups, fact.group, id, true)
           dirtyScopes.add(fact.group)
         }
@@ -171,14 +172,14 @@ export function createHeaderRepositoryRelations() {
       flush()
     },
     group(path: string): readonly string[] {
-      if (linked.has(path)) return EMPTY
+      if (linked.has(machinePathKey(path))) return EMPTY
       const visited = new Set<string>()
-      for (const { id } of paths.get(path)?.snapshot() ?? []) {
+      for (const { id } of paths.get(machinePathKey(path))?.snapshot() ?? []) {
         const key = facts.get(id)!.group
         if (visited.has(key)) continue
         visited.add(key)
         const ids = eligible(key)
-        if (ids.length && facts.get(ids[0]!)!.path === path) return ids
+        if (ids.length && machinePathsEqual(facts.get(ids[0]!)!.path, path)) return ids
       }
       return EMPTY
     },
@@ -221,12 +222,14 @@ export function createHeaderRepositoryRelations() {
         }
       }
       take(cwd)
-      for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+      if (machinePathSeparator(cwd) === '\\') {
+        for (const path of machinePathAncestors(cwd)) take(path)
+      } else for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
         take(cwd.slice(0, at))
         take(cwd.slice(0, at + 1))
       }
       return first && { order: first.order, repoId: first.repoId, repoPath: first.repoPath,
-        handoff: handoff ? { repositoryId: handoff.repositoryId, repoPath: handoff.repoPath, worktreePath: handoffPath } : undefined }
+        handoff: handoff ? { repositoryId: handoff.repositoryId, repoPath: handoff.repoPath, worktreePath: handoff.worktreePath } : undefined }
     },
     clear() {
       facts.clear()

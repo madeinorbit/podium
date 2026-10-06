@@ -17,55 +17,51 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
+import { machinePathsEqual } from '@podium/model'
 import type {
   AgentObservation,
   AgentObservationAckMessage,
   ProviderCursor,
-  SessionObservationCheckpointV1,
-} from '@podium/protocol'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
-import {
-  cleanCodexTitle,
-  codexPromptTitle,
-  isInteractiveCodexSource,
-} from './discovery.js'
-import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
-import { LineDecoder } from '../../jsonl-stream.js'
+  SessionObservationCheckpointV1} from '@podium/protocol'
 import { fileMtimeIso } from '../../agent-state/boot-time.js'
-import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
   type AgentStateEvent,
   type AgentStateProvider,
   withStateChannel,
-  withStateChannelEvent,
-} from '../../agent-state/types.js'
+  withStateChannelEvent} from '../../agent-state/types.js'
+import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
+import { LineDecoder } from '../../jsonl-stream.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import {
-  PODIUM_CODEX_HOOK_SOCKET_ENV,
-  PODIUM_CODEX_HOOK_URL_ENV,
+  cleanCodexTitle,
+  codexPromptTitle,
+  isInteractiveCodexSource} from './discovery.js'
+import {
   codexInstrumentation,
   codexQuestionSummary,
   isCodexQuestionTool,
-  translateCodexEvent,
-} from './instrumentation.js'
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+  translateCodexEvent} from './instrumentation.js'
 import {
   CODEX_TRUST_SUMMARY,
   classifyCodexScreen,
   classifyCodexVerdict,
-  codexUsageLimitSummary,
-} from './state.js'
+  codexUsageLimitSummary} from './state.js'
 
+export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 export {
   CODEX_TRUST_SUMMARY,
-  PODIUM_CODEX_HOOK_SOCKET_ENV,
-  PODIUM_CODEX_HOOK_URL_ENV,
   classifyCodexScreen,
   classifyCodexVerdict,
-  codexUsageLimitSummary,
   codexQuestionSummary,
+  codexUsageLimitSummary,
   isCodexQuestionTool,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
   translateCodexEvent,
 }
-export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 
 const log = createLogger('harness:codex-state')
 
@@ -1724,7 +1720,7 @@ export async function findLiveCodexRollout(
           if (
             !payload ||
             strField(meta, 'type') !== 'session_meta' ||
-            strField(payload, 'cwd') !== cwd ||
+            !machinePathsEqual(strField(payload, 'cwd') ?? '', cwd) ||
             !isInteractiveCodexSource(payload.source)
           ) {
             continue

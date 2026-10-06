@@ -1,7 +1,7 @@
-import { asRepoId, asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
 import { openTestStore } from '../../test-support/open-test-store'
+import { DEFAULT_LOCK_TTL_SECONDS, LockService, normalizeWorkspace } from './service'
 
 /**
  * LockService + LocksRepository semantics [spec:SP-85d1]: grant, same-session
@@ -644,4 +644,12 @@ describe('LockService under the async store (POD-3802)', () => {
       expect.stringContaining('stolen'),
     )
   })
+})
+
+
+it.each([
+  ['/repo/', '/repo'],
+  ['C:\\repo\\', 'c:/REPO'],
+])('machine paths: lock co-location key for %s', (a, b) => {
+  expect(normalizeWorkspace(a)).toBe(normalizeWorkspace(b))
 })

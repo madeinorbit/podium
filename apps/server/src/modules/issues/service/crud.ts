@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { isAbsolute, relative, resolve, sep } from 'node:path'
 import {
   type ArtifactId,
   type Attribution,
@@ -12,9 +11,13 @@ import {
   type GrantVerb,
   type IssueId,
   type IssueProjection,
+  isAbsoluteMachinePath,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
+  machinePathBasename,
+  machinePathRelativeToRoot,
+  machinePathSegments,
   normalizeClosedPatch,
   type RepoId,
   type SessionId,
@@ -468,7 +471,7 @@ export class IssueCrudModule {
             terminalEvidenceHelp(row.seq),
         )
       }
-      if (!input.sourceRoot || !isAbsolute(input.sourceRoot)) {
+      if (!input.sourceRoot || !isAbsoluteMachinePath(input.sourceRoot)) {
         throw new IssueRefusal(
           `terminal evidence needs the checkout where the command is running; ` +
             `rerun from that checkout with --terminal-evidence. ${terminalEvidenceHelp(row.seq)}`,
@@ -493,22 +496,21 @@ export class IssueCrudModule {
       )
     }
     const normalizeSource = (sourcePath: string): string => {
-      if (terminalEvidence && isAbsolute(sourcePath)) {
+      if (terminalEvidence && isAbsoluteMachinePath(sourcePath, root)) {
         throw new IssueRefusal(
           `terminal evidence path '${sourcePath}' must be relative to the checkout where ` +
             `the command runs. ${terminalEvidenceHelp(row.seq)}`,
         )
       }
-      const target = resolve(root, sourcePath)
-      const rel = relative(resolve(root), target)
-      if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
+      const rel = machinePathRelativeToRoot(root, sourcePath)
+      if (!rel) {
         throw new IssueRefusal(
           terminalEvidence
             ? `terminal evidence path '${sourcePath}' is outside the command checkout ${root}. ${terminalEvidenceHelp(row.seq)}`
             : `artifact path '${sourcePath}' is outside the owning issue worktree ${root}. ${terminalEvidenceHelp(row.seq)}`,
         )
       }
-      return rel.split(sep).join('/')
+      return machinePathSegments(rel, root).join('/')
     }
     const sourcePath = normalizeSource(input.path)
     const extraPaths = input.extraPaths?.map(normalizeSource)
@@ -659,7 +661,7 @@ export class IssueCrudModule {
           'with `podium issue artifact <id> --add <path>` to capture its content',
       )
     }
-    const file = input.file ?? entryRow.entry ?? entryRow.path.split('/').pop() ?? entryRow.path
+    const file = input.file ?? entryRow.entry ?? machinePathBasename(entryRow.path) ?? entryRow.path
     const found = await store.read(row.id, entryRow.artifactId, file)
     if (!found) {
       const known = (entryRow.files ?? []).map((f) => f.path).join(', ')
@@ -1361,11 +1363,11 @@ export class IssueCrudModule {
       )
     }
     if (!row.worktreePath) return
-    const root = resolve(row.worktreePath)
+    const root = row.worktreePath
     for (const artifact of artifacts) {
       if (artifact.sourceKind === 'terminal-evidence') continue
-      const rel = relative(root, resolve(root, artifact.path))
-      if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
+      const rel = machinePathRelativeToRoot(root, artifact.path)
+      if (!rel) {
         throw new IssueRefusal(
           `review blocked: artifact '${artifact.path}' is outside the owning issue worktree ${row.worktreePath}; re-add it from that worktree`,
         )

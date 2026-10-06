@@ -1,4 +1,5 @@
 import type { FileScope } from '@podium/client-core/values'
+import { machinePathBasename, machinePathDirname, machinePathSeparator } from '@podium/model'
 import { scopedAssetUrl } from '@/lib/asset-url'
 
 /**
@@ -17,10 +18,11 @@ export function rawFileUrl(args: {
   workspace?: string
 }): string | null {
   const { httpOrigin, scope, path } = args
-  const slash = path.lastIndexOf('/')
-  // Artifact-scope paths are relpaths: a slash-less entry sits at the artifact root.
-  const fileDir = slash === -1 ? '' : path.slice(0, slash) || '/'
-  const name = slash === -1 ? path : path.slice(slash + 1)
+  if (!path || path.endsWith('/') || (machinePathSeparator(path) === '\\' && path.endsWith('\\')))
+    return null
+  const root = scope.kind === 'worktree' ? scope.root : path
+  const fileDir = machinePathDirname(path, root)
+  const name = machinePathBasename(path, root)
   if (!name) return null
   return scopedAssetUrl({ httpOrigin, scope, fileDir, src: name, workspace: args.workspace })
 }
@@ -38,6 +40,9 @@ export function downloadFileUrl(args: {
 }): { url: string; name: string } | null {
   const raw = rawFileUrl(args)
   if (!raw) return null
-  const name = args.path.slice(args.path.lastIndexOf('/') + 1)
+  const name = machinePathBasename(
+    args.path,
+    args.scope.kind === 'worktree' ? args.scope.root : args.path,
+  )
   return { url: `${raw}${raw.includes('?') ? '&' : '?'}download=1`, name }
 }

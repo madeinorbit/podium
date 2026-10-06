@@ -1,3 +1,9 @@
+import {
+  isMachinePathWithinRoot,
+  machinePathBasename,
+  machinePathKey,
+  machinePathsEqual,
+} from '@podium/model'
 /**
  * The superagent (modules/superagent): the orchestrator with cross-project
  * context. The always-there 'global' thread plus per-session 'btw' threads and
@@ -1398,7 +1404,7 @@ export class SuperagentService {
     text: string
     focus?: SuperagentUserFocus
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
-    if (!(await this.repos.list()).includes(repoPath)) {
+    if (!(await this.repos.list()).some(path => machinePathsEqual(path, repoPath))) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
     const baseThreadId = conciergeThreadId(repoPath)
@@ -1411,7 +1417,7 @@ export class SuperagentService {
         ownerUserId,
         kind: 'concierge',
         repoPath,
-        title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
+        title: `concierge · ${machinePathBasename(repoPath) ?? repoPath}`,
       })
     }
     const ack = await this.sendTurn({ ownerUserId, threadId, text, ...(focus ? { focus } : {}) })
@@ -1467,7 +1473,7 @@ export class SuperagentService {
       ownerUserId,
       kind: 'concierge',
       repoPath,
-      title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
+      title: `concierge · ${machinePathBasename(repoPath) ?? repoPath}`,
     })
     return { threadId, isNew: true }
   }
@@ -1904,16 +1910,16 @@ export class SuperagentService {
   ): Promise<Omit<Parameters<typeof buildConciergeSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
     const all = await issues.reports.list(repoPath)
-    const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [i.worktreePath, i]))
+    const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]))
     const sessions: ConciergeSessionInfo[] = this.sessionFacts()
       .filter(
         (s) =>
           s.status !== 'exited' &&
           !s.archived &&
-          (s.cwd === repoPath || s.cwd?.startsWith(`${repoPath}/`) || byWorktree.has(s.cwd)),
+          (isMachinePathWithinRoot(repoPath, s.cwd) || byWorktree.has(machinePathKey(s.cwd))),
       )
       .map((s) => {
-        const bound = byWorktree.get(s.cwd)
+        const bound = byWorktree.get(machinePathKey(s.cwd))
         return {
           sessionId: s.sessionId,
           name: s.name ?? s.title,

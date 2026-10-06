@@ -4,6 +4,7 @@
  * client-reported "what's on screen" block prepended to every turn.
  */
 import type { IssueReport } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import { type ConciergeEvent, type ConciergeSessionInfo, eventLine } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------
@@ -39,7 +40,7 @@ export function buildGlobalSeed(opts: {
   maxEventId: number
 }): string {
   const { repos, sessions, questions, events } = opts
-  const name = (p: string) => p.split('/').pop() || p
+  const name = (p: string) => machinePathBasename(p) || p
   return [
     '[SUPERAGENT CONTEXT]',
     `Deterministic digest of Podium's current state (event cursor ${opts.maxEventId}).`,

@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 /**
  * THE REACTION TABLE (POD-404, split out of the old `engine.ts`).
  *
@@ -29,9 +30,9 @@ import {
   reposToViews,
   type TabId,
 } from '../values'
+import type { NavigationTopologySession } from './navigation-provider'
 import {
   type EngineState,
-  type PruningState,
   focusedPaneSession,
   foregroundIssue,
   knownTabIds,
@@ -41,6 +42,7 @@ import {
   navigationIssueReadAt,
   navigationSession,
   overlayState,
+  type PruningState,
   referencedTabIds,
   resolvedWorkspaceKey,
   visibleTabIds,
@@ -48,7 +50,6 @@ import {
   workspaceWritePatch,
 } from './state'
 import type { StoreNotices } from './types'
-import type { NavigationTopologySession } from './navigation-provider'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */
@@ -402,12 +403,13 @@ export class Reactions {
       this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })
       return true
     }
-    const known = worktrees.some((w) => w.path === st.selectedWorktree)
+    const selectedWorktree = st.selectedWorktree
+    const known = worktrees.some((w) => machinePathsEqual(w.path, selectedWorktree))
     if (known || st.selectedWorktree === this.ports.linkedWorktree?.()) return true
     const sessions = st.navigation.worktreeSessions?.()
     if (sessions === NAVIGATION_LOADING) return false
     const hasSession = (sessions ?? []).some(
-      (s) => s.cwd === st.selectedWorktree || s.cwd.startsWith(`${st.selectedWorktree}/`),
+      (s) => isMachinePathWithinRoot(selectedWorktree, s.cwd),
     )
     if (hasSession) return true
     this.ports.publish({ selectedWorktree: worktrees[0]?.path ?? null })

@@ -14,7 +14,7 @@ import { asSessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { acceptAgentObservation, type ObservationLease } from '../../observer.js'
+import { acceptAgentObservation, type ObservationLease, reduceAgentState } from '../../observer.js'
 import {
   CodexCausalCursorObserver,
   classifyCodexVerdict,
@@ -29,7 +29,6 @@ import {
   observeCodexState,
   translateCodexEvent,
 } from './state-provider.js'
-import { reduceAgentState } from '../../observer.js'
 
 const env = (ptype: string, extra: Record<string, unknown> = {}) => ({
   type: 'event_msg',
@@ -2286,4 +2285,22 @@ describe('findCodexRolloutPath', () => {
     expect(await findCodexRolloutPath({ resumeValue: 'thread-xyz', homeDir: home })).toBe(file)
     expect(await findCodexRolloutPath({ resumeValue: 'no-such-id', homeDir: home })).toBeUndefined()
   })
+})
+
+
+it.each([
+  ['/repo/podium', '/repo/podium'],
+  ['C:\\src\\podium', 'c:/SRC/podium'],
+])('machine paths: Codex rollout discovery matches %s to %s', async (cwd, reported) => {
+  const home = await mkdtemp(join(tmpdir(), 'podium-win-codex-'))
+  try {
+    const sessions = join(home, '.codex', 'sessions')
+    const dir = join(sessions, '2026', '10', '06')
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, 'rollout-2026-10-06T12-00-00-native-thread.jsonl')
+    await writeFile(file, JSON.stringify({ type: 'session_meta', timestamp: '2026-10-06T12:00:00Z', payload: { id: 'native-thread', cwd: reported, source: 'cli', timestamp: '2026-10-06T12:00:00Z' } }) + '\n')
+    expect((await findLiveCodexRollout(sessions, cwd, 0))?.path).toBe(file)
+    expect(await findCodexRolloutPath({ homeDir: home, resumeValue: 'native-thread' })).toBe(file)
+    expect(await findLiveCodexRollout(sessions, cwd + '-other', 0)).toBeUndefined()
+  } finally { await rm(home, { recursive: true, force: true }) }
 })

@@ -1,3 +1,4 @@
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 /** Scalar history question. Storage can answer the same maximum without
  * exposing session rows or a history map to its caller. */
 export interface SessionActivityQuestion {
@@ -88,7 +89,7 @@ export function createSessionActivityIndex(collapsed: (id: string) => boolean) {
   let version = 0,
     replacement = 0,
     visits = 0
-  const key = (match: string, root: string) => `${match}:${root}`
+  const key = (match: string, root: string) => `${match}:${machinePathKey(root)}`
   function file(id: string, keys: readonly string[], at: number | undefined) {
     for (const root of keys) {
       let maximum = maxima.get(root)
@@ -114,7 +115,9 @@ export function createSessionActivityIndex(collapsed: (id: string) => boolean) {
       const before = facts.get(id)
       const cwd = row?.cwd
       const roots = typeof cwd === 'string' ? [key('exact', cwd), key('within', cwd)] : []
-      if (typeof cwd === 'string')
+      if (typeof cwd === 'string' && machinePathSeparator(cwd) === '\\')
+        roots.push(...machinePathAncestors(cwd).map(path => key('within', path)))
+      else if (typeof cwd === 'string')
         for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1))
           roots.push(key('within', cwd.slice(0, at)))
       const keys = [...new Set(roots)],

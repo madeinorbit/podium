@@ -1,6 +1,3 @@
-import { headerView } from './header-views'
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import { countIssueBoard } from '@podium/client-core/perf'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -11,20 +8,21 @@ import {
   sessionNeedsHuman,
   sessionPresentOnTask,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf, machinePathBasename } from '@podium/model/browser'
 import {
   compareStructural,
   observable,
   observe,
   runInAction,
 } from 'mobx'
-import { createIssueExplorer } from './issue-explorer'
+import { headerView } from './header-views'
 import { createBoardLayout } from './issue-board-layout'
 import {
   BOARD_EXPLORER_TABS,
   type BoardCardData,
-  type BoardColumnOptions,
   type BoardCatalog,
+  type BoardColumnOptions,
   type BoardExplorerTab,
   type BoardOptions,
   type BoardQuery,
@@ -32,8 +30,10 @@ import {
   type IssueBoardSourceRows,
   type PoolExplorerData,
 } from './issue-board-schema'
+import { createIssueExplorer } from './issue-explorer'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
+import { isFinished } from './shared/predicates'
 import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -282,7 +282,7 @@ export function createIssueBoardSource(
             assignees: [...assignees].sort(),
             labels: [...labels].sort(),
             projectPaths: [...paths].sort((a, b) =>
-              (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+              (machinePathBasename(a) || a).localeCompare(machinePathBasename(b) || b),
             ),
           }
     })

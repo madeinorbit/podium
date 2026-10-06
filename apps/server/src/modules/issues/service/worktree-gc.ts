@@ -1,4 +1,5 @@
 import type { IssueId, MachineId } from '@podium/model'
+import { machinePathKey } from '@podium/model'
 import type { WorktreeGcObservation } from '@podium/protocol'
 import type { CommandPrincipal } from '../../../command-principal'
 import { liveSessionsUsingWorktree } from '../../../issue-util'
@@ -96,7 +97,7 @@ export class IssueWorktreeGcModule {
         }
         const records = parseGitWorktreeList(result.output)
         for (const [index, record] of records.entries()) {
-          const key = `${repo.machineId}\0${record.path}`
+          const key = `${repo.machineId}\0${machinePathKey(record.path)}`
           if (discovered.has(key)) continue
           discovered.set(key, {
             path: record.path,
@@ -125,7 +126,7 @@ export class IssueWorktreeGcModule {
     const claimed = new Set<string>()
     for (const row of this.store.rows.values()) {
       if (!row.worktreePath) continue
-      claimed.add(`${rowMachine(row)}\0${row.worktreePath}`)
+      claimed.add(`${rowMachine(row)}\0${machinePathKey(row.worktreePath!)}`)
     }
     const candidates = [...this.store.rows.values()]
       .filter((row) => this.isCandidate(row, nowMs, afterDays))
@@ -136,7 +137,7 @@ export class IssueWorktreeGcModule {
       )
       .map((row) => {
         const resolvedMachineId = rowMachine(row)
-        const found = discovered.get(`${resolvedMachineId}\0${row.worktreePath}`)
+        const found = discovered.get(`${resolvedMachineId}\0${machinePathKey(row.worktreePath!)}`)
         return {
           issueId: row.id,
           title: row.title,
@@ -150,7 +151,7 @@ export class IssueWorktreeGcModule {
 
     const orphans = [...discovered.values()]
       .filter((entry) => !entry.primary)
-      .filter((entry) => !claimed.has(`${entry.machineId}\0${entry.path}`))
+      .filter((entry) => !claimed.has(`${entry.machineId}\0${machinePathKey(entry.path)}`))
       .sort((a, b) => a.path.localeCompare(b.path))
       .map(({ primary: _primary, ...entry }) => entry)
     const allWorktreePaths = [...discovered.values()].map((entry) => entry.path)

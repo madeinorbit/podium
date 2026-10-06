@@ -1,12 +1,13 @@
-import { headerEntities } from './header-entities'
-import { keyedComputed } from '@podium/mobx-helpers'
 import { measureHeader } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
+import { keyedComputed } from '@podium/mobx-helpers'
 import type { MachineId } from '@podium/model/browser'
+import { isMachinePathWithinRoot } from '@podium/model/browser'
 import { compareStructural, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
+import { headerEntities } from './header-entities'
 import type { HeaderEntity, HeaderRows } from './header-schema'
 import { type HeaderAggregate, headerHostSession } from './header-session'
 import { HeaderSessions } from './header-sessions'
@@ -41,7 +42,7 @@ const FOLDED_NONE = {
   loading: false,
 }
 const contains = (cwd: string, root: string) =>
-  cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
+  isMachinePathWithinRoot(root, cwd)
 
 /** Views over one pool. Memos exist only while observed, and are released when
  * the last subscriber leaves. No raw row mirror, second clock, or peek read. */

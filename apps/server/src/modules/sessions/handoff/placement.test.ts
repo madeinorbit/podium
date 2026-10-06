@@ -310,3 +310,18 @@ describe('handoff placement: the refusals, all before anything moves', () => {
     expect(placement.exportIdentity.exportedBy.actor.kind).toBe('agent')
   })
 })
+
+
+it.each([
+  ['/repo', '/repo/wt/feature', '/repo/wt/feature/src'],
+  ['C:\\repo', 'c:/REPO/wt/feature', 'C:\\repo\\wt\\feature\\src'],
+])('machine paths: handoff placement and issue fallback for %s', async (root, worktree, cwd) => {
+  const issueId = 'iss-windows'
+  const issue = { id: asIssueId(issueId), seq: 1, repoPath: root, worktreePath: worktree, machineId: SOURCE, branch: 'feature', parentBranch: 'main' }
+  const placed = await resolve(ports({ session: makeSession({ cwd, issueId }), repos: [repo({ path: root })], issue }))
+  expect(placed.sourceRepo.path).toBe(root)
+  expect(placed.issueWorktree).toBe(worktree)
+  const fallback = await resolve(ports({ session: makeSession({ cwd: root, issueId }), repos: [repo({ path: root })], issue }))
+  expect(fallback.issueWorktree).toBe(worktree)
+  await expect(resolve(ports({ session: makeSession({ cwd: root }), repos: [repo({ path: root })] }))).rejects.toThrow('only worktree sessions')
+})

@@ -2,7 +2,7 @@ import { asAgentIdentityId, asMachineId, asSessionId, asUserId } from '@podium/m
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
-import { handoffHandlers } from './handoff'
+import { exportCwd, handoffHandlers } from './handoff'
 
 const transfer = (sessionId: ReturnType<typeof asSessionId>) => ({
   transferId: 'transfer-denied',
@@ -60,4 +60,19 @@ describe('handoff ADOPT host refusal', () => {
       },
     ])
   })
+})
+
+
+it.each([
+  ['/repo', '/repo/src', '/repository/src'],
+  [String.raw`c:\repo`, 'C:/REPO/src', String.raw`C:\repository\src`],
+])('machine paths: handoff exports the actual cwd within %s', (root, cwd, sibling) => {
+  let raw: string | undefined = cwd
+  const ctx = { sessionCwdTracker: { rawCwd: () => raw } } as unknown as DaemonContext
+  const sessionId = asSessionId('cwd-guard')
+  expect(exportCwd(ctx, sessionId, root)).toBe(cwd)
+  raw = sibling
+  expect(exportCwd(ctx, sessionId, root)).toBe(root)
+  raw = undefined
+  expect(exportCwd(ctx, sessionId, root)).toBe(root)
 })

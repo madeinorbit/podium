@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
+import { machinePathBasename, machinePathHasSuffix } from '@podium/model'
 import {
   type IssueArtifactPreview,
   issueArtifactHref,
@@ -119,7 +120,7 @@ export function offerArtifactRows(args: {
 /** `notes/plan.md` → `MD`; an extensionless file falls back to its preview
  *  class, so the chip always says what kind of thing it is opening. */
 function kindTag(path: string, preview: IssueArtifactPreview): string {
-  const base = path.slice(path.lastIndexOf('/') + 1)
+  const base = machinePathBasename(path)
   const dot = base.lastIndexOf('.')
   const ext = dot > 0 ? base.slice(dot + 1) : ''
   return (ext || preview).toUpperCase()
@@ -133,14 +134,10 @@ function newestMatch(
 ): IssuePanelArtifact | undefined {
   let best: IssuePanelArtifact | undefined
   for (const a of published) {
-    if (!pathsRefer(a.path, path)) continue
+    if (!machinePathHasSuffix(a.path, path) && !machinePathHasSuffix(path, a.path)) continue
     // Later entries win ties: re-adding an artifact appends, so list position
     // is the secondary recency signal.
     if (!best || a.addedAt >= best.addedAt) best = a
   }
   return best
-}
-
-function pathsRefer(a: string, b: string): boolean {
-  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
 }

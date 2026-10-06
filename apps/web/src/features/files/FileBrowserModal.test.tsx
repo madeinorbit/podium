@@ -56,3 +56,25 @@ describe('FileBrowserModal', () => {
     expect(onClose).toHaveBeenCalled()
   })
 })
+
+it('navigates Windows directories and opens files with native paths', async () => {
+  const root = 'C:\\repo'
+  listDir.mockReset()
+  openFileInWorktree.mockReset()
+  listDir.mockImplementation(async ({ path }: { path: string }) => ({
+    ok: true,
+    path,
+    entries: path === root ? [{ name: 'src', isDir: true }] : [{ name: 'x.ts', isDir: false }],
+  }))
+  render(<FileBrowserModal root={root} title="files" onClose={vi.fn()} />)
+  fireEvent.click(await screen.findByText('src'))
+  fireEvent.click(await screen.findByText('x.ts'))
+  expect(openFileInWorktree).toHaveBeenCalledWith({
+    machineId: undefined,
+    root,
+    path: 'C:\\repo\\src\\x.ts',
+  })
+  fireEvent.click(screen.getByLabelText('Up'))
+  await screen.findByText('src')
+  expect((screen.getByLabelText('Up') as HTMLButtonElement).disabled).toBe(true)
+})

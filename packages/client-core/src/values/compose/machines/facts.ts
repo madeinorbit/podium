@@ -1,4 +1,3 @@
-import type { SessionView } from '../../../session-values'
 /**
  * MACHINES SLICE — the FACTS about a machine (POD-330).
  *
@@ -30,17 +29,16 @@ import {
   type HostMetricsWire,
   type IssueId,
   isIssueClosed,
+  isMachinePathWithinRoot,
   type MachineId,
+  machinePathBasename,
+  machinePathsEqual,
   normalizeOriginUrl,
   repoNameFromOrigin,
-  type SessionStatus} from '@podium/model'
+  type SessionStatus,
+} from '@podium/model'
+import type { SessionView } from '../../../session-values'
 import type { RepoView, WorktreeView } from '../../types'
-
-/** Path containment (POSIX) — same rule as dock-panel's cwdInWorktree, local so
- *  this facts module stays free of other viewmodel edges. */
-function cwdUnderRoot(cwd: string, root: string): boolean {
-  return cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
-}
 
 // ---------------------------------------------------------------------------
 // Repo / worktree structure. A machine fact.
@@ -116,7 +114,7 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
       // an originless repo is named after its folder — that is all we know about it.
       // `originUrl` here is already normalized (host/owner/repo); the helper is
       // idempotent over that. [spec:SP-3701]
-      name: repoNameFromOrigin(originUrl) ?? (first.path.split('/').pop() || first.path),
+      name: repoNameFromOrigin(originUrl) ?? (machinePathBasename(first.path) || first.path),
       worktrees,
       machines,
       ...(originUrl !== undefined ? { originUrl } : {}),
@@ -137,7 +135,7 @@ export function repoBranchForCwd(
 ): { repo: string; branch?: string } | null {
   for (const repo of reposToViews(repos)) {
     for (const worktree of repo.worktrees) {
-      if (worktree.path === cwd) {
+      if (machinePathsEqual(worktree.path, cwd)) {
         return {
           repo: repo.name,
           ...(worktree.branch !== undefined ? { branch: worktree.branch } : {}),
@@ -177,7 +175,7 @@ export function repoUsageAt(
   const roots = [repo.path, ...repo.worktrees.map((w) => w.path)]
   let max = 0
   for (const s of sessions) {
-    if (!roots.some((r) => s.cwd === r || s.cwd.startsWith(`${r}/`))) continue
+    if (!roots.some((r) => isMachinePathWithinRoot(r, s.cwd))) continue
     const ts = Date.parse(s.lastActiveAt) || 0
     if (ts > max) max = ts
   }
@@ -535,7 +533,7 @@ export function listReclaimableWorktreesClient(args: {
       const closedMs = Date.parse(row.closedAt ?? '')
       if (!Number.isFinite(closedMs) || closedMs > cutoff) return false
       const occupied = args.occupiedRoots.some((cwd) =>
-        cwdUnderRoot(cwd, row.worktreePath as string),
+        isMachinePathWithinRoot(row.worktreePath as string, cwd),
       )
       return !occupied
     })

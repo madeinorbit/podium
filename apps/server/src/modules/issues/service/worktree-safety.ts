@@ -1,3 +1,4 @@
+import { machinePathsEqual } from '@podium/model'
 import { normalizeRepoPath } from '../../../store/repos'
 
 export interface GitWorktreeRecord {
@@ -33,5 +34,5 @@ export function parseGitWorktreeList(output: string): GitWorktreeRecord[] {
 }
 
 export function sameWorktreePath(left: string, right: string): boolean {
-  return normalizeRepoPath(left) === normalizeRepoPath(right)
+  return machinePathsEqual(normalizeRepoPath(left), normalizeRepoPath(right))
 }

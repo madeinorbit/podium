@@ -1,5 +1,6 @@
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathKey } from '@podium/model'
 
 /** Settings-only declarations. Catalog ids name resident machine/repository
  * rows; session history uses a small summary, never an index of cold payloads.
@@ -28,7 +29,7 @@ export type SetupSession = Pick<SessionView, 'sessionId' | 'cwd' | 'lastActiveAt
 export function isSettingsEntity(entity: string): entity is SettingsEntity {
   return entity !== 'setupSession' && entity !== 'relations' && Object.hasOwn(SETTINGS_SCHEMA, entity)
 }
-export const settingsRepositoryId = (repo: SettingsRows['settingsRepository']): string => JSON.stringify([repo.machineId ?? '', repo.path])
+export const settingsRepositoryId = (repo: SettingsRows['settingsRepository']): string => JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])
 
 const setupSummaries = new WeakMap<object, { order: number; value: SetupSession }>()
 export function setupSessionSummary(row: Readonly<Record<string, unknown>>, order = row['setupOrder'] as number): SetupSession {

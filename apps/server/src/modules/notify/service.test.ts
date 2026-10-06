@@ -40,7 +40,7 @@ const state = (phase: AgentRuntimeState['phase']): AgentRuntimeState => ({
 
 /** Every port resolves, the way the real ones do — a synchronous fake would
  *  satisfy the un-awaited spelling too and so could not fail on a dropped await. */
-function harness(input: { routeAvailable: boolean }) {
+function harness(input: { routeAvailable: boolean; cwd?: string }) {
   const requested: Array<{ ownerUserId: UserId; text: string }> = []
   const pushed: Array<{ chatId: string }> = []
   const settings = PodiumSettings.parse({
@@ -56,7 +56,7 @@ function harness(input: { routeAvailable: boolean }) {
     appendEvent: () => {},
     now: () => NOW,
     clients: () => [],
-    sessionInfo: () => info(),
+    sessionInfo: () => input.cwd ? { ...info(), name: '', title: '', cwd: input.cwd } : info(),
     sessionStates: () => [],
   }
   const bus = new EventBus()
@@ -207,4 +207,14 @@ describe('NotifyService under the async store (POD-3820)', () => {
     // assertion below needed a timer to pass.
     expect(requested).toEqual([OWNER])
   })
+})
+
+
+it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: notification title from %s', async cwd => {
+  const h = harness({ routeAvailable: true, cwd })
+  h.bus.emit('session.stateChanged', { sessionId: asSessionId('s1'), ownerUserId: OWNER, prev: state('working'), next: state('needs_user') })
+  await settle()
+  expect(h.requested).toHaveLength(1)
+  expect(h.requested[0]?.text).toContain('podium')
+  expect(h.requested[0]?.text).not.toContain(cwd)
 })

@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 /**
  * PLACEMENT — where this session is, where it is going, and whether that move
  * is possible AT ALL. The second phase, between admission and the pre-flight.
@@ -142,7 +143,7 @@ export async function resolveHandoffPlacement(
     .filter(
       (repo) =>
         repo.machineId === session.machineId &&
-        sourceAnchors.some((anchor) => anchor === repo.path || anchor.startsWith(`${repo.path}/`)),
+        sourceAnchors.some((anchor) => isMachinePathWithinRoot(repo.path, anchor)),
     )
     .sort((a, b) => b.path.length - a.path.length)[0]
   if (!isRegistered(sourceRepo))
@@ -156,10 +157,10 @@ export async function resolveHandoffPlacement(
   // identity always matches the tree it carries. Which candidate wins is the
   // exporter's call (it asks git); refuse up front only when neither exists.
   const issueWorktree =
-    issue?.machineId === session.machineId && issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
+    issue?.machineId === session.machineId && (issue.worktreePath && !machinePathsEqual(issue.worktreePath, sourceRepo.path) && isMachinePathWithinRoot(sourceRepo.path, issue.worktreePath))
       ? issue.worktreePath
       : undefined
-  if (session.cwd === sourceRepo.path && !issueWorktree)
+  if (machinePathsEqual(session.cwd, sourceRepo.path) && !issueWorktree)
     throw new Error('only worktree sessions can be handed off')
   const targetMachine = (await ports.listMachines()).find((machine) => machine.id === input.machineId)
   // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the

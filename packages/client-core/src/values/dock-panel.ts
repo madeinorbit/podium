@@ -1,7 +1,8 @@
 import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
+import { machinePathBasename as basename, isMachinePathWithinRoot, normalizeMachinePath } from '@podium/model'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the
@@ -52,9 +53,9 @@ export interface ActiveWorktree {
   issueId?: IssueId
 }
 
-/** True when `cwd` sits at or under `root` (path containment, POSIX). */
+/** True when `cwd` sits at or under the machine's worktree root. */
 export function cwdInWorktree(cwd: string, root: string): boolean {
-  return cwd === root || cwd.startsWith(root.endsWith('/') ? root : `${root}/`)
+  return isMachinePathWithinRoot(root, cwd)
 }
 
 /** Resolve the worktree the dock's Files/Issue tabs should target: paneA's
@@ -173,10 +174,7 @@ export function artifactKind(path: string): ArtifactKind {
   return 'file'
 }
 
-export function basename(path: string): string {
-  const i = path.lastIndexOf('/')
-  return i === -1 ? path : path.slice(i + 1)
-}
+export { machinePathBasename as basename } from '@podium/model'
 
 /** URL for an issue-panel artifact's bytes ([spec:SP-0fc9] #441): snapshotted
  *  entries (artifactId present) serve from the permanent store via
@@ -194,7 +192,7 @@ export function artifactUrl(args: {
   const origin = args.httpOrigin.replace(/\/+$/, '')
   const a = args.artifact
   if (a.artifactId) {
-    const rel = a.entry || basename(a.path)
+    const rel = a.entry || basename(a.path, args.root ?? a.path)
     const relEnc = rel.split('/').map(encodeURIComponent).join('/')
     const workspacePath = args.workspace ? `/workspace/${encodeURIComponent(args.workspace)}` : ''
     return `${origin}/files/artifact${workspacePath}/${encodeURIComponent(args.issueId)}/${encodeURIComponent(a.artifactId)}/${relEnc}`
@@ -219,7 +217,10 @@ export function worktreeAssetUrl(args: {
   /** Hosted workspace slug or immutable id carried by browser-visible URLs. */
   workspace?: string
 }): string {
-  const qs = new URLSearchParams({ root: args.root, path: args.path })
+  const qs = new URLSearchParams({
+    root: args.root,
+    path: normalizeMachinePath(args.path, args.root),
+  })
   if (args.machineId) qs.set('machineId', args.machineId)
   if (args.workspace) qs.set('workspace', args.workspace)
   return `${args.httpOrigin.replace(/\/+$/, '')}/files/asset?${qs.toString()}`

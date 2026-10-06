@@ -34,3 +34,25 @@ describe('isAllowedRoot', () => {
     expect(isAllowedRoot(['/home/u/repo'], '/home/u')).toBe(false)
   })
 })
+
+
+it.each([
+  ['/repo', '/repo/src', '/repository'],
+  ['C:\\repo', 'c:/REPO/src', 'C:\\repository'],
+])('machine paths: remote root allowlist for %s', (root, child, sibling) => {
+  expect(isAllowedRoot([root], child)).toBe(true)
+  expect(isAllowedRoot([root], sibling)).toBe(false)
+})
+
+
+it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: refuses Windows root aliases ending in %s', segment => {
+  expect(isAllowedRoot([String.raw`C:\repo`], String.raw`C:\repo` + '\\' + segment)).toBe(false)
+  expect(isAllowedRoot(['/repo'], '/repo/' + segment)).toBe(true)
+})
+
+
+it('does not authorize a Unicode folder whose JS lowercase aliases a registered root', () => {
+  expect(isAllowedRoot([String.raw`C:\work`], String.raw`C:\worK\secret`)).toBe(false)
+  expect(isAllowedRoot([String.raw`C:\work`], String.raw`c:\WORK\secret`)).toBe(true)
+  expect(isAllowedRoot(['/work'], '/worK/secret')).toBe(false)
+})

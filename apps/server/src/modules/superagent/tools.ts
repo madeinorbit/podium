@@ -1,3 +1,4 @@
+import { machinePathsEqual } from '@podium/model'
 /**
  * The superagent's orchestrator tool belt (modules/superagent): the tool specs +
  * implementations shared by the MCP surface (mcpToolSpecs/callMcpTool) and the
@@ -236,7 +237,7 @@ export async function buildSuperagentTools(
             const started = await issues.gitWorkflow.start(issue.id, agentKind, { spawnedBy })
             const spawned = (await sessions
               .listSessionsForIssue(started.worktreePath ?? null, issue.id))
-              .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')
+              .find((s) => machinePathsEqual(s.cwd, started.worktreePath!) && s.status !== 'exited')
             return JSON.stringify({
               ...(spawned ? { sessionId: spawned.sessionId } : {}),
               cwd: started.worktreePath,

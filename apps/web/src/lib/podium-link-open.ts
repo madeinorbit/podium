@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathBasename } from '@podium/model'
 /**
  * What opening a Podium address MEANS in the web app (POD-1606).
  *
@@ -57,12 +58,6 @@ export type PodiumOpen =
   | { kind: 'file'; path: string; root: string; machineId?: MachineId }
   | { kind: 'view'; path: string; search: string; hash: string }
 
-/** Last path segment — an artifact whose panel entry is a bare path opens by name. */
-function basename(path: string): string {
-  const i = path.lastIndexOf('/')
-  return i === -1 ? path : path.slice(i + 1)
-}
-
 /**
  * An issue by internal id OR by human ref. Both appear in real addresses: an
  * agent writes `POD-1606` because that is what it says everywhere else, and the
@@ -105,7 +100,7 @@ export function resolvePodiumTarget(
       // A named bundle entry must exist in the issue's artifact manifest. An
       // unchecked relpath would report success, suppress browser fallback, and
       // create a tab whose first read can only 404.
-      const primaryEntry = artifact.entry ?? basename(artifact.path)
+      const primaryEntry = artifact.entry ?? machinePathBasename(artifact.path)
       const namesPrimaryEntry = target.entry === primaryEntry
       if (
         target.entry &&

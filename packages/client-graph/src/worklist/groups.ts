@@ -1,5 +1,6 @@
-import type { MobxPool } from '../pool'
+import { machinePathBasename } from '@podium/model/browser'
 import { debugName } from '../debug-name'
+import type { MobxPool } from '../pool'
 /**
  * The worklist's groups and closed folds, over the ordered
  * visible ids (`visible.ts`).
@@ -47,7 +48,7 @@ import { debugName } from '../debug-name'
  * latch is one computed, so a click on any other row re-runs nothing here.
  */
 
-import { compareShallow, compareStructural, computed, makeObservable, observable, type IObservableValue } from 'mobx'
+import { compareShallow, compareStructural, computed, type IObservableValue, makeObservable, observable } from 'mobx'
 import { compareRank, type RowRank } from '../shared/row-view'
 import type { SliceGroup, SliceOrder } from '../shared/slice-types'
 import type { OwnPart } from '../views'
@@ -73,7 +74,7 @@ export interface Placement {
 
 /** The group label of a repo path: its last segment (`folds.ts:203`). */
 export function repoLabelOf(repoPath: string): string {
-  return repoPath.split('/').pop() || repoPath
+  return machinePathBasename(repoPath) || repoPath
 }
 
 /**

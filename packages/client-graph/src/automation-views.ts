@@ -1,17 +1,17 @@
 import { keyedComputed } from '@podium/mobx-helpers'
-import { agentExecutionRejection, structuralRejection, type MachineWire } from '@podium/model/browser'
+import { agentExecutionRejection, type MachineWire, machinePathBasename, structuralRejection } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
-import type { MobxPool } from './pool'
 import type { AutomationRows } from './automation-schema'
+import { debugName } from './debug-name'
+import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'
 import { LOADING } from './worklist/rollup'
-import { debugName } from './debug-name'
 
 export type TargetAvailability = 'available' | 'unauthorized' | 'unreachable' | 'incapable' | 'disabled' | 'degraded'
 export interface AutomationTarget { value: string; label: string; availability: TargetAvailability; opaque?: true }
 export type TargetExclusions = Record<Exclude<TargetAvailability, 'available'>, number>
 export const EMPTY_EXCLUSIONS: TargetExclusions = { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }
-const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
+const label = (path: string) => machinePathBasename(path) || path
 
 /** Value reads always use pool.row. Memos live only while observed. Catalog
  * relations cover resident definitions/runs, and cold sessions contribute only

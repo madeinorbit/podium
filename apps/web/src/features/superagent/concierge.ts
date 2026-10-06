@@ -1,5 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import { asThreadId, type GitRepositoryWire, type ThreadId } from '@podium/model/browser'
 
 /**
@@ -32,7 +33,7 @@ export function conciergeRepoPath(threadId: ThreadId): string | undefined {
 
 /** "Concierge — <repo basename>": the thread-list pill and panel-header label. */
 export function conciergeLabel(repoPath: string): string {
-  return `Concierge — ${repoPath.split('/').pop() || repoPath}`
+  return `Concierge — ${machinePathBasename(repoPath) || repoPath}`
 }
 
 export type ConciergeRepoResolution =

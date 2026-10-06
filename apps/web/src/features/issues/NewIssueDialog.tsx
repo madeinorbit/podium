@@ -7,6 +7,7 @@ import {
   ISSUE_STAGES,
   type IssueStage,
   type MachineWire,
+  machinePathBasename,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   resolveTargetMachineForAgent,
@@ -78,11 +79,6 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
  * to `repo.branch || settings.gitWorkflow.defaultParentBranch || 'main'` for the
  * parent branch.
  */
-
-/** The repo basename, falling back to the full path — repos are shown by name. */
-function repoLabel(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
-}
 
 /**
  * The composer's pill: a `PropertyMenu` trigger sized as a CONTROL.
@@ -283,7 +279,7 @@ function NewIssueDialogBody({
   const repoChoices = data.repoChoices
   const repoOptions: PropertyOption[] = repoChoices.map((r) => ({
     value: r.path,
-    label: repoLabel(r.path),
+    label: machinePathBasename(r.path),
     icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
   }))
   const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
@@ -466,7 +462,7 @@ function NewIssueDialogBody({
             trigger={
               <PillButton
                 icon={<FolderGit2 size={13} aria-hidden="true" />}
-                label={repoLabel(repoPath) || 'Repo'}
+                label={machinePathBasename(repoPath) || 'Repo'}
               />
             }
             options={repoOptions}

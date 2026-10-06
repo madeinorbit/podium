@@ -178,3 +178,17 @@ describe('search index gate', () => {
     expect(await back.conversations.transcriptIndex.rows(machineId, 'native-a')).toHaveLength(1)
   })
 })
+
+
+it.each([
+  ['/repo', '/repo/wt', '/repository'],
+  ['C:\\repo', 'c:/REPO/wt', 'C:\\repository'],
+])('machine paths: conversation repo search for %s', async (root, child, sibling) => {
+  const store = await open(':memory:')
+  await store.conversations.index.upsert([
+    conversation(store, { id: 'root', projectPath: root }),
+    conversation(store, { id: 'child', projectPath: child }),
+    conversation(store, { id: 'sibling', projectPath: sibling }),
+  ])
+  expect((await store.conversations.index.searchCandidates({ projectPath: root })).map(r => r.id).sort()).toEqual(['child', 'root'])
+})

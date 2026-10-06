@@ -1,4 +1,3 @@
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -12,7 +11,9 @@ import {
   type PresenceNote,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import { resolveMachinePath } from '@podium/model'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
@@ -750,7 +751,7 @@ function ProducedAndDeferred({
                       openFileInWorktree({
                         machineId,
                         root,
-                        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        path: resolveMachinePath(root, a.path),
                         issueId: issue.id,
                       })
                     }
