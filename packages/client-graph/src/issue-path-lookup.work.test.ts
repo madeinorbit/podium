@@ -1,7 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { createIssuePageViews, type IssuePageData } from './issue-page'
+import { issuePages, type IssuePageData } from './issue-page'
 import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { createIssueQuestions } from './shared/issue-questions'
@@ -54,7 +54,7 @@ it('bounds a file-tab page selection and updates with large histories sharing it
       type: 'replace',
       rows: [repo, target, runner, issue('ancestor', 0, '/shared'), ...samePath, ...others],
     })
-    const views = createIssuePageViews(pool),
+    const views = issuePages(pool),
       ids = vi.spyOn(pool.queries, 'ids')
     let current: Loaded<IssuePageData>,
       paints = 0,
@@ -284,7 +284,7 @@ it('honors resident path/eligibility overlays, cold source changes and replaceme
 
 it('keeps explicit issue and attached-session precedence over the file-tab path winner', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(old) })
-  const views = createIssuePageViews(pool)
+  const views = issuePages(pool)
   pool.apply({
     type: 'replace',
     rows: [
