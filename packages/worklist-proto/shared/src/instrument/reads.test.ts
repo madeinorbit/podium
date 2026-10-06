@@ -109,7 +109,8 @@ describe('feed door', () => {
       index.apply(event)
       inner.emit(event)
       const received = borrowed[at]!
-      expect(received).not.toBe(event)
+      // Compare identity without letting matcher diagnostics inspect borrowed fields.
+      expect(received === event).toBe(false)
       expect(fence.isBorrowed(received.rows[0]!.value)).toBe(true)
       const delta = index.changes(event)
       expect(delta.buckets.length).toBeGreaterThan(0)
