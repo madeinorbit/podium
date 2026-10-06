@@ -560,6 +560,7 @@ export async function runFenceStep(
           )
         }
   const publications: Readonly<Record<string, unknown>>[] = []
+  const parentTraceBefore = process.env.POD_ANCESTOR_TRACE === '1' && entry.scenario === 'parentReassignment' ? content?.()['i635'] : undefined
   feeds.takeNamed()
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
@@ -599,6 +600,7 @@ export async function runFenceStep(
     content,
     contentDuring: () => publications,
   })
+  if (parentTraceBefore !== undefined) console.info('[ancestor oracle reparent trace]', JSON.stringify({ before: parentTraceBefore, after: content?.()['i635'], during: publications.map(publication => publication['i635']) }))
   // LOAD ISOLATION (G2): a load pending now, or one that landed after the
   // step's settle (in the harness's own `snapshot()`, after the reads were
   // sampled), is charged to no step. Refuse it here, where it was triggered.
