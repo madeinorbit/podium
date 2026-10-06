@@ -1,4 +1,3 @@
-import { clientSessionViews } from './test-support/session-views'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +18,7 @@ import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
+import { clientSessionViews } from './test-support/session-views'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability

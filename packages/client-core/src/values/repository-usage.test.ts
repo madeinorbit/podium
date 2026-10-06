@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { readRuntimeStoreStats, recordSliceDerivation, storeStats } from '../perf/store-stats'
-import { createRepositoryUsageSelector, indexedRepoUsageAt } from './repository-usage'
 import { repoUsageAt } from './compose/machines/facts'
+import { createRepositoryUsageSelector, indexedRepoUsageAt } from './repository-usage'
 
 type Session = Parameters<ReturnType<typeof createRepositoryUsageSelector>>[0][number]
 const session = (cwd: string, lastActiveAt = '2026-09-18T12:00:00Z'): Session => ({

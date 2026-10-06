@@ -30,9 +30,9 @@ import {
   reposToViews,
   type TabId,
 } from '../values'
+import type { NavigationTopologySession } from './navigation-provider'
 import {
   type EngineState,
-  type PruningState,
   focusedPaneSession,
   foregroundIssue,
   knownTabIds,
@@ -42,6 +42,7 @@ import {
   navigationIssueReadAt,
   navigationSession,
   overlayState,
+  type PruningState,
   referencedTabIds,
   resolvedWorkspaceKey,
   visibleTabIds,
@@ -49,7 +50,6 @@ import {
   workspaceWritePatch,
 } from './state'
 import type { StoreNotices } from './types'
-import type { NavigationTopologySession } from './navigation-provider'
 
 /** Pruning asks only about identities held by this window. Loading rows stay
  * provisional, including files whose session scope is still loading. */

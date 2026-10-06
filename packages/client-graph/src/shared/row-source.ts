@@ -1,8 +1,8 @@
+import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import { machinePathKey, machinePathsEqual } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
-import { isFinished } from './predicates'
-import { type SessionValueInput, sessionValues } from '@podium/client-core/session-values'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
+import { isFinished } from './predicates'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * `truth` reads server rows; `pooled` folds the supplied per-row transaction

@@ -1,10 +1,10 @@
-import { machinePathBasename } from '@podium/model'
 /**
  * Global-thread seeding + per-turn user focus (modules/superagent, issue #225):
  * the cross-repo digest that opens a fresh 'global' thread, and the
  * client-reported "what's on screen" block prepended to every turn.
  */
 import type { IssueReport } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import { type ConciergeEvent, type ConciergeSessionInfo, eventLine } from './concierge'
 
 // ---- global-thread seeding ------------------------------------------------------

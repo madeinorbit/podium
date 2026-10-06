@@ -1,5 +1,3 @@
-import { machinePathBasename } from '@podium/model'
-import { isFinished, isClosed } from '@podium/model/browser'
 /**
  * ISSUES SLICE (POD-330) — the issue as an entity: its nav model, its sub-issue
  * tree, and what the human is being asked to DECIDE about it.
@@ -34,9 +32,11 @@ import {
   isHeadlessSession,
   issueStatusOf,
   issueStatusOutcome,
+  machinePathBasename,
 } from '@podium/model'
-import type { IssueViewModel } from '../issue-type'
+import { isClosed, isFinished } from '@podium/model/browser'
 import type { SessionView } from '../../session-values'
+import type { IssueViewModel } from '../issue-type'
 import {
   type ReferentExit,
   type ReferentResolution,

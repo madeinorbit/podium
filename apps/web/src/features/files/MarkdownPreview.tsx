@@ -1,5 +1,4 @@
-import { machinePathDirname } from '@podium/model'
-import { resolveMachinePath } from '@podium/model'
+import { machinePathDirname, resolveMachinePath } from '@podium/model'
 // apps/web/src/MarkdownPreview.tsx
 
 import { useStoreHandle } from '@podium/client-core/react'

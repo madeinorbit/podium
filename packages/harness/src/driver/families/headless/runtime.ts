@@ -1,5 +1,5 @@
-import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } from '../../contract.js'
 import { machinePathBasename } from '@podium/model'
+import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } from '../../contract.js'
 /**
  * THE HEADLESS RUNTIME DRIVER (POD-4392).
  *
@@ -97,11 +97,11 @@ import type { ResolvedHarnessInventory } from '../../../inventory/build-inventor
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { harnessAdapterFor } from '../../../registry.js'
 import {
-  canonicalHeadlessContractFacts,
   type AgentSessionHandle,
   type AttachEndpoint,
   type AttachmentStageResult,
   type ConfigureRequest,
+  canonicalHeadlessContractFacts,
   type DeliveryCancelResult,
   type DriverCapabilities,
   type DriverProcedureOverrides,

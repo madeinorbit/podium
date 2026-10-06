@@ -1,5 +1,3 @@
-import { isAbsoluteMachinePath, machinePathSegments, machinePathRelativeToRoot } from '@podium/model'
-import { machinePathBasename } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   type ArtifactId,
@@ -13,9 +11,13 @@ import {
   type GrantVerb,
   type IssueId,
   type IssueProjection,
+  isAbsoluteMachinePath,
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
+  machinePathBasename,
+  machinePathRelativeToRoot,
+  machinePathSegments,
   normalizeClosedPatch,
   type RepoId,
   type SessionId,

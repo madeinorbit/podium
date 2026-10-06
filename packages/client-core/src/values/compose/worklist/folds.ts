@@ -1,5 +1,3 @@
-import { machinePathBasename } from '@podium/model'
-import type { IssueNavigationModel } from '../issues'
 /**
  * POD-330/POD-1496 — worklist row PLACEMENT: which lane a row occupies once it
  * exists and has been ordered — the PINNED section, a project group, or one of
@@ -9,7 +7,8 @@ import type { IssueNavigationModel } from '../issues'
  * changes sibling order — the incoming order is preserved in every bucket
  * except the closed fold, which is history ordered by the moment it was tucked.
  */
-import { type IssueId, isIssueDeferred } from '@podium/model'
+import { type IssueId, isIssueDeferred, machinePathBasename } from '@podium/model'
+import type { IssueNavigationModel } from '../issues'
 import {
   isClosedTopLevelIssue,
   issueAbandoned,

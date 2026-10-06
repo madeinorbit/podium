@@ -1,12 +1,11 @@
-import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { parseSessionRef } from '@podium/protocol'
-import { referenceKey, sessionReferenceKey } from './session-reference'
-import { isFinished } from './predicates'
 /** History questions, answered by the row source. Results contain identities,
  * never rows or a map. The same questions can later be answered from storage. */
-import { issueStatusOf } from '@podium/model/browser'
-import type { RowSourceEvent } from './source'
+import { issueStatusOf, machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import { parseSessionRef } from '@podium/protocol'
 import { createIssueMentionIndex, type IssueMentionQuestion } from './issue-mention-question'
+import { isFinished } from './predicates'
+import { referenceKey, sessionReferenceKey } from './session-reference'
+import type { RowSourceEvent } from './source'
 
 export type ReaderQuestion =
   | IssueMentionQuestion

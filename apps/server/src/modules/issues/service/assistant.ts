@@ -1,6 +1,6 @@
-import { isMachinePathWithinRoot } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import type { IssueProjection, SessionId } from '@podium/model'
+import { isMachinePathWithinRoot } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { completeForRole } from '../../../llm-roles'
 import type { IssueStore } from './core'

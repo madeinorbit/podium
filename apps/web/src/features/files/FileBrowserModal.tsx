@@ -1,6 +1,6 @@
-import { isMachinePathWithinRoot, machinePathDirname, joinMachinePath } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
+import { isMachinePathWithinRoot, joinMachinePath, machinePathDirname } from '@podium/model'
 import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'

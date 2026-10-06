@@ -1,12 +1,12 @@
-import { machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
 import {
   formatClock,
   resolveToolEdit,
+  type ToolEditView,
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
-  type ToolEditView,
 } from '@podium/client-core/values'
+import { machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
 import { ChevronDown } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

@@ -1,5 +1,4 @@
-import { machinePathAncestors } from '@podium/model/browser'
-import { machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 /**
  * POD-5407 — THE RELATION INDEX: every declared relation, over every row the
  * feed carries, held once, outside the pool, in plain maps.
@@ -47,9 +46,9 @@ import {
   type EdgeSpec,
   type EntityName,
   extraRootOf,
+  longestPrefixPath,
   type ModelSchema,
   normalizeRootPath,
-  longestPrefixPath,
   type PrefixSpec,
   type RelationSpec,
   type SubsetSpec,

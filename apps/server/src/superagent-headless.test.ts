@@ -18,8 +18,8 @@ import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { EventMap } from './modules/bus'
 import { harnessResumeKind } from './harness-manifest'
+import type { EventMap } from './modules/bus'
 import {
   buildHandoffSeed,
   explicitlyRequestsExpandedResponse,

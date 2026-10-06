@@ -1,5 +1,3 @@
-import { type MachineId } from '@podium/model'
-import { machinePathHasSuffix } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
@@ -21,6 +19,8 @@ import {
   issueOverlayOf,
   issueUserStateRowId,
   issueUserStateToWire,
+  type MachineId,
+  machinePathHasSuffix,
   type RepoProjection,
   requireInstant,
   type SessionMeta,

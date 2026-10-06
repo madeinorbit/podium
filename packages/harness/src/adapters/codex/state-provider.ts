@@ -1,4 +1,3 @@
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 /**
  * THE CODEX STATE PROVIDER (POD-4520): the state section's live half
  * (spec §4.5: "screen and hook-derived agent state, causal fingerprints").
@@ -30,19 +29,20 @@ import {
   type AgentStateProvider,
   withStateChannel,
   withStateChannelEvent} from '../../agent-state/types.js'
+import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
+import { LineDecoder } from '../../jsonl-stream.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import {
   cleanCodexTitle,
   codexPromptTitle,
   isInteractiveCodexSource} from './discovery.js'
-import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
-import { LineDecoder } from '../../jsonl-stream.js'
-import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
-  PODIUM_CODEX_HOOK_SOCKET_ENV,
-  PODIUM_CODEX_HOOK_URL_ENV,
   codexInstrumentation,
   codexQuestionSummary,
   isCodexQuestionTool,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
   translateCodexEvent} from './instrumentation.js'
 import {
   CODEX_TRUST_SUMMARY,

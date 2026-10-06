@@ -1,14 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { opencodePartToItems } from './transcript.js'
-import { opencodeDataRoot } from './paths.js'
-import {
-  listOpencodeSessions,
-  loadOpencodeMessageParts,
-  openOpencodeDb,
-  openOpencodeDbAt,
-} from '../../opencode/db.js'
+import { machinePathBasename } from '@podium/model'
 import { pathExists } from '../../discovery/paths.js'
 import type {
   AgentConversation,
@@ -23,6 +15,14 @@ import type {
   ProviderSummaryResult,
 } from '../../discovery/types.js'
 import { AgentConversationLoadError } from '../../discovery/types.js'
+import {
+  listOpencodeSessions,
+  loadOpencodeMessageParts,
+  openOpencodeDb,
+  openOpencodeDbAt,
+} from '../../opencode/db.js'
+import { opencodeDataRoot } from './paths.js'
+import { opencodePartToItems } from './transcript.js'
 
 const providerId = 'opencode-sessions'
 

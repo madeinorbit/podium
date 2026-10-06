@@ -26,8 +26,8 @@ import {
   type UserId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
-import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
 import { memoryStorage } from '../replica/contract'
+import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
 import { DEMO_ISSUES, DEMO_SESSIONS } from './demo-data'
 
 /** The demo principal. Named rather than borrowed from a real id so nothing in

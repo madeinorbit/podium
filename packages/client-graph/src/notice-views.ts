@@ -1,10 +1,10 @@
-import { machinePathBasename } from '@podium/model/browser'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
-import type { MobxPool } from './pool'
-import { pendingInteractionCard } from './notice-card'
+import { machinePathBasename } from '@podium/model/browser'
 import type { HeaderRows } from './header-schema'
+import { pendingInteractionCard } from './notice-card'
 import type { NoticeRows, NoticeSessionSummary } from './notice-schema'
+import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 /** All payload and summary reads pass through the pool's one reader. No cold

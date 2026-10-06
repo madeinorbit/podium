@@ -1,10 +1,9 @@
-import { machinePathKey } from '@podium/model'
 /**
  * Concierge intake threads (modules/superagent, issue #64): per-repo thread
  * identity, the repo-scoped system prompt, and the deterministic tracker
  * digest/delta blocks that seed a thread's harness turns.
  */
-import { asThreadId, type IssueReport, type SessionId, type ThreadId } from '@podium/model'
+import { asThreadId, type IssueReport, machinePathKey, type SessionId, type ThreadId } from '@podium/model'
 
 /** Per-repo concierge intake thread (issue #64). One thread per repo path, id
  *  deterministic + reversible: `concierge_<base64url(repoPath)>`. */

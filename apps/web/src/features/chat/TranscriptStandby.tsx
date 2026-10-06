@@ -1,6 +1,6 @@
-import { machinePathSeparator, machinePathSegments } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/values'
+import { machinePathSegments, machinePathSeparator } from '@podium/model'
 
 import type { JSX } from 'react'
 import { modelLabel } from '@/lib/agent-models'

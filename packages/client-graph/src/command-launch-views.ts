@@ -1,13 +1,11 @@
-import { machinePathKey } from '@podium/model'
-import { machinePathBasename } from '@podium/model/browser'
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathKey } from '@podium/model'
+import { machinePathBasename, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,
   computed,
@@ -15,6 +13,7 @@ import {
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import type { MobxPool } from './pool'
+import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {

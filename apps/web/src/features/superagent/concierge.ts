@@ -1,6 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import { asThreadId, type GitRepositoryWire, type ThreadId } from '@podium/model/browser'
 
 /**

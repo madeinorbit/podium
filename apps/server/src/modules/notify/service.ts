@@ -1,5 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import type { AgentRuntimeState, SessionId, SessionMeta, UserId } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import type { AgentObservation, LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {

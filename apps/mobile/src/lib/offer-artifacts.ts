@@ -1,6 +1,6 @@
-import { machinePathBasename, machinePathHasSuffix } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
+import { machinePathBasename, machinePathHasSuffix } from '@podium/model'
 import {
   type IssueArtifactPreview,
   issueArtifactHref,

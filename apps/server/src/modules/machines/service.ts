@@ -1,18 +1,10 @@
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { stateDir } from '@podium/runtime/config'
-import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
-import { requestParentEnrollment } from '@podium/runtime/parent-control'
-import { supersedeMachine } from './supersession'
-import type { SettingsAuditRow } from '../../store/settings-audit'
-import type { DaemonReadiness } from '@podium/model'
-import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
 import { createLogger } from '@podium/logger'
+import type { DaemonReadiness } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
-  type MachineProjection,
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
@@ -25,6 +17,7 @@ import {
   isMachinePathWithinRoot,
   type MachineComponent,
   type MachineId,
+  type MachineProjection,
   type MachineRejection,
   type MachineRequirement,
   type MachineServiceAssignment,
@@ -37,7 +30,7 @@ import {
   structuralEligibility,
   type UpdateChannel,
   type UserId} from '@podium/model'
-import type {
+import type { BindingConfirmations,
   DaemonHandshake,
   DaemonPtyInputBatch,
   HarnessDescriptorWire,
@@ -49,11 +42,16 @@ import type {
   UpdateKeyRotation} from '@podium/protocol'
 import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
+import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { machineRecordFromRow } from '../../store/machines'
+import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
 import type { WorldIndexReader } from '../world-index'
@@ -61,6 +59,7 @@ import { readResourceGrants } from '../world-index/grant-reader'
 import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
+import { supersedeMachine } from './supersession'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */

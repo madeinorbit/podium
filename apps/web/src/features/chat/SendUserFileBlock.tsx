@@ -1,5 +1,5 @@
-import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { isImagePath } from '@podium/client-core/values'
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import { FileText } from 'lucide-react'
 import type { JSX } from 'react'

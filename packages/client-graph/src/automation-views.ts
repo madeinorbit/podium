@@ -1,12 +1,11 @@
-import { machinePathBasename } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
-import { agentExecutionRejection, structuralRejection, type MachineWire } from '@podium/model/browser'
+import { agentExecutionRejection, type MachineWire, machinePathBasename, structuralRejection } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
-import type { MobxPool } from './pool'
 import type { AutomationRows } from './automation-schema'
+import { debugName } from './debug-name'
+import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'
 import { LOADING } from './worklist/rollup'
-import { debugName } from './debug-name'
 
 export type TargetAvailability = 'available' | 'unauthorized' | 'unreachable' | 'incapable' | 'disabled' | 'degraded'
 export interface AutomationTarget { value: string; label: string; availability: TargetAvailability; opaque?: true }

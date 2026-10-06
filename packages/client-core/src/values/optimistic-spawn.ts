@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model'
 import {
   type AgentKind,
   actorUser,
@@ -6,6 +5,7 @@ import {
   type IssueId,
   isSortKey,
   type MachineId,
+  machinePathBasename,
   type RepoId,
   type SessionId,
   type SessionUserStateWire,
@@ -13,8 +13,8 @@ import {
   spawnedByTag,
   type UserId,
 } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
 import type { SessionValues, SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 
 /**
  * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).

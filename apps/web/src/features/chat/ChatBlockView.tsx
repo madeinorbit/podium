@@ -1,4 +1,3 @@
-import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import {
   formatChurn,
   isImagePath,
@@ -8,6 +7,7 @@ import {
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/values'
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
 import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'

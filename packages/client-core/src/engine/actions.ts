@@ -29,14 +29,6 @@ import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
-import type { NavigationIntent } from './navigation'
-import {
-  discardChatThroughOutbox,
-  newChatMessageId,
-  type OutboxSettlements,
-  outboxChatSends,
-  sendChatThroughOutbox} from './chat-send'
-import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import type {
   DockTab,
   FileScope,
@@ -63,20 +55,28 @@ import {
   tabIdFor} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
+  discardChatThroughOutbox,
+  newChatMessageId,
+  type OutboxSettlements,
+  outboxChatSends,
+  sendChatThroughOutbox} from './chat-send'
+import type { NavigationIntent } from './navigation'
+import {
   createReplicatedLayoutController,
   type ReplicatedLayoutController} from './replicated-layout'
+import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
   currentWorkspace,
   NAVIGATION_LOADING,
   type NavigationProvider,
+  overlayState,
   resolvedWorkspaceKey,
   type WorkspacePatch,
   type WorkspaceSelection,
   workspaceFor,
   workspaceKeyForState,
   workspacesPatch,
-  workspaceWritePatch,
-  overlayState} from './state'
+  workspaceWritePatch} from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 

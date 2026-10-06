@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model'
 import {
   DEFAULT_LOAD_PER_CORE,
   formatMemBytes,
@@ -8,6 +7,7 @@ import {
   panelLabel,
   reclaimSpaceLabel,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'

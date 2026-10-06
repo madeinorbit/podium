@@ -1,6 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { AutomationId } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import {
   ChevronDown,
   ChevronRight,

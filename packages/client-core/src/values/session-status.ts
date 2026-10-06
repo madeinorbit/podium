@@ -1,6 +1,3 @@
-import { machinePathBasename } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
-import type { SessionView } from '../session-values'
 /**
  * F1 — WHAT ONE SESSION IS DOING. The presentation vocabulary every slice
  * speaks (POD-330).
@@ -22,9 +19,11 @@ import type { SessionView } from '../session-values'
 import {
   type AgentKind,
   type IssueProjection,
-  idleVerdictFinishedTurn} from '@podium/model'
+  idleVerdictFinishedTurn, machinePathBasename } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
+import type { SessionView } from '../session-values'
 import { errorPhrase } from './error-phrase'
 import { harnessDescriptorFor } from './harness-labels'
 

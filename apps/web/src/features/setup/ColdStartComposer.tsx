@@ -4,11 +4,11 @@ import {
   AGENT_NOT_READY_COPY,
   activationAgentIsReady,
   activationAgentReadiness,
+  indexedRepoUsageAt,
   launchAgentKind,
   machineViewsFromWire,
-  reposToViews,
-  indexedRepoUsageAt,
   type RepoView,
+  reposToViews,
   usableMachines,
 } from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
@@ -17,11 +17,11 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsCatalog, useSettingsSetupSummary, useSettingsPersistedUiState as usePersistedUiState } from '@/features/settings/readers'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
+import { useSettingsPersistedUiState as usePersistedUiState, useSettingsCatalog, useSettingsSetupSummary } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import {
   agentFleetStatus,
   CapabilityAgentMenu,
@@ -44,13 +44,13 @@ import {
   terminalRuntimeDriver,
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
+import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from './first-task-draft'
-import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import { SetupError } from './SetupFeedback'
 
 function repoLabel(repo: { path: string; name?: string }): string {

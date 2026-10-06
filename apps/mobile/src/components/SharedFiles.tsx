@@ -1,7 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import { isImagePath } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { FileText, X } from './icons'
+import { machinePathBasename } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
@@ -12,6 +11,7 @@ import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { FileText, X } from './icons'
 import { PressableScale } from './PressableScale'
 
 function FileChip({ label, onPress }: { label: string; onPress?: () => void }) {

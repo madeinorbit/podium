@@ -1,4 +1,3 @@
-import { machinePathKey } from '@podium/model'
 import {
   type DoctorReport,
   type DuplicateCandidate,
@@ -15,6 +14,7 @@ import {
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   type LintFinding,
+  machinePathKey,
   type OrphanIssue,
   type SessionId,
   toIssueTreeSession,

@@ -1,5 +1,3 @@
-import { machinePathSeparator } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import { relativeTime, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -17,16 +15,18 @@ import {
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
+  machinePathSeparator,
   parseIssueStatusValue,
 } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
 import { useOptionalServerProfile } from '../client/server-profile-context'
-import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { useIssueCloseGuard } from '../client/use-issue-close'
+import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
 import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import {

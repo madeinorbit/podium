@@ -1,6 +1,5 @@
-import { machinePathBasename } from '@podium/model'
+import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf, machinePathBasename } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
-import { ISSUE_STATUS_LABELS, type IssueStatus, issueStatusOf } from '@podium/model'
 import type { IssueViewModel } from '../values/issue-type'
 
 /** Every task facet shared by the desktop board and the native iPhone list. */

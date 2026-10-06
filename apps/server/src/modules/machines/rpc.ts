@@ -1,4 +1,3 @@
-import { resolveMachinePath } from '@podium/model'
 import type {
   AgentKind,
   AgentQuotaWire,
@@ -19,7 +18,7 @@ import type {
   UsageBucketWire,
   UsageSourceWire,
 } from '@podium/model'
-import { asMachineId } from '@podium/model'
+import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
   BrowseDirsResultMessage,
   CodexCompleteResultMessage,
@@ -64,9 +63,9 @@ import type {
   RuntimeAttachmentRef,
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
+  RuntimeHistoryResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
-  RuntimeHistoryResultMessage,
   RuntimeStageAttachmentResultMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,

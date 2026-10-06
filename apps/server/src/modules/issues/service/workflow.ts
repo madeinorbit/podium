@@ -1,4 +1,3 @@
-import { joinMachinePath } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
@@ -9,6 +8,7 @@ import {
   type IssueRehomeTarget,
   isIssueStage,
   isSystemOwnedIssueStage,
+  joinMachinePath,
   type MachineId,
   type SessionId,
   type SessionMeta,

@@ -1,5 +1,5 @@
-import { machinePathHasSuffix } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { machinePathHasSuffix } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 
 /**

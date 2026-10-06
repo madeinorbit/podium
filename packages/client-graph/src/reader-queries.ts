@@ -1,7 +1,6 @@
-import { machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
-import { machinePathKey } from '@podium/model/browser'
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'

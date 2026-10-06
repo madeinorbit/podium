@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model'
 import type { SpawnTarget } from '@podium/client-core'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -7,6 +6,7 @@ import {
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
+import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'

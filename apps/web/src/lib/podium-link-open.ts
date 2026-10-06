@@ -1,5 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathBasename } from '@podium/model'
 /**
  * What opening a Podium address MEANS in the web app (POD-1606).
  *

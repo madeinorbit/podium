@@ -37,14 +37,14 @@ import { machinePathKey } from '@podium/model/browser'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { observable } from 'mobx'
 import { debugName } from './debug-name'
-import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
 import type { RelationDelta, RelationQueries } from './shared/relation-index'
+import type { RelationReader } from './shared/relation-reader'
 import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 
+export { ancestorPaths, isLinkSpec, type LinkSpec, linkInputs, prefixCandidates } from './shared/relation-index'
 // The declared link helpers live with the index; kept importable from here.
 export { relationRef }
-export { ancestorPaths, isLinkSpec, linkInputs, type LinkSpec, prefixCandidates } from './shared/relation-index'
 
 /** The read surface a relation needs; a table, a MobX map and a `Map` all have it. */
 export interface ReadableTable {

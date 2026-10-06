@@ -1,6 +1,6 @@
-import { machinePathKey } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
+import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import {

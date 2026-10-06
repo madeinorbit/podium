@@ -1,8 +1,8 @@
-import { isMachinePathWithinRoot, machinePathBasename as basename, normalizeMachinePath } from '@podium/model'
 import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
+import { machinePathBasename as basename, isMachinePathWithinRoot, normalizeMachinePath } from '@podium/model'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 import type { FileScope } from './file-scope'
 
 /** An open file-editor tab. `id` is `file:<scopeKey>:<path>`; `worktreePath` (the

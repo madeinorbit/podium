@@ -1,5 +1,4 @@
-import { machinePathAncestors, machinePathKey, machinePathSeparator, machinePathsEqual } from '@podium/model/browser'
-import { normalizeOriginUrl } from '@podium/model/browser'
+import { machinePathAncestors, machinePathKey, machinePathSeparator, machinePathsEqual, normalizeOriginUrl } from '@podium/model/browser'
 import { compareStructural, computed, observable } from 'mobx'
 import type { HeaderRows } from './header-schema'
 import { createKeyedAnswer, type KeyedAnswer } from './query-result'

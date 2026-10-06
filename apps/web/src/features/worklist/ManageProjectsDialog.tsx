@@ -1,6 +1,6 @@
-import { isAbsoluteMachinePath } from '@podium/model'
 import { shallowEqual } from '@podium/client-core/store'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
+import { isAbsoluteMachinePath } from '@podium/model'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'

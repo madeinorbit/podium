@@ -1,5 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import { createLogger } from '@podium/logger'
+import { machinePathBasename } from '@podium/model'
 import { readIssue } from '../world-index/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
@@ -55,11 +55,11 @@ import {
   asMachineId,
   asSessionId,
   firstAdminMemberId,
-  spawnedByParentSessionId,
   type IssueId,
   type MachineId,
   type SessionId,
   type SessionMeta,
+  spawnedByParentSessionId,
   terminalRuntimeDriver,
   type UserId,
 } from '@podium/model'
@@ -74,8 +74,8 @@ import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
-import { createdByForBinding } from './command-plane'
 import { authorSpawnBinding } from './binding-mint'
+import { createdByForBinding } from './command-plane'
 import { selectHarnessAccountId } from './harness-account'
 import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'

@@ -1,6 +1,6 @@
-import { machinePathKey } from '@podium/model'
 import type { Store } from '@podium/client-core/engine'
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathKey } from '@podium/model'
 
 /** Settings-only declarations. Catalog ids name resident machine/repository
  * rows; session history uses a small summary, never an index of cold payloads.

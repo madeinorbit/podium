@@ -1,7 +1,6 @@
-import { machinePathAncestors } from '@podium/model/browser'
-import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { isFinished, isClosed, isExcluded, issueAbandoned } from './predicates'
+import { isMachinePathWithinRoot, machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
+import { isClosed, isExcluded, isFinished, issueAbandoned } from './predicates'
 
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates

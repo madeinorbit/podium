@@ -1,10 +1,10 @@
-import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { sessionReferenceKey } from './session-reference'
 import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
 import type { SessionActivityQuestion } from './session-activity'
+import { sessionReferenceKey } from './session-reference'
 
 type Row = Readonly<Record<string, unknown>>
 type Excluded = Pick<ReadonlySet<string>, 'has'>

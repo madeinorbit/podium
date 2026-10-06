@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model'
 import { beginSwitch } from '@podium/client-core/perf'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
@@ -11,6 +10,7 @@ import {
   resizeSplit,
   type SplitAxis,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import { asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import {
   Columns2,

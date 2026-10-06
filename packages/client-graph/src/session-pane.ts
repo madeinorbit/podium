@@ -1,10 +1,9 @@
-import { machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asIssueId, type MachineWire } from '@podium/model/browser'
-import type { MobxPool } from './pool'
+import { asIssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { headerIds } from './enumerate'
-import { LOADING, type Loaded } from './worklist/rollup'
+import type { MobxPool } from './pool'
 import type { SessionPaneRows } from './session-pane-schema'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 export function paneSession(pool: MobxPool, id: string | undefined): Loaded<SessionView> {
   const row = id === undefined ? undefined : pool.row('session', id) as Loaded<SessionView>

@@ -1,7 +1,7 @@
-import { machinePathBasename, machinePathDirname, machinePathRelativeToRoot, joinMachinePath, resolveMachinePath } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
+import { joinMachinePath, machinePathBasename, machinePathDirname, machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw, Search, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'

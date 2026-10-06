@@ -1,4 +1,3 @@
-import { machinePathBasename } from '@podium/model'
 /**
  * THE AUTOMATION COMPOSER, AS DATA (POD-409) [spec:SP-17db].
  *
@@ -35,6 +34,7 @@ import {
   type MachineView,
   repoUsageAt,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import type { AutomationSessionMode, GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { Frequency } from './cron-format'

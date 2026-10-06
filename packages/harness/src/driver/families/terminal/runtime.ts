@@ -1,6 +1,13 @@
 import { machinePathBasename } from '@podium/model'
-import { respondToMailBoundary } from './mail-boundary.js'
-import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '../../host.js'
+import {
+  type BoundaryContextOperation,
+  type BoundaryContextRequest,
+  createBoundaryContext,
+  type InstalledTerminalInstrumentation,
+  prepareTerminalInstrumentation,
+  reportInstrumentationDegradation,
+  withDeliveryQueue,
+} from '../../host.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type {
   TerminalDriverReport,
@@ -9,12 +16,7 @@ import type {
   TerminalSpawnControl,
   TerminalTransport,
 } from './host-ports.js'
-import { withDeliveryQueue } from '../../host.js'
-import {
-  type InstalledTerminalInstrumentation,
-  prepareTerminalInstrumentation,
-  reportInstrumentationDegradation,
-} from '../../host.js'
+import { respondToMailBoundary } from './mail-boundary.js'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
  * (POD-1761 W3; spec §3, §9 phase 2 terminal family, moved into the harness
@@ -66,15 +68,37 @@ import {
 
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { createLogger } from '@podium/logger'
+import type {
+  AgentKind,
+  AgentRuntimeState,
+  HarnessRef,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+} from '@podium/model'
+import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
+import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import { type DaemonMessage, isRuntimeFineEvent, type RuntimeHistoryPage } from '@podium/protocol/daemon'
+import type {
+  AgentStateEvent,
+  TerminalAcceptCorrelation,
+  TerminalAcceptCorrelations,
+  TerminalEchoCorrelation,
+  TranscriptTimestampFidelity,
+} from '../../../index.js'
+import { canonicalDriverId, podiumFrameId } from '../../../index.js'
+import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
+import { decodeCursor } from '../../../store/cursor-codec.js'
 import type {
   AcceptPort,
   AcceptSeen,
   ActingPrincipal,
-  Disproof,
   AgentSessionHandle,
   AttachEndpoint,
   AttachRequest,
   ConfigureRequest,
+  Disproof,
   DriverCapabilities,
   DriverId,
   EventStreamStart,
@@ -94,9 +118,9 @@ import type {
   SessionArchive,
   SessionHealth,
   SessionLease,
-  SessionSnapshot,
   SessionMetadataChange,
   SessionMetadataObservation,
+  SessionSnapshot,
   SessionSpec,
   TerminalInjectionMachine,
   TimerHandle,
@@ -117,29 +141,6 @@ import {
   stampRuntimeEvent,
   terminalCapabilities,
 } from '../../host.js'
-
-import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
-import { canonicalDriverId, podiumFrameId } from '../../../index.js'
-import type {
-  AgentStateEvent,
-  TerminalAcceptCorrelation,
-  TerminalAcceptCorrelations,
-  TerminalEchoCorrelation,
-  TranscriptTimestampFidelity,
-} from '../../../index.js'
-import { decodeCursor } from '../../../store/cursor-codec.js'
-import { createLogger } from '@podium/logger'
-import type {
-  AgentKind,
-  AgentRuntimeState,
-  ResumeRef,
-  SessionId,
-  TranscriptItem,
-  HarnessRef,
-} from '@podium/model'
-import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
-import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import { type DaemonMessage, isRuntimeFineEvent, type RuntimeHistoryPage } from '@podium/protocol/daemon'
 
 const log = createLogger('harness:terminal-driver')
 
@@ -1444,7 +1445,7 @@ export function createTerminalRuntime(
     // — seen silently via a bootstrap snapshot (history folded with no live
     // callbacks) but never opened live. A close for an epoch the driver never
     // saw (conformance lone closes, fresh turns) stays a close alone.
-    let priorTurnEpoch = session.turnEpoch
+    const priorTurnEpoch = session.turnEpoch
     if (!lifecycleFromState) {
       alreadyFenced =
         observation.transitionKind === 'turn_terminal' &&

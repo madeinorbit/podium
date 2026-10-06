@@ -1,5 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
+import { machinePathBasename } from '@podium/model'
 /**
  * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
  * runner, the lazy comment thread, the event-log drain, and the pure

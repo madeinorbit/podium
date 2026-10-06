@@ -1,5 +1,3 @@
-import { machinePathBasename } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
@@ -18,21 +16,24 @@ import {
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
+  machinePathBasename,
   parseIssueStatusValue,
 } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions, useTaskScreenData } from '../client/hooks'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { BootstrapCrossfade, TasksSkeleton } from '../components/LaunchPlaceholders'
-import { PressableScale } from '../components/PressableScale'
 import { NotSavedMark } from '../components/NotSavedMark'
+import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { RefreshOffer } from '../components/RefreshOffer'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -47,7 +48,6 @@ import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { stageFoldKey } from '../lib/fold-keys'
-import { useIssueCloseGuard } from '../client/use-issue-close'
 import { taskRowAccessibilityProps } from '../lib/task-row-accessibility'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'

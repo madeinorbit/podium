@@ -1,4 +1,3 @@
-import { isMachinePathWithinRoot } from '@podium/model'
 /**
  * F2 — WHICH SESSIONS BELONG TO WHAT, and how to read a reference into a world
  * you can only partially see (POD-330).
@@ -23,12 +22,13 @@ import {
   buildWorktreeRootIndex,
   type IssueId,
   isHeadlessSession,
+  isMachinePathWithinRoot,
   type SessionId,
   worktreeForCwdIndexed,
 } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 
 // ---------------------------------------------------------------------------
 // Referent resolution over a partial world.

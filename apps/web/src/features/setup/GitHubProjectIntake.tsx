@@ -7,10 +7,10 @@ import { Check, Copy, Download, ExternalLink, GitFork, RefreshCw, Search } from 
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsDraft } from '@/features/settings/readers'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useSettingsDraft } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
 type IntakeMachine = Pick<MachineWire, 'id' | 'name' | 'online' | 'inventory'>

@@ -1,5 +1,3 @@
-import { resolveMachinePath } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -13,7 +11,9 @@ import {
   type PresenceNote,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import { resolveMachinePath } from '@podium/model'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,

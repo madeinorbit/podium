@@ -1,5 +1,5 @@
-import { machinePathBasename, machinePathDirname, machinePathSeparator } from '@podium/model'
 import type { FileScope } from '@podium/client-core/values'
+import { machinePathBasename, machinePathDirname, machinePathSeparator } from '@podium/model'
 import { scopedAssetUrl } from '@/lib/asset-url'
 
 /**

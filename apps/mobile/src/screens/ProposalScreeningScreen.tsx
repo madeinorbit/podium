@@ -1,6 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueId } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'

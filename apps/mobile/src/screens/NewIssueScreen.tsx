@@ -1,6 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
-import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
+import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'

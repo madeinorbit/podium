@@ -1,6 +1,3 @@
-import { machinePathsEqual } from '@podium/model'
-import { isMachinePathWithinRoot, machinePathBasename } from '@podium/model'
-import type { SessionView } from '../../../session-values'
 /**
  * MACHINES SLICE — the FACTS about a machine (POD-330).
  *
@@ -32,10 +29,15 @@ import {
   type HostMetricsWire,
   type IssueId,
   isIssueClosed,
+  isMachinePathWithinRoot,
   type MachineId,
+  machinePathBasename,
+  machinePathsEqual,
   normalizeOriginUrl,
   repoNameFromOrigin,
-  type SessionStatus} from '@podium/model'
+  type SessionStatus,
+} from '@podium/model'
+import type { SessionView } from '../../../session-values'
 import type { RepoView, WorktreeView } from '../../types'
 
 // ---------------------------------------------------------------------------

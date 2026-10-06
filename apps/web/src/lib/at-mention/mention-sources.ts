@@ -1,5 +1,5 @@
-import { machinePathBasename, machinePathDirname } from '@podium/model'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { machinePathBasename, machinePathDirname } from '@podium/model'
 import type { AtOption } from './at-mention'
 
 /**

@@ -1,6 +1,6 @@
-import { machinePathBasename } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { FileScope } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import { Maximize2, Minus, Plus, X } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { Button } from '@/components/ui/button'

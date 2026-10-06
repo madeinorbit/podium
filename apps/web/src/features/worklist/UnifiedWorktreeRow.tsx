@@ -1,10 +1,10 @@
-import { machinePathBasename } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   partitionStaleSessions,
   type UnifiedWorkRow,
 } from '@podium/client-core/values'
+import { machinePathBasename } from '@podium/model'
 import type { SessionId} from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'

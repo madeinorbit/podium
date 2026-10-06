@@ -1,5 +1,5 @@
-import { machinePathBasename } from '@podium/model'
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 // The cursor codec is shared pure identity infrastructure (spec rule 8):

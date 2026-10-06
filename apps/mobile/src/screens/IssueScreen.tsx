@@ -1,5 +1,3 @@
-import { machinePathBasename } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -10,14 +8,17 @@ import {
   IssueType,
   issueStatusMenuEntries,
   issueStatusValueOf,
+  machinePathBasename,
   parseIssueStatusValue,
   type SessionId,
 } from '@podium/model'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useCoarseNow, useConnected, useStoreActions, useTrpc } from '../client/hooks'
+import { useIssueCloseGuard } from '../client/use-issue-close'
 import { useHasIssueMates, useIssueInputs, useIssueTargets } from '../client/use-issue-inputs'
 import {
   useSessionContextBooting as useBooting,
@@ -57,7 +58,6 @@ import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
-import { useIssueCloseGuard } from '../client/use-issue-close'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
 import { sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'

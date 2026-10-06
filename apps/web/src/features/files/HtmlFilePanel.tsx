@@ -1,4 +1,3 @@
-import { machinePathDirname } from '@podium/model'
 import type { EditorView } from '@codemirror/view'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
@@ -7,6 +6,7 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
+import { machinePathDirname } from '@podium/model'
 import { Columns2, Eye, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'

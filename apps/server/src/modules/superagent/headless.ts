@@ -1,4 +1,3 @@
-import { machinePathBasename, machinePathsEqual } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import { canonicalHeadlessContractFacts } from '@podium/harness/driver'
 import { describeError } from '@podium/logger'
@@ -14,7 +13,7 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asAccountId, asSessionId, type MachineId } from '@podium/model'
+import { asAccountId, asSessionId, type MachineId, machinePathBasename, machinePathsEqual } from '@podium/model'
 import type {
   BindingMachineAccess,
   HeadlessActivityEvent,

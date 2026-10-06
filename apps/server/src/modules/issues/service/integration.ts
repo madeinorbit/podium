@@ -1,10 +1,10 @@
-import { joinMachinePath } from '@podium/model'
 import { describeError } from '@podium/logger'
 import {
   type DescendantTip,
   type IssueId,
   type IssueProjection,
   integrationReceiptMatchesOrder,
+  joinMachinePath,
 } from '@podium/model'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { IssueRow } from '../../../store'

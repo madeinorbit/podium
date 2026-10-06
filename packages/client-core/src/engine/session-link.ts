@@ -1,10 +1,10 @@
-import { isMachinePathWithinRoot } from '@podium/model'
 /**
  * What a desktop session link says when the server cannot open it (POD-4637).
  * One sentence shape for the `?pane=` link and the jump-to-session action, so
  * the two entry points never describe the same answer differently.
  */
 import type { IssueId, SessionMeta } from '@podium/model'
+import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { reposToViews } from '../values'
 import type { EngineState } from './state'

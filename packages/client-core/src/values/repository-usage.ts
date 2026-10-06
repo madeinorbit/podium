@@ -1,6 +1,6 @@
 import { machinePathDirname, machinePathSeparator, normalizeMachinePath } from '@podium/model'
-import type { SessionView } from '../session-values'
 import { recordSliceDerivation } from '../perf/store-stats'
+import type { SessionView } from '../session-values'
 
 type UsageSession = Pick<SessionView, 'agentKind' | 'cwd' | 'lastActiveAt'>
 type Material = { cwd: string; lastActiveAt: string }

@@ -30,7 +30,6 @@ import { useBoardBase, useBoardCatalog, useBoardData, useBoardMenu, useBoardOpen
 import { useBoardAddressed, useBoardCloseGuard, useBoardIssueReader } from './board-pool-row'
 import { boardKeyAction } from './board-shortcuts'
 import { IssueListView } from './IssueListView'
-import { PoolIssuePage } from './pool-issue-page'
 import {
   AnchoredIssueMenu,
   BulkBar,
@@ -52,6 +51,7 @@ import {
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import type { IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
+import { PoolIssuePage } from './pool-issue-page'
 
 const IssueContextMenu = lazy(() =>
   throughRestarts(() => import('./IssueContextMenu')).then((module) => ({
