@@ -8,6 +8,8 @@ import { expect, it, vi } from 'vitest'
 import { poolIssuePaint } from '../../../../../../apps/web/src/features/worklist/pool-row-data'
 import { PoolRow } from './row'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 const planted = vi.hoisted(() => ({ read: (): unknown => undefined }))
 vi.mock('@podium/client-graph/worklist/sidebar', async importOriginal => ({
   ...await importOriginal<typeof import('@podium/client-graph/worklist/sidebar')>(),
