@@ -7,7 +7,7 @@ import { poolScreenCellsAt } from './pool-screen-work'
 it('one heartbeat stays within twice the work at four times the corpus', async () => {
   const at1x = await poolScreenCellsAt(1, undefined, undefined, ['heartbeat'])
   const at4x = await poolScreenCellsAt(4, undefined, undefined, ['heartbeat'])
-  const directory = resolve('results')
+  const directory = resolve('.artifacts/heartbeat')
   mkdirSync(directory, { recursive: true })
   writeFileSync(resolve(directory, 'heartbeat-work.json'), JSON.stringify({ at1x, at4x }, null, 2) + '\n')
   expect(at4x.readers).toEqual(at1x.readers)
