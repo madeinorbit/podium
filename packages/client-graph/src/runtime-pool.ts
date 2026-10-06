@@ -232,8 +232,7 @@ type TransactionsRuntime = WorklistRuntime & {
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
 
-/** The transaction log over the app's runtime, as `owns` builds it (harnesses
- * reuse this exact wiring). */
+/** The transaction log over the app's runtime; fixtures reuse this wiring. */
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)

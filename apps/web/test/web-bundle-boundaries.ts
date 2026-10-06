@@ -69,17 +69,15 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // The startup pool and header polls share these failure counters. This
   // keeps no rows or errors and adds no optional screen dependency (POD-5540).
   'src/shared/feed-diagnostics.ts',
-  // The first mission view still delegates these pure value rules here.
-  'diagnostics/reference/issue-views.ts',
 ])
 
 export function eagerClientGraphSources(sources: readonly string[]): string[] {
   return [
     ...new Set(
       sources.filter((source) => {
-        const module = source
-          .replaceAll('\\', '/')
-          .match(
+        const normalized = source.replaceAll('\\', '/')
+        if (/(?:^|\/)(?:tests\/worklist|node_modules\/@podium\/worklist-tests)\//.test(normalized)) return true
+        const module = normalized.match(
             /(?:^|\/)(?:packages\/client-graph|node_modules\/@podium\/client-graph)\/(.*)$/,
           )?.[1]
         return module !== undefined && !STARTUP_GRAPH_SOURCES.has(module)
