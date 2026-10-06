@@ -32,10 +32,15 @@ vi.mock('@/app/store', () => ({
 // Count unified-diff builds without changing what they return: a collapsed
 // run must build zero, opening the sheet builds the same text as before.
 const diffBuilds = vi.hoisted(() => ({ count: 0 }))
+const editReads = vi.hoisted(() => ({ count: 0 }))
 vi.mock('@podium/client-core/values', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/values')>()
   return {
     ...actual,
+    resolveToolEdit: (...args: Parameters<typeof actual.resolveToolEdit>) => {
+      editReads.count += 1
+      return actual.resolveToolEdit(...args)
+    },
     toolEditUnifiedDiff: (...args: Parameters<typeof actual.toolEditUnifiedDiff>) => {
       diffBuilds.count += 1
       return actual.toolEditUnifiedDiff(...args)
@@ -573,4 +578,37 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
     expect(sheet.textContent).toContain('ONE')
     expect(sheet.textContent).not.toContain('b.ts')
   })
+})
+
+it('measures folded batch edit reads with retained and snapshot rows during streaming', () => {
+  const samples = []
+  for (const retained of [false, true]) {
+    const edit = call({ id: 'edit', toolName: 'Edit', toolUseId: 'edit', toolInput: 'a.ts',
+      toolInputJson: JSON.stringify({ kind: 'file-edit', path: 'a.ts', mode: 'replace',
+        hunks: [{ oldText: 'before', newText: 'after' }], added: 1, removed: 1 }) })
+    const graph = new TranscriptGraph([edit])
+    try {
+      const row = retained ? graph.structuralRow('edit')! : batchOf([edit])
+      if (row.kind !== 'tools') throw new Error('expected tools')
+      editReads.count = 0
+      diffBuilds.count = 0
+      mount(row, false, undefined, retained ? graph.run('edit') : undefined)
+      const mountReads = editReads.count
+      const frames = []
+      for (let token = 0; token < 5; token++) {
+        const before = editReads.count
+        const result = call({ id: 'result', toolUseId: 'edit', toolResult: `ok ${token}` })
+        if (retained) act(() => graph.apply({ changed: [result], insertions: token === 0 ? [{ id: 'result' }] : [] }))
+        else mount(batchOf([edit, result]))
+        frames.push(editReads.count - before)
+      }
+      expect(host.querySelector('.work-line-list')).toBeNull()
+      expect(diffBuilds.count).toBe(0)
+      samples.push({ retained, mountReads, frames, diffs: diffBuilds.count })
+      act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
+      expect(host.querySelector('.work-line-list')?.textContent).toContain('a.ts')
+      act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
+    } finally { graph.dispose() }
+  }
+  console.log('[folded batch edit-body work]', JSON.stringify(samples))
 })
