@@ -3,6 +3,7 @@ import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -37,6 +38,59 @@ export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
   return useWorklistPoolProjection(readCatalog, EMPTY_CATALOG)
 }
 
+const EMPTY_MACHINE_IDS: readonly string[] = []
+function machineReaders(pool: MobxPool) {
+  return pool.sources.view('web.settings.machines', () => {
+    const ids = keyedComputed('settings.machineIds', (_key: null) => {
+      const catalog = pool.row('settingsCatalog', 'catalog')
+      return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
+    })
+    const target = keyedComputed('settings.machineTarget', (id: string) => {
+      const row = pool.row('settingsMachine', id)
+      return loaded(row)
+        ? JSON.stringify([row.updateChannelOverride ?? null, row.targetVersion ?? null])
+        : '[null,null]'
+    })
+    const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
+      const result: Record<string, string> = {}
+      for (const id of ids(null)) {
+        const [override, version] = JSON.parse(target(id)) as [string | null, string | null]
+        const selected = override ?? channel
+        if (selected && version) result[selected] ??= version
+      }
+      return JSON.stringify(result)
+    })
+    return {
+      ids,
+      targets,
+      dispose() {
+        ids.clear()
+        target.clear()
+        targets.clear()
+      },
+    }
+  })
+}
+const readMachineIds = (pool: MobxPool) => machineReaders(pool).ids(null)
+export function useSettingsMachineIds(): readonly string[] {
+  return useWorklistPoolProjection(readMachineIds, EMPTY_MACHINE_IDS)
+}
+export function useSettingsMachine(id: string): Store['machines'][number] | null {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const row = pool.row('settingsMachine', id)
+      return loaded(row) ? row : null
+    },
+    [id],
+  )
+  return useWorklistPoolProjection(read, null)
+}
+export function useSettingsMachineTargets(channel: string | null): Record<string, string> {
+  const read = useCallback((pool: MobxPool) => machineReaders(pool).targets(channel), [channel])
+  const raw = useWorklistPoolProjection(read, '{}')
+  return useMemo(() => JSON.parse(raw) as Record<string, string>, [raw])
+}
+
 const readTab = (pool: MobxPool) => {
   const row = pool.row('settingsWindow', 'window')
   return loaded(row) ? row.settingsTab : 'sessions'
@@ -54,7 +108,12 @@ export function useSettingsSessionPresent(id: string | null): boolean {
 }
 
 export function useSettingsSetupSummary(repos: readonly GitRepositoryWire[]) {
-  const paths = useMemo(() => [...new Set(repos.flatMap(repo => [repo.path, ...repo.worktrees.map(row => row.path)]))], [repos])
+  const paths = useMemo(
+    () => [
+      ...new Set(repos.flatMap((repo) => [repo.path, ...repo.worktrees.map((row) => row.path)])),
+    ],
+    [repos],
+  )
   const readSetup = useCallback((pool: MobxPool) => settingsView(pool).setup(paths), [paths])
   return useWorklistPoolProjection(readSetup, EMPTY_SETUP)
 }

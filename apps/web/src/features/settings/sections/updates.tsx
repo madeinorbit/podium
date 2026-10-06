@@ -1,11 +1,10 @@
 import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
-import type { MachineWire } from '@podium/model/browser'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSettingsTrpc } from '../stable-access'
-import { useSettingsCatalog } from '../readers'
+import { useSettingsMachineIds, useSettingsMachine, useSettingsMachineTargets } from '../readers'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
@@ -109,7 +108,7 @@ export const SETTINGS_RELEASE_PROPOSAL_POLL_MS = 5_000
  */
 export function UpdatesSection(): JSX.Element {
   const trpc = useSettingsTrpc()
-  const { machines } = useSettingsCatalog()
+  const machineIds = useSettingsMachineIds()
   const developing = useFeature('podium-development')
   const [channel, setChannel] = useState<FleetChannel | null>(null)
   // PODIUM_UPDATE_CHANNEL in the deployment's environment beats config.json, and
@@ -368,27 +367,8 @@ export function UpdatesSection(): JSX.Element {
    */
   const fleetMachines = fleet?.allMachines ?? fleet?.machines ?? []
   const machineRows: MachineVersionRow[] =
-    machines.length > 0
-      ? machines.map((machine: MachineWire) => {
-          const wave = fleetMachines.find((candidate) => candidate.id === machine.id)
-          return {
-            reason: wave?.reason,
-            id: machine.id,
-            label: machine.name || machine.hostname || machine.id,
-            version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
-            channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
-            targetUnavailableReason: machine.targetUnavailableReason ?? null,
-            // Behind-with-a-grant-in-flight, behind-and-stuck and
-            // behind-and-waiting-for-a-person are three different situations,
-            // and the convergence phase is the only thing that tells them apart
-            // (spec §2.2b, §8c decision 14).
-            skew: machineVersionSkew(
-              machine,
-              serverVersion ?? null,
-              wave?.reason ? 'rejected' : (wave?.state ?? null),
-            ),
-          }
-        })
+    machineIds.length > 0
+      ? []
       : fleetMachines.map((machine) => ({
           id: machine.id,
           reason: machine.reason,
@@ -419,13 +399,10 @@ export function UpdatesSection(): JSX.Element {
    * snapshot's `targetVersion`, which is the same authority seen from the
    * coordinating server's side and is what a fleet with no machines still knows.
    */
-  const targetByChannel: Partial<Record<FleetChannel, string | null>> = {}
-  if (fleet?.targetVersion) targetByChannel.dev = fleet.targetVersion
-  for (const machine of machines as MachineWire[]) {
-    const machineChannel = (machine.updateChannelOverride ?? channel) as FleetChannel | null
-    if (!machineChannel || !machine.targetVersion) continue
-    targetByChannel[machineChannel] ??= machine.targetVersion
+  const targetByChannel: Partial<Record<FleetChannel, string | null>> = {
+    ...useSettingsMachineTargets(channel),
   }
+  if (fleet?.targetVersion) targetByChannel.dev = fleet.targetVersion
 
   // Every channel the user can select, plus any channel a machine has been
   // pinned to — a pinned channel is one this server checks, so hiding its state
@@ -693,67 +670,23 @@ export function UpdatesSection(): JSX.Element {
         description="Each machine's reported version compared with the target. Podium never applies an update on its own, so a machine with one available is waiting to be told to take it."
       >
         <div className="w-full overflow-hidden rounded-md border border-border/70 bg-muted/15">
-          {machineRows.length === 0 ? (
+          {machineIds.length === 0 && machineRows.length === 0 ? (
             <p className="settings-prose px-3 py-2">
               {fleet === null ? 'Loading…' : 'No machines connected.'}
             </p>
           ) : (
             <div className="divide-y divide-border/60">
+              {machineIds.map((id) => (
+                <SettingsUpdateMachine
+                  key={id}
+                  id={id}
+                  fleetMachines={fleetMachines}
+                  serverVersion={serverVersion ?? null}
+                  channel={channel}
+                />
+              ))}
               {machineRows.map((machine) => (
-                <div
-                  key={machine.id}
-                  data-testid={`update-machine-${machine.id}`}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2"
-                >
-                  {/* A machine reads as prose ink lifted to `--foreground` over its
-                      version in the machine voice — the same name-then-answer pair
-                      the rows above make, one step in because this panel sits
-                      inside a row rather than beside one. */}
-                  <div className="min-w-0">
-                    <p className="truncate settings-prose text-foreground">{machine.label}</p>
-                    <code className="settings-micro font-mono">{machine.version}</code>
-                  </div>
-                  <span className="settings-micro text-right">
-                    {/* Behind is not one state. A machine waiting for someone to
-                        accept an offer is the mechanism working — nothing on any
-                        channel applies itself (§8c decision 14) — and a machine
-                        that took the grant and never arrived is not. The verdict
-                        below is the same one the machine rows in Settings →
-                        Machines wear, so the two pages say one thing. */}
-                    <span className={machine.skew.mark === 'unexpected' ? 'text-warning' : ''}>
-                      {machine.skew.label}
-                    </span>
-                    {/* Only the rows that are somebody's problem carry their
-                        reason. The expected case is said ONCE, in this row's
-                        description — a fleet of ten waiting machines repeating
-                        the same sentence ten times is noise, and noise is what
-                        makes the two lines that matter unreadable. */}
-                    <MachineFailureReason reason={machine.reason} />
-                    {machine.skew.mark === 'unexpected' && machine.skew.note && (
-                      <span className="block max-w-[36ch]">{machine.skew.note}</span>
-                    )}
-                    {/* An override is disclosed HERE, on the page that is always
-                        visible, so hiding the per-machine selector behind the
-                        Podium-development flag can never hide the fact that a
-                        machine is not on the fleet default (POD-1882). */}
-                    {machine.channelOverride && (
-                      <span className="block text-warning">
-                        Pinned: {CHANNEL_LABELS[machine.channelOverride]}
-                      </span>
-                    )}
-                    {machine.targetUnavailableReason && (
-                      <span
-                        className="block max-w-[36ch] text-warning"
-                        title={machine.targetUnavailableReason}
-                      >
-                        {channelUnavailableProse(
-                          machine.channelOverride ?? channel ?? 'stable',
-                          machine.targetUnavailableReason,
-                        )}
-                      </span>
-                    )}
-                  </span>
-                </div>
+                <UpdateMachineRow key={machine.id} machine={machine} channel={channel} />
               ))}
             </div>
           )}
@@ -888,5 +821,99 @@ export function UpdatesSection(): JSX.Element {
       {channelError && <p className="mt-2 settings-prose text-destructive">{channelError}</p>}
       {readError && <p className="mt-2 settings-prose text-destructive">{readError}</p>}
     </Section>
+  )
+}
+
+function SettingsUpdateMachine({
+  id,
+  fleetMachines,
+  serverVersion,
+  channel,
+}: {
+  id: string
+  fleetMachines: FleetMachine[]
+  serverVersion: string | null
+  channel: FleetChannel | null
+}): JSX.Element | null {
+  const machine = useSettingsMachine(id)
+  if (!machine) return null
+  const wave = fleetMachines.find((candidate) => candidate.id === id)
+  return (
+    <UpdateMachineRow
+      channel={channel}
+      machine={{
+        reason: wave?.reason,
+        id,
+        label: machine.name || machine.hostname || id,
+        version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
+        channelOverride: (machine.updateChannelOverride ?? null) as FleetChannel | null,
+        targetUnavailableReason: machine.targetUnavailableReason ?? null,
+        skew: machineVersionSkew(
+          machine,
+          serverVersion,
+          wave?.reason ? 'rejected' : (wave?.state ?? null),
+        ),
+      }}
+    />
+  )
+}
+function UpdateMachineRow({
+  machine,
+  channel,
+}: {
+  machine: MachineVersionRow
+  channel: FleetChannel | null
+}): JSX.Element {
+  return (
+    <div
+      data-testid={`update-machine-${machine.id}`}
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2"
+    >
+      {/* A machine reads as prose ink lifted to `--foreground` over its
+                      version in the machine voice — the same name-then-answer pair
+                      the rows above make, one step in because this panel sits
+                      inside a row rather than beside one. */}
+      <div className="min-w-0">
+        <p className="truncate settings-prose text-foreground">{machine.label}</p>
+        <code className="settings-micro font-mono">{machine.version}</code>
+      </div>
+      <span className="settings-micro text-right">
+        {/* Behind is not one state. A machine waiting for someone to
+                        accept an offer is the mechanism working — nothing on any
+                        channel applies itself (§8c decision 14) — and a machine
+                        that took the grant and never arrived is not. The verdict
+                        below is the same one the machine rows in Settings →
+                        Machines wear, so the two pages say one thing. */}
+        <span className={machine.skew.mark === 'unexpected' ? 'text-warning' : ''}>
+          {machine.skew.label}
+        </span>
+        {/* Only the rows that are somebody's problem carry their
+                        reason. The expected case is said ONCE, in this row's
+                        description — a fleet of ten waiting machines repeating
+                        the same sentence ten times is noise, and noise is what
+                        makes the two lines that matter unreadable. */}
+        <MachineFailureReason reason={machine.reason} />
+        {machine.skew.mark === 'unexpected' && machine.skew.note && (
+          <span className="block max-w-[36ch]">{machine.skew.note}</span>
+        )}
+        {/* An override is disclosed HERE, on the page that is always
+                        visible, so hiding the per-machine selector behind the
+                        Podium-development flag can never hide the fact that a
+                        machine is not on the fleet default (POD-1882). */}
+        {machine.channelOverride && (
+          <span className="block text-warning">
+            Pinned: {CHANNEL_LABELS[machine.channelOverride]}
+          </span>
+        )}
+        {machine.targetUnavailableReason && (
+          <span className="block max-w-[36ch] text-warning" title={machine.targetUnavailableReason}>
+            {channelUnavailableProse(
+              machine.channelOverride ?? channel ?? 'stable',
+              machine.targetUnavailableReason,
+            )}
+          </span>
+        )}
+      </span>
+    </div>
   )
 }

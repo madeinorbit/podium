@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
 import { ArrowDown, ArrowUp, SlidersHorizontal } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -24,12 +24,18 @@ export function ManageProjectsButton(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
 
-  const visible = [
-    ...draft
-      .map((key) => projects.find((project) => project.key === key))
-      .filter((project) => project !== undefined),
-    ...projects.filter((project) => !draft.includes(project.key)),
-  ]
+  const visible = useMemo(() => {
+    if (!open) return []
+    const byKey = new Map(projects.map((project) => [project.key, project] as const))
+    const selected = new Set(draft)
+    return [
+      ...draft.flatMap((key) => {
+        const project = byKey.get(key)
+        return project ? [project] : []
+      }),
+      ...projects.filter((project) => !selected.has(project.key)),
+    ]
+  }, [open, projects, draft])
   const changed = visible.some((project, index) => project.key !== projects[index]?.key)
 
   const move = (index: number, direction: -1 | 1): void => {

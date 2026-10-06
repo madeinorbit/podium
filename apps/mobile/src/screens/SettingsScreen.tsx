@@ -1,8 +1,4 @@
-import {
-  connectedDeviceViews,
-  type MachineOperationsView,
-  visibleFleetOperations,
-} from '@podium/client-core/values'
+import { connectedDeviceViews, visibleFleetOperations } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -21,7 +17,11 @@ import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useBuildStamp } from '../lib/build-stamp'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
-import { useSettingsData } from './settings-readers'
+import {
+  useSettingsData,
+  useSettingsMachineStatus,
+  type SettingsMachineStatus,
+} from './settings-readers'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
@@ -37,12 +37,14 @@ export function SettingsScreen() {
   // to clear the home indicator (the hook is the plain safe-area inset here).
   const bottomInset = useContentBottomInset()
   const {
-    machines,
-    hosts,
+    machineIds,
+    machineCount,
+    fleetLabel,
+    updateLabel,
     sessionCount,
     issueCount,
     conversationCount,
-    outboxDeadLetters,
+    outboxDeadLetterCount,
     outboxSize,
     cursor,
   } = useSettingsData()
@@ -66,13 +68,10 @@ export function SettingsScreen() {
   const deviceFeed = useConnectedDevices()
   const buildStamp = useBuildStamp()
   const demo = demoEnabled()
-  const fleet = useMemo(
+  const demoFleet = useMemo(
     () =>
-      visibleFleetOperations({
-        machines: demo ? DEMO_MACHINES : machines,
-        hosts: demo ? DEMO_HOST_METRICS : hosts,
-      }),
-    [demo, hosts, machines],
+      demo ? visibleFleetOperations({ machines: DEMO_MACHINES, hosts: DEMO_HOST_METRICS }) : null,
+    [demo],
   )
   const devices = useMemo(
     () => connectedDeviceViews(deviceFeed.sessions ?? [], Date.now()),
@@ -218,13 +217,18 @@ export function SettingsScreen() {
         <SectionHeader label="Operations" />
         <View style={styles.panel}>
           <Row label="Server build" value={buildStamp.text.replace(/\n/g, ' · ')} />
-          <Row label="Visible fleet" value={fleet.fleetLabel} />
-          <Row label="Updates" value={fleet.updateLabel} />
-          {fleet.machines.slice(0, 12).map((machine) => (
-            <MachineStatusRow key={machine.id} machine={machine} />
-          ))}
-          {fleet.machines.length > 12 ? (
-            <Row label="More machines" value={`${fleet.machines.length - 12} · see Pulse`} />
+          <Row label="Visible fleet" value={demoFleet?.fleetLabel ?? fleetLabel} />
+          <Row label="Updates" value={demoFleet?.updateLabel ?? updateLabel} />
+          {demoFleet
+            ? demoFleet.machines
+                .slice(0, 12)
+                .map((machine) => <MachineStatusRow key={machine.id} machine={machine} />)
+            : machineIds.map((id) => <SettingsMachineRow key={id} id={id} />)}
+          {(demoFleet?.visibleCount ?? machineCount) > 12 ? (
+            <Row
+              label="More machines"
+              value={`${(demoFleet?.visibleCount ?? machineCount) - 12} · see Pulse`}
+            />
           ) : null}
         </View>
         <Text style={styles.hintCompact}>
@@ -353,7 +357,7 @@ export function SettingsScreen() {
           <Row label="Tasks" value={String(issueCount)} />
           <Row label="Conversations" value={String(conversationCount)} />
           <Row label="Queued sends" value={String(outboxSize)} />
-          <Row label="Needs recovery" value={String(outboxDeadLetters.length)} />
+          <Row label="Needs recovery" value={String(outboxDeadLetterCount)} />
         </View>
 
         <SectionHeader label="Account" />
@@ -380,7 +384,12 @@ export function SettingsScreen() {
   )
 }
 
-function MachineStatusRow({ machine }: { machine: MachineOperationsView }) {
+function SettingsMachineRow({ id }: { id: string }) {
+  const machine = useSettingsMachineStatus(id)
+  return machine ? <MachineStatusRow machine={machine} /> : null
+}
+
+function MachineStatusRow({ machine }: { machine: SettingsMachineStatus }) {
   return (
     <View style={styles.machineStatusRow}>
       <View style={styles.machineStatusIdentity}>

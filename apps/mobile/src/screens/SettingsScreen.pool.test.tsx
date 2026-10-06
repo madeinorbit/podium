@@ -49,8 +49,10 @@ vi.mock('expo-haptics', () => ({
   impactAsync: async () => {},
 }))
 vi.mock('expo-clipboard', () => ({
-  setStringAsync: async () => {}, getStringAsync: async () => '',
-  isPasteButtonAvailable: false, ClipboardPasteButton: () => null,
+  setStringAsync: async () => {},
+  getStringAsync: async () => '',
+  isPasteButtonAvailable: false,
+  ClipboardPasteButton: () => null,
 }))
 vi.mock('../client/auth', () => ({ logout: seams.logout }))
 vi.mock('../client/shell', () => ({ useMobileShell: () => ({ eraseLocalData: seams.erase }) }))
@@ -80,17 +82,21 @@ vi.mock('../client/ServerProfileGate', () => ({
     updateCredential: seams.credential,
   }),
 }))
-vi.mock('../client/connected-devices-api', () => ({ readConnectedDevices: async () => seams.devices }))
+vi.mock('../client/connected-devices-api', () => ({
+  readConnectedDevices: async () => seams.devices,
+}))
 vi.mock('../client/connected-devices', async (importOriginal) => ({
-  ...await importOriginal<typeof import('../client/connected-devices')>(),
+  ...(await importOriginal<typeof import('../client/connected-devices')>()),
   useConnectedDevices: () => {
-    const feed = (awaitedDevicesHook)()
+    const feed = awaitedDevicesHook()
     seams.reloadDevices = feed.reload
     return feed
   },
 }))
 // Obtain the real focus-owned feed while retaining its reload seam for the probe.
-const { useConnectedDevices: awaitedDevicesHook } = await vi.importActual<typeof import('../client/connected-devices')>('../client/connected-devices')
+const { useConnectedDevices: awaitedDevicesHook } = await vi.importActual<
+  typeof import('../client/connected-devices')
+>('../client/connected-devices')
 vi.mock('../lib/build-stamp', () => ({
   useBuildStamp: () => ({ text: 'synthetic.invalid\nserver 1 · app 1', reload() {} }),
 }))
@@ -166,7 +172,9 @@ async function mount(count = 8, scale?: number) {
     seen.push(useMobilePool())
     return shown ? <MeasuredSettings /> : null
   }
-  function MeasuredSettings() { return insideReader('phone.SettingsScreen', () => SettingsScreen()) }
+  function MeasuredSettings() {
+    return insideReader('phone.SettingsScreen', () => SettingsScreen())
+  }
   storeStats.enable()
   storeStats.reset()
   const view = render(
@@ -201,11 +209,24 @@ async function mount(count = 8, scale?: number) {
   })
   await waitFor(() => expect(view.getByText('Host 1')).toBeTruthy())
   if (scale) {
-    const machines = Array.from({ length: 16 * scale }, (_, i) => ({ id: `host-${i}`, name: `Host ${i + 1}`, hostname: `host-${i}`, online: true, lastSeenAt: '2026-10-06T10:00:00Z' }))
+    const machines = Array.from({ length: 16 * scale }, (_, i) => ({
+      id: `host-${i}`,
+      name: `Host ${i + 1}`,
+      hostname: `host-${i}`,
+      online: true,
+      lastSeenAt: '2026-10-06T10:00:00Z',
+    }))
     const template = data.inputs().metrics[0]!
-    const hosts = machines.map(row => ({ ...template, machineId: row.id, hostname: row.hostname }))
+    const hosts = machines.map((row) => ({
+      ...template,
+      machineId: row.id,
+      hostname: row.hostname,
+    }))
     await act(async () => {
-      ;(runtime.hub as unknown as { emit(kind: string, value: unknown): void }).emit('machines', machines)
+      ;(runtime.hub as unknown as { emit(kind: string, value: unknown): void }).emit(
+        'machines',
+        machines,
+      )
       data.publishHostMetrics(hosts as HostMetricsWire[])
     })
   }
@@ -214,27 +235,74 @@ async function mount(count = 8, scale?: number) {
 
 it('measures phone settings and its real device feed at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
-    seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({ sessionId: `device-${i}`, userId: 'operator', label: 'mobile', deviceId: `device-${i}`, deviceName: `Phone ${i}`, platform: 'ios', lastSeenAt: '2026-10-06T10:00:00Z', createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-11-01T10:00:00Z', current: false }))
+    seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({
+      sessionId: `device-${i}`,
+      userId: 'operator',
+      label: 'mobile',
+      deviceId: `device-${i}`,
+      deviceName: `Phone ${i}`,
+      platform: 'ios',
+      lastSeenAt: '2026-10-06T10:00:00Z',
+      createdAt: '2026-10-01T10:00:00Z',
+      expiresAt: '2026-11-01T10:00:00Z',
+      current: false,
+    }))
     const current = await mount(24 * scale, scale)
     await act(async () => current.show(false))
     const retained = current.seen.at(-1) as MobxPool
     expect(retained).toBeTruthy()
     const record = async (action: string, run: () => void) => {
-      const measured = await measureWork(async () => {
-        await act(async () => run())
-        for (let i = 0; i < 8; i++) await act(async () => { await Promise.resolve() })
-      }, { pool: retained })
-      console.log('SETTINGS_WORK', JSON.stringify({ scale, tab: 'phone', action, ...measured.work }))
+      const measured = await measureWork(
+        async () => {
+          await act(async () => run())
+          for (let i = 0; i < 8; i++)
+            await act(async () => {
+              await Promise.resolve()
+            })
+        },
+        { pool: retained },
+      )
+      console.log(
+        'SETTINGS_WORK',
+        JSON.stringify({ scale, tab: 'phone', action, ...measured.work }),
+      )
+      if (action === 'heartbeat') expect(measured.work.rows).toBeLessThanOrEqual(8)
     }
     await record('open', () => current.show(true))
-    await record('setting', () => fireEvent.change(current.view.getByLabelText('Server name'), { target: { value: 'Renamed phone' } }))
-    await record('device', () => { seams.devices = seams.devices.map((row, i) => i === 0 ? { ...row, deviceName: 'Updated phone' } : row); seams.reloadDevices() })
-    await record('repository', () => current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }))
+    await record('setting', () =>
+      fireEvent.change(current.view.getByLabelText('Server name'), {
+        target: { value: 'Renamed phone' },
+      }),
+    )
+    await record('device', () => {
+      seams.devices = seams.devices.map((row, i) =>
+        i === 0 ? { ...row, deviceName: 'Updated phone' } : row,
+      )
+      seams.reloadDevices()
+    })
+    await record('repository', () =>
+      current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }),
+    )
     const cursor = vi.spyOn(current.runtime.replica, 'getCursor').mockReturnValue(42)
-    await record('heartbeat', () => current.data.replica.onKernelEvent({ type: 'cursor', cursor: { feedId: 'synthetic', epoch: 'one', seq: 42 }, watermarkOnly: true }))
+    await record('heartbeat', () =>
+      current.data.replica.onKernelEvent({
+        type: 'cursor',
+        cursor: { feedId: 'synthetic', epoch: 'one', seq: 42 },
+        watermarkOnly: true,
+      }),
+    )
     expect(rowValue(current.view.container, 'Sync cursor')).toBe('42')
+    expect(rowValue(current.view.container, 'Visible fleet')).toBe(
+      `${16 * scale} of ${16 * scale} visible machines online`,
+    )
+    expect(rowValue(current.view.container, 'Updates')).toBe(
+      `${16 * scale} without a comparable build`,
+    )
+    expect(current.view.queryByText('Host 13')).toBeNull()
+    expect(rowValue(current.view.container, 'More machines')).toBe(`${16 * scale - 12} · see Pulse`)
     expect(current.errors).toEqual([])
-    cursor.mockRestore(); current.view.unmount()
+    cursor.mockRestore()
+    current.view.unmount()
   }
 }, 30_000)
 function rowValue(container: HTMLElement, label: string): string | undefined {
@@ -255,8 +323,9 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
-  const pool = enabled.seen.findLast(pool => pool !== null) as MobxPool
-  const roster = vi.spyOn(settingsView(pool), 'sessions'), count = vi.spyOn(settingsView(pool), 'sessionCount')
+  const pool = enabled.seen.findLast((pool) => pool !== null) as MobxPool
+  const roster = vi.spyOn(settingsView(pool), 'sessions'),
+    count = vi.spyOn(settingsView(pool), 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)
     enabled.data.publishMachines()
