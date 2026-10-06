@@ -61,7 +61,7 @@ export function instrumentProductWork(code: string, id: string): string | undefi
     binding = 'measureHeader as __measureHeader'
     const start = code.indexOf('const PoolMachineReadout = memo(function PoolMachineReadout(')
     const end = code.indexOf('\n})', start)
-    if (start < 0 || end < 0) throw new Error(`Missing metric-row measurement boundary ${file}`)
+    if (start < 0 || end < 0) throw new Error(`Missing work measurement boundary ${file}: PoolMachineReadout`)
     const section = once(code.slice(start, end), 'return (\n    host ?',
       "return __measureHeader('pool.metricRow', () =>\n    host ?", file)
     code = code.slice(0, start) + section + code.slice(end)
