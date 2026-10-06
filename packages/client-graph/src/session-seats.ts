@@ -79,10 +79,15 @@ type SeatRow = {
  */
 function createSessionSeats(pool: MobxPool): SessionSeats {
   const seat = cachedKey('SessionSeat', 'seat', (sessionId): Loaded<Seat> => {
-    const row = pool.row('session', sessionId, 'summary') as Loaded<SeatRow>
+    // A resident row already has the exact flag and history fields. Asking
+    // for a cold summary as well repeats one read for every mission seat.
+    const residentRow = pool.row('session', sessionId, 'mark') as Loaded<SeatRow>
+    const row = residentRow === LOADING
+      ? pool.row('session', sessionId, 'summary') as Loaded<SeatRow>
+      : residentRow
     if (row === LOADING || row === undefined) return row
     // A resident row is the whole row: an absent optional field is unset.
-    const resident = pool.row('session', sessionId, 'mark') !== LOADING
+    const resident = residentRow !== LOADING
     const archived = Object.hasOwn(row, 'archived')
       ? Boolean(row.archived)
       : resident
