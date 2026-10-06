@@ -186,11 +186,17 @@ it('reads inventory only on the reclaim tab and releases its polling on tab clos
   fixture(1)
   const intervals = vi.spyOn(globalThis, 'setInterval')
   const clear = vi.spyOn(globalThis, 'clearInterval')
+  let answer!: (value: ReclaimInventory) => void
+  reclaimInventory.mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
   const view = render(<HostInfoView initialTab="connection" machineId={MACHINE} onClose={() => {}} />)
   await act(async () => {})
   expect(reclaimInventory).not.toHaveBeenCalled()
   const firstInterval = intervals.mock.calls.length
   fireEvent.click(screen.getByRole('tab', { name: 'Reclaim' }))
+  expect(screen.getByText('Counting checkouts…')).toBeTruthy()
+  expect(screen.getByText('Reading git worktrees…')).toBeTruthy()
+  expect(screen.queryByText('Nothing reclaimable on this machine.')).toBeNull()
+  await act(async () => { answer(inventory()) })
   await screen.findByText('127 candidates')
   const reclaimTimer = intervals.mock.results[firstInterval]?.value
   expect(intervals.mock.calls[firstInterval]?.[1]).toBe(5000)
