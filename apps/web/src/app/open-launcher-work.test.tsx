@@ -64,6 +64,8 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     await act(async () => { await owner.access.refreshRepos() })
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Web pool missing')
+    // Complete the lazy attachment while closed; no choice projection is read.
+    await waitFor(() => expect(attached.sources.peekView('launch.options')).toBeTruthy())
     async function measured(action: string, fn: () => unknown) {
       const result = await measureWork(async () => insideReader(`web.${surface}.${action}`, async () => {
         await act(async () => { await fn() })
