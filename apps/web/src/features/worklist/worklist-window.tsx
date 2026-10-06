@@ -107,6 +107,7 @@ export function WorklistWindow<T>({
     <div
       ref={containerRef}
       data-testid="worklist-window"
+      data-window-count={rows.length}
       data-drag-scope={dragScope}
       className="min-w-0"
       onKeyDown={onKeyDown}

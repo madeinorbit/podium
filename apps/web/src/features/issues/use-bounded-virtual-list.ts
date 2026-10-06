@@ -1,5 +1,5 @@
 import type { RefCallback, RefObject } from 'react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 /**
  * Hard retention limits for issue indexes [spec:SP-d562]. A viewport mounts no
@@ -180,7 +180,9 @@ export function useBoundedVirtualList({
     })
   }, [scrollRef, containerRef])
 
-  useLayoutEffect(() => {
+  // A grouped window may mount before its parent's scroller ref is attached.
+  // Passive setup sees every ref from the commit and cannot miss scroll events.
+  useEffect(() => {
     if (viewportFrameRef.current !== null) {
       window.cancelAnimationFrame(viewportFrameRef.current)
       viewportFrameRef.current = null

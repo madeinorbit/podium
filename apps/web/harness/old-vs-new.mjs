@@ -16,6 +16,7 @@ const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = 
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const controlOnly=process.argv.includes('--control-only')
 const regionsOnly=process.argv.includes('--regions-only')
+const worklistProbe=process.argv.includes('--worklist-probe')
 const heartbeatOnly=regionsOnly || process.argv.includes('--heartbeat-only')
 const backgroundOnly=heartbeatOnly || process.argv.includes('--background-only')
 const terminalProbe=process.argv.includes('--terminal-probe')
@@ -61,6 +62,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,terminalProbe,tasksProbe,
   heartbeatOnly,
   regionsOnly,
+  worklistProbe,
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),
   startedAt:new Date().toISOString(), host:hostname(), cpu:cpus()[0].model, cores:cpus().length,
@@ -799,7 +801,44 @@ async function background(f) {
     })
     save()
   }
-  if(regionsOnly)return
+  if(regionsOnly) {
+    if(worklistProbe) {
+      const page=f.page, scroll=page.getByTestId('work-scroll')
+      const counts=await page.locator('[data-window-count]').evaluateAll(nodes=>nodes.map(node=>Number(node.dataset.windowCount)))
+      const count=Math.max(...counts)
+      const window=page.locator(`[data-window-count="${count}"]`).first()
+      await window.scrollIntoViewIfNeeded(); await frames(page); await frames(page)
+      const key=await window.locator('[data-window-row]').evaluateAll(nodes=>{
+        const scroll=document.querySelector('[data-testid="work-scroll"]').getBoundingClientRect()
+        return nodes.find(node=>{const r=node.getBoundingClientRect();return r.top>=scroll.top&&r.bottom<=scroll.bottom})?.dataset.windowRow
+      })
+      if(!key)throw Error('No visible row in largest sidebar window')
+      await window.locator(`[data-window-row="${key}"] button`).first().focus()
+      await page.keyboard.press('End'); await frames(page); await frames(page)
+      const end=await page.evaluate(()=>{const row=document.activeElement?.closest('[data-window-row]');return {index:Number(row?.getAttribute('aria-posinset')),size:Number(row?.getAttribute('aria-setsize'))}})
+      if(end.index!==count||end.size!==count)throw Error('Sidebar End did not reach the last row')
+      await page.keyboard.press('Home'); await frames(page); await frames(page)
+      const home=await page.evaluate(()=>Number(document.activeElement?.closest('[data-window-row]')?.getAttribute('aria-posinset')))
+      if(home!==1)throw Error('Sidebar Home did not reveal the first row')
+      // Exercise native pointer capture and edge auto-scroll, then cancel before
+      // a write: the synthetic corpus is intentionally absent from server truth.
+      const grip=window.getByTestId('row-grip').first()
+      await grip.scrollIntoViewIfNeeded()
+      const sourceKey=await grip.evaluate(node=>node.closest('[data-window-row]').dataset.windowRow)
+      const box=await grip.boundingBox(), viewport=await scroll.boundingBox()
+      const before=await scroll.evaluate(node=>node.scrollTop)
+      await page.mouse.move(box.x+box.width/2,box.y+box.height/2); await page.mouse.down()
+      await page.mouse.move(viewport.x+20,viewport.y+viewport.height-2)
+      await page.waitForTimeout(450)
+      const during=await page.evaluate(sourceKey=>({top:document.querySelector('[data-testid="work-scroll"]').scrollTop,retained:!!document.querySelector(`[data-window-row="${sourceKey}"]`),rows:document.querySelectorAll('[data-window-row]').length}),sourceKey)
+      await page.keyboard.press('Escape'); await page.mouse.up(); await frames(page)
+      if(during.top<=before||!during.retained)throw Error('Sidebar drag did not auto-scroll with its source retained')
+      result.worklistProbe={keyboardEnd:end,keyboardHome:home,dragAutoScroll:{before,...during},largestGroup:count}
+      await page.screenshot({path:resolve(out,'worklist-window.png')})
+      save()
+    }
+    return
+  }
   const metricWindow=async(kind,perform,profiled=false)=>{
     const before=await metrics(f.cdp), load=loadavg(), stop=await trace(f.cdp)
     if(profiled){await f.cdp.send('Profiler.enable');await f.cdp.send('Profiler.setSamplingInterval',{interval:100});await f.cdp.send('Profiler.start')}
