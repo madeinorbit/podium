@@ -3485,12 +3485,12 @@
       "file": "apps/web/src/app/FlightDeckPool.tsx",
       "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "rule": "helper-consumer",
-      "tokens": "f33dcbb3f2f102573a364412e383f499e63f43fe381c860b33e70f24298ef50d",
+      "tokens": "b85bffcf585a6edf88b63757a368922141af57591bb7e04aa9b403db9721d117",
       "gate": [],
       "origin": [
         "e1c84ca57e58d4fc4e2514dea3bba5302620b0f9640ad01d702cb0965b86c365"
       ],
-      "fingerprint": "34bf7506e35642f3d26d4dfc10d23cd85ac1d8479d7acf55000700ec2c9125b4",
+      "fingerprint": "3f500b4b908934e2f6ee748a23465041bdb6522d0b605a85b60eadb87009e818",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3498,6 +3498,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckPool.tsx",
+      "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
+      "rule": "reader-summary",
+      "tokens": "ccfb01d3ef0f15c9b0ea77fa6c057062b5b2689c738adfcaee099ae8da9d570e",
+      "gate": [],
+      "origin": [
+        "b52a9347873957eef5e19e212cdecd1985000b0d0f03d782d07c60bcac7dee83"
+      ],
+      "fingerprint": "af4adb1c96a79dfb974d54748daf2c1f5547eb8d2e1fa205d2d3fa4689e1188e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened task/session menu with a movable handoff subject prepares the destination choices shown by its Handoff submenu.",
+      "bound": "One addressed session and selected issue metadata; the sole eligible sender uses a declared count. Machine iteration is limited to the Handoff destination choice list, excluding the sender before payload reads. No issue/session/repository catalogue iteration.",
+      "reason": "The menu displays the addressed actions and possible destination machines. Sender login and other unshown companion labels are absent from its projection.",
+      "guard": "mission-menu.test.ts: equal hidden-data work at 1x/4x, exact handoff parity, and zero menu publications/row reads on sender login changes; PoolSessionContextMenu.test.tsx: no closed demand and equal open work. Complete structural census required before final allowance retirement."
     },
     {
       "file": "apps/web/src/app/FlightDeckRows.tsx",
@@ -16140,6 +16158,24 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/lib/PoolSessionContextMenu.tsx",
+      "holder": "PoolSessionContextMenu/read/useCallback:callback/measurePoolMission:callback",
+      "rule": "reader-summary",
+      "tokens": "c855b44a892b1b2439fcce9b68caa02c0abd3aede9c63106d962a3596653366d",
+      "gate": [],
+      "origin": [
+        "b52a9347873957eef5e19e212cdecd1985000b0d0f03d782d07c60bcac7dee83"
+      ],
+      "fingerprint": "986dd49108f0fb489bef44da29469c1455c970467c996f7250063adc62c2f9a1",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened task/session menu with a movable handoff subject prepares the destination choices shown by its Handoff submenu.",
+      "bound": "One addressed session and selected issue metadata; the sole eligible sender uses a declared count. Machine iteration is limited to the Handoff destination choice list, excluding the sender before payload reads. No issue/session/repository catalogue iteration.",
+      "reason": "The menu displays the addressed actions and possible destination machines. Sender login and other unshown companion labels are absent from its projection.",
+      "guard": "mission-menu.test.ts: equal hidden-data work at 1x/4x, exact handoff parity, and zero menu publications/row reads on sender login changes; PoolSessionContextMenu.test.tsx: no closed demand and equal open work. Complete structural census required before final allowance retirement."
     },
     {
       "file": "apps/web/src/lib/at-mention/mention-sources.ts",
@@ -44651,6 +44687,50 @@
       "bound": "The addressed mission root's own roster and explicitly related continuation references; these helper summaries carry that one addressed crew, not a catalogue.",
       "reason": "The root presence computed shares the readiness and header read. It reads only the root roster and named issue/session relations; unchanged scalar rollups retain the pane.",
       "guard": "packages/client-graph/src/mission-pane.work.test.ts (24 mounted rows at 1x/4x, summary bounds and unchanged heartbeat); apps/web/src/app/FlightDeck.pool.test.tsx (cold rendering and parity)."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "readMissionActionInputs/machines",
+      "rule": "consume:flatMap",
+      "tokens": "3a30bd821a75197cc45d797d3f2f9fb1ab17dca704ac71c601ad788c14dd1f70",
+      "gate": [
+        "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
+        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
+        "then:68962cafc4f054bcf5aa1e7ce1ec97128037f9ea04de8142a2bfead64823ad0a"
+      ],
+      "origin": [
+        "b52a9347873957eef5e19e212cdecd1985000b0d0f03d782d07c60bcac7dee83"
+      ],
+      "fingerprint": "21f18a9a232b4454a664a63a20ddd2530dc3be7017e8c9dc10412e6f321c120b",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened task/session menu with a movable handoff subject prepares the destination choices shown by its Handoff submenu.",
+      "bound": "One addressed session and selected issue metadata; the sole eligible sender uses a declared count. Machine iteration is limited to the Handoff destination choice list, excluding the sender before payload reads. No issue/session/repository catalogue iteration.",
+      "reason": "The menu displays the addressed actions and possible destination machines. Sender login and other unshown companion labels are absent from its projection.",
+      "guard": "mission-menu.test.ts: equal hidden-data work at 1x/4x, exact handoff parity, and zero menu publications/row reads on sender login changes; PoolSessionContextMenu.test.tsx: no closed demand and equal open work. Complete structural census required before final allowance retirement."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "readMissionActionInputs/machines",
+      "rule": "dynamic-question",
+      "tokens": "c24b6cc667d5a0f2b44e8535a61f9046d27a8ec7259c55b472e9701cd6fc3721",
+      "gate": [
+        "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
+        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
+        "then:68962cafc4f054bcf5aa1e7ce1ec97128037f9ea04de8142a2bfead64823ad0a"
+      ],
+      "origin": [
+        "b52a9347873957eef5e19e212cdecd1985000b0d0f03d782d07c60bcac7dee83"
+      ],
+      "fingerprint": "0c8f4916f77fd0ebdbe2763f9dacba867471080bb05923e14bbd1d9e724c524e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened task/session menu with a movable handoff subject prepares the destination choices shown by its Handoff submenu.",
+      "bound": "One addressed session and selected issue metadata; the sole eligible sender uses a declared count. Machine iteration is limited to the Handoff destination choice list, excluding the sender before payload reads. No issue/session/repository catalogue iteration.",
+      "reason": "The menu displays the addressed actions and possible destination machines. Sender login and other unshown companion labels are absent from its projection.",
+      "guard": "mission-menu.test.ts: equal hidden-data work at 1x/4x, exact handoff parity, and zero menu publications/row reads on sender login changes; PoolSessionContextMenu.test.tsx: no closed demand and equal open work. Complete structural census required before final allowance retirement."
     },
     {
       "file": "packages/mobx-helpers/src/keyed-computed.ts",
