@@ -2,7 +2,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +20,7 @@ import {
   spawnHostAgent,
 } from '../src/host'
 import { hostBinFeatures, resolveHostBin } from '../src/host-bin'
+import { createDurableProcess, sweepStaleDurableBindTemps } from '../src/durable-process'
 
 const windows = process.platform === 'win32'
 const connections: HostConnection[] = []
@@ -111,6 +112,29 @@ describe.skipIf(!windows)('Windows durable host', () => {
     }
     resolveHostBin({ fresh: true })
     rmSync(root, { recursive: true, force: true })
+  })
+
+  it('Windows recovery never mistakes legacy POSIX inventory files for sessions', async () => {
+    const name = label()
+    const dir = join(root, 'legacy')
+    mkdirSync(dir)
+    const marker = join(dir, `${name}@old-host`)
+    const bind = join(dir, '.abduco-2147483647')
+    writeFileSync(marker, 'ordinary Windows file')
+    writeFileSync(bind, 'ordinary Windows file')
+    const prior = process.env.ABDUCO_SOCKET_DIR
+    process.env.ABDUCO_SOCKET_DIR = dir
+    try {
+      const durable = createDurableProcess()
+      expect(await durable.has(name)).toBe(false)
+      expect(await durable.locate(name)).toBeUndefined()
+      expect(await durable.list()).not.toContain(name)
+      expect(sweepStaleDurableBindTemps()).toEqual([])
+      expect(existsSync(bind)).toBe(true)
+    } finally {
+      if (prior === undefined) delete process.env.ABDUCO_SOCKET_DIR
+      else process.env.ABDUCO_SOCKET_DIR = prior
+    }
   })
 
   it('PowerShell streams, accepts input, and applies one changed resize', async () => {

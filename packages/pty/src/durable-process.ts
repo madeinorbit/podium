@@ -285,7 +285,10 @@ export function hostDurableAdapter(): DurableAdapter {
  */
 export function createDurableProcess(): DurableProcess {
   const primary = hostDurableAdapter()
-  const all = [primary, abducoAdoptionAdapter()] as const
+  // Neither legacy master ever ran on Windows. Do not interpret ordinary
+  // Windows files as the POSIX socket inventory or sweep their bind markers.
+  const legacy = process.platform === 'win32' ? undefined : abducoAdoptionAdapter()
+  const all = legacy ? [primary, legacy] : [primary]
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   return {
     backend: 'host',
@@ -311,10 +314,9 @@ export function createDurableProcess(): DurableProcess {
     },
     async kill(label) {
       // Probe only the matching legacy socket; a host kill needs no legacy probe.
-      const abduco = all[1]
       await Promise.all([
         primary.kill(label),
-        abduco.hasMasterSync(label, process.env) ? abduco.kill(label) : undefined,
+        legacy?.hasMasterSync(label, process.env) ? legacy.kill(label) : undefined,
       ])
     },
     async list() {
@@ -332,7 +334,7 @@ export function createDurableProcess(): DurableProcess {
  * path does. The daemon sweeps once before the reattach storm.
  */
 export function sweepStaleDurableBindTemps(env: NodeJS.ProcessEnv = process.env): string[] {
-  return reapStaleAbducoBindTemps(env)
+  return process.platform === 'win32' ? [] : reapStaleAbducoBindTemps(env)
 }
 
 /**
