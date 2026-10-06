@@ -72,6 +72,7 @@ import type { ArmHandle, LazyArmHandle, LocalsSource, RowSource } from '../../sh
 import {
   armMarkReadRejection,
   pendingWrites,
+  settled,
   type ScenarioEngine,
   writeArchiveIssue,
   writeBurst50,
@@ -577,6 +578,14 @@ export async function runFenceStep(
         // loads are the arm's work.
         const hooks = loadHooks(mounted.handle, feeds, step)
         if (hooks !== null) await insideArm(() => hooks.settleLoads())
+        if (hooks !== null && entry.scenario === 'selectionClick') {
+          // A selected cold subtree can become navigable only after these
+          // loads, triggering eager mark-read after the write's own settle.
+          // Echo that receipt within this step, as the mobile fixture does.
+          await outsideArm(() => settled(ctx))
+          outsideArm(() => flush())
+          await insideArm(() => hooks.settleLoads())
+        }
         settledAt = feeds.rowReads()
       } finally {
         stop?.()

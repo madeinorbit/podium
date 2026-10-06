@@ -28,8 +28,11 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { diffSnapshots } from '../../shared/src/gen/check'
-import { startScenarioEngine } from '../../shared/src/scenarios'
+import { pendingWrites, startScenarioEngine } from '../../shared/src/scenarios'
+import { createRowSource } from '../../shared/src/row-source'
 import { assertCommits, mountArmForCounts } from './count-harness'
+import { harnessMobxPoolArm } from './adapters/mobx-pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import {
   engineLocals,
   FENCE_SCENARIOS,
@@ -42,6 +45,16 @@ import {
 import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
+import {
+  holdingServer,
+  ownedEngineOptions,
+  PENDING_WINDOW_ROWS,
+  pendingTitleEditsOn,
+  queuePendingTitles,
+  stillPending,
+  targetIds,
+  withPendingTitles,
+} from './writable-arm'
 
 // happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead
 // (the root lane runs at the repo root, the package lane in the package).
@@ -213,6 +226,66 @@ for (const entry of ROUND_THREE_ARMS) {
     }, 300_000)
   })
 }
+
+describe('lazy selection mark-read settlement', () => {
+  it.each(['idle', 'pending'] as const)('echoes the loaded 4x selection in the %s owned arm', async (variant) => {
+    const held = holdingServer()
+    const ctx = await startScenarioEngine(4, ownedEngineOptions(held.server))
+    let titles: ReadonlyMap<string, string> = new Map()
+    try {
+      if (variant === 'pending') {
+        const excluded = targetIds(ctx.targets)
+        const probe = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
+        try {
+          titles = pendingTitleEditsOn(
+            probe.source.snapshot('issue'),
+            snapshotFromStore(referenceState(ctx.engine), parityLocals(ctx)).order,
+            id => excluded.has(id),
+            PENDING_WINDOW_ROWS,
+            parityLocals(ctx).coarseNow,
+          ).titles
+        } finally {
+          probe.dispose()
+        }
+        held.hold(titles.keys())
+        await queuePendingTitles(ctx.engine, titles)
+      }
+      const feeds = openFenceFeeds(ctx, 'owned')
+      const arm = {
+        ...harnessMobxPoolArm,
+        create(...args: Parameters<typeof harnessMobxPoolArm.create>) {
+          const handle = harnessMobxPoolArm.create(...args)
+          feeds.attachPool((handle as unknown as { pool: MobxPool }).pool)
+          return handle
+        },
+      }
+      // This is a semantic settle regression, with structural work metering off.
+      const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals, { work: false })
+      try {
+        const heldRows = [...titles.keys()].map(id => `issueProjections:${id}`)
+        for (const methodology of ['#3', '#9a', '#9b']) {
+          const entry = FENCE_SCENARIOS.find(candidate => candidate.methodology === methodology)!
+          const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry, {
+            expected: oracle => withPendingTitles(oracle, titles),
+            held: heldRows,
+          })
+          expect(result.parity, `${methodology}: ${result.parityDiff ?? ''}`).toBe(true)
+          const expected = methodology === '#9a'
+            ? [...heldRows, `issueUserStates:${ctx.targets.markReadId}`].sort()
+            : heldRows.sort()
+          expect(pendingWrites(ctx), `${methodology} settles only its own writes`).toEqual(expected)
+          if (methodology === '#3') expect(ctx.markReadReceipts).toContain(ctx.targets.visibleRootId)
+        }
+        expect(stillPending(feeds, titles)).toHaveLength(titles.size)
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+      }
+    } finally {
+      ctx.dispose()
+    }
+  }, 300_000)
+})
 
 /**
  * Coordinator (from L4a): mark-read overlays stamp `Date.now()`, so a PAINTED
