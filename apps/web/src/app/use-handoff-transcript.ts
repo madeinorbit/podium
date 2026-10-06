@@ -60,36 +60,39 @@ export function useHandoffTranscript(
   const loadingOlder = transcript?.loadingOlder ?? false
   const [pageFailed, setPageFailed] = useState(false)
   const failedRef = useRef(false)
+  // Single-flight guard for older-page reads. The log clears loadingOlder in
+  // a finally before a rejection reaches the handler below, and that flip
+  // re-renders synchronously: without this flag the refired effect would
+  // start a masking read in the window, and a real failure would surface as
+  // an empty pane instead of error-and-retry.
+  const flightRef = useRef(false)
   useEffect(() => {
     failedRef.current = false
     setPageFailed(false)
   }, [transcript])
 
   useEffect(() => {
-    if (!active || !transcript || failedRef.current) return
-    if (pair !== null) return
+    if (!active || !transcript || failedRef.current || flightRef.current) return
+    if (pair !== null || !hasMoreOlder || loadingOlder) return
     let cancelled = false
-    void (async () => {
-      while (
-        !cancelled &&
-        !failedRef.current &&
-        transcript.latestHandoffPair === null &&
-        transcript.hasMoreOlder &&
-        !transcript.loadingOlder
-      ) {
-        try {
-          await transcript.loadOlder()
-        } catch {
-          failedRef.current = true
-          if (!cancelled) setPageFailed(true)
-          return
-        }
-      }
-    })()
+    flightRef.current = true
+    // One page per effect run. Completion surfaces through the log's own
+    // observables (loadingOlder flip, pair formation, hasMore change), which
+    // re-run this effect while another page is due.
+    void transcript.loadOlder().then(
+      () => {
+        flightRef.current = false
+      },
+      () => {
+        flightRef.current = false
+        failedRef.current = true
+        if (!cancelled) setPageFailed(true)
+      },
+    )
     return () => {
       cancelled = true
     }
-  }, [active, transcript, pair, loadingOlder, hasMoreOlder, pageFailed])
+  }, [active, transcript, pair, initialLoaded, hasMoreOlder, loadingOlder, pageFailed])
 
   const retry = useCallback(() => {
     if (!transcript) return
