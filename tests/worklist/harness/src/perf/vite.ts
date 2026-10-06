@@ -18,12 +18,15 @@ export function instrumentProductWork(code: string, id: string): string | undefi
   let meter = boardMeter
   let binding = 'countIssueBoard as __countIssueBoard'
   if (file.endsWith('/packages/client-graph/src/issue-board-source.ts')) {
+    code = once(code, 'export function createIssueBoardSource(', 'export function createIssueBoardSource(', file)
     for (const [anchor, counter] of [
       ['function facts(id: string): Loaded<IssueViewModel> {', "'factReads'"],
       ["return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {", "'rowModels'"],
       ['return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {', "'cards'"],
     ]) code = once(code, anchor!, `${anchor}\n    __countIssueBoard(${counter})`, file)
   } else if (file.endsWith('/packages/client-graph/src/issue-board-layout.ts')) {
+    for (const anchor of ["const matching = keyedComputed('IssueBoard.matchingIds'", "const columnIds = keyedComputed('IssueBoard.columnIds'"])
+      code = once(code, anchor, anchor, file)
     for (const [anchor, counter] of [
       ["const needle = query.filter?.text?.trim() ?? ''", "'queries'"],
       ['return ids.sort(byId)', "'matchedIds', ids.length"],
@@ -33,6 +36,7 @@ export function instrumentProductWork(code: string, id: string): string | undefi
     code = code.replace('__countIssueBoard(`column.${options.stage}`);\n    const options = JSON.parse(key) as BoardColumnOptions',
       'const options = JSON.parse(key) as BoardColumnOptions;\n    __countIssueBoard(`column.${options.stage}`)')
   } else if (file.endsWith('/packages/client-graph/src/header-views.ts')) {
+    code = once(code, 'function createHeaderViews(', 'function createHeaderViews(', file)
     meter = headerMeter
     binding = 'measureHeader as __measureHeader'
     code = once(code, '(_key: string, read: () => unknown) => read()',
