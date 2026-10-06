@@ -778,6 +778,25 @@ async function background(f) {
     result.outputDeliveryWitness=true;save()
   })
   const outputAvailable=outputEpochs.has(targetSession)
+  if(heartbeatOnly) {
+    result.backgroundDom=await f.page.evaluate(()=>{
+      const countNodes=root=>{const walker=document.createTreeWalker(root,NodeFilter.SHOW_ALL);let count=1;while(walker.nextNode())count++;return count}
+      const region=(name,root)=>{
+        const rect=root.getBoundingClientRect(),style=getComputedStyle(root)
+        return {name,nodes:countNodes(root),elements:root.querySelectorAll('*').length+1,
+          hidden:style.display==='none'||style.visibility==='hidden'||rect.width===0||rect.height===0,
+          offscreen:rect.bottom<=0||rect.right<=0||rect.top>=innerHeight||rect.left>=innerWidth,
+          rect:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+          issueRows:root.querySelectorAll('[data-issue-row]').length,
+          flightSessions:root.querySelectorAll('[data-flight-session]').length}
+      }
+      const regions=[]
+      for(const [name,selector] of [['sidebar','aside'],['flightDeck','[data-flight-deck-shell]'],['agentPanel','[data-panel-resident]'],['header','[data-testid="desktop-topbar"]']])
+        for(const [index,root] of [...document.querySelectorAll(selector)].entries())regions.push(region(`${name}:${index}`,root))
+      return {connectedNodes:countNodes(document),connectedElements:document.querySelectorAll('*').length,regions}
+    })
+    save()
+  }
   const metricWindow=async(kind,perform,profiled=false)=>{
     const before=await metrics(f.cdp), load=loadavg(), stop=await trace(f.cdp)
     if(profiled){await f.cdp.send('Profiler.enable');await f.cdp.send('Profiler.setSamplingInterval',{interval:100});await f.cdp.send('Profiler.start')}
