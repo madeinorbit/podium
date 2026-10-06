@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
   Replica as KernelReplica,
