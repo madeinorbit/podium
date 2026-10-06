@@ -1,6 +1,7 @@
 import { isClosed } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   type HandoffAvailability,
   type HandoffIssue,
@@ -100,6 +101,12 @@ export function describeCascade(taskCount: number, sessionCount: number): string
   const tasks = `${taskCount} task${taskCount === 1 ? '' : 's'}`
   if (sessionCount === 0) return `This affects ${tasks}.`
   return `This affects ${tasks} and ${sessionCount} agent${sessionCount === 1 ? '' : 's'}.`
+}
+
+/** Raw attachments have one owning issue. Confirmations need their maintained
+ * totals, not the IDs of hidden history rows. */
+export function cascadeSessionCount(issues: readonly Pick<IssueNavigationModel, 'sessionSummary'>[]): number {
+  return issues.reduce((count, issue) => count + issue.sessionSummary.total, 0)
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */

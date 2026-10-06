@@ -6,6 +6,7 @@ import {
   contextMenuTargets,
   deferDateFromNow,
   describeCascade,
+  cascadeSessionCount,
   issueHandoffAvailability,
   issueHasCloseReason,
   issueMenuEligibility,
@@ -520,6 +521,15 @@ describe('issueHandoffAvailability (POD-850)', () => {
 // the agent processes it stops, which is the half that made archiving read as
 // filing rather than as a teardown.
 describe('describeCascade', () => {
+  it('keeps archive and multi-task delete agent counts exact without member IDs', () => {
+    const first = { sessionSummary: { total: 33, byPhase: {} } }
+    const second = { sessionSummary: { total: 129, byPhase: {} } }
+    expect(describeCascade(1, cascadeSessionCount([first])))
+      .toBe('This affects 1 task and 33 agents.')
+    expect(describeCascade(2, cascadeSessionCount([first, second])))
+      .toBe('This affects 2 tasks and 162 agents.')
+    expect(cascadeSessionCount([{ sessionSummary: { total: 0, byPhase: {} } }])).toBe(0)
+  })
   it('names the agents, not just the tasks', () => {
     expect(describeCascade(4, 5)).toBe('This affects 4 tasks and 5 agents.')
   })

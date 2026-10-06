@@ -54,6 +54,7 @@ import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   deferDateFromNow,
   describeCascade,
+  cascadeSessionCount,
   type IssueMenuSurface,
   issueHandoffAvailability,
   issueMenuEligibility,
@@ -281,8 +282,7 @@ export function IssueContextMenu({
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
-    const sessionIds = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
-    const sessionCount = sessionIds.size
+    const sessionCount = cascadeSessionCount(issues)
     onClose()
     void (async () => {
       const ok = await confirm({
@@ -318,7 +318,7 @@ export function IssueContextMenu({
       run(() => updateIssue(first.id, { archived: false }))
       return
     }
-    const sessionCount = new Set(first.memberSessionIds ?? []).size
+    const sessionCount = cascadeSessionCount([first])
     if (first.childCount === 0 && sessionCount === 0) {
       run(() => updateIssue(first.id, { archived: true }))
       return
