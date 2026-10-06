@@ -95,16 +95,22 @@ const rawRepo = (extra: object = {}): object => ({ id: 'r1', prefix: 'POD', ...e
 // ------------------------------------------------------------------ Part A
 
 describe('repo-from-lane composition', () => {
-  it('a lane carrying a repoId is the repo row; the latest lane wins', () => {
+  it('a lane carrying a repoId is the repo row; the holder stays while repo facts are equal', () => {
     const tables: FakeTables = { worktree: new Map(), repo: new Map() }
     const ops = fakeOps(tables)
     const first = lane('/repo', 'r1')
     const second = lane('/repo/wt', 'r1')
     ingestWorktreeRecord(ops, '/repo', first)
     expect(tables.repo.get('r1')).toBe(first)
+    // POD-5423 finding 12: the same repo facts (repoId, repoPath, repoName,
+    // prefix) keep the holder, so a lane-only change wakes no repo reader.
     ingestWorktreeRecord(ops, '/repo/wt', second)
-    expect(tables.repo.get('r1')).toBe(second)
+    expect(tables.repo.get('r1')).toBe(first)
     expect(tables.worktree.get('/repo')).toBe(first)
+    // A lane with different repo facts still replaces the holder.
+    const renewed = lane('/repo/wt', 'r1', { prefix: 'NEW' })
+    ingestWorktreeRecord(ops, '/repo/wt', renewed)
+    expect(tables.repo.get('r1')).toBe(renewed)
   })
 
   it('takeover: the holding lane leaves and another lane of the repo takes over', () => {
@@ -114,12 +120,14 @@ describe('repo-from-lane composition', () => {
     const second = lane('/repo/wt', 'r1')
     ingestWorktreeRecord(ops, '/repo', first)
     ingestWorktreeRecord(ops, '/repo/wt', second)
-    expect(tables.repo.get('r1')).toBe(second)
+    // POD-5423 finding 12: the holder stays while the repo facts are equal.
+    expect(tables.repo.get('r1')).toBe(first)
     // The holding lane leaves: the repo row becomes the remaining lane, and
     // the repo itself is never dropped in between.
-    ingestWorktreeRecord(ops, '/repo/wt', undefined)
-    expect(tables.worktree.has('/repo/wt')).toBe(false)
-    expect(tables.repo.get('r1')).toBe(first)
+    ingestWorktreeRecord(ops, '/repo', undefined)
+    expect(tables.worktree.has('/repo')).toBe(false)
+    expect(tables.worktree.get('/repo/wt')).toBe(second)
+    expect(tables.repo.get('r1')).toBe(second)
     expect(ops.calls).not.toContain('drop repo r1')
   })
 
@@ -141,7 +149,8 @@ describe('repo-from-lane composition', () => {
     const moved = lane('/repo/wt', 'r1')
     ingestWorktreeRecord(ops, '/repo', keeper)
     ingestWorktreeRecord(ops, '/repo/wt', moved)
-    expect(tables.repo.get('r1')).toBe(moved)
+    // POD-5423 finding 12: the keeper holds while the repo facts are equal.
+    expect(tables.repo.get('r1')).toBe(keeper)
     const movedToR2 = lane('/repo/wt', 'r2')
     ingestWorktreeRecord(ops, '/repo/wt', movedToR2)
     expect(tables.repo.get('r1')).toBe(keeper)
@@ -256,10 +265,21 @@ describe('both arms consume the shared composer', () => {
     }
   })
 
-  it('no arm tables.ts reads lane fields itself', () => {
+  it('no arm tables.ts reads lane fields except through the shared composer', () => {
     for (const tables of ARM_TABLES) {
       const code = codeOf(tables)
-      expect(code, `${tables} spells no lane field`).not.toContain('repoPath')
+      // POD-5423 finding 12: the product's single row reader declares its
+      // facade inputs (RepoInputs) and reads them via the shared composer's
+      // repoFieldOf/FEED_SPELLING. A direct lane read off the feed row would
+      // bypass that spelling, so every repoPath line must be one of those
+      // mediated uses.
+      const lanes = code.split('\n').filter((line) => line.includes('repoPath'))
+      expect(lanes.length, `${tables} declares its repo facade through the shared spelling`).toBeGreaterThan(0)
+      for (const line of lanes) {
+        expect(line, `${tables} reads no lane field itself: ${line.trim()}`).toMatch(
+          /RepoInputs|repoFieldOf|\['id',\s*'prefix',\s*'repoPath'\]/,
+        )
+      }
     }
   })
 })
@@ -294,9 +314,9 @@ const worktreeRecord = (id: string, value: object | undefined): RowRecord => ({
 })
 
 /**
- * Join, latest-wins, takeover, move, raw-row hold, last-leave, repo-less
- * lane, plus one issue record the composer must ignore. Returns the lane
- * objects for identity assertions.
+ * Join, holder-stays-while-facts-equal, takeover, move, raw-row hold,
+ * last-leave, repo-less lane, plus one issue record the composer must ignore.
+ * Returns the lane objects for identity assertions.
  */
 function laneScript() {
   const a = lane('/repo', 'r1')
@@ -353,7 +373,8 @@ describe('every worktree record passes through the shared composer', () => {
     const [w1, w2, issue, w3, ...rest] = script.records
     mobxIngestRecord(target, w1!, out)
     mobxIngestRecord(target, w2!, out)
-    expect(repo.get('r1')).toBe(script.b)
+    // POD-5423 finding 12: w2 carries the same repo facts, so the holder stays.
+    expect(repo.get('r1')).toBe(script.a)
     mobxIngestRecord(target, issue!, out)
     expect(repoLaneCalls.worktreeRecords).toBe(2)
     mobxIngestRecord(target, w3!, out)
