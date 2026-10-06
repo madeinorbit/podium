@@ -1,3 +1,6 @@
+import { referenceView } from '@podium/client-graph/issue-reference'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createHeaderPollingService } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
@@ -52,8 +55,8 @@ export function seedPoolFixture(issues: readonly unknown[]) {
 /** Complete the fake authority's batched answer for an absent reference. */
 export function resolvePoolFixtureReference(ref: string, id: string | null) {
   if (!pool) throw new Error('Fixture pool has not mounted')
-  pool.references.id(ref)
-  pool.references.resolved(ref, id)
+  referenceView(pool).id(ref)
+  referenceView(pool).resolved(ref, id)
 }
 
 function useFixturePool() {
@@ -97,7 +100,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       selectedIssueId: state.selectedIssueId ?? null,
       coarseNow: state.coarseNow ?? Date.now(),
     })
-    if (state.uiState) pool.attachPreferences(state.uiState as RoutedUiState)
+    if (state.uiState) attachPreferenceSource(pool, state.uiState as RoutedUiState)
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
     pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
   }
@@ -175,10 +178,10 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
           : ['coarseNow'],
       ),
     )
-    pool.header.apply(
+    headerEntities(pool).apply(
       (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
     )
-    pool.header.order(
+    headerEntities(pool).order(
       'machine',
       (state.machines ?? []).map((value) => value.id),
     )
@@ -187,8 +190,8 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       id: JSON.stringify([value.machineId ?? '', value.path]),
       value,
     }))
-    pool.header.apply(repositories)
-    pool.header.order(
+    headerEntities(pool).apply(repositories)
+    headerEntities(pool).order(
       'repository',
       repositories.map((value) => value.id),
     )
