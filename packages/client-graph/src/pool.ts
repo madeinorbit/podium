@@ -904,22 +904,23 @@ export class MobxPool {
         else if (typeof record.value === 'object') this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
       }
       // Feed companions carry replicated display facts without live presence.
-      // Merge them under the live rows they accompany: a wholesale replace
+      // Merge them over the live rows they accompany: a wholesale replace
       // drops online/availability and every presence reader goes blind until
-      // the next hub emit (POD-5661). The live row wins (POD-5704: a keyed
-      // live rename must reach the header); companion-only facts survive
-      // because the live row never carries them. Removals still delete.
-      // Live rows merge the same stored companions on their own path
-      // (ingestLiveMachines), so either arrival order converges. The offline
-      // banner reads the stored companion via machineHomeName, never this
-      // merged row, so replicated renames still reach it.
+      // the next hub emit (POD-5661). Companion fields win; live-only fields
+      // survive. Removals still delete. The live path merges the same stored
+      // companions the other way (ingestLiveMachines keeps the live rename,
+      // POD-5704), so a fresh live row is never clobbered by its own ingest;
+      // a later feed publication still carries the replicated facts session
+      // summaries join from. The offline banner reads the stored companion
+      // via machineHomeName, never this merged row, so replicated renames
+      // still reach it.
       const mergedMachineRows = machineRows.map((record) => {
         if (record.value === undefined || typeof record.value !== 'object') return record
         const live = headerEntities(this).get('machine', record.id)
         if (!live || typeof live !== 'object') return record
         return {
           ...record,
-          value: { ...(record.value as Record<string, unknown>), ...(live as Record<string, unknown>) },
+          value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
         }
       })
       if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
