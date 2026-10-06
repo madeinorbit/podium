@@ -11,7 +11,8 @@ import { ToolBlock } from './ToolBlock'
 const editWork = vi.hoisted(() => ({ resolve: 0, lines: 0 }))
 vi.mock('@podium/client-core/values', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@podium/client-core/values')>()
-  return { ...actual,
+  return {
+    ...actual,
     resolveToolEdit: (...args: Parameters<typeof actual.resolveToolEdit>) => {
       editWork.resolve += 1
       return actual.resolveToolEdit(...args)
@@ -240,7 +241,14 @@ describe('retained Bash command disclosure', () => {
       type: 'assistant',
       message: {
         role: 'assistant',
-        content: [{ type: 'tool_use', id: 'large', name: 'Bash', input: { command: `echo ${'x'.repeat(100_000)}` } }],
+        content: [
+          {
+            type: 'tool_use',
+            id: 'large',
+            name: 'Bash',
+            input: { command: `echo ${'x'.repeat(100_000)}` },
+          },
+        ],
       },
     }).find((i) => i.role === 'tool')
     if (!item) throw new Error('Missing mapped Bash call')
@@ -265,8 +273,16 @@ describe('retained Bash command disclosure', () => {
 })
 
 it('defers folded edit-body work across streamed results and unfolds the latest edit', () => {
-  const toolInputJson = JSON.stringify({ kind: 'file-edit', path: 'a.ts', mode: 'replace',
-    hunks: [{ oldText: 'before', newText: 'after' }], added: 1, removed: 1 })
+  const input = (newText: string) =>
+    JSON.stringify({
+      kind: 'file-edit',
+      path: 'a.ts',
+      mode: 'replace',
+      hunks: [{ oldText: 'before', newText }],
+      added: 1,
+      removed: 1,
+    })
+  const toolInputJson = input('after')
   editWork.resolve = 0
   editWork.lines = 0
   mount({ toolName: 'Edit', toolInput: 'a.ts', toolInputJson })
@@ -274,15 +290,29 @@ it('defers folded edit-body work across streamed results and unfolds the latest 
   const frames = []
   for (let token = 0; token < 5; token++) {
     const before = { ...editWork }
-    mount({ toolName: 'Edit', toolInput: 'a.ts', toolInputJson, toolResult: `ok ${token}` })
-    frames.push({ resolve: editWork.resolve - before.resolve, lines: editWork.lines - before.lines })
+    mount({
+      toolName: 'Edit',
+      toolInput: 'a.ts',
+      toolInputJson: input(`after ${token}`),
+      toolResult: `ok ${token}`,
+    })
+    frames.push({
+      resolve: editWork.resolve - before.resolve,
+      lines: editWork.lines - before.lines,
+    })
   }
   expect(host.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
   expect(editWork).toEqual({ resolve: 0, lines: 0 })
   const folded = { ...editWork }
   unfold()
-  expect(host.querySelector('[data-testid="tool-edit-diff"]')?.textContent).toContain('after')
+  expect(host.querySelector('[data-testid="tool-edit-diff"]')?.textContent).toContain('after 4')
   expect(editWork.lines - folded.lines).toBe(1)
-  console.log('[folded tool edit-body work]', JSON.stringify({ mount: mountWork, frames,
-    unfold: { resolve: editWork.resolve - folded.resolve, lines: editWork.lines - folded.lines } }))
+  console.log(
+    '[folded tool edit-body work]',
+    JSON.stringify({
+      mount: mountWork,
+      frames,
+      unfold: { resolve: editWork.resolve - folded.resolve, lines: editWork.lines - folded.lines },
+    }),
+  )
 })

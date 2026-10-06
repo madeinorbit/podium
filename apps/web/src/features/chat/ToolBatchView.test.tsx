@@ -101,9 +101,16 @@ it('observes retained failure and count facts while folded, then shows current c
   const row = graph.structuralRow('a')!
   if (row.kind !== 'tools') throw new Error('expected a tools row')
   mount(row, false, undefined, graph.run('a'))
-  act(() => graph.apply({ changed: [call({ id: 'r', toolUseId: 'b', toolResult: 'error: failed' })], insertions: [{ id: 'r' }] }))
+  act(() =>
+    graph.apply({
+      changed: [call({ id: 'r', toolUseId: 'b', toolResult: 'error: failed' })],
+      insertions: [{ id: 'r' }],
+    }),
+  )
   expect(host.querySelector('.work-line-fail')?.textContent).toContain('1 failed')
-  act(() => graph.apply({ changed: [call({ id: 'c', toolUseId: 'c' })], insertions: [{ id: 'c' }] }))
+  act(() =>
+    graph.apply({ changed: [call({ id: 'c', toolUseId: 'c' })], insertions: [{ id: 'c' }] }),
+  )
   expect(host.querySelector('.work-line-count')?.textContent).toBe('3')
   expect(host.querySelector('.work-line-list')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
@@ -158,7 +165,9 @@ describe('ToolBatchView — the work line', () => {
     expect(countRung).toBeGreaterThan(elapsedRung)
     expect(disclosureRung).toBeGreaterThan(countRung)
     expect(css.slice(elapsedRung, countRung)).toMatch(/\.work-line-time\s*\{[^}]*display: none/s)
-    expect(css.slice(countRung, disclosureRung)).toMatch(/\.work-line-count\s*\{[^}]*display: none/s)
+    expect(css.slice(countRung, disclosureRung)).toMatch(
+      /\.work-line-count\s*\{[^}]*display: none/s,
+    )
     expect(css.slice(disclosureRung)).toMatch(/\.work-line-chev\s*\{[^}]*display: none/s)
   })
 
@@ -517,9 +526,7 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
       ]),
     )
     // Folded: the row is on screen but no diff text was built.
-    expect(host.querySelector('[data-testid="work-line"]')?.getAttribute('data-open')).toBe(
-      'false',
-    )
+    expect(host.querySelector('[data-testid="work-line"]')?.getAttribute('data-open')).toBe('false')
     expect(diffBuilds.count).toBe(0)
 
     // Expanding the run still builds nothing — the rows only need paths.
@@ -583,9 +590,20 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
 it('defers folded batch edit reads with retained and snapshot rows during streaming', () => {
   const samples = []
   for (const retained of [false, true]) {
-    const edit = call({ id: 'edit', toolName: 'Edit', toolUseId: 'edit', toolInput: 'a.ts',
-      toolInputJson: JSON.stringify({ kind: 'file-edit', path: 'a.ts', mode: 'replace',
-        hunks: [{ oldText: 'before', newText: 'after' }], added: 1, removed: 1 }) })
+    const edit = call({
+      id: 'edit',
+      toolName: 'Edit',
+      toolUseId: 'edit',
+      toolInput: 'a.ts',
+      toolInputJson: JSON.stringify({
+        kind: 'file-edit',
+        path: 'a.ts',
+        mode: 'replace',
+        hunks: [{ oldText: 'before', newText: 'after' }],
+        added: 1,
+        removed: 1,
+      }),
+    })
     const graph = new TranscriptGraph([edit])
     try {
       const row = retained ? graph.structuralRow('edit')! : batchOf([edit])
@@ -598,7 +616,10 @@ it('defers folded batch edit reads with retained and snapshot rows during stream
       for (let token = 0; token < 5; token++) {
         const before = editReads.count
         const result = call({ id: 'result', toolUseId: 'edit', toolResult: `ok ${token}` })
-        if (retained) act(() => graph.apply({ changed: [result], insertions: token === 0 ? [{ id: 'result' }] : [] }))
+        if (retained)
+          act(() =>
+            graph.apply({ changed: [result], insertions: token === 0 ? [{ id: 'result' }] : [] }),
+          )
         else mount(batchOf([edit, result]))
         frames.push(editReads.count - before)
       }
@@ -609,7 +630,9 @@ it('defers folded batch edit reads with retained and snapshot rows during stream
       act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
       expect(host.querySelector('.work-line-list')?.textContent).toContain('a.ts')
       act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
-    } finally { graph.dispose() }
+    } finally {
+      graph.dispose()
+    }
   }
   console.log('[folded batch edit-body work]', JSON.stringify(samples))
 })
