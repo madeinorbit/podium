@@ -7,7 +7,6 @@ import type {
   TaskProgress,
 } from '@podium/client-core/values'
 import type { IssueBoardStage, IssueId, IssueStage } from '@podium/model/browser'
-import type { BoardProjection } from './issue-board-projection'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import type { MissionActionInputs } from './mission-view'
 import { mergePoolSummaries } from './source-registry'
@@ -136,7 +135,6 @@ export interface IssueBoardSourceRows {
   issueBoardDropIndex: { index: number }
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
-  issueBoardProjection: BoardProjection
   issueBoardCard: BoardCardData
   issueBoardSessions: SessionView[]
 }
@@ -155,7 +153,6 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardDropIndex',
   'issueExplorerModel',
   'issueBoardRow',
-  'issueBoardProjection',
   'issueBoardCard',
   'issueBoardSessions',
 ] as const
@@ -214,11 +211,6 @@ export const ISSUE_BOARD_SOURCE_SCHEMA = {
     key: 'issueId',
     source: 'pool:issue-summary+repo+treeChildren+pageDependents+pageSessions',
     residency: 'observed-row',
-  },
-  issueBoardProjection: {
-    key: 'entityAndDemandKey',
-    source: 'pool:issueBoardModel|issueExplorerModel',
-    residency: 'mounted-observation',
   },
   issueBoardCard: {
     key: 'issueIdAndDisplay',

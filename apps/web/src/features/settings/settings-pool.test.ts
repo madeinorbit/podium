@@ -1,3 +1,5 @@
+import { attachSettingsSource } from '@podium/client-graph/settings-source'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -65,8 +67,8 @@ function fixture(sessions: SliceSession[] = []) {
     undefined,
     { settings: true, load, schedule: () => () => {} },
   )
-  pool.attachSettings(owner)
-  pool.attachPreferences(ui)
+  attachSettingsSource(pool, owner)
+  attachPreferenceSource(pool, ui)
   pool.apply({
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })),
@@ -118,7 +120,7 @@ describe('declared settings readers', () => {
     }
     const hot = session('hot', 'claude-code'),
       { pool, load } = fixture([cold, hot])
-    const view = createPoolProjection(pool, (current) => current.settingsViews.setup().defaultAgent)
+    const view = createPoolProjection(pool, (current) => settingsView(current).setup().defaultAgent)
     const wake = vi.fn(),
       stop = view.subscribe(wake)
     disposals.push(stop)

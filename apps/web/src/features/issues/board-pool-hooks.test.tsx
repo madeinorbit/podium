@@ -47,12 +47,8 @@ vi.mock('@/app/store-worklist-pool', () => ({
             state.poolReads(entity, key)
             return entity === 'issueBoardWindow'
               ? { openIssueId: null }
-              : entity === 'issueBoardProjection'
-                ? {
-                    getSnapshot: () =>
-                      JSON.parse(key)[0] === 'issueBoardModel' ? EMPTY_BOARD : undefined,
-                    subscribe: () => () => {},
-                  }
+              : entity === 'issueBoardModel'
+                ? EMPTY_BOARD
                 : undefined
           },
         })
@@ -76,11 +72,11 @@ it('keeps card time and addressed interaction state out of layout keys and defer
     display: DEFAULT_DISPLAY, filter: {}, expanded: [], isMobile: false,
     now, openIssueId: id, addressed: id ? [id] : [], menu: !!id,
   }), { initialProps: { now: 0, id: null as import('@podium/model/browser').IssueId | null } })
-  const demand = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardProjection')?.[1]
+  const demand = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardModel')?.[1]
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
   state.poolReads.mockClear()
   board.rerender({ now: 60_000, id: 'one' as import('@podium/model/browser').IssueId })
-  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardProjection').every(([, key]) => key === demand)).toBe(true)
+  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardModel').every(([, key]) => key === demand)).toBe(true)
   const card = renderHook(({ now }) => useBoardCard('one', now), { initialProps: { now: 0 } })
   const first = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardCard')?.[1]
   state.poolReads.mockClear()

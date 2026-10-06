@@ -1,3 +1,4 @@
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -164,7 +165,7 @@ const driver = {
       commits,
       commitMs,
       failures,
-      preferenceLoads: pool?.preferenceCounts(),
+      preferenceLoads: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
       generation,
     }
   },

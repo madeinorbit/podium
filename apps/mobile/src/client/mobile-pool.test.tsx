@@ -1,3 +1,4 @@
+import { preferenceSource } from '@podium/client-graph/preference-source'
 /**
  * THE MOBILE POOL ON THE REAL MOBILE PATH (POD-4976).
  *
@@ -320,9 +321,9 @@ describe('mobile pool ownership', () => {
     expect(state.pools).toEqual([{ runtime: app.seen.runtime, disposed: false }])
     const alice = { runtime: currentRuntime(app.seen.runtime), pool: app.seen.pool }
     if (!alice.pool) throw new Error('The mobile pool did not attach')
-    expect(alice.pool.preferenceKeys()).toHaveLength(3)
+    expect((preferenceSource(alice.pool)?.keys() ?? [])).toHaveLength(3)
     expect(
-      alice.pool.preferenceKeys().map((key) => alice.pool!.row('preference', key)),
+      (preferenceSource(alice.pool)?.keys() ?? []).map((key) => alice.pool!.row('preference', key)),
     ).toMatchObject([
       { key: 'podium.chat.stickyPrompts', value: 'saved' },
       { key: 'podium:sidebar:task-details-fold', value: 'false' },
@@ -333,14 +334,14 @@ describe('mobile pool ownership', () => {
     await waitFor(() =>
       expect(screen.getByTestId('preferences').textContent).toBe('default:true:false'),
     )
-    expect(alice.pool.preferenceKeys()).toEqual([])
+    expect((preferenceSource(alice.pool)?.keys() ?? [])).toEqual([])
     act(() => alice.runtime.ui.set('podium.chat.stickyPrompts', 'old-person'))
     await settle()
     expect(screen.getByTestId('preferences').textContent).toBe('default:true:false')
     const bobPool = app.seen.pool
     if (!bobPool) throw new Error('The next principal has no pool')
     await app.quit()
-    expect(bobPool.preferenceKeys()).toEqual([])
+    expect((preferenceSource(bobPool)?.keys() ?? [])).toEqual([])
     expect(errors.mock.calls).toEqual([])
     errors.mockRestore()
   })

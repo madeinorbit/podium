@@ -11,7 +11,7 @@ const entry = `${root}pool-boundary-fixture.js`
  * optional screen implementations retain their own deferred chunks. */
 async function eagerSources(marker: string): Promise<string[]> {
   const exported = marker === '@podium/client-graph' ? 'MobxPool' :
-    marker === '@podium/client-graph/issue-board-projection' ? 'createBoardProjection' : 'LOADING'
+    marker === '@podium/client-graph/issue-board-source' ? 'createIssueBoardSource' : 'LOADING'
   const result = await build({
     configFile: false,
     root,
@@ -74,9 +74,9 @@ describe('client-graph in Vite startup chunks', () => {
   }, 30_000)
 
   it('catches a planted eager board reader using the actual emitted sources', async () => {
-    const sources = await eagerSources('@podium/client-graph/issue-board-projection')
+    const sources = await eagerSources('@podium/client-graph/issue-board-source')
     expect(eagerClientGraphSources(sources)).toContainEqual(
-      expect.stringContaining('/client-graph/src/issue-board-projection.ts'),
+      expect.stringContaining('/client-graph/src/issue-board-source.ts'),
     )
   }, 30_000)
 })

@@ -22,7 +22,6 @@ import {
 } from 'mobx'
 import { seedIssueReferences } from './enumerate'
 import { createBoardLayout } from './issue-board-layout'
-import { type BoardProjection, createBoardProjection } from './issue-board-projection'
 import {
   BOARD_EXPLORER_TABS,
   type BoardCardData,
@@ -71,7 +70,6 @@ export function createIssueBoardSource(
     deep: false,
   })
   const stops = new Map<string, () => void>()
-  const projections = new Map<string, BoardProjection>()
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()
   const countQuestion = { kind: 'boardCounts' } as const
   // Counts are maintained contributions. Opening an explorer attaches its
@@ -768,23 +766,7 @@ export function createIssueBoardSource(
         return card(JSON.parse(id))
       case 'issueBoardSessions':
         return sessions(id)
-      case 'issueBoardProjection': {
-        let view = projections.get(id)
-        if (!view) {
-          const [entity, key] = JSON.parse(id) as [
-            'issueBoardModel' | 'issueExplorerModel',
-            string,
-          ]
-          view = createBoardProjection(
-            () => pool.row(entity, key),
-            () => {
-              if (projections.get(id) === view) projections.delete(id)
-            },
-          )
-          projections.set(id, view)
-        }
-        return view
-      }
+
     }
   }
   function release(): void {
@@ -792,7 +774,6 @@ export function createIssueBoardSource(
     layout.dispose()
     releaseIndex()
     tabCounts.dispose()
-    for (const projection of projections.values()) projection.dispose()
     for (const stop of stops.values()) stop()
     for (const result of [...rosters.values()]) result.dispose()
     rosters.clear()

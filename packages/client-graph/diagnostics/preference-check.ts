@@ -1,3 +1,4 @@
+import { preferenceSource } from '@podium/client-graph/preference-source'
 /** On-demand differential using the sidebar comparison contract. Reports expose
  * positions only: keys may contain paths, and values are never evidence. */
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -6,7 +7,7 @@ import { declarePreference } from '../src/preference-schema'
 import { LOADING } from '../src/worklist/rollup'
 import { type CheckRow, compareSidebarSnapshots } from './sidebar-check'
 
-export function checkPreferences(pool: MobxPool, ui: RoutedUiState, keys = pool.preferenceKeys()) {
+export function checkPreferences(pool: MobxPool, ui: RoutedUiState, keys = (preferenceSource(pool)?.keys() ?? [])) {
   let pending = 0
   const expected = keys.map(
     (key, index): CheckRow => ({

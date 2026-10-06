@@ -1,3 +1,5 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -22,7 +24,7 @@ const serialize = (value: string) => (value === 'absent' ? null : value)
 const ownedPools: MobxPool[] = []
 function poolFor(ui: RoutedUiState) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  pool.attachPreferences(ui)
+  attachPreferenceSource(pool, ui)
   ownedPools.push(pool)
   return pool
 }
@@ -78,7 +80,7 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     expect(replicated.get).not.toHaveBeenCalled()
     expect(() => pool.row('preference', 'unclassified.key')).toThrow('Unclassified')
     await Promise.resolve()
-    expect(pool.preferenceCounts()?.batches).toBe(1)
+    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
     expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
     // Each step exercises the same declared per-user key through the existing
     // optimistic writer or a later authoritative replacement/eviction.
@@ -125,7 +127,7 @@ it('releases the source and cancels queued reads on disposal', async () => {
   await Promise.resolve()
   expect(ui.get).not.toHaveBeenCalled()
   expect(ui.listeners.size).toBe(0)
-  expect(pool.preferenceKeys()).toEqual([])
+  expect((preferenceSource(pool)?.keys() ?? [])).toEqual([])
   expect(pool.row('preference', STICKY)).toBe(LOADING)
 })
 
@@ -196,12 +198,12 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   })
   expect(owner).not.toBe(oldOwner)
   expect(pool).not.toBe(oldPool)
-  expect(oldPool.preferenceKeys()).toEqual([])
+  expect((preferenceSource(oldPool)?.keys() ?? [])).toEqual([])
   await act(async () => oldOwner.ui.set(STICKY, 'old-person'))
   expect(view.container.textContent).toBe('absent')
   view.rerender(tree(null))
   expect(view.container.textContent).toBe('')
-  expect(pool!.preferenceKeys()).toEqual([])
+  expect((preferenceSource(pool!)?.keys() ?? [])).toEqual([])
   expect(failures).toEqual([])
   expect(
     errors.mock.calls.some((args) => String(args[0]).includes('Cannot update a component')),

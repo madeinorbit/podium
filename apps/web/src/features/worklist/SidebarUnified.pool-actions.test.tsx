@@ -595,7 +595,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
       const fetch = vi.spyOn(runtime.replica, 'row')
       act(() => {
         for (const id of [...ids, ...ids]) actions.selectIssue(id)
-        expect(ids.map((id) => owner.sidebar.row(id))).toEqual([LOADING, LOADING])
+        expect(ids.map((id) => sidebarView(owner).row(id))).toEqual([LOADING, LOADING])
         expect(requests).toHaveLength(0)
         expect(referenceState(runtime).selectedIssueId).toBeNull()
         expect(focused).toBeNull()
@@ -603,7 +603,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         expect(owner.hydrate()).toBe(2)
       })
       fetch.mockRestore()
-      expect(ids.map((id) => owner.sidebar.row(id))).not.toContain(LOADING)
+      expect(ids.map((id) => sidebarView(owner).row(id))).not.toContain(LOADING)
     } finally {
       residency.coldRule = coldRule
       residency.hidden = hidden
@@ -633,7 +633,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
           rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }],
         })
         for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
-        expect(owner.sidebar.row('synthetic-3')).toBe(LOADING)
+        expect(sidebarView(owner).row('synthetic-3')).toBe(LOADING)
         expect(requests).toHaveLength(0)
         expect(referenceState(runtime).selectedIssueId).toBeNull()
         expect(focused).toBeNull()

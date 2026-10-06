@@ -1,3 +1,5 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
@@ -35,7 +37,7 @@ function fixture() {
   const ui = createRoutedUiState({ local: side.uiState(), replicated })
   const get = vi.spyOn(ui, 'get')
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  pool.attachPreferences(ui)
+  attachPreferenceSource(pool, ui)
   return { ui, get, pool, replicated }
 }
 
@@ -83,7 +85,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     expect(seen[keys[0]!]).toBe('final')
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     stops[1]!()
-    expect(f.pool.preferenceKeys()).not.toContain(keys[1])
+    expect((preferenceSource(f.pool)?.keys() ?? [])).not.toContain(keys[1])
     f.get.mockClear()
     f.ui.set(keys[1]!, '2')
     await flush()

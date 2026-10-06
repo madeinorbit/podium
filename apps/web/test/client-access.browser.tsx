@@ -1,3 +1,4 @@
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -138,7 +139,7 @@ const driver = {
         (sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0),
         0,
       ),
-      pool: pool?.preferenceCounts(),
+      pool: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
       commits,
       commitMs,
       failures,

@@ -1,3 +1,5 @@
+import { attachPreferenceSource } from './preference-source'
+import { attachSettingsSource } from './settings-source'
 import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
@@ -322,7 +324,7 @@ export function createRuntimeWorklistPool(
     )
     if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
-      handle.pool.attachPreferences(runtime.ui)
+      attachPreferenceSource(handle.pool, runtime.ui)
     }
     if (options.settings) {
       const owner = runtime as unknown as Partial<SettingsOwner> & Pick<SettingsOwner, 'readLocal'>
@@ -335,7 +337,7 @@ export function createRuntimeWorklistPool(
       }
       // The shared row-source seam exposes only its repo inputs. The provider
       // runtime also owns the catalog/window fields checked above.
-      handle.pool.attachSettings(runtime as WorklistRuntime & SettingsOwner)
+      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner)
     }
     if (options.header)
       stopHeader = attachHeaderSource(

@@ -1,3 +1,4 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 /** Read-only saved file-mode replay. Operator paths and values remain in memory
  * on ludovico; only counts and comparison positions are printed. */
 import { readFileSync } from 'node:fs'
@@ -61,7 +62,7 @@ for (const mapKey of [HTML_MODE_MAP_KEY, JSON_MODE_MAP_KEY, MD_MODE_MAP_KEY]) {
 }
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 try {
-  pool.attachPreferences(ui)
+  attachPreferenceSource(pool, ui)
   checkFileViewerPreferences(pool, ui, tabs)
   await Promise.resolve()
   const result = checkFileViewerPreferences(pool, ui, tabs)

@@ -1,3 +1,4 @@
+import { preferenceSource } from '@podium/client-graph/preference-source'
 /** Real surfaces over one offline runtime and its existing pool. Synthetic only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -185,7 +186,7 @@ const driver = {
         (sum, row) => sum + Object.values(row.slices).reduce((a, n) => a + n, 0),
         0,
       ),
-      pool: pool?.preferenceCounts(),
+      pool: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
       commits,
       commitMs,
       failures,

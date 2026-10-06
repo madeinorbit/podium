@@ -1,3 +1,4 @@
+import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
@@ -339,7 +340,7 @@ function pool() {
   return state.pool
 }
 function value(id = TARGET) {
-  const row = pool().mobileWork.row({ kind: 'issue', id })
+  const row = mobileWorkView(pool()).row({ kind: 'issue', id })
   if (!row || typeof row === 'symbol' || !row.sidebar) throw new Error(`Missing resident ${id}`)
   return row
 }
@@ -351,7 +352,7 @@ function button(id = TARGET) {
 async function parity() {
   await act(async () => {
     for (let turn = 0; turn < 100; turn++) {
-      pool().mobileWork.sections()
+      mobileWorkView(pool()).sections()
       if (!pool().hydrate()) break
     }
     await Promise.resolve()
@@ -752,7 +753,7 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'needs_user', since: iso(-60_000), need: { kind: 'permission' } },
           })
         })
-        const split = pool().mobileWork.sections()
+        const split = mobileWorkView(pool()).sections()
         expect(split.sections.some((section) => section.kind === 'attention')).toBe(true)
         const ordering = split.orderingSections.find((section) => section.kind === scope)!
         expect(ordering.data.some((row) => row.id === 'synthetic-1')).toBe(true)

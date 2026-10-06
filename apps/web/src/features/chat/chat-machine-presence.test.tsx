@@ -144,7 +144,7 @@ it('bounds actual chat presence, updates and hidden demand at 1x/4x with an arme
       expect(detached.work.rows).toBe(0)
       const control = await measureWork(
         async () => {
-          const legacy = createPoolProjection(pool, (current) => current.headerViews.machines())
+          const legacy = createPoolProjection(pool, (current) => headerView(current).machines())
           const stop = legacy.subscribe(() => {})
           try {
             expect(

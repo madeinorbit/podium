@@ -1,3 +1,5 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -69,7 +71,7 @@ function port() {
 }
 function attach(ui: RoutedUiState) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-  pool.attachPreferences(ui)
+  attachPreferenceSource(pool, ui)
   pools.push(pool)
   state.pool = pool
   return pool
@@ -251,11 +253,11 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   await flush()
   expect(result.current.value[0]).toBe('saved')
   expect([...result.current.set.collapsed]).toEqual(['repo'])
-  expect(pool.preferenceCounts()).toMatchObject({ batches: 1, loaded: 4 })
-  expect(pool.preferenceKeys().length).toBe(4)
+  expect((preferenceSource(pool)?.counts ?? null)).toMatchObject({ batches: 1, loaded: 4 })
+  expect((preferenceSource(pool)?.keys() ?? []).length).toBe(4)
   expect(ui.listeners.size).toBe(1)
   const values = () =>
-    pool.preferenceKeys().map((key) => {
+    (preferenceSource(pool)?.keys() ?? []).map((key) => {
       const row = pool.row('preference', key)
       return typeof row === 'object' && row ? row.value : row
     })
@@ -299,7 +301,7 @@ it('keeps pending writes with the old principal and drops its optimism and subsc
   expect(bob.set).not.toHaveBeenCalled()
   expect(result.current.collapsed.size).toBe(0)
   expect(alice.listeners.size).toBe(0)
-  expect(alicePool.preferenceKeys()).toEqual([])
+  expect((preferenceSource(alicePool)?.keys() ?? [])).toEqual([])
 })
 
 it('allows an authoritative replacement inside the post-write batch to win after local optimism ends', async () => {

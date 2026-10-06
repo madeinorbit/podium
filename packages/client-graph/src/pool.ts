@@ -3,7 +3,6 @@ import {
   SETUP_SESSION_SUMMARY_FIELDS,
   type SetupSession,
 } from './settings-schema'
-import { attachSettingsSource, type SettingsOwner } from './settings-source'
 import { readSetupSession } from './settings-views'
 import {
   mergePoolSummaries,
@@ -60,7 +59,6 @@ import {
  */
 
 import type { OutboxKinds } from '@podium/client-core/engine'
-import type { RoutedUiState } from '@podium/client-core/ui-state'
 import {
   compareStructural,
   type IObservableArray,
@@ -90,7 +88,7 @@ import {
   type SessionModel,
 } from './models'
 import type { PreferenceRow } from './preference-schema'
-import { attachPreferenceSource, preferenceSource } from './preference-source'
+import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
@@ -556,21 +554,6 @@ export class MobxPool {
    * residency's per-id atom, which reports every relink and the load.
    * Unknown rows answer undefined. Never blocks.
    */
-  attachPreferences(ui: RoutedUiState): void {
-    attachPreferenceSource(this, ui)
-  }
-
-  preferenceKeys(): readonly string[] {
-    return preferenceSource(this)?.keys() ?? []
-  }
-  preferenceCounts() {
-    return preferenceSource(this)?.counts ?? null
-  }
-
-  attachSettings(owner: SettingsOwner): void {
-    attachSettingsSource(this, owner)
-  }
-
   row<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]>
   row(entity: 'setupSession', id: string): Loaded<SetupSession>
   row(entity: 'preference', id: string): Loaded<PreferenceRow>

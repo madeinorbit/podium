@@ -1,3 +1,5 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { EXISTING_PODIUM_CLIENT_DRAFT_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -81,7 +83,7 @@ describe('pool-only preference consumers', () => {
       load: () => undefined,
       schedule: () => () => {},
     })
-    pool.attachPreferences(ui)
+    attachPreferenceSource(pool, ui)
     ports.pool = pool
     ports.ui = ui
     container = document.createElement('div')
@@ -162,7 +164,7 @@ describe('pool-only preference consumers', () => {
     await settle()
     expect(container.textContent).toBe('ready:')
     expect(ui.get).not.toHaveBeenCalled()
-    expect(pool.preferenceCounts()?.batches).toBe(0)
+    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(0)
   })
 
   function Density() {
@@ -213,6 +215,6 @@ describe('pool-only preference consumers', () => {
     await settle()
     expect(container.textContent).toBe('compact')
     expect(ui.get).toHaveBeenCalledExactlyOnceWith(SHELL_DENSITY_KEY)
-    expect(pool.preferenceCounts()?.batches).toBe(1)
+    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
   })
 })

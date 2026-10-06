@@ -1,3 +1,4 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 /** Read-only operator layout replay. Raw keys and values never leave this
  * ludovico process, enter a file, or appear in its output. Device-local values
  * belong to each browser's storage and are covered by synthetic browser proof. */
@@ -31,7 +32,7 @@ const unsupported = keys.filter((key) => key === null).length
 if (unsupported) throw new Error(`Replay needs declarations for ${unsupported} stored key positions`)
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 try {
-  pool.attachPreferences(ui)
+  attachPreferenceSource(pool, ui)
   for (const key of keys) pool.row('preference', key!)
   await Promise.resolve()
   const result = checkPreferences(pool, ui)

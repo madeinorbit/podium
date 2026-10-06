@@ -23,7 +23,7 @@ export interface HeaderCheckInputs {
   history?: HeaderRows['history']
   lifecycle?: HeaderRows['lifecycle']
 }
-const roster = (sessions: ReturnType<MobxPool['headerViews']['working']>) => sessions.map((session) => ({
+const roster = (sessions: ReturnType<ReturnType<typeof headerView>['working']>) => sessions.map((session) => ({
   sessionId: session.sessionId, name: session.name ?? null, title: session.title,
   displayRef: session.displayRef ?? null, agentKind: session.agentKind ?? null,
 }))

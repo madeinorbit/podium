@@ -1,3 +1,4 @@
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { headerView } from '@podium/client-graph/header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
@@ -123,7 +124,7 @@ beforeEach(() => {
     sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } },
   }
   pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  pool.attachPreferences(state.uiState as RoutedUiState)
+  attachPreferenceSource(pool, state.uiState as RoutedUiState)
   pool.apply({
     type: 'replace',
     rows: [

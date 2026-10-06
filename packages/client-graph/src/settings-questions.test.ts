@@ -1,3 +1,4 @@
+import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import { settingsView } from './settings-views'
 import { dedupeSessionsByResume } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -116,7 +117,7 @@ it('orders visible automation targets with path maxima and no session catalog at
     const f = fixture([target, other, ...Array.from({ length: 128 * scale }, (_, n) => session(`foreign-${n}`))])
     const repos = new Map([['shown', { path: '/shown', kind: 'repository', worktrees: [{ path: '/shown/wt' }] }],
       ['other', { path: '/other', kind: 'repository', worktrees: [] }]])
-    f.pool.attachSettings({ listIds: (name: string) => name === 'repos' ? [...repos.keys()] : [],
+    attachSettingsSource(f.pool, { listIds: (name: string) => name === 'repos' ? [...repos.keys()] : [],
       listRow: (name: string, id: string) => name === 'repos' ? repos.get(id) : undefined,
       readLocal: () => 'sessions', onList: () => () => {}, onLocals: () => () => {},
     } as unknown as SettingsOwner)
