@@ -88,24 +88,13 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   return { ids, pending }
 }
 
-/** The own seats are borrowed rows (by identity); everything else by value. */
-function sameSidebar(a: Loaded<SidebarRowValues>, b: Loaded<SidebarRowValues>): boolean {
-  if (a === b) return true
-  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-  const { sessions: ownA, ...factsA } = a
-  const { sessions: ownB, ...factsB } = b
-  const sameSeats =
-    ownA === ownB || (ownA.length === ownB.length && ownA.every((seat, index) => seat === ownB[index]))
-  return sameSeats && compareStructural(factsA, factsB)
-}
-
 /** Feed summaries stay inside derivation; the legacy navigation record never
  * carried them. The compatibility view borrows all other issue properties. */
 const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
 
 /** One drawn issue payload, shared only while a screen observes it. */
 export const sidebarIssueRow = cachedGroup(
-  'sidebar', sidebarValues, sameSidebar,
+  'sidebar', sidebarValues,
 )
 
 /** Formal unit counts, without the sidebar's labels, seats or attention payload. */
@@ -188,10 +177,10 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   }
   const readMs = Date.parse(issue.readAt ?? '')
   const descendantUnread =
-    model.nested.length > 0 &&
     issue.readAt &&
     Number.isFinite(readMs) &&
-    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (model.seatActivity ?? 0) > readMs)
+    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (model.seatActivity ?? 0) > readMs) &&
+    model.nested.length > 0
   return {
     idNumber: model.seq,
     color: own.color ?? null,

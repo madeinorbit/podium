@@ -1,7 +1,8 @@
-import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { sidebarLifecycle } from '@podium/client-graph/worklist/sidebar-row'
+import { LOADING } from '@podium/client-graph/loading'
 import { discoveredPlacement } from '@podium/client-core/values'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -13,42 +14,28 @@ export interface PoolWorkMenuData {
   sessions: SessionView[]
 }
 
-/** Acquire only the pressed issue's neighbourhood through the pool reader.
- * Close warnings include live headless and shell senders. Archived payloads
- * stay cold; delete's maintained count includes their raw non-shell membership. */
+/** The menu shows issue facts and scalar counts. Close confirmation acquires
+ * its own addressed concerns only after the operator chooses a closing status;
+ * delete counts raw non-shell membership without demanding session payloads. */
 export function resolvePoolWorkMenu(
   pool: MobxPool,
   id: string,
   lane: WorkIssueMenuTarget['lane'] = 'live',
 ): PoolWorkMenuData | null {
   return allowImperativeRead(() => {
-    const value = mobileWorkView(pool).row({ kind: 'issue', id })
-    if (!value || typeof value === 'symbol' || !value.sidebar) return null
-    const sessions: SessionView[] = []
-    for (const key of pool.queries.ids({
-      kind: 'commandIssueSessions',
-      issueId: id,
-      archived: false,
-      includeShells: true,
-    })) {
-      if (pool.queries.collapsed(key)) continue
-      const session = pool.row('session', key, 'summary')
-      if (typeof session === 'symbol') return null
-      if (session) sessions.push(session as SessionView)
-    }
-    const children = [...pool.graph.many('issue', id, 'treeChildren')]
-    let childDoneCount = 0
-    for (const child of children) {
-      const detail = pool.row('issue', child, 'summary')
-      if (typeof detail === 'symbol') return null
-      if (detail && Reflect.get(detail, 'stage') === 'done') childDoneCount++
-    }
+    const model = pool.issue(id)
+    const raw = pool.row('issue', id)
+    if (!model || !raw || raw === LOADING) return null
+    // Only the Closed lane shows the inverse-fold eligibility. Live menus
+    // acquire close concerns on the status press, rather than warming rollups.
+    const lifecycle = sidebarLifecycle(raw, lane === 'closed' && model.asking, pool.inputs.passed, pool.inputs.reached)
     const issue = {
-      ...value.sidebar.issue,
-      childIds: children,
-      childCount: children.length,
-      childDoneCount,
-      deferred: value.sidebar.deferred,
+      ...raw,
+      displayRef: model.displayRef,
+      readAt: pool.readCursor(id),
+      unread: model.unread,
+      ...pool.queries.issueChildCounts(id),
+      deferred: lifecycle.deferred,
     } as unknown as IssueViewModel
     const issues = [issue]
     const originId = discoveredPlacement(issue)?.originId
@@ -61,11 +48,11 @@ export function resolvePoolWorkMenu(
       target: {
         issue,
         lane,
-        canBringBack: value.sidebar.canBringBack,
+        canBringBack: lifecycle.canBringBack,
         sessionCount: pool.graph.size('issue', id, 'pageSessions'),
       },
       issues,
-      sessions,
+      sessions: [],
     }
   })
 }
