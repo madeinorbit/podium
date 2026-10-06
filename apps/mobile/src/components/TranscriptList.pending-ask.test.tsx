@@ -669,8 +669,8 @@ it('renders retained phone rows through stream, Find, envelope reshaping and pag
   const { asSessionId } = await import('@podium/model')
   const drafts = new DraftStore({ storage: { get: () => null, set: () => {} },
     hub: { on: () => () => {}, sendDraftEdit: () => true, connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }) } })
-  const seed: TranscriptItem = { id: 'answer', role: 'assistant', text: 'Settled answer' }
-  let page = { items: [seed], hasMore: true }
+  const seed: TranscriptItem = { id: 'answer', role: 'assistant', text: 'Settled answer', cursor: 'seed-cursor' }
+  let page = { items: [seed], head: 'seed-cursor', hasMore: true }
   const conversation = new MobileConversation({ sessionId: asSessionId('retained-phone'), drafts,
     transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true },
     sends: { createDeliveryId: () => 'delivery', deliver: async () => ({ state: 'sent' as const }) },
@@ -691,7 +691,7 @@ it('renders retained phone rows through stream, Find, envelope reshaping and pag
     act(() => conversation.transcript.merge([{ id: 'message', role: 'user', text:
       '[podium message msg_one · from system:auto-continue · to your session]\nEnvelope needle\n[end podium message msg_one]' }]))
     expect(screen.getByText('Envelope needle')).toBeTruthy()
-    page = { items: [{ id: 'older', role: 'user', text: 'Older page' }], hasMore: false }
+    page = { items: [{ id: 'older', role: 'user', text: 'Older page', cursor: 'older-cursor' }], head: 'older-cursor', hasMore: false }
     await act(async () => conversation.transcript.loadOlder())
     expect(conversation.presentation.positionOfKey('answer')).toBe(1)
     expect(transcriptBuilds).not.toHaveBeenCalled()

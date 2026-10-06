@@ -52,11 +52,12 @@ it('bounds the canonical phone producer, observed rows and open Find at 1x/4x hi
 
 it('bounds collapsed phone tool rows through result streams and prefix rekeys at 1x/4x children', async () => {
   const call = (at: number): TranscriptItem => ({ id: `call-${at}`, role: 'tool', text: '', toolName: 'Read',
-    toolUseId: `use-${at}`, toolInput: `/file-${at}`, durationMs: 10 })
+    toolUseId: `use-${at}`, toolInput: `/file-${at}`, durationMs: 10,
+    cursor: Buffer.from(JSON.stringify(['file', at, `call-${at}`, 0])).toString('base64url') })
   const samples = []
   for (const scale of [1, 4]) {
     const items = Array.from({ length: 128 * scale }, (_, at) => call(at))
-    let page = { items, hasMore: true }
+    let page = { items, head: items[0]!.cursor, hasMore: true }
     const drafts = draftsForProbe()
     const conversation = new MobileConversation({ sessionId: asSessionId('phone-tool-probe'), drafts,
       transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true },
@@ -75,7 +76,7 @@ it('bounds collapsed phone tool rows through result streams and prefix rekeys at
         (await measureWork(async () => insideReader(name, change), { trace: true })).work
       const stream = await count('phoneTool.stream', () => log.merge([{ ...result, toolResult: 'complete' }]))
       const incoming = await count('phoneTool.incoming', () => log.merge([call(items.length)]))
-      page = { items: [call(-1)], hasMore: false }
+      page = { items: [call(-1)], head: call(-1).cursor, hasMore: false }
       const older = await count('phoneTool.older', () => log.loadOlder())
       expect(phone.row('call--1')?.run?.durationMs).toBe((items.length + 2) * 10)
       expect(phone.positionOfKey(items.at(-1)!.id)).toBe(0)
