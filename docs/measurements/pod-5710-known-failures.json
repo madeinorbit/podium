@@ -1,0 +1,331 @@
+{
+  "owner": "POD-5710",
+  "discoveredFrom": "POD-5626",
+  "candidate": "6e79296286",
+  "pilotBase": "4fa154190e",
+  "reason": "Removing folded header demand for the full sidebar presentation exposes these reader violations. POD-4286 assigned them to POD-5710; they remain failing at unchanged bounds and are not gate allowances.",
+  "method": {
+    "readers": 48,
+    "actions": 9,
+    "corpus1x": {
+      "issues": 4870,
+      "sessions": 4338
+    },
+    "corpus4x": {
+      "issues": 19471,
+      "sessions": 17346
+    }
+  },
+  "failures": [
+    {
+      "action": "long-press",
+      "kind": "rows",
+      "reader": "consumer:mobile-work.long-press",
+      "at1x": 15,
+      "at4x": 86,
+      "neighbourhood1x": 6,
+      "neighbourhood4x": 6,
+      "passed": false
+    },
+    {
+      "action": "long-press",
+      "kind": "elements",
+      "reader": "consumer:mobile-work.long-press",
+      "at1x": 94,
+      "at4x": 290,
+      "neighbourhood1x": 6,
+      "neighbourhood4x": 6,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "rows",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "rows",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.loaded",
+      "at1x": 0,
+      "at4x": 2,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.nested",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.nestBelow",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.attention",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.loaded",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.nested",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.nestBelow",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar",
+      "at1x": 52,
+      "at4x": 53,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 12,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 8,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.nested",
+      "at1x": 0,
+      "at4x": 390,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.nestBelow",
+      "at1x": 0,
+      "at4x": 2,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.attention",
+      "at1x": 0,
+      "at4x": 2,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.loaded",
+      "at1x": 0,
+      "at4x": 2,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.nested",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "rows",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.nesting",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar",
+      "at1x": 54,
+      "at4x": 88,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/SessionModel@guard-seat.verdict",
+      "at1x": 0,
+      "at4x": 8,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "heartbeat",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 12,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "lane-change",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "lane-change",
+      "kind": "derivations",
+      "reader": "consumer:sidebar.row/IssueModel@guard-next.nesting",
+      "at1x": 0,
+      "at4x": 1,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "lane-change",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar",
+      "at1x": 53,
+      "at4x": 81,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "lane-change",
+      "kind": "elements",
+      "reader": "consumer:sidebar.row/IssueModel@guard-root.attention",
+      "at1x": 0,
+      "at4x": 12,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    }
+  ]
+}
