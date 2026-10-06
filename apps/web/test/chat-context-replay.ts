@@ -20,7 +20,7 @@ import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createSuperagentSource, SUPERAGENT_ENTITIES, SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
-import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
+import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { checkChatContext } from '../src/features/chat/chat-context-check'
 
 

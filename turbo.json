@@ -164,7 +164,7 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/work-meter.ts"
+        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
@@ -182,8 +182,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/**",
-        "$TURBO_ROOT$/packages/worklist-proto/shared/src/**",
+        "$TURBO_ROOT$/tests/worklist/harness/src/**",
+        "$TURBO_ROOT$/tests/worklist/shared/src/**",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
@@ -191,7 +191,7 @@
       ],
       "outputs": ["*.tsbuildinfo"]
     },
-    "@podium/worklist-proto#typecheck": {
+    "@podium/worklist-tests#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -262,12 +262,12 @@
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/scripts/web-bundle-boundaries.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/**",
+        "$TURBO_ROOT$/tests/worklist/**",
         "$TURBO_ROOT$/packages/mobx-helpers/**",
         "!$TURBO_ROOT$/packages/mobx-helpers/node_modules/**",
         "$TURBO_ROOT$/packages/client-graph/**",
         "!$TURBO_ROOT$/packages/client-graph/node_modules/**",
-        "!$TURBO_ROOT$/packages/worklist-proto/node_modules/**",
+        "!$TURBO_ROOT$/tests/worklist/node_modules/**",
         "!$TURBO_ROOT$/**/.turbo/**"
       ],
       "outputs": ["*.tsbuildinfo"]
@@ -285,14 +285,14 @@
         "$TURBO_ROOT$/apps/web/test/conversation-stream-driver.ts",
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/apps/web/src/features/superagent/fixture.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fence-scenarios.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/mobx-census.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile-snapshot.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/refusal-fixture.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/work-meter.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/shared/src/scenarios.ts"
+        "$TURBO_ROOT$/tests/worklist/harness/src/fence-scenarios.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**",
+        "$TURBO_ROOT$/tests/worklist/harness/src/mobx-census.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile-snapshot.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/refusal-fixture.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
+        "$TURBO_ROOT$/tests/worklist/shared/src/scenarios.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
@@ -621,8 +621,8 @@
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/packages/client-graph/diagnostics/notice-fixture.ts",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/fixture/**",
-        "$TURBO_ROOT$/packages/worklist-proto/harness/src/oracle/mobile.ts"
+        "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**",
+        "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile.ts"
       ],
       "outputs": []
     },

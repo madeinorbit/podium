@@ -22,7 +22,7 @@ export const nodeTestExclude = [
   // primitives: same hazard, same remedy. Those suites run under the
   // worklist-proto package config, which carries the react-native-web alias;
   // the node lane must not collect them.
-  'packages/worklist-proto/harness/native/**',
+  'tests/worklist/harness/native/**',
 ]
 
 // Keep forked test runs below the shared development host resource ceiling by default.

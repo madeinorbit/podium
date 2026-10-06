@@ -19,8 +19,8 @@ import {
   buildCorpus,
   buildCorpusCell,
   FIXED_NOW,
-} from '../../../packages/worklist-proto/harness/src/fixture'
-import { seedCacheFromCorpus } from '../../../packages/worklist-proto/shared/src/scenarios'
+} from '../../../tests/worklist/harness/src/fixture'
+import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { OperatorFocusProvider } from '../src/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'

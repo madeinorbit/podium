@@ -17,7 +17,7 @@ import {
   startScenarioEngine,
   writeHeartbeat,
   writeTitleRename,
-} from '../../worklist-proto/shared/src/scenarios'
+} from '../../../tests/worklist/shared/src/scenarios'
 import { ChatContextSource } from './chat-context-source'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { CommandLaunchSource } from './command-launch-source'

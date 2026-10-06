@@ -25,7 +25,7 @@ import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
+import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
 import type { MobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true

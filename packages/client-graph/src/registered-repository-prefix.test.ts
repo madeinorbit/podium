@@ -1,7 +1,7 @@
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { createWorklistPool } from './create'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource, type RowSourceReplica } from './shared/row-source'

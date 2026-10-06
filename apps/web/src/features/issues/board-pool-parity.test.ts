@@ -19,8 +19,8 @@ import {
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { expect, it } from 'vitest'
-import { buildCorpus, FIXED_NOW } from '../../../../../packages/worklist-proto/harness/src/fixture'
-import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
+import { buildCorpus, FIXED_NOW } from '../../../../../tests/worklist/harness/src/fixture'
+import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { seedAcceptanceCache } from '../../../test/sidebar-acceptance-seed'
 import { DEFAULT_DISPLAY } from './issues-display'
 

@@ -8,7 +8,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { missions } from '@podium/client-graph/mission'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { createPoolWorkActions } from './use-pool-unified-work'
-import { insideReader, measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 
 it('selects a spin-off pane through the cached mission with zero legacy mission work', () => {
   const stamp = '2026-10-01T12:00:00Z'

@@ -5,16 +5,16 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import type { RowSourceReplica } from '@podium/client-graph/shared/row-source'
-import { createRowSource } from '../../../packages/worklist-proto/shared/src/row-source'
-import { HandPool } from '../../../packages/worklist-proto/arms/hand/pool/pool'
-import { LeanPool } from '../../../packages/worklist-proto/arms/lean/src/pool'
+import { createRowSource } from '../../../tests/worklist/shared/src/row-source'
+import { HandPool } from '../../../tests/worklist/arms/hand/pool/pool'
+import { LeanPool } from '../../../tests/worklist/arms/lean/src/pool'
 import {
   handWindow,
   leanWindow,
   mountWindow,
   WINDOW_ROWS,
-} from '../../../packages/worklist-proto/arms/lean/src/window'
-import { DISABLED_READ_FENCE } from '../../../packages/worklist-proto/shared/src/instrument/reads'
+} from '../../../tests/worklist/arms/lean/src/window'
+import { DISABLED_READ_FENCE } from '../../../tests/worklist/shared/src/instrument/reads'
 
 const requested = new URLSearchParams(location.search).get('mobxSidebar') === '1' ? 'lean' : 'hand'
 await import('../test/pool-memory.browser')

@@ -358,7 +358,7 @@ export default defineConfig(({ command, mode }) => {
         // production graph imports `react-native` either.
         'react-native': fileURLToPath(
           new URL(
-            '../../packages/worklist-proto/node_modules/react-native-web/dist/index.js',
+            '../../tests/worklist/node_modules/react-native-web/dist/index.js',
             import.meta.url,
           ),
         ),

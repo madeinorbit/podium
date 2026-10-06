@@ -4,7 +4,7 @@
  * `tableColdContext` (what a rebuild and the gate partition with), and each
  * case first pins the branch it exercises so a vacuous green is impossible.
  * The 1x/4x corpus and generated sequences live in the harness
- * (`packages/worklist-proto/harness/src/cold-index.test.ts`).
+ * (`tests/worklist/harness/src/cold-index.test.ts`).
  */
 import { describe, expect, it } from 'vitest'
 import { createColdIndex } from './cold-index'

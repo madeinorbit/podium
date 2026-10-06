@@ -14,7 +14,7 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
-import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 

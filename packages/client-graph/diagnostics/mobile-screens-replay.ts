@@ -21,9 +21,9 @@ import { reaction, runInAction } from 'mobx'
 import {
   corpusFromLive,
   type LiveCollections,
-} from '../../worklist-proto/harness/src/fixture/live-snapshot'
-import { sidebarReplayStore } from '../../worklist-proto/harness/src/oracle/sidebar-replay'
-import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
+} from '../../../tests/worklist/harness/src/fixture/live-snapshot'
+import { sidebarReplayStore } from '../../../tests/worklist/harness/src/oracle/sidebar-replay'
+import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { attachMobileScreens } from '../src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../src/mobile-screens-schema'
 import { createRuntimeWorklistPool } from '../src/runtime-pool'

@@ -17,7 +17,7 @@
  * a stored value. What stays here is the editable surface, the command
  * mapping and the transport types. The prior-value reference log (W4–W10)
  * moved to the prototype harness that still compares against it
- * (`packages/worklist-proto/shared/src/pending-log.ts`).
+ * (`tests/worklist/shared/src/pending-log.ts`).
  *
  * OWNERSHIP. Additive, round three (POD-4545). Type-only imports from the
  * kernel, so importing this file pulls no engine code into an arm's bundle.

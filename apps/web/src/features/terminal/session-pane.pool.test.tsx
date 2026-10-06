@@ -32,7 +32,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 // @vitest-environment happy-dom
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
+import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 
 const f = vi.hoisted(() => ({
   state: {} as Store,

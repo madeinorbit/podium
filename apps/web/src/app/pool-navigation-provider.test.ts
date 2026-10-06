@@ -33,7 +33,7 @@ import { Reactions } from '../../../../packages/client-core/src/engine/reactions
 import {
   startScenarioEngine,
   upsert,
-} from '../../../../packages/worklist-proto/shared/src/scenarios'
+} from '../../../../tests/worklist/shared/src/scenarios'
 import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { attachWorklistPool } from './store-worklist-pool'

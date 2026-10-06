@@ -4,11 +4,11 @@ import { asMachineId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
+import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import {
   fixtureSessionHomes,
   stripSessionLegacy,
-} from '../../../../packages/worklist-proto/harness/src/fixture/session-homes'
+} from '../../../../tests/worklist/harness/src/fixture/session-homes'
 import { poolRouteFixture } from '../../test/pool-routes'
 import { useSession, useSessions } from './hooks'
 import { renderWithMobileStore } from './test-support'

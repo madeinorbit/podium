@@ -9,7 +9,7 @@ import { asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
+import { measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import { useChatMachinePresence } from './use-chat-layout'
 
 const f = vi.hoisted(() => ({

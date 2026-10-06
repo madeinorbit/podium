@@ -15,7 +15,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { renderWithMobileStore } from '../client/test-support'
 
 const legacyQuestions = vi.hoisted(() => vi.fn())

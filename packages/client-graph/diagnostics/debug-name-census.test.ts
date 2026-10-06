@@ -1,6 +1,6 @@
 import { autorun, getDependencyTree, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
-import { startCensus } from '../../worklist-proto/harness/src/mobx-census'
+import { startCensus } from '../../../tests/worklist/harness/src/mobx-census'
 import { cachedGroup } from '../src/cached'
 import { createObservableTables } from '../src/tables'
 

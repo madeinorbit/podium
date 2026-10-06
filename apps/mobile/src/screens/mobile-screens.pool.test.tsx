@@ -25,8 +25,8 @@ import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useCallback } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
-import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
-import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
+import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import type { MobilePool } from '../client/mobile-pool'
 import {
   ServerProfileContext,

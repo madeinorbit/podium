@@ -41,27 +41,27 @@ import { type KernelAssembly, openKernelAssembly } from '@/lib/kernelReplica'
 import { recordIdentityEvidence, resolveReplicaPrincipal } from '@/lib/use-kernel-replica'
 import '@/index.css'
 import '@/styles.css'
-import { handPoolArm } from '../../../packages/worklist-proto/arms/hand/pool/arm'
-import { harnessMobxPoolArm } from '../../../packages/worklist-proto/harness/src/adapters/mobx-pool'
-import { createEngineLocals } from '../../../packages/worklist-proto/harness/src/engine-locals'
-import { oracleSnapshot } from '../../../packages/worklist-proto/harness/src/oracle/index'
+import { handPoolArm } from '../../../tests/worklist/arms/hand/pool/arm'
+import { harnessMobxPoolArm } from '../../../tests/worklist/harness/src/adapters/mobx-pool'
+import { createEngineLocals } from '../../../tests/worklist/harness/src/engine-locals'
+import { oracleSnapshot } from '../../../tests/worklist/harness/src/oracle/index'
 import type {
   ArmHandle,
   CheckableArm,
   LocalsSource,
   RowSource,
-} from '../../../packages/worklist-proto/shared/src/arm'
-import type { LocalsSourceHandle } from '../../../packages/worklist-proto/shared/src/locals-source'
+} from '../../../tests/worklist/shared/src/arm'
+import type { LocalsSourceHandle } from '../../../tests/worklist/shared/src/locals-source'
 import {
   type CommitLog,
   createCommitLog,
   withCommitLog,
-} from '../../../packages/worklist-proto/shared/src/row-shell'
+} from '../../../tests/worklist/shared/src/row-shell'
 import {
   createRowSource,
   type RowSourceHandle,
-} from '../../../packages/worklist-proto/shared/src/row-source'
-import type { SliceSnapshot } from '../../../packages/worklist-proto/shared/src/slice-types'
+} from '../../../tests/worklist/shared/src/row-source'
+import type { SliceSnapshot } from '../../../tests/worklist/shared/src/slice-types'
 
 // The bundle is fetched, parsed and evaluated (every static import); the page
 // clock starts here, as on the harness pages (`scriptAt`).
@@ -126,7 +126,7 @@ function snapshotRows(snapshot: SliceSnapshot): number {
 
 /**
  * The first difference between two slice outputs, walking the oracle's order.
- * Mirrors `firstSnapshotDifference` in `packages/worklist-proto/harness/web/entrylib.ts`
+ * Mirrors `firstSnapshotDifference` in `tests/worklist/harness/web/entrylib.ts`
  * (the driver compares the same two snapshots after every sample); kept local
  * so this page does not pull the harness's scenario/fixture machinery into the
  * app dev server. The compared snapshots — the arm's and `oracleSnapshot`'s —

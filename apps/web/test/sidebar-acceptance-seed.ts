@@ -1,8 +1,8 @@
 import { asUserId, sessionUserStateRowId } from '@podium/model'
-import type { FixtureCorpus } from '../../../packages/worklist-proto/harness/src/fixture/corpus'
-import { fixtureMarkers } from '../../../packages/worklist-proto/harness/src/fixture/normalized-issues'
-import { fixtureSessionHomes, stripSessionLegacy } from '../../../packages/worklist-proto/harness/src/fixture/session-homes'
-import { seedCacheFromCorpus } from '../../../packages/worklist-proto/shared/src/scenarios'
+import type { FixtureCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
+import { fixtureMarkers } from '../../../tests/worklist/harness/src/fixture/normalized-issues'
+import { fixtureSessionHomes, stripSessionLegacy } from '../../../tests/worklist/harness/src/fixture/session-homes'
+import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
 
 /** Mirror the scenario engine's current-server seed for each fixture principal.
  * The source corpus keeps its older display cells; the runtime gets their

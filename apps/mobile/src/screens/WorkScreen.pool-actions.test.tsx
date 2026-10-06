@@ -23,7 +23,7 @@ import {
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { poolMobileSnapshot } from '../../../../packages/worklist-proto/harness/src/oracle/mobile-snapshot'
+import { poolMobileSnapshot } from '../../../../tests/worklist/harness/src/oracle/mobile-snapshot'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'

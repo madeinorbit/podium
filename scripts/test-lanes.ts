@@ -113,10 +113,10 @@ export const LANES: Record<string, Lane> = {
   // excludes `harness/native/**` (Flow-typed `react-native` source); the
   // package config aliases it to `react-native-web`.
   'worklist-native': {
-    cwd: 'packages/worklist-proto',
+    cwd: 'tests/worklist',
     command: bunVitest('vitest.config.ts'),
     admission: 'focused',
-    summary: '@podium/worklist-proto harness/native suites (react-native -> react-native-web)',
+    summary: '@podium/worklist-tests harness/native suites (react-native -> react-native-web)',
   },
   scripts: {
     cwd: 'scripts',

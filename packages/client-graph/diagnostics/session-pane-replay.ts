@@ -16,7 +16,7 @@ import { createRowSource } from '../src/shared/row-source'
 import { SessionPaneSource } from '../src/session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from '../src/session-pane-schema'
 import { checkSessionPanes } from './session-pane-check'
-import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
+import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 
 
 let phase = 0

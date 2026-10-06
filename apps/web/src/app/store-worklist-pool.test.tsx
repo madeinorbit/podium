@@ -11,11 +11,11 @@ import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
+import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
 import {
   pickTargets,
   ScenarioCache,
-} from '../../../../packages/worklist-proto/shared/src/scenarios'
+} from '../../../../tests/worklist/shared/src/scenarios'
 import { poolBackedScreens } from './pool-screens'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 

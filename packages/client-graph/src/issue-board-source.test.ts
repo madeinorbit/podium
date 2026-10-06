@@ -1,7 +1,7 @@
 import { issueBoardStats } from '@podium/client-core/perf'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'

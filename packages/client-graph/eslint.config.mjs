@@ -11,7 +11,7 @@
  * Run from `packages/client-graph`: `bun run lint`.
  */
 
-import { fenceConfig } from '../worklist-proto/harness/lint/fence-plugin.mjs'
+import { fenceConfig } from '../../tests/worklist/harness/lint/fence-plugin.mjs'
 import babelParser from '@babel/eslint-parser'
 import mobx from 'eslint-plugin-mobx'
 import { createRequire } from 'node:module'

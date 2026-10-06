@@ -1,7 +1,7 @@
 import type { KeyedListChange } from '@podium/client-core/engine'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import type { SettingsRows } from './settings-schema'
 import { type SettingsOwner, SettingsSource } from './settings-source'
 import { LOADING } from './worklist/rollup'

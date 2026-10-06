@@ -7,7 +7,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { measureWork } from '../../../../../packages/worklist-proto/harness/src/work-meter'
+import { measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import { useChatRepositoryKey } from './use-chat-context'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))

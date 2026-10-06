@@ -13,7 +13,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
+import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
 import type { MobileTrpc } from '../client/trpc'
 import { NewIssueScreen } from './NewIssueScreen'
 

@@ -16,9 +16,9 @@ import { createRuntimeWorklistPool } from '../src/runtime-pool'
 import { attachCommandLaunchSource } from '../src/command-launch-source'
 import { COMMAND_SUMMARIES } from '../src/command-launch-schema'
 import { checkCommandLaunch, poolCommandLaunchSnapshot } from './command-launch-check'
-import { corpusFromLive, type LiveCollections } from '../../worklist-proto/harness/src/fixture/live-snapshot'
-import { ScenarioCache } from '../../worklist-proto/shared/src/scenarios'
-import { sidebarReplayStore } from '../../worklist-proto/harness/src/oracle/sidebar-replay'
+import { corpusFromLive, type LiveCollections } from '../../../tests/worklist/harness/src/fixture/live-snapshot'
+import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
+import { sidebarReplayStore } from '../../../tests/worklist/harness/src/oracle/sidebar-replay'
 
 let phase = 0
 async function main() {

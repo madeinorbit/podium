@@ -23,7 +23,7 @@ the current row/local channels do not carry served descriptors. No legacy
 worklist derivation is imported for labels.
 TanStack Virtual, demo row layouts, native lists, commit instrumentation, strict
 MobX test setup, snapshots, scan oracles, generators and tests stay in
-`packages/worklist-proto`. Prototype imports use this package's source exports;
+`tests/worklist`. Prototype imports use this package's source exports;
 there is one copy of the implementation.
 
 The enumeration module is `src/enumerate.ts`; ordinary updates maintain resident

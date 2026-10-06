@@ -78,7 +78,7 @@
     "perf:typing": "bun tests/e2e/typing-latency-bench.ts",
     "chat:stream-ab": "bun apps/web/harness/conversation-stream-ab.ts",
     "speed:gate": "bun apps/web/harness/speed-gate.ts",
-    "speed:structural": "PODIUM_TEST_WORKERS=1 bun run test:file -- packages/worklist-proto/harness/src/work-meter.test.ts packages/worklist-proto/harness/src/work-per-change.test.tsx packages/worklist-proto/harness/src/declared-query-work.test.ts -t 'pool screens work ratios|pool reader windows|^elements|^derivations'",
+    "speed:structural": "PODIUM_TEST_WORKERS=1 bun run test:file -- tests/worklist/harness/src/work-meter.test.ts tests/worklist/harness/src/work-per-change.test.tsx tests/worklist/harness/src/declared-query-work.test.ts -t 'pool screens work ratios|pool reader windows|^elements|^derivations'",
     "test:perf:pty-transport": "bun scripts/validation-admission.ts heavy --label test:perf:pty-transport -- bun --conditions=@podium/source scripts/pty-transport-benchmark.ts",
     "test:supervisor": "bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.integration.config.ts --maxWorkers=1 scripts/parent-supervised-stack.integration.test.ts -t 'discovers every supervised role'",
     "test:integration": "bun run build && bun scripts/test-heavy.ts -- bun --bun node_modules/vitest/vitest.mjs run --passWithNoTests --config vitest.integration.config.ts --maxWorkers=1 && bun run test:acceptance",

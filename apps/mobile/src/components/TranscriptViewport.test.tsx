@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   insideReader,
   measureWork,
-} from '../../../../packages/worklist-proto/harness/src/work-meter'
+} from '../../../../tests/worklist/harness/src/work-meter'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
 

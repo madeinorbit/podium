@@ -614,7 +614,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       // POD-5615: the feeds' own tests and diagnostics replays read the
       // prototype's corpus/oracle/meter readers. Product pool code below the
       // tests does not reach back up.
-      'packages/worklist-proto',
+      'tests/worklist',
       // POD-5615: pool feed diagnostics report through the logger barrel.
       'packages/logger'],
   },
@@ -659,7 +659,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // upward reads of app readers stay listed in PROTOTYPE_READER_EDGES below.
   // browser-safe: the proofs and pool tests that import it run in browsers;
   // its node bench tools are entry points nothing bundles.
-  'packages/worklist-proto': {
+  'tests/worklist': {
     layer: 3,
     platform: 'browser-safe',
     features: ['worklist-prototype'],
@@ -700,9 +700,9 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // the feeds they prove, and the feeds' own tests and diagnostics replays read
   // the prototype's corpus/oracle/meter readers back. Deliberate in both
   // directions — the pilot's parity tests are written against the corpus.
-  'packages/worklist-proto -> packages/client-graph',
-  'packages/worklist-proto -> packages/client-core',
-  'packages/client-graph -> packages/worklist-proto',
+  'tests/worklist -> packages/client-graph',
+  'tests/worklist -> packages/client-core',
+  'packages/client-graph -> tests/worklist',
   // The shared router types name the frames they type (POD-5615).
   'packages/api-types -> packages/protocol',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
@@ -732,10 +732,10 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
 export const PROTOTYPE_READER_EDGES: ReadonlySet<string> = new Set<string>([
   // Screen-work coverage executes the web mission pane + command-launch
   // readers and the mobile work sections + pool menu.
-  'packages/worklist-proto/harness/src/pool-screen-work.ts -> apps/web',
-  'packages/worklist-proto/harness/src/pool-screen-work.ts -> apps/mobile',
+  'tests/worklist/harness/src/pool-screen-work.ts -> apps/web',
+  'tests/worklist/harness/src/pool-screen-work.ts -> apps/mobile',
   // The mobile oracle compares the mobile sections reader.
-  'packages/worklist-proto/harness/src/oracle/mobile-snapshot.ts -> apps/mobile',
+  'tests/worklist/harness/src/oracle/mobile-snapshot.ts -> apps/mobile',
   // Feed tests drive their app readers directly.
   'packages/client-graph/src/header-scan-control.test.ts -> apps/web',
   'packages/client-graph/src/mission-pane.work.test.ts -> apps/web',

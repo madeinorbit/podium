@@ -9,8 +9,8 @@ import { asUserId } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import type { RuntimePoolFixture } from '../../../packages/worklist-proto/harness/browser/runtime-pool-fixture'
-import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
+import type { RuntimePoolFixture } from '../../../tests/worklist/harness/browser/runtime-pool-fixture'
+import { buildCorpus } from '../../../tests/worklist/harness/src/fixture'
 import {
   attachWorklistPool,
   useWorklistPool,
@@ -96,7 +96,7 @@ function Probe(): null {
     if (pool === null) return
     let gone = false
     let stop: (() => void) | undefined
-    void import('../../../packages/worklist-proto/harness/browser/runtime-pool-observe').then(
+    void import('../../../tests/worklist/harness/browser/runtime-pool-observe').then(
       ({ observePool }) => {
         if (gone) return
         stop = observePool(pool, id)

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { insideArm, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideArm, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import type { MobileTranscriptModel } from './transcript-feed'
 import {
   buildMobileTranscript,

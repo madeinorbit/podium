@@ -1,6 +1,6 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 

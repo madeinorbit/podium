@@ -18,7 +18,7 @@ import {
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { ScenarioCache } from '../../../packages/worklist-proto/shared/src/scenarios'
+import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
 import { checkBoard, checkExplorer } from './board-control'
 

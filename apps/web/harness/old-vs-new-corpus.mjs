@@ -1,7 +1,7 @@
 /** Shared, synthetic OLD corpus; only the wire spelling changes with the arm. */
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture/index.ts'
+import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/index.ts'
 import { FeedChange } from '@podium/protocol'
 
 const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))?.split('=').slice(1).join('=') ?? fallback
@@ -17,7 +17,7 @@ const semanticSha256 = createHash('sha256').update(JSON.stringify(corpus)).diges
 writeFileSync(`${output}/corpus-${scale}x.json`, JSON.stringify(corpus))
 let rows = []
 if (existsSync('packages/client-graph')) {
-  const { fixtureProjection } = await import('../../../packages/worklist-proto/harness/src/fixture/normalized-issues.ts')
+  const { fixtureProjection } = await import('../../../tests/worklist/harness/src/fixture/normalized-issues.ts')
   const { seedAcceptanceCache } = await import('../test/sidebar-acceptance-seed.ts')
   corpus.issueProjections = corpus.issues.map((issue, index) => fixtureProjection(issue, corpus.issueProjections[index]))
   rows = seedAcceptanceCache(corpus, 'operator').readEntities().map(({ entity, entityId, value }) => ({ entity, entityId, value }))

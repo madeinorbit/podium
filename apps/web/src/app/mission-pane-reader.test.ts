@@ -2,7 +2,7 @@ import { screenOptions } from '@podium/client-graph/host'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph'
 import { expect, it } from 'vitest'
-import { startScenarioEngine } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { readMissionPane } from './mission-pane-reader'
 import { poolBackedScreens } from './pool-screens'
 

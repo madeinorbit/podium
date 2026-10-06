@@ -25,7 +25,7 @@ import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
+import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { createSidebarActionsFixture } from '../../../test/sidebar-actions-fixture'
 import { SidebarUnified } from './SidebarUnified'
 import {

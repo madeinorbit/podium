@@ -19,8 +19,8 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
-import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
-import { seedCacheFromCorpus } from '../../../../packages/worklist-proto/shared/src/scenarios'
+import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
+import { seedCacheFromCorpus } from '../../../../tests/worklist/shared/src/scenarios'
 import { DOUBLE_CLICK_MS } from './click-intent'
 import {
   briefCutoffLayout,

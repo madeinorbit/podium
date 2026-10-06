@@ -19,13 +19,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   FENCE_SCENARIOS,
   openFenceFeeds,
-} from '../../../../packages/worklist-proto/harness/src/fence-scenarios'
-import { FIXED_NOW } from '../../../../packages/worklist-proto/harness/src/fixture/corpus'
+} from '../../../../tests/worklist/harness/src/fence-scenarios'
+import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import {
   startScenarioEngine,
   writeRescopeBack,
   writeRescopeGrow,
-} from '../../../../packages/worklist-proto/shared/src/scenarios'
+} from '../../../../tests/worklist/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
 
 function fingerprint(value: unknown) {

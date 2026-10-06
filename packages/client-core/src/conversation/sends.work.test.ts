@@ -1,6 +1,6 @@
 import { asSessionId, type MessageRecordWire, type TranscriptItem } from '@podium/model'
 import { expect, it, vi } from 'vitest'
-import { insideArm, measureWork } from '../../../worklist-proto/harness/src/work-meter'
+import { insideArm, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createSendsFixture } from './model-test-support'
 import { projectConversation } from './projection'
 

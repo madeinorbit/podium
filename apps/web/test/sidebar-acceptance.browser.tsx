@@ -27,8 +27,8 @@ import {
   buildCorpus,
   buildCorpusCell,
   FIXED_NOW,
-} from '../../../packages/worklist-proto/harness/src/fixture'
-import { pickTargets } from '../../../packages/worklist-proto/shared/src/scenarios'
+} from '../../../tests/worklist/harness/src/fixture'
+import { pickTargets } from '../../../tests/worklist/shared/src/scenarios'
 import { speedSwitchState } from '../harness/speed-switches'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { FlightDeck } from '../src/app/FlightDeck'

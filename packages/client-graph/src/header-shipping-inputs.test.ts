@@ -8,8 +8,8 @@ import {
 } from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { installMobxWarnTrap } from '../../worklist-proto/harness/src/mobx-trap'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { installMobxWarnTrap } from '../../../tests/worklist/harness/src/mobx-trap'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import type { HeaderRecord, HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 

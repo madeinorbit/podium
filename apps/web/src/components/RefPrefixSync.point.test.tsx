@@ -7,7 +7,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
-import { measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { RefPrefixSync } from './RefMiniview'
 
 const state = vi.hoisted(() => ({

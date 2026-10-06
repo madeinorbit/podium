@@ -1,5 +1,5 @@
 import type { IssueViewInput } from '@podium/client-graph/diagnostics/reference/issue-views'
-import { expectPoolOutput } from '../../../../../packages/worklist-proto/harness/src/oracle/pool-output'
+import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'

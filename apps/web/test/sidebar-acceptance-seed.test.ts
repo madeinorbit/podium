@@ -2,7 +2,7 @@ import { sessionViews } from '@podium/client-core/session-values'
 import type { SessionUserStateWire } from '@podium/model'
 import type { MachineProjection, SessionMeta } from '@podium/model/browser'
 import { describe, expect, it } from 'vitest'
-import { buildCorpus } from '../../../packages/worklist-proto/harness/src/fixture'
+import { buildCorpus } from '../../../tests/worklist/harness/src/fixture'
 import { seedAcceptanceCache } from './sidebar-acceptance-seed'
 
 describe('browser acceptance seed', () => {

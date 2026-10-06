@@ -6,7 +6,7 @@ import type { RowRecord, RowSourceEvent } from '@podium/client-graph/shared/sour
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
 vi.mock('./mobile-pool', async () => {

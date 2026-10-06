@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { insideArm, measureWork } from '../../../../packages/worklist-proto/harness/src/work-meter'
+import { insideArm, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { buildMobileTranscript } from './transcript-feed'
 
 it('answers the last rendered assistant from its scalar and detects the former full-row copy', async () => {

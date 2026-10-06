@@ -9,7 +9,7 @@ import {
 } from '@podium/model/browser'
 import { autorun, observe, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { insideReader, measureWork } from '../../worklist-proto/harness/src/work-meter'
+import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { EMPTY_HOST_AGGREGATE } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { MobxPool } from './pool'

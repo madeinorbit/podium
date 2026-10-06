@@ -23,7 +23,7 @@ import {
   writeSelectionClick,
   writeStageMove,
   writeTitleRename,
-} from '../../worklist-proto/shared/src/scenarios'
+} from '../../../tests/worklist/shared/src/scenarios'
 import {
   checkCommandLaunch,
   compareCommandLaunchSnapshots,

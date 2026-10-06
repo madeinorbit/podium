@@ -13,8 +13,8 @@ import { createServer } from 'node:http'
 import { hostname, loadavg } from 'node:os'
 import { extname, resolve } from 'node:path'
 import { chromium } from '@playwright/test'
-import { readLive } from '../../../packages/worklist-proto/harness/src/fixture/export-snapshot'
-import { corpusFromLive } from '../../../packages/worklist-proto/harness/src/fixture/live-snapshot'
+import { readLive } from '../../../tests/worklist/harness/src/fixture/export-snapshot'
+import { corpusFromLive } from '../../../tests/worklist/harness/src/fixture/live-snapshot'
 import type {} from '../test/pool-memory.browser'
 
 const arg = (name: string, fallback = '') =>
@@ -23,10 +23,10 @@ const operator = arg('operator')
 const operatorExport = process.argv.includes('--export-operator')
 if ((operator || operatorExport) && hostname() !== 'ludovico')
   throw new Error('Operator data stays on ludovico')
-const privateInput = resolve('packages/worklist-proto/harness/.live/POD-4973-memory-input.json')
+const privateInput = resolve('tests/worklist/harness/.live/POD-4973-memory-input.json')
 if (operatorExport) {
   const { raw, bootstrapEntityCounts } = await readLive(arg('origin', 'http://127.0.0.1:18787'))
-  await mkdir(resolve('packages/worklist-proto/harness/.live'), { recursive: true })
+  await mkdir(resolve('tests/worklist/harness/.live'), { recursive: true })
   await writeFile(
     privateInput,
     JSON.stringify(corpusFromLive(raw, Date.parse('2026-09-20T12:00:00Z'))),
