@@ -200,28 +200,20 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
-  it('reuses visited group rows without reading hidden changes or rebuilding an unchanged reveal', async () => {
+  it('retires collapsed group rows and reveals current data on expansion', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
     const row = document.querySelector('[data-issue-row="synthetic-11"]')!
     const group = row.closest('[data-testid="project-group"]')!
     const button = group.querySelector('[data-testid="project-group-label"]')!
-    const panel = group.querySelector<HTMLElement>('[data-testid="project-group-rows"]')!
-    const guest = group.querySelector('[data-session="synthetic-guest-0"]')!
     const reads = vi.spyOn(sidebarView(pool!), 'row')
     const trees = vi.spyOn(sidebarView(pool!), 'worktree')
     try {
-      await act(async () => {
-        fireEvent.click(button)
-      })
-      await waitFor(() => expect(panel.style.display).toBe('none'))
-      expect(panel.getAttribute('inert')).not.toBeNull()
-      expect(panel.getAttribute('aria-hidden')).toBe('true')
-      expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBe(row)
-      reads.mockClear()
-      trees.mockClear()
-      mode.commits.clear()
+      await act(async () => { fireEvent.click(button) })
+      await waitFor(() => expect(group.querySelector('[data-testid="project-group-rows"]')).toBeNull())
+      expect(row.isConnected).toBe(false)
+      reads.mockClear(); trees.mockClear(); mode.commits.clear()
       await act(async () => {
         fixture.patch('issueProjection', 'synthetic-11', { title: 'Changed while folded' })
         fixture.patch('session', 'synthetic-guest-0', { title: 'Guest changed while folded' })
@@ -229,35 +221,14 @@ describe('real sidebar pool cutover', () => {
       await advanceClock(60_000)
       expect(reads.mock.calls.filter(([id]) => id === 'synthetic-11')).toEqual([])
       expect(trees.mock.calls.filter(([path]) => path === '/synthetic/project/guests')).toEqual([])
-      expect(mode.commits.get('synthetic-11')).toBeUndefined()
-      expect(mode.commits.get('synthetic-guest-0')).toBeUndefined()
-      await act(async () => {
-        fireEvent.click(button)
-      })
-      expect(panel.style.display).toBe('')
-      expect(panel.getAttribute('inert')).toBeNull()
-      expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBe(row)
-      expect(row.textContent).toContain('Changed while folded')
-      expect(group.querySelector('[data-session="synthetic-guest-0"]')).toBe(guest)
-      expect(guest.textContent).toContain('Guest changed while folded')
-      // An unchanged reveal must also preserve the physical row, rather than
-      // hiding a repeated mount behind a fast test machine.
-      await act(async () => {
-        fireEvent.click(button)
-      })
-      await waitFor(() => expect(panel.style.display).toBe('none'))
-      reads.mockClear()
-      mode.commits.clear()
-      await act(async () => {
-        fireEvent.click(button)
-      })
-      expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBe(row)
-      expect(reads.mock.calls.filter(([id]) => id === 'synthetic-11')).toEqual([])
-      expect(mode.commits.get('synthetic-11')).toBeUndefined()
-    } finally {
-      reads.mockRestore()
-      trees.mockRestore()
-    }
+      await act(async () => { fireEvent.click(button) })
+      await waitFor(() => expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain('Changed while folded'))
+      expect(group.querySelector('[data-session="synthetic-guest-0"]')!.textContent).toContain('Guest changed while folded')
+      await act(async () => { fireEvent.click(button) })
+      await waitFor(() => expect(group.querySelector('[data-issue-row="synthetic-11"]')).toBeNull())
+      await act(async () => { fireEvent.click(button) })
+      expect(group.querySelector('[data-issue-row="synthetic-11"]')?.textContent).toContain('Changed while folded')
+    } finally { reads.mockRestore(); trees.mockRestore() }
   })
 
   it.each(

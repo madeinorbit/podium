@@ -26,6 +26,7 @@ import {
   memo,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -81,6 +82,7 @@ import {
   WorkSearchField,
 } from './work-search'
 import { WorklistMotion } from './worklist-motion'
+import { WorklistWindow } from './worklist-window'
 
 type Slot = {
   kind: 'issue' | 'worktree'
@@ -90,6 +92,9 @@ type Slot = {
   groupLabel: string
 }
 type Item = RowTransitionItem<Slot>
+const itemKey = (item: Item) => item.key
+const itemDragId = (item: Item) => item.value.kind === 'issue' && item.phase !== 'exiting' ? item.value.id : undefined
+const NO_DRAG_ROWS: readonly string[] = []
 const selectLayout = (s: Store) => ({
   projectOrder: s.sidebarSettings.repoOrder,
   pinnedRepos: s.pins.repos,
@@ -149,6 +154,7 @@ const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }
 })
 
 export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
   const input = useWorkFilterState()
@@ -185,19 +191,22 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
         }
       />
       <div
+        ref={scrollRef}
         data-testid="work-scroll"
+        style={{ overflowAnchor: 'none' }}
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
-        <PoolWorkSections query={input.deferredQuery} />
+        <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
       </div>
       <MobilePromoCard />
     </>
   )
 })
 
-export function PoolWorkSections({ query = '' }: { query?: string }): JSX.Element | null {
+export function PoolWorkSections({ query = '', scrollRef }: { query?: string; scrollRef?: RefObject<HTMLElement | null> }): JSX.Element | null {
   const pool = useWorklistPool()
-  return pool ? <ObservedPoolWorkSections pool={pool} query={query} /> : null
+  const fallbackScroll = useRef<HTMLElement | null>(null)
+  return pool ? <ObservedPoolWorkSections pool={pool} query={query} scrollRef={scrollRef ?? fallbackScroll} /> : null
 }
 
 const ObservedClosedIssueFold = observer(ClosedIssueFold<Item>)
@@ -220,9 +229,11 @@ const MemoPanelRow = memo(
 const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   pool,
   query,
+  scrollRef,
 }: {
   pool: MobxPool
   query: string
+  scrollRef: RefObject<HTMLElement | null>
 }): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
@@ -250,6 +261,19 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const [collapsed, toggle] = useCollapsedKeys(keys)
   const needle = normalizeWorkQuery(query)
   const filtering = needle.length > 0
+  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const revealedSelection = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedId) { revealedSelection.current = null; return }
+    if (revealedSelection.current === selectedId) return
+    const selected = targets.find((target) => target.value.id === selectedId)
+    if (!selected) return
+    revealedSelection.current = selectedId
+    const key = selected.value.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.value.groupKey)
+    if (collapsed.has(key)) toggle(key)
+    // Selection is the reveal request; folding the current selection stays folded.
+  }, [selectedId, targets, collapsed, toggle])
+  const scopeOrders = useRef<ReadonlyMap<string, readonly string[]>>(new Map())
   const search = useMemo(
     () =>
       computed(
@@ -271,7 +295,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     const value = sidebarView(pool).row(id)
     return value === undefined || value === LOADING ? undefined : value
   }
-  const { startDrag, dragging } = useRowDrag({
+  const { startDrag, dragging, draggedId } = useRowDrag({
+    virtualOrder: (scope) => scopeOrders.current.get(scope) ?? NO_DRAG_ROWS,
     allowedTargets: (scope, id) => {
       const value = issue(id)
       return scope === 'pinned'
@@ -412,6 +437,27 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed',
         ),
       })
+  const orderSignature = JSON.stringify([
+    pinned.map(itemDragId).filter(Boolean),
+    ...bands.map((band) => [band.key, band.live.map(itemDragId).filter(Boolean)]),
+  ])
+  scopeOrders.current = useMemo(() => new Map<string, readonly string[]>([
+    ['pinned', pinned.flatMap((item) => itemDragId(item) ? [item.value.id] : [])],
+    ...bands.map((band): [string, string[]] => [`group:${band.key}`, band.live.flatMap((item) => itemDragId(item) ? [item.value.id] : [])]),
+  ]), [orderSignature])
+  const windowRows = (rows: readonly Item[], render = renderRow, dragScope?: string, estimateSize = 50) => (
+    <WorklistWindow
+      rows={rows}
+      rowKey={itemKey}
+      renderRow={render}
+      scrollRef={scrollRef}
+      selectedKey={selectedId ? `issue:${selectedId}` : null}
+      draggingKey={draggedId ? `issue:${draggedId}` : null}
+      dragScope={dragScope}
+      dragId={itemDragId}
+      estimateSize={estimateSize}
+    />
+  )
   if (items.length === 0 && sections.bands.length === 0)
     return (
       <>
@@ -447,9 +493,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           <FoldPanel
             open={!collapsed.has(PINNED_FOLD_KEY)}
             testId="pinned-section-rows"
-            dragScope="pinned"
           >
-            {pinned.map((item) => renderRow(item))}
+            {windowRows(pinned, renderRow, 'pinned')}
           </FoldPanel>
         </m.div>
       )}
@@ -476,15 +521,13 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           />
           <FoldPanel
             open={!collapsed.has(band.foldKey)}
-            retain
             testId={band.startFirstTask ? `project-group-empty:${band.key}` : 'project-group-rows'}
-            dragScope={band.startFirstTask ? undefined : `group:${band.key}`}
           >
             {band.startFirstTask ? (
               <StartFirstTaskRow repoPath={band.repoPath} />
             ) : (
               <>
-                {band.live.map((item) => renderRow(item))}
+                {windowRows(band.live, renderRow, `group:${band.key}`)}
                 {band.snoozed.length > 0 && (
                   <m.div
                     layout="position"
@@ -496,6 +539,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                       rows={band.snoozed}
                       renderRow={renderRow}
                       settleTransition={settle}
+                      revealKey={band.snoozed.some((item) => item.value.id === selectedId) ? selectedId : null}
+                      renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
                     />
                   </m.div>
                 )}
@@ -524,6 +569,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                             }
                       }}
                       onArchive={archive}
+                      revealKey={band.closed.some((item) => item.value.id === selectedId) ? selectedId : null}
+                      renderRows={(rows, render) => windowRows(rows, render, undefined, 26)}
                     />
                   </m.div>
                 )}
@@ -644,9 +691,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
       ),
     [pool, id, kind, folded, lane],
   )
-  // A visited group keeps its DOM and lazy projection across folds. Hidden
-  // changes only invalidate the projection; equal paint on reveal preserves
-  // the leaf's props without rebuilding unchanged rows.
+  // Visible rows own their lazy paint projection; closing a group retires them.
   const lastDraw = useMemo(
     () => ({ value: undefined as ReturnType<typeof draw.get> | undefined }),
     [draw],

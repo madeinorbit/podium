@@ -118,6 +118,69 @@ afterEach(() => {
 })
 
 describe('useRowDrag', () => {
+  it('drops after viewport replacement using every row in the full order', () => {
+    const order = Array.from({ length: 100 }, (_, index) => `i${index}`)
+    const drops: RowDrop[] = []
+    const source = mount('group:a', order.slice(0, 3))
+    const { result } = renderHook(() => useRowDrag({
+      allowedTargets: () => [], virtualOrder: () => order,
+      onDrop: (drop) => { drops.push(drop) },
+    }))
+    act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i0'))
+    expect(result.current.draggedId).toBe('i0')
+    source.rows[1]!.remove(); source.rows[2]!.remove()
+    const next = mount('temporary', order.slice(70, 73))
+    for (const row of next.rows) source.container.appendChild(row)
+    act(() => pointer('pointermove', 70))
+    act(() => pointer('pointerup', 70))
+    expect(drops).toHaveLength(1)
+    const expected = order.filter((key) => key !== 'i0')
+    expected.splice(71, 0, 'i0')
+    expect(drops[0]!.order).toEqual(expected)
+    expect(result.current.draggedId).toBeNull()
+  })
+
+  it('auto-scrolls a windowed scope and accepts its newly visible drop target', async () => {
+    vi.useFakeTimers()
+    const order = Array.from({ length: 100 }, (_, index) => `i${index}`)
+    const source = mount('group:a', order.slice(0, 3))
+    const scroll = document.createElement('div')
+    scroll.style.overflowY = 'auto'
+    Object.defineProperties(scroll, { scrollHeight: { value: 4600 }, clientHeight: { value: 138 } })
+    stubRect(scroll, 0, 138)
+    document.body.appendChild(scroll); scroll.appendChild(source.container)
+    const drops: RowDrop[] = []
+    const { result } = renderHook(() => useRowDrag({
+      allowedTargets: () => [], virtualOrder: () => order,
+      onDrop: (drop) => { drops.push(drop) },
+    }))
+    act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i0'))
+    act(() => pointer('pointermove', 137))
+    act(() => vi.advanceTimersByTime(100))
+    expect(scroll.scrollTop).toBeGreaterThan(0)
+    source.rows[1]!.remove(); source.rows[2]!.remove()
+    const next = mount('temporary', order.slice(20, 23))
+    for (const row of next.rows) source.container.appendChild(row)
+    act(() => pointer('pointermove', 70))
+    act(() => pointer('pointerup', 70))
+    const expected = order.filter((key) => key !== 'i0')
+    expected.splice(21, 0, 'i0')
+    expect(drops[0]!.order).toEqual(expected)
+    vi.useRealTimers()
+  })
+
+  it('cancels a windowed drag when the full order changes', () => {
+    let order: readonly string[] = ['i1', 'i2', 'i3']
+    const drops: RowDrop[] = []
+    const source = mount('group:a', ['i1', 'i2'])
+    const { result } = renderHook(() => useRowDrag({ allowedTargets: () => [],
+      virtualOrder: () => order, onDrop: (drop) => { drops.push(drop) } }))
+    act(() => result.current.startDrag(gripEvent(source.grips[0]!, 10), 'i1'))
+    order = ['i1', 'inserted', 'i2', 'i3']
+    act(() => pointer('pointermove', 70)); act(() => pointer('pointerup', 70))
+    expect(drops).toEqual([])
+    expect(result.current.draggedId).toBeNull()
+  })
   it('reports the new order for the scope it was dragged within', async () => {
     const drops: RowDrop[] = []
     const { rows, grips } = mount('group:a', ['i1', 'i2', 'i3'])

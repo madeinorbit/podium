@@ -153,6 +153,8 @@ function appliedShift(el: HTMLElement): number {
 }
 
 export function useRowDrag(opts: {
+  /** Immutable full order for a windowed scope. DOM contains only its viewport. */
+  virtualOrder?: (scope: string) => readonly string[]
   /** Legal drop scopes for a drag out of `sourceScope` (source itself is always legal). */
   allowedTargets: (sourceScope: string, movedId: string) => string[]
   /** Persist the drop. Return the write's promise to hold the gesture's
@@ -164,6 +166,7 @@ export function useRowDrag(opts: {
    *  handoff window included. The caller MUST suspend layout animation on these
    *  rows while it is true; see the POD-1191 note in the file header. */
   dragging: boolean
+  draggedId: string | null
 } {
   const session = useRef<DragSession | null>(null)
   /** The last drop's un-styling, until its write settles. Held here so a NEW drag
@@ -171,6 +174,7 @@ export function useRowDrag(opts: {
    *  running it late would wipe the new drag's own transforms. */
   const handoff = useRef<(() => void) | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [draggedId, setDraggedId] = useState<string | null>(null)
   const endHandoff = useCallback((clear: () => void) => {
     if (handoff.current !== clear) return
     handoff.current = null
@@ -181,13 +185,14 @@ export function useRowDrag(opts: {
     // off the elements by then, or the layout animation it schedules starts from
     // a position no row was ever really in.
     setDragging(false)
+    setDraggedId(null)
   }, [])
 
   const startDrag = useCallback(
     (e: ReactPointerEvent, movedId: string) => {
       if (session.current || e.button !== 0) return
       const grip = e.currentTarget as HTMLElement
-      const wrapper = grip.closest<HTMLElement>('[data-drag-key]')
+      const wrapper = grip.closest<HTMLElement>('[data-window-row][data-drag-key]') ?? grip.closest<HTMLElement>('[data-drag-key]')
       const sourceContainer = wrapper?.closest<HTMLElement>('[data-drag-scope]')
       const sourceScope = sourceContainer?.dataset.dragScope
       if (!wrapper || !sourceContainer || !sourceScope) return
@@ -208,14 +213,21 @@ export function useRowDrag(opts: {
       // are what the operator is looking at, and the gesture reasons about that
       // arrangement until it ends.
       const frozen = new Map<string, FrozenRow[]>()
+      const fullOrders = new Map<string, readonly string[]>()
+      const fullIndexes = new Map<string, ReadonlyMap<string, number>>()
       for (const [scope, container] of containers) {
         frozen.set(
           scope,
           siblingWrappers(container).map((el) => ({ el, key: el.dataset.dragKey! })),
         )
+        if (opts.virtualOrder) {
+          const order = opts.virtualOrder(scope)
+          fullOrders.set(scope, order)
+          fullIndexes.set(scope, new Map(order.map((key, index) => [key, index])))
+        }
       }
       const homeRows = frozen.get(sourceScope)!
-      const homeIndex = homeRows.findIndex((row) => row.el === wrapper)
+      const homeIndex = opts.virtualOrder ? (fullIndexes.get(sourceScope)?.get(movedId) ?? -1) : homeRows.findIndex((row) => row.el === wrapper)
       if (homeIndex < 0) return
 
       const pointerId = e.pointerId
@@ -244,7 +256,7 @@ export function useRowDrag(opts: {
       // last row). Relax only the legal scopes for the life of this gesture,
       // then put their exact inline values back in clearAll.
       const scopePaint = new Map(
-        [...containers.values()].map((container) => [
+        [...new Set([...containers.values()].flatMap((container) => [container, ...(container.closest<HTMLElement>('[data-work-fold-panel]') ? [container.closest<HTMLElement>('[data-work-fold-panel]')!] : [])]))].map((container) => [
           container,
           { overflow: container.style.overflow, contain: container.style.contain },
         ]),
@@ -281,6 +293,7 @@ export function useRowDrag(opts: {
         const container = containers.get(scope)
         const rows = frozen.get(scope)
         if (!container || !rows || !container.isConnected) return false
+        if (opts.virtualOrder) return opts.virtualOrder(scope) === fullOrders.get(scope)
         const live = siblingWrappers(container)
         if (live.length !== rows.length) return false
         for (let i = 0; i < rows.length; i++) if (live[i] !== rows[i]!.el) return false
@@ -303,22 +316,23 @@ export function useRowDrag(opts: {
           for (let i = 0; i < rows.length; i++) {
             const el = rows[i]!.el
             if (el === wrapper) continue
+            const rowIndex = opts.virtualOrder ? (fullIndexes.get(cScope)?.get(rows[i]!.key) ?? i) : i
             let dy = 0
             if (cScope === sourceScope) {
               if (cScope === scope) {
                 // In-scope move: rows between the old and new slot swap past
                 // the dragged row (indexes below are "with dragged" vs the
                 // insertion index in "without dragged" coordinates).
-                if (i < homeIndex && i >= index) dy = height
-                else if (i > homeIndex && i - 1 < index) dy = -height
-              } else if (i > homeIndex) {
+                if (rowIndex < homeIndex && rowIndex >= index) dy = height
+                else if (rowIndex > homeIndex && rowIndex - 1 < index) dy = -height
+              } else if (rowIndex > homeIndex) {
                 // Dragged out of this scope: the gap it left closes.
                 dy = -height
               }
             } else if (cScope === scope) {
               // A foreign scope's list never held the dragged row, so `i` is
               // already in "without dragged" coordinates.
-              if (i >= index) dy = height
+              if (rowIndex >= index) dy = height
             }
             el.style.transition = FLIP
             el.style.transform = dy ? `translateY(${dy}px)` : ''
@@ -333,6 +347,13 @@ export function useRowDrag(opts: {
        *  detached row measures as a zero-height box at the top of the viewport
        *  and would drag the insertion index to 0 on its way out. */
       const retarget = (): boolean => {
+        // Auto-scroll replaces viewport rows. The immutable complete order is
+        // still the gesture's snapshot; new mounted neighbours join its preview.
+        if (opts.virtualOrder) {
+          for (const [scope, container] of containers) {
+            frozen.set(scope, siblingWrappers(container).map((el) => ({ el, key: el.dataset.dragKey! })))
+          }
+        }
         // The frozen list is the gesture's whole frame of reference. Once the
         // document stops matching it, there is nothing honest left to preview.
         if (!intact()) {
@@ -363,19 +384,25 @@ export function useRowDrag(opts: {
         // Insertion index from midpoints of the UNDISPLACED positions: subtract
         // any preview transform so the math is stable while things animate.
         const rows = frozen.get(scope)!.filter((row) => row.el !== wrapper)
-        let index = rows.length
+        const fullOrder = fullOrders.get(scope)
+        let index = fullOrder ? fullOrder.length - (scope === sourceScope ? 1 : 0) : rows.length
         for (let i = 0; i < rows.length; i++) {
           const el = rows[i]!.el
           const r = el.getBoundingClientRect()
           if (pointerY < r.top - appliedShift(el) + r.height / 2) {
-            index = i
+            const fullIndex = fullIndexes.get(scope)?.get(rows[i]!.key)
+            index = fullIndex === undefined ? i : fullIndex - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
             break
           }
+          // A window's last row is followed by unmounted rows, not the list end.
+          const fullIndex = fullIndexes.get(scope)?.get(rows[i]!.key)
+          if (fullIndex !== undefined) index = fullIndex + 1 - (scope === sourceScope && fullIndex > homeIndex ? 1 : 0)
         }
         if (target.scope !== scope || target.index !== index) {
           target = { scope, index }
           applyPreview()
         }
+        else if (opts.virtualOrder) applyPreview()
         return true
       }
 
@@ -458,12 +485,11 @@ export function useRowDrag(opts: {
         if (!commit || !changed || !scopeIntact(scope)) {
           clearAll()
           setDragging(false)
+          setDraggedId(null)
           return
         }
-        const others = frozen
-          .get(scope)!
-          .filter((row) => row.el !== wrapper)
-          .map((row) => row.key)
+        const others = fullOrders.get(scope)?.filter((key) => key !== movedId) ?? frozen
+          .get(scope)!.filter((row) => row.el !== wrapper).map((row) => row.key)
         const order = [...others.slice(0, index), movedId, ...others.slice(index)]
         // The order is the FROZEN reading order, which the preview never moved —
         // only the insertion index came from the previewed geometry.
@@ -471,6 +497,7 @@ export function useRowDrag(opts: {
         if (queued === undefined) {
           clearAll()
           setDragging(false)
+          setDraggedId(null)
           return
         }
         handoff.current = clearAll
@@ -514,10 +541,11 @@ export function useRowDrag(opts: {
 
       session.current = { pointerId }
       setDragging(true)
+      setDraggedId(movedId)
       frame = requestAnimationFrame(tick)
     },
     [opts, endHandoff],
   )
 
-  return { startDrag, dragging }
+  return { startDrag, dragging, draggedId }
 }

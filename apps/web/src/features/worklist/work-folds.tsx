@@ -10,7 +10,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { PanelVisible, usePanelVisible } from '@/app/panel-visible'
 import { type RowTransitionItem, useArrivals } from '@/lib/motion'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -307,6 +307,7 @@ export function FoldPanel({
     <m.div
       id={id}
       data-testid={testId}
+      data-work-fold-panel
       data-drag-scope={dragScope}
       aria-hidden={!open}
       inert={!open}
@@ -439,16 +440,34 @@ export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
   rows,
   renderRow,
   settleTransition,
+  renderRows,
+  revealKey,
 }: {
   groupKey: string
   rows: T[]
   renderRow: (row: T, animate: boolean) => JSX.Element
   settleTransition: (key: string, placement: string) => void
+  renderRows?: (rows: T[], render: (row: T) => JSX.Element) => ReactNode
+  revealKey?: string | null
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(snoozedFoldKey(groupKey), true)
+  useEffect(() => { if (revealKey && collapsed) toggle() }, [revealKey])
   const contentId = useId()
   const visibleKeys = collapsed ? [] : rows.map((row) => row.key)
   const { arrivals, settle } = useArrivals(visibleKeys)
+  const render = (row: T) => {
+    const arriving = arrivals.has(row.key) || row.phase === 'entering'
+    return (
+      <div key={row.key} className={cn('min-w-0', arriving && 'row-arrive')} data-testid="snoozed-fold-row"
+        onAnimationEnd={arriving ? (event) => {
+          if (event.animationName !== 'podium-arrive-wash') return
+          settle(row.key)
+          settleTransition(row.key, row.placement)
+        } : undefined}>
+        {renderRow(row, false)}
+      </div>
+    )
+  }
   return (
     <div className="min-w-0" data-testid="snoozed-issue-fold">
       <button
@@ -470,27 +489,7 @@ export function SnoozedIssueFold<T extends RowTransitionItem<unknown>>({
       </button>
       <FoldPanel open={!collapsed} id={contentId} testId="snoozed-fold-rows">
         <div className="min-w-0">
-          {rows.map((row) => {
-            const arriving = arrivals.has(row.key) || row.phase === 'entering'
-            return (
-              <div
-                key={row.key}
-                className={cn('min-w-0', arriving && 'row-arrive')}
-                data-testid="snoozed-fold-row"
-                onAnimationEnd={
-                  arriving
-                    ? (event) => {
-                        if (event.animationName !== 'podium-arrive-wash') return
-                        settle(row.key)
-                        settleTransition(row.key, row.placement)
-                      }
-                    : undefined
-                }
-              >
-                {renderRow(row, false)}
-              </div>
-            )
-          })}
+          {renderRows ? renderRows(rows, render) : rows.map(render)}
         </div>
       </FoldPanel>
     </div>
@@ -505,16 +504,20 @@ export function ClosedIssueFold<T>({
   renderRow,
   issueForRow,
   onArchive,
+  renderRows,
+  revealKey,
 }: {
   groupKey: string
   rows: T[]
   renderRow: (row: T) => JSX.Element
   issueForRow: (row: T) => UnifiedIssueRowView
   onArchive: (id: string) => void
+  renderRows?: (rows: T[], render: (row: T) => JSX.Element) => ReactNode
+  revealKey?: string | null
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(closedFoldKey(groupKey), true)
+  useEffect(() => { if (revealKey && collapsed) toggle() }, [revealKey])
   const contentId = useId()
-  const issueRows = rows.map(issueForRow)
   // NO IN-FLIGHT ARCHIVE SET (POD-781). This fold used to take one, to disable
   // the buttons and fade their icons while the server was asked. Archiving is
   // outboxed now: the row is gone from `rows` on the press, so a "still
@@ -523,7 +526,22 @@ export function ClosedIssueFold<T>({
   const archiveAll = (event: ReactMouseEvent): void => {
     event.preventDefault()
     event.stopPropagation()
-    for (const row of issueRows) onArchive(row.issue.id)
+    for (const row of rows) onArchive(issueForRow(row).issue.id)
+  }
+  const render = (row: T) => {
+    const issueRow = issueForRow(row)
+    return (
+      <div key={issueRow.issue.id} className="group/closed relative min-w-0" data-testid="closed-fold-row">
+        {renderRow(row)}
+        <button data-pressable type="button" data-hover-reveal
+          className="absolute top-1/2 right-2.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
+          aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
+          title="Archive — remove from sidebar" data-testid="closed-issue-archive"
+          onClick={(event) => { event.preventDefault(); event.stopPropagation(); onArchive(issueRow.issue.id) }}>
+          <Archive size={11} aria-hidden="true" />
+        </button>
+      </div>
+    )
   }
   return (
     <div className="min-w-0" data-testid="closed-issue-fold">
@@ -546,37 +564,7 @@ export function ClosedIssueFold<T>({
       </button>
       <FoldPanel open={!collapsed} id={contentId} testId="closed-fold-rows">
         <div className="min-w-0">
-          {rows.map((row) => {
-            const issueRow = issueForRow(row)
-            return (
-              <div
-                key={issueRow.issue.id}
-                className="group/closed relative min-w-0"
-                data-testid="closed-fold-row"
-              >
-                {renderRow(row)}
-                <button
-                  data-pressable
-                  type="button"
-                  data-hover-reveal
-                  // Sized and centred to the one-line folded row (POD-293): a
-                  // 20px control vertically centred at the right inset, not the
-                  // old tall-row top offset that hung off a 26px line.
-                  className="absolute top-1/2 right-2.5 z-20 flex size-5 -translate-y-1/2 items-center justify-center rounded-[5px] border border-hairline-bar bg-chip text-label opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"
-                  aria-label={`Archive ${issueDisplayRef(issueRow.issue)}`}
-                  title="Archive — remove from sidebar"
-                  data-testid="closed-issue-archive"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onArchive(issueRow.issue.id)
-                  }}
-                >
-                  <Archive size={11} aria-hidden="true" />
-                </button>
-              </div>
-            )
-          })}
+          {renderRows ? renderRows(rows, render) : rows.map(render)}
         </div>
         {/* THE BULK GESTURE SITS AFTER THE THING IT ACTS ON (POD-1458). The
          * chip used to ride the title row, where the fold's own count and
@@ -598,7 +586,7 @@ export function ClosedIssueFold<T>({
           <button
             data-pressable
             type="button"
-            aria-label={`Archive all ${issueRows.length} closed issues`}
+            aria-label={`Archive all ${rows.length} closed issues`}
             title="Archive all closed issues"
             onClick={archiveAll}
             className="shell-type-micro flex h-5 items-center gap-1 rounded-[5px] border border-transparent px-1.5 font-mono font-medium tracking-[.02em] text-text-dim transition-[color,border-color,background-color] duration-100 hover:border-hairline-bar hover:bg-accent hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-border-strong"

@@ -431,7 +431,9 @@ async function measureScreenCells(
       shipping: shell.shipping(),
     }))
     add('launcher.launch', ['NewPanelMenu', 'NewWorkButton', 'useMobileLaunchData'], () =>
-      readLaunch(pool),
+      // NewPanelChoices and NewIssueDialog mount only when opened. The fresh
+      // background terminal recipe has triggers, with no launch catalog demand.
+      scene === 'background-terminal' ? undefined : readLaunch(pool),
     )
     add('launcher.palette', ['CommandPalette'], () => readPalette(pool))
     // Close facts are asked for the action's issue at press time. Closed

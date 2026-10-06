@@ -42,6 +42,8 @@ interface BoundedVirtualListOptions {
   initialItems?: number
   /** Kept mounted across the one render needed to scroll keyboard focus/drag. */
   pinnedKeys?: readonly (string | null | undefined)[]
+  /** Reveal independently of retention (a drag source must not pull scroll back). */
+  revealKey?: string | null
 }
 
 interface BoundedVirtualList {
@@ -105,6 +107,7 @@ export function useBoundedVirtualList({
   maxItems = ISSUE_VIRTUAL_MAX_ITEMS,
   initialItems = DEFAULT_INITIAL_ITEMS,
   pinnedKeys = [],
+  revealKey,
 }: BoundedVirtualListOptions): BoundedVirtualList {
   const sizesRef = useRef(new Map<string, number>())
   const nodesRef = useRef(new Map<string, HTMLElement>())
@@ -302,9 +305,9 @@ export function useBoundedVirtualList({
     publishViewport()
   }, [layout, scrollRef, containerRef, publishViewport])
 
-  const focusKey = pinnedKeys.find((candidate): candidate is string =>
+  const focusKey = revealKey === undefined ? pinnedKeys.find((candidate): candidate is string =>
     Boolean(candidate && layout.indexes.has(candidate)),
-  )
+  ) : revealKey
   useLayoutEffect(() => {
     if (!focusKey) return
     const index = layout.indexes.get(focusKey) ?? -1
