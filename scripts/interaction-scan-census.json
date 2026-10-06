@@ -15977,49 +15977,6 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "consume:map",
-      "tokens": "a8f1aeb368a424e44a1a43e3f5e510e9f208ac3c3bd67fb9791486da7623d842",
-      "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "d89e7ff9779c53792275e5a266a83e116c357e08e9d5356bc125d0c02670f2ce",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "consume:map",
-      "tokens": "004e0cc7f00f7ac6f9a469bfb1c23d018d8c22fa0bbbcbfb5a489bd3d44d428b",
-      "gate": [
-        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
-        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
-        "&&:76e1ed1ad990c37d9486b42fc3c505c539bb9abe79b14db229055813b7db135d"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "a7ade0c94a394196e7ff6fcb5770b28dffd310f8ada5e9261f1cfcc908f4ff85",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
-      "rule": "consume:map",
       "tokens": "82066c9b742382dbe33b1cf4f9af2aaca4783d65b321eb3bf08ab522ef0ff344",
       "gate": [],
       "origin": [
@@ -16466,24 +16423,6 @@
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/targets/useMemo:callback/next",
-      "rule": "helper-consumer",
-      "tokens": "7aaee258cbd2753bc5c07d242adb85c7fb8f128e088837da62831435fc7afaec",
-      "gate": [],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "224da039141d4d3e158eb0d48e0ecff0a7924a8542f3da185f7b386bdf29a24f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/targets/useMemo:callback/next",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/useEffect:callback/onScreen",
       "rule": "materialize:Set",
       "tokens": "de237486e42c86f2ef5a951d8720db1436563da2edbc135a0331938288499567",
@@ -16540,26 +16479,6 @@
       "trigger": "Invocation of PoolMotionRow/PoolMotionRow/row/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live",
-      "rule": "helper-consumer",
-      "tokens": "0e7958339f376f5ac4065c04d0e945c77b956536427aa7cf1f04d1202e0c09c6",
-      "gate": [
-        "exit:then:3897776c72fcd22131898b34dd9b1a71e1d9d57cd0183aaa0072afd75db56ff3"
-      ],
-      "origin": [
-        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
-      ],
-      "fingerprint": "566f5abb39249abcef7b6993941f002a37fec28ffb2ee6c8c98ba01a373e15d0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -50195,6 +50114,152 @@
       "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
       "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
       "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "consume:map",
+      "tokens": "dd4e1bf881392693a78fe8228df3a412f9474f12b40c6827fe94f69a31b8bcca",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "2eb9bd17ad5cb3f5ac1336ea7fd85069211e313d969f13b2d4dd7fa91d881612",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
+      "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
+      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix.",
+      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "rule": "helper-consumer",
+      "tokens": "cbc6acaef11f8f26dada0421e0703d9b7ba5b6ab92208faf0172d50efc79d670",
+      "gate": [
+        "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
+        "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
+        "&&:76e1ed1ad990c37d9486b42fc3c505c539bb9abe79b14db229055813b7db135d"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "05d11389bc1254c0d9b10fbc234299b33915e29ad0ab9de2b25094d61da96e64",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
+      "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
+      "reason": "The viewport fix bounds mounted rows, not full membership metadata. Cached ID indexes run only when membership changes; existing outer-band and key preparation work remains classified as repair, not as a bounded reader fix.",
+      "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition."
+    },
+    {
+      "file": "apps/web/src/features/worklist/useRowDrag.ts",
+      "holder": "useRowDrag/startDrag/useCallback:callback",
+      "rule": "consume:map",
+      "tokens": "264f42fff386f916c6d603fcde5a56a8886f5a18a742df28426407318ecc9d51",
+      "gate": [
+        "exit:then:e0992168bf81b11f70f440c549e267d67b6b0e82c2db8e35d42a18cc8dc298d7",
+        "exit:then:09707d2f419897145ae2271e40ec61c800eb9dc0e450e4f30a8ec0c6c624051b",
+        "then:62b9da89a8d318d83b1b7a228e1c8a62da5fccf8c403dfcd78241caafec497db"
+      ],
+      "origin": [
+        "c93c71b8ad8f7389daf60a62880479c37fcce3aeadb143c133e3b8270ddadfcb"
+      ],
+      "fingerprint": "15757b55f05f1cef8b5e4b997eafc80b3b3a91c549ae9a1103cf947fdc5db214",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5543",
+      "trigger": "Once at pointerdown for one user drag gesture, never a drag or scroll frame.",
+      "bound": "Full immutable order of the source and its one legal cross-scope target; only viewport rows and indexed lookups are visited in each frame.",
+      "reason": "The gesture snapshots the full logical order so a drop after auto-scroll preserves unmounted neighbours. Full-order indexes are constructed once per gesture, and the new full order is materialized only on drop.",
+      "guard": "apps/web/src/features/worklist/useRowDrag.test.ts: complete-order drop after viewport replacement, edge auto-scroll, and cancellation after membership change."
+    },
+    {
+      "file": "apps/web/src/features/worklist/useRowDrag.ts",
+      "holder": "useRowDrag/startDrag/useCallback:callback",
+      "rule": "loop:for-of",
+      "tokens": "50fcce685bb4db4df829decd9a111ed67d87056444fcab3fe6b4bc6482f63439",
+      "gate": [
+        "exit:then:e0992168bf81b11f70f440c549e267d67b6b0e82c2db8e35d42a18cc8dc298d7",
+        "exit:then:09707d2f419897145ae2271e40ec61c800eb9dc0e450e4f30a8ec0c6c624051b"
+      ],
+      "origin": [
+        "c93c71b8ad8f7389daf60a62880479c37fcce3aeadb143c133e3b8270ddadfcb"
+      ],
+      "fingerprint": "dcb578d0be67ab9b18515de472998cb71ff4bcf9642a88a7dea2fbb556e879d7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5543",
+      "trigger": "Once at pointerdown for one user drag gesture, never a drag or scroll frame.",
+      "bound": "Full immutable order of the source and its one legal cross-scope target; only viewport rows and indexed lookups are visited in each frame.",
+      "reason": "The gesture snapshots the full logical order so a drop after auto-scroll preserves unmounted neighbours. Full-order indexes are constructed once per gesture, and the new full order is materialized only on drop.",
+      "guard": "apps/web/src/features/worklist/useRowDrag.test.ts: complete-order drop after viewport replacement, edge auto-scroll, and cancellation after membership change."
+    },
+    {
+      "file": "apps/web/src/features/worklist/useRowDrag.ts",
+      "holder": "useRowDrag/startDrag/useCallback:callback",
+      "rule": "materialize:Map",
+      "tokens": "905600f10e6a89fa1e6528b619d8b173a6f54e5301ab5ef52fdf48848746131d",
+      "gate": [
+        "exit:then:e0992168bf81b11f70f440c549e267d67b6b0e82c2db8e35d42a18cc8dc298d7",
+        "exit:then:09707d2f419897145ae2271e40ec61c800eb9dc0e450e4f30a8ec0c6c624051b",
+        "then:62b9da89a8d318d83b1b7a228e1c8a62da5fccf8c403dfcd78241caafec497db"
+      ],
+      "origin": [
+        "c93c71b8ad8f7389daf60a62880479c37fcce3aeadb143c133e3b8270ddadfcb"
+      ],
+      "fingerprint": "d0fa53244a9ac76fb10c40d0a7e2b31564be1f933ceb8d2a2ee54b7cc5d93d38",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5543",
+      "trigger": "Once at pointerdown for one user drag gesture, never a drag or scroll frame.",
+      "bound": "Full immutable order of the source and its one legal cross-scope target; only viewport rows and indexed lookups are visited in each frame.",
+      "reason": "The gesture snapshots the full logical order so a drop after auto-scroll preserves unmounted neighbours. Full-order indexes are constructed once per gesture, and the new full order is materialized only on drop.",
+      "guard": "apps/web/src/features/worklist/useRowDrag.test.ts: complete-order drop after viewport replacement, edge auto-scroll, and cancellation after membership change."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections/useMemo:callback/next",
+      "rule": "helper-consumer",
+      "tokens": "c88d8e1b707225a911bedbe9f159cdc7b553a841bd2eb33e7167b025eb4addd5",
+      "gate": [],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "221f6d0856a2a5baf5c9260cfef9ea9560ac75dfea4bdac2897144ca009b7ca4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/targets/useMemo:callback/next",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
+      "holder": "PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live",
+      "rule": "helper-consumer",
+      "tokens": "7bf804b3e23896d11932f1c2972f6507060136254bdaf134b233d2c471cf1815",
+      "gate": [
+        "exit:then:3897776c72fcd22131898b34dd9b1a71e1d9d57cd0183aaa0072afd75db56ff3"
+      ],
+      "origin": [
+        "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
+      ],
+      "fingerprint": "9c6e4b834487d4b56ad2f04ea13a23e3c95a2b5696f57d3c155ea203a2ff1363",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of PoolSidebarUnified/PoolSidebarUnified/count/useMemo:callback/computed:callback/live",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }
