@@ -11,7 +11,7 @@
  *   resident, summary, repeated and absent reads. Source callbacks count too.
  * - DERIVATIONS: derivation bodies run. Every MobX computed body
  *   (`ComputedValue.computeValue_`) and every reaction body (`Reaction.track`:
- *   autoruns, reactions and `observer` renders all run through it), and every
+ *   autoruns, reactions and `observer` renders all run through it).
  * - ELEMENTS: the DISTINCT collection elements the arm iterated. Array, Set
  *   and Map iteration (`for…of`, spreads, `Array.from`, `new Set(iterable)`:
  *   all go through the patched iterators), `forEach` and the Array callback
@@ -50,9 +50,6 @@
  *   side, wherever React or a timer calls them from. An `observer`'s
  *   invalidation is the one MobX step that is not: it asks React to redraw,
  *   and the redraw React schedules there must not inherit the arm's side.
- * - every hand cell body (`CellGraph.run`): the hand pool's alone, so its
- *   bodies always run on the arm's side too, wherever the pool, the drain or
- *   a render calls them from (POD-4934).
  *
  * What the arm schedules from there (its timers, its loads) stays the arm's.
  * React's own reconciliation is not counted: the full-list variants draw
@@ -122,7 +119,7 @@ export function insideArm<T>(fn: () => T): T {
 
 /** Work counted by one `measureWork`. */
 export interface WorkCounts {
-  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked,  */
+  /** Derivation bodies run: MobX computeds recomputed plus reaction bodies tracked. */
   derivations: number
   /** Bodies run per named derivation/consumer; a cheap reader cannot hide a growing one. */
   derivationsBy: Record<string, number>
