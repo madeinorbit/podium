@@ -27,7 +27,7 @@ import {
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Profiler, type ReactNode } from 'react'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../packages/worklist-proto/harness/src/fixture'
 import { startCensus } from '../../../../packages/worklist-proto/harness/src/mobx-census'
 import type { MobilePool } from '../client/mobile-pool'
@@ -315,7 +315,27 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 function Capture() {
   return <WorkScreen />
 }
+// Provider unmount supports a StrictMode restart via dispose(). A finished
+// fixture has no successor mount, so end the permanent runtime lifetime too.
+function attachFixtureRuntime(runtime: ClientRuntime<MobileTrpc>): () => void {
+  state.runtime = runtime
+  const detach = state.host!.host.attach(runtime, (cause) => {
+    state.errors.push(cause.message)
+  })
+  return () => {
+    try {
+      detach()
+    } finally {
+      runtime.destroy()
+    }
+  }
+}
+
 async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
+  if (state.runtime?.isDestroyed) releaseFixtureReferences()
+  // Corpus construction also creates temporary legacy rollups. Collect those
+  // after the builder returns, before attaching the real pool over its records.
+  await collectRetiredFixtures()
   state.sliceReads = 0
   state.rowDerivations = 0
   state.counts.clear()
@@ -330,12 +350,7 @@ async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
     repos: corpus.repos,
     machines: corpus.machines,
     api: { pins: { list: { query: async () => corpus.pins } } },
-    attachRuntime: (runtime) => {
-      state.runtime = runtime
-      return state.host!.host.attach(runtime, (cause) => {
-        state.errors.push(cause.message)
-      })
-    },
+    attachRuntime: attachFixtureRuntime,
   })
   await waitFor(
     () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
@@ -453,8 +468,25 @@ async function drainNativeLoads() {
   }
   throw new Error('native fixture load window did not settle')
 }
+function releaseFixtureReferences(): void {
+  state.runtime = null
+  state.host = null
+  state.pool = null
+  state.sections = []
+}
+async function collectRetiredFixtures(): Promise<void> {
+  // Let the previous async scope unwind before collecting its large corpus.
+  // Node collects these normally; the flatblock mobile worker runs under Bun.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const bun = (globalThis as { Bun?: { gc(force: boolean): unknown } }).Bun
+  bun?.gc(true)
+}
+beforeEach(collectRetiredFixtures)
 afterEach(() => {
   cleanup()
+  releaseFixtureReferences()
+  // restoreAllMocks restores methods but retains recorded calls/results.
+  vi.clearAllMocks()
   vi.restoreAllMocks()
   state.counts.clear()
 })
@@ -490,14 +522,16 @@ describe('mobile WorkScreen pool consumer', () => {
       const pool = state.pool!
       let rowReads = 0
       let archivedReads = 0
-      const row = pool.row.bind(pool)
-      const spy = vi.spyOn(pool, 'row').mockImplementation(((
+      const originalRow = pool.row
+      const row = originalRow.bind(pool)
+      // A counter needs no spy history or global spy-registry reference to this pool.
+      pool.row = ((
         ...args: Parameters<typeof pool.row>
       ) => {
         rowReads++
         if (args[0] === 'session' && args[1].startsWith('phone-menu-archived-')) archivedReads++
         return row(...args)
-      }) as typeof pool.row)
+      }) as typeof pool.row
       const census = startCensus({ sample: () => ({ rowReads }) })
       try {
         const target = view.container.querySelector('[data-label$=" Fixed phone menu target"]')!
@@ -530,7 +564,7 @@ describe('mobile WorkScreen pool consumer', () => {
           derivations: phase.computedRuns + phase.reactionRuns,
         })
       } finally {
-        spy.mockRestore()
+        pool.row = originalRow
         view.unmount()
         census.stop()
       }
@@ -554,17 +588,18 @@ describe('mobile WorkScreen pool consumer', () => {
     }[] = []
     for (const scale of [1, 4] as const) {
       let rowReads = 0
-      const census = startCensus({ sample: () => ({ rowReads }) })
       const { view } = await mount(scale, clickCorpus(scale))
       await drainNativeLoads()
       const pool = state.pool!
-      const original = pool.row.bind(pool)
-      const spy = vi.spyOn(pool, 'row').mockImplementation(((
-        ...args: Parameters<typeof pool.row>
-      ) => {
+      const originalRow = pool.row
+      const original = originalRow.bind(pool)
+      pool.row = ((...args: Parameters<typeof pool.row>) => {
         rowReads++
         return original(...args)
-      }) as typeof pool.row)
+      }) as typeof pool.row
+      // This test meters clicks. A census retains every constructed object;
+      // boot is outside those phases and must not retain the whole corpus.
+      const census = startCensus({ sample: () => ({ rowReads }) })
       const click = async (name: string, gesture: () => void, observe: () => Promise<unknown>) => {
         const neighbours = Math.max(1, view.container.querySelectorAll('[data-label]').length)
         const before = rowReads
@@ -632,7 +667,7 @@ describe('mobile WorkScreen pool consumer', () => {
           () => waitFor(() => expect(screen.queryByLabelText('Close sheet')).toBeNull()),
         )
       } finally {
-        spy.mockRestore()
+        pool.row = originalRow
         view.unmount()
         census.stop()
       }
@@ -690,10 +725,7 @@ describe('mobile WorkScreen pool consumer', () => {
       principal: 'u-bench',
       repos: corpus.repos,
       machines: corpus.machines,
-      attachRuntime: (runtime) =>
-        state.host!.host.attach(runtime, (cause) => {
-          state.errors.push(cause.message)
-        }),
+      attachRuntime: attachFixtureRuntime,
     })
     await waitFor(() => expect(screen.queryByLabelText(/^Worktree /)).not.toBeNull(), {
       timeout: 30_000,
