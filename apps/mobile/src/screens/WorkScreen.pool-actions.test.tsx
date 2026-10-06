@@ -492,8 +492,7 @@ describe('mobile pool work-list actions', () => {
     expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
     expect(screen.queryByRole('button', { name: label })).toBeNull()
     expect(
-      pool()
-        .mobileWork.sections()
+      mobileWorkView(pool()).sections()
         .sections.some((section) => section.closedIds.includes(TARGET)),
     ).toBe(true)
     await parity()
@@ -526,8 +525,7 @@ describe('mobile pool work-list actions', () => {
     await parity()
     await settle(write)
     expect(
-      pool()
-        .mobileWork.sections()
+      mobileWorkView(pool()).sections()
         .sections.some((section) => section.closedIds.includes(TARGET)),
     ).toBe(true)
   })
@@ -560,8 +558,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.undefer')
     expect(value().snoozed).toBe(false)
     expect(
-      pool()
-        .mobileWork.sections()
+      mobileWorkView(pool()).sections()
         .sections.some((section) => section.data.some((row) => row.id === TARGET)),
     ).toBe(true)
     await parity()
@@ -730,8 +727,7 @@ describe('mobile pool work-list actions', () => {
     await choose('Delete')
     const write = await request('issues.delete')
     expect(
-      pool()
-        .mobileWork.sections()
+      mobileWorkView(pool()).sections()
         .sections.every((section) => section.data.every((row) => row.id !== TARGET)),
     ).toBe(true)
     await parity()
@@ -772,15 +768,13 @@ describe('mobile pool work-list actions', () => {
           )
         })
         expect(
-          pool()
-            .mobileWork.sections()
+          mobileWorkView(pool()).sections()
             .orderingSections.find((section) => section.key === ordering.key)!.data[0]!.id,
         ).toBe(moving)
         await parity()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
-          pool()
-            .mobileWork.sections()
+          mobileWorkView(pool()).sections()
             .orderingSections.find((section) => section.key === ordering.key)!
             .data.map((ref) => ref.id),
         ).toEqual(before)
