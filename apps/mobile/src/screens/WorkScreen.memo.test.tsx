@@ -20,6 +20,10 @@ vi.mock('../components/PressableScale', () => ({
     return <div data-label={key}>{children as never}</div>
   },
 }))
+// WorkRow picked up the pool-backed NotSavedMark after this suite was
+// written (POD-5490). The mark is not under test here — the suite counts
+// row commits — so it stays stubbed and the rows mount provider-free.
+vi.mock('../components/NotSavedMark', () => ({ NotSavedMark: () => null }))
 
 const { WorkRow } = await import('./WorkListRow')
 
