@@ -424,7 +424,7 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             superagent={chat.conversation.mount.superThread !== undefined}
             phase={chat.phase}
             rows={chat.rowsToRender}
-            blocks={chat.blocks}
+            blockCount={chat.blockCount}
             markdownHtml={chat.markdownHtml}
             search={chat.search}
             revealedRow={chat.revealedRow}

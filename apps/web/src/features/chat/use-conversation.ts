@@ -57,7 +57,7 @@ export class WebConversation extends Conversation {
       setBackendModel: actionBound,
       setBackendEffort: actionBound,
     })
-    presentation.bind(this.transcript)
+    presentation.bind(this.transcript, this.graph)
     if (!options.headless) this.stopPresence = reaction(() => {
       const machineId = this.session?.machineId
       const machine = machineId ? loaded(pool.row('machine', machineId)) as MachineWire | undefined : undefined

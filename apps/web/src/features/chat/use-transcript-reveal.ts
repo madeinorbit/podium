@@ -31,6 +31,11 @@ export function useTranscriptReveal({
   request,
   blocks,
   rows,
+  lookupRow,
+  rowCount,
+  blockCount,
+  headKey,
+  rowVersion,
   initialLoaded,
   computeReady,
   loadingOlder,
@@ -44,8 +49,13 @@ export function useTranscriptReveal({
   active: boolean
   sessionId: SessionId
   request: TranscriptReveal | null
-  blocks: readonly ChatBlock[]
-  rows: readonly ChatRow[]
+  blocks?: readonly ChatBlock[]
+  rows?: readonly ChatRow[]
+  lookupRow?: (key: string) => number | undefined
+  rowCount?: number
+  blockCount?: number
+  headKey?: string
+  rowVersion?: number
   initialLoaded: boolean
   computeReady: boolean
   loadingOlder: boolean
@@ -86,12 +96,12 @@ export function useTranscriptReveal({
 
   useEffect(() => {
     if (!active || request?.sessionId !== sessionId) return
-    const rowIndex = transcriptRevealRow(blocks, rows, request.itemKey)
+    const rowIndex = lookupRow ? lookupRow(request.itemKey) : transcriptRevealRow(blocks ?? [], rows ?? [], request.itemKey)
     if (rowIndex === undefined) {
       if (!initialLoaded || !computeReady || loadingOlder) return
       if (moreAbove) {
-        const oldest = blocks[0]?.item
-        const attempt = `${request.nonce}\n${oldest?.cursor ?? oldest?.id ?? ''}\n${blocks.length}\n${renderStart}`
+        const oldest = blocks?.[0]?.item
+        const attempt = `${request.nonce}\n${headKey ?? oldest?.cursor ?? oldest?.id ?? ''}\n${blockCount ?? blocks?.length ?? 0}\n${renderStart}`
         if (pagingAttemptRef.current === attempt) {
           clear(request.nonce)
           toast.info('That transcript position is no longer available.')
@@ -107,7 +117,7 @@ export function useTranscriptReveal({
     }
 
     if (rowIndex < renderStart) {
-      setRenderCount(rows.length - rowIndex + RENDER_WINDOW)
+      setRenderCount((rowCount ?? rows?.length ?? 0) - rowIndex + RENDER_WINDOW)
       return
     }
 
@@ -121,6 +131,11 @@ export function useTranscriptReveal({
   }, [
     active,
     blocks,
+    blockCount,
+    headKey,
+    lookupRow,
+    rowCount,
+    rowVersion,
     clear,
     computeReady,
     initialLoaded,

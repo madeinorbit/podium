@@ -3,12 +3,41 @@ import {
   type TranscriptComputeInput,
   type TranscriptComputeResult,
   transcriptSearchState,
+  type ChatVerbosity,
+  type TranscriptSearchState,
 } from '@podium/client-core/values'
+import type { TranscriptGraph, TranscriptGraphChange } from '@podium/client-core/conversation'
 import type {
   TranscriptComputeWorkerError,
   TranscriptComputeWorkerRequest,
   TranscriptWorkerResponse,
+  TranscriptModelWorkerRequest,
 } from './transcript-compute.worker'
+
+export interface TranscriptGraphSource {
+  readonly graph: TranscriptGraph
+  readonly version: number
+  readonly needsReset: boolean
+  snapshot(): TranscriptComputeInput['items']
+  pending(): TranscriptGraphChange
+  sent(): void
+}
+
+export interface WebTranscriptGraphResult {
+  search: TranscriptSearchState
+  markdownHtml: ReadonlyMap<string, string>
+}
+
+interface GraphPending {
+  kind: 'graph'
+  source: TranscriptGraphSource
+  query: string
+  cursor: number
+  verbosity: ChatVerbosity
+  resolve: (result: WebTranscriptGraphResult) => void
+  reject: (error: Error) => void
+  release?: () => void
+}
 
 export interface WebTranscriptComputeResult extends TranscriptComputeResult {
   /** Unsafe worker HTML keyed by source Markdown. Sanitize before DOM use. */
@@ -39,7 +68,7 @@ interface MarkdownPending {
   reject: (error: Error) => void
 }
 
-type Pending = TranscriptPending | MarkdownPending
+type Pending = TranscriptPending | GraphPending | MarkdownPending
 
 interface StableGraph {
   items: TranscriptComputeInput['items']
@@ -66,9 +95,12 @@ export class TranscriptComputeClient {
   private nextId = 0
   private nextIndexKey = 0
   private readonly pending = new Map<number, Pending>()
-  private readonly queued = new Map<object, TranscriptPending>()
+  private readonly queued = new Map<object, TranscriptPending | GraphPending>()
+  private nextOwnerKey = 0
+  private readonly modelSources = new Map<TranscriptGraphSource, { ownerKey: number; key: number | undefined; version: number }>()
   private readonly defaultOwner = {}
   private transcriptFlight: number | undefined
+  private modelFlightSource: TranscriptGraphSource | undefined
   private readonly markdownHtml = new Map<string, string>()
   private stableGraph: StableGraph | undefined
   private indexedSource:
@@ -95,21 +127,30 @@ export class TranscriptComputeClient {
         event: MessageEvent<TranscriptWorkerResponse | TranscriptComputeWorkerError>,
       ) => {
         const message = event.data
-        if (message.ok && message.kind === 'transcript') {
+        if (message.ok && (message.kind === 'transcript' || message.kind === 'model')) {
           for (const [text, html] of message.markdown) this.cacheMarkdown(text, html)
         }
         const pending = this.pending.get(message.id)
         if (this.transcriptFlight === message.id) {
           this.transcriptFlight = undefined
-          if (!message.ok) this.indexedSource = undefined
+          if (!message.ok) {
+            this.indexedSource = undefined
+            const model = this.modelFlightSource ? this.modelSources.get(this.modelFlightSource) : undefined
+            if (model) model.key = undefined
+          }
+          this.modelFlightSource = undefined
         }
         if (!pending) {
           this.dispatchNext()
           return
         }
         this.pending.delete(message.id)
-        if (pending.kind === 'transcript') pending.release?.()
+        if (pending.kind !== 'markdown') pending.release?.()
         if (!message.ok) {
+          if (pending.kind === 'graph') {
+            const model = this.modelSources.get(pending.source)
+            if (model) model.key = undefined
+          }
           pending.reject(new Error(message.error))
           this.dispatchNext()
           return
@@ -121,14 +162,25 @@ export class TranscriptComputeClient {
           }
           return
         }
+        if (pending.kind === 'graph') {
+          if (message.kind === 'model') pending.resolve({ search: message.search, markdownHtml: this.markdownHtml })
+          else pending.reject(new Error('invalid transcript model response'))
+          this.dispatchNext()
+          return
+        }
         if (pending.kind !== 'transcript') return
+        if (message.kind !== 'transcript') {
+          pending.reject(new Error('invalid transcript response'))
+          this.dispatchNext()
+          return
+        }
         pending.resolve(this.stabilize(pending.input, message.result))
         this.dispatchNext()
       }
       worker.onerror = (event) => {
         const error = new Error(event.message || 'transcript compute worker failed')
         for (const pending of this.pending.values()) {
-          if (pending.kind === 'transcript') pending.release?.()
+          if (pending.kind !== 'markdown') pending.release?.()
           pending.reject(error)
         }
         for (const job of this.queued.values()) {
@@ -138,7 +190,9 @@ export class TranscriptComputeClient {
         this.queued.clear()
         this.pending.clear()
         this.transcriptFlight = undefined
+        this.modelFlightSource = undefined
         this.indexedSource = undefined
+        this.modelSources.clear()
         worker.terminate()
         this.worker = undefined
         this.workerUnavailable = true
@@ -243,6 +297,47 @@ export class TranscriptComputeClient {
     })
   }
 
+  computeGraphOnMain(source: TranscriptGraphSource, query: string, cursor: number,
+    verbosity: ChatVerbosity = 'normal'): WebTranscriptGraphResult {
+    const search = source.graph.search(query, cursor, verbosity)
+    source.sent()
+    return { search, markdownHtml: this.markdownHtml }
+  }
+
+  computeGraph(source: TranscriptGraphSource, query: string, cursor: number,
+    options: Pick<TranscriptComputeOptions, 'owner' | 'signal'> & { verbosity?: ChatVerbosity } = {},
+  ): Promise<WebTranscriptGraphResult> {
+    if (options.signal?.aborted) return Promise.reject(new DOMException('Cancelled', 'AbortError'))
+    const worker = this.ensureWorker()
+    const verbosity = options.verbosity ?? 'normal'
+    if (!worker) return Promise.resolve(this.computeGraphOnMain(source, query, cursor, verbosity))
+    return new Promise<WebTranscriptGraphResult>((resolve, reject) => {
+      const owner = options.owner ?? source
+      const previous = this.queued.get(owner)
+      if (previous) {
+        previous.release?.()
+        previous.reject(new DOMException('Superseded', 'AbortError'))
+      }
+      const job: GraphPending = { kind: 'graph', source, query, cursor, verbosity, resolve, reject }
+      const abort = () => {
+        if (this.queued.get(owner) === job) this.queued.delete(owner)
+        for (const [id, pending] of this.pending) if (pending === job) this.pending.delete(id)
+        job.release?.()
+        reject(new DOMException('Cancelled', 'AbortError'))
+      }
+      options.signal?.addEventListener('abort', abort, { once: true })
+      job.release = () => options.signal?.removeEventListener('abort', abort)
+      this.queued.set(owner, job)
+      this.dispatchNext()
+    })
+  }
+
+  forgetGraph(source: TranscriptGraphSource): void {
+    const model = this.modelSources.get(source)
+    this.modelSources.delete(source)
+    if (model) this.worker?.postMessage({ id: 0, kind: 'forget-model', ownerKey: model.ownerKey })
+  }
+
   private dispatchNext(): void {
     if (!this.worker || this.transcriptFlight !== undefined) return
     const entry = this.queued.entries().next().value
@@ -250,9 +345,44 @@ export class TranscriptComputeClient {
     const [owner, job] = entry
     this.queued.delete(owner)
     const id = ++this.nextId
+    if (job.kind === 'graph') {
+      this.transcriptFlight = id
+      this.modelFlightSource = job.source
+      this.pending.set(id, job)
+      let model = this.modelSources.get(job.source)
+      if (!model) {
+        model = { ownerKey: ++this.nextOwnerKey, key: undefined, version: -1 }
+        this.modelSources.set(job.source, model)
+      }
+      try {
+        const needsIndex = model.key === undefined || job.source.needsReset
+        const changed = model.version !== job.source.version
+        const key = needsIndex || changed ? ++this.nextIndexKey : model.key!
+        const request: TranscriptModelWorkerRequest = {
+          id, kind: 'model', ownerKey: model.ownerKey, indexKey: key,
+          query: job.query, cursor: job.cursor, verbosity: job.verbosity,
+          ...(needsIndex ? { items: job.source.snapshot() }
+            : { baseIndexKey: model.key!, ...(changed ? { change: job.source.pending() } : {}) }),
+        }
+        this.worker.postMessage(request)
+        model.key = key
+        model.version = job.source.version
+        job.source.sent()
+      } catch (error) {
+        this.pending.delete(id)
+        this.transcriptFlight = undefined
+        this.modelFlightSource = undefined
+        model.key = undefined
+        job.release?.()
+        job.reject(error instanceof Error ? error : new Error(String(error)))
+        this.dispatchNext()
+      }
+      return
+    }
     const previous = this.indexedSource
     const index = this.indexRequestFor(job.input)
     this.transcriptFlight = id
+    this.modelFlightSource = undefined
     this.pending.set(id, job)
     try {
       let request: TranscriptComputeWorkerRequest
@@ -300,7 +430,7 @@ export class TranscriptComputeClient {
 
   dispose(): void {
     for (const pending of this.pending.values()) {
-      if (pending.kind === 'transcript') pending.release?.()
+      if (pending.kind !== 'markdown') pending.release?.()
       pending.reject(new Error('disposed'))
     }
     for (const job of this.queued.values()) {
@@ -310,7 +440,9 @@ export class TranscriptComputeClient {
     this.queued.clear()
     this.pending.clear()
     this.transcriptFlight = undefined
+    this.modelFlightSource = undefined
     this.indexedSource = undefined
+    this.modelSources.clear()
     this.worker?.terminate()
     this.worker = undefined
     this.stableGraph = undefined

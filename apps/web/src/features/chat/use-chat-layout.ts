@@ -8,14 +8,11 @@ import {
   chatSessionReference,
   composerState,
   isOperatorPromptRow as isOperatorPromptRowOf,
-  lastAnswer as lastAnswerOf,
-  livePendingAskIndex as livePendingAskIndexOf,
   matchesQuestionInteraction,
   type OperatorPromptOptions,
   parseEnvelopeBatch,
   pendingAskFromState,
   type RenderableRow,
-  renderableRows,
   type SuperThreadRef,
   type TranscriptAttributionTable,
   type TranscriptPhase,
@@ -85,8 +82,7 @@ export interface ChatSurface {
   attached: { sessionId: SessionId; label: string; clear: () => void } | null
 
   // -- the transcript --------------------------------------------------------
-  blocks: ChatBlock[]
-  rows: ChatRow[]
+  blockCount: number
   rowsToRender: readonly RenderableRow[]
   /** First windowed-in row: the base every rendered `[data-block]` index is
    *  absolute against, and what `visibleRows[0]` actually is. */
@@ -234,7 +230,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   // go, so sticky questions are suppressed there regardless of the preference.
   const stickyEnabled = stickyPrompts.enabled && !compact
 
-  const { blocks, rows, visibleRows, renderStart, deepeningSearch, computeReady, markdownHtml } = view
+  const { blockCount, rowCount, visibleRows, renderStart, deepeningSearch, computeReady, markdownHtml } = view
   const log = conversation.transcript
   const { loadingOlder, initialLoaded } = log
   const moreAbove = renderStart > 0 || (log.hasMoreOlder && log.head !== undefined)
@@ -258,14 +254,8 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     [promptOptions],
   )
 
-  const rowsToRender = useMemo(
-    () => renderableRows({ rows, visibleRows, renderStart, stickyEnabled, promptOptions }),
-    [rows, visibleRows, renderStart, stickyEnabled, promptOptions],
-  )
-  const livePendingAskIndex = useMemo(
-    () => livePendingAskIndexOf(blocks, session?.status),
-    [blocks, session?.status],
-  )
+  const rowsToRender = view.renderRows(stickyEnabled, headless)
+  const livePendingAskIndex = session?.status === 'live' || session?.status === 'starting' ? view.pendingAskIndex : -1
   // A question Claude Code has not written down yet. Only ever consulted when
   // the transcript has no pending ask of its own, so the real item takes over
   // the moment it lands.
@@ -280,7 +270,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       ),
     [need, session?.status, session?.agentState?.phase, livePendingAskIndex],
   )
-  const answer = useMemo(() => lastAnswerOf(blocks), [blocks])
+  const answer = view.lastAnswer
   // Derived once per session, not once per row: the pair depends on the row's
   // ROLE and the session and on nothing else, so three stable objects serve the
   // whole transcript and the memoized block views keep skipping renders.
@@ -290,7 +280,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     sessionId,
     scrollerRef,
     active,
-    blockCount: blocks.length,
+    blockCount,
     renderStart,
     stickyEnabled,
     moreAbove,
@@ -309,8 +299,11 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     active,
     sessionId,
     request: transcriptReveal,
-    blocks,
-    rows,
+    lookupRow: view.revealRow,
+    rowVersion: view.rowVersion,
+    rowCount,
+    blockCount,
+    headKey: view.headKey,
     initialLoaded,
     computeReady,
     loadingOlder,
@@ -356,7 +349,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     interrupt: sends.interrupt.bind(sends),
   }), [conversation, sends, scroll.pinToBottom])
 
-  const phase = transcriptPhase({ reference, blockCount: blocks.length, pendingCount: conversation.hasPending ? 1 : 0, initialLoaded: initialLoaded && computeReady })
+  const phase = transcriptPhase({ reference, blockCount, pendingCount: conversation.hasPending ? 1 : 0, initialLoaded: initialLoaded && computeReady })
 
   // Draft: read from the store, written through the actions seam (POD-402) —
   // one call, no merge. See ChatComposer's header for the classification and why
@@ -444,7 +437,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       // The matched row sits above the rendered window. Reveal enough trailing
       // rows to cover it, then scroll a frame later once its node has mounted (no
       // scroll-anchor — this is an explicit jump, not a position-preserving prepend).
-      setRenderCount(rows.length - activeRow + RENDER_WINDOW)
+      setRenderCount(rowCount - activeRow + RENDER_WINDOW)
       requestAnimationFrame(() => scroll.scrollToBlock(activeRow))
     } else {
       scroll.scrollToBlock(activeRow)
@@ -453,7 +446,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
 
   const isMobile = useIsMobile()
   const tldr = useCallback(
-    () => void tldrSession(sessionId, lastAnswerOf(view.result?.blocks ?? []).text),
+    () => void tldrSession(sessionId, view.lastAnswer.text),
     [tldrSession, sessionId, view],
   )
 
@@ -492,8 +485,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     compact,
     httpOrigin,
 
-    blocks,
-    rows,
+    blockCount,
     rowsToRender,
     renderStart,
     markdownHtml,

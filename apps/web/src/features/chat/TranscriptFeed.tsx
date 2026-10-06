@@ -256,7 +256,8 @@ export interface TranscriptFeedProps {
   superagent: boolean
   phase: TranscriptPhase
   rows: readonly RenderableRow[]
-  blocks: readonly ChatBlock[]
+  blocks?: readonly ChatBlock[]
+  blockCount?: number
   /** Unsafe HTML produced by the shared worker; ChatBlockView sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   search: TranscriptSearchState
@@ -333,6 +334,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
   phase,
   rows,
   blocks,
+  blockCount = blocks?.length ?? 0,
   markdownHtml,
   search,
   revealedRow,
@@ -466,7 +468,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           above (windowed-out locally or still on disk). Scrolling here autoloads
           them (onScroll → loadOlder); this is also a manual fallback if the
           scroll trigger is missed. */}
-        {blocks.length > 0 && moreAbove && (
+        {blockCount > 0 && moreAbove && (
           <button
             data-pressable
             type="button"

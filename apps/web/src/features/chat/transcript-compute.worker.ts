@@ -1,10 +1,12 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
+import { TranscriptGraph, type TranscriptGraphChange } from '@podium/client-core/conversation'
 import {
   computeTranscript,
   parseEnvelopeBatch,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
   transcriptSearchState,
+  type TranscriptSearchState,
 } from '@podium/client-core/values'
 import { createMarkdownRenderer } from '@/lib/markdown-renderer'
 
@@ -41,11 +43,33 @@ export interface TranscriptMarkdownWorkerRequest {
   text: string
 }
 
+/** The warm conversation sends source edits; ordinary requests carry no order snapshot. */
+export interface TranscriptModelWorkerRequest {
+  id: number
+  kind: 'model'
+  ownerKey: number
+  indexKey: number
+  baseIndexKey?: number
+  items?: TranscriptComputeInput['items']
+  change?: TranscriptGraphChange
+  verbosity: TranscriptComputeInput['verbosity']
+  query: string
+  cursor: number
+}
+
+export interface TranscriptModelForgetRequest {
+  id: number
+  kind: 'forget-model'
+  ownerKey: number
+}
+
 export type TranscriptComputeWorkerRequest =
   | TranscriptIndexWorkerRequest
   | TranscriptSearchWorkerRequest
   | TranscriptDeltaWorkerRequest
   | TranscriptMarkdownWorkerRequest
+  | TranscriptModelWorkerRequest
+  | TranscriptModelForgetRequest
 
 export interface TranscriptComputeWorkerResponse {
   id: number
@@ -64,13 +88,22 @@ export interface TranscriptMarkdownWorkerResponse {
   html: string
 }
 
+export interface TranscriptModelWorkerResponse {
+  id: number
+  kind: 'model'
+  ok: true
+  search: TranscriptSearchState
+  markdown: Array<[text: string, html: string]>
+}
+
 export type TranscriptWorkerResponse =
   | TranscriptComputeWorkerResponse
   | TranscriptMarkdownWorkerResponse
+  | TranscriptModelWorkerResponse
 
 export interface TranscriptComputeWorkerError {
   id: number
-  kind: 'markdown' | 'transcript'
+  kind: 'markdown' | 'transcript' | 'model'
   ok: false
   error: string
 }
@@ -83,6 +116,7 @@ interface TranscriptWorkerScope {
 const scope = self as unknown as TranscriptWorkerScope
 const MARKDOWN_CACHE_LIMIT = 2_048
 const markdownCache = new Map<string, string>()
+const models = new Map<number, { indexKey: number; graph: TranscriptGraph }>()
 let indexed:
   | {
       indexKey: number
@@ -130,6 +164,35 @@ function markdownSources(input: TranscriptComputeInput): string[] {
 scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
   const request = event.data
   try {
+    if (request.kind === 'forget-model') {
+      models.get(request.ownerKey)?.graph.dispose()
+      models.delete(request.ownerKey)
+      return
+    }
+    if (request.kind === 'model') {
+      let model = models.get(request.ownerKey)
+      if (request.items) {
+        model?.graph.dispose()
+        model = { indexKey: request.indexKey, graph: new TranscriptGraph(request.items) }
+        models.set(request.ownerKey, model)
+      } else {
+        if (!model || model.indexKey !== request.baseIndexKey)
+          throw new Error('transcript model edit has no base')
+        if (request.change) model.graph.apply(request.change)
+        model.indexKey = request.indexKey
+      }
+      const markdown: Array<[string, string]> = []
+      const changed = request.items ?? request.change?.changed ?? []
+      for (const text of markdownSources({ items: changed, verbosity: request.verbosity, query: '', cursor: 0 })) {
+        const rendered = renderCachedMarkdown(text)
+        if (rendered.rendered) markdown.push([text, rendered.html])
+      }
+      scope.postMessage({
+        id: request.id, kind: 'model', ok: true,
+        search: model.graph.search(request.query, request.cursor, request.verbosity), markdown,
+      } satisfies TranscriptModelWorkerResponse)
+      return
+    }
     if ('kind' in request && request.kind === 'markdown') {
       scope.postMessage({
         id: request.id,
@@ -201,7 +264,7 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
   } catch (error) {
     scope.postMessage({
       id: request.id,
-      kind: request.kind === 'markdown' ? 'markdown' : 'transcript',
+      kind: request.kind === 'markdown' ? 'markdown' : request.kind === 'model' ? 'model' : 'transcript',
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     } satisfies TranscriptComputeWorkerError)

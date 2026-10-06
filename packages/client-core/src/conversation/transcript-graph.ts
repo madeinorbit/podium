@@ -7,7 +7,8 @@ import {
   type ChatBlock, type ChatRow,
 } from '../values/chat'
 import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
-import type { TranscriptSearchState } from '../values/compose/chat'
+import { isOperatorPrompt, type LastAnswer, type TranscriptSearchState } from '../values/compose/chat'
+import { parseEnvelopeBatch } from '../values/message-envelope'
 import { promptsBeforeTheirReplies, type TranscriptComputeResult } from '../values/transcript-compute'
 import { TranscriptSearchIndex } from './transcript-search-index'
 
@@ -49,6 +50,7 @@ export class TranscriptGraph {
   private readonly children = observable.map<string, readonly string[]>(undefined, { deep: false })
   private readonly rowMembers = observable.map<string, readonly string[]>(undefined, { deep: false })
   private readonly skeletons = observable.map<string, ChatRow>(undefined, { deep: false })
+  private readonly blockSkeletons = observable.map<string, ChatBlock>(undefined, { deep: false })
   private readonly shapes = new Map<string, string>()
   private readonly rowShapes = new Map<string, readonly string[]>()
   private readonly failed = new Set<string>()
@@ -64,21 +66,31 @@ export class TranscriptGraph {
   private readonly ranks = new Map<string, number>()
   private offset = 0
   private orderVersion = 0
+  private operatorVersion = 0
+  private readonly operatorIds = [[], []] as [string[], string[]]
+  private readonly cursorMembers = new Map<string, string[]>()
+  private readonly aliasById = new Map<string, string>()
   private readonly answers = new LatestTranscriptId(id => this.rank(id))
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
+  private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
   latestAnswerId: string | undefined
   latestAssistantId: string | undefined
+  latestProseId: string | undefined
   pendingQuestionId: string | undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
   constructor(items: readonly TranscriptItem[] = []) {
-    makeObservable<this, 'orderVersion'>(this, {
+    makeObservable<this, 'orderVersion' | 'operatorVersion'>(this, {
       orderVersion: observable,
+      operatorVersion: observable,
       latestAnswerId: observable,
       latestAssistantId: observable,
+      latestProseId: observable,
       pendingQuestionId: observable,
       structuralRows: computed,
+      structuralBlocks: computed,
+      lastAnswer: computed,
       reset: action,
       apply: action,
     })
@@ -88,6 +100,32 @@ export class TranscriptGraph {
   /** Stable list metadata. Content is read through block(id) or row(id). */
   get structuralRows(): ChatRow[] {
     return this.rowIds.map(id => this.skeletons.get(id)!)
+  }
+
+  get structuralBlocks(): ChatBlock[] { return this.blockIds.map(id => this.blockSkeletons.get(id)!) }
+  get version(): number { return this.orderVersion }
+  structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
+  get lastAnswer(): LastAnswer {
+    const answer = this.latestAnswerId
+    const prose = this.latestProseId
+    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1,
+      text: prose === undefined ? '' : this.block(prose)?.item.text ?? '' }
+  }
+
+  operatorBefore(rowIndex: number, collapseContext: boolean): string | undefined {
+    this.operatorVersion
+    this.orderVersion
+    const first = this.rowIds[rowIndex]
+    const ids = this.operatorIds[collapseContext ? 1 : 0]
+    if (first === undefined) return ids.at(-1)
+    return ids[this.insertionPoint(ids, first) - 1]
+  }
+
+  revealRow(key: string): number | undefined {
+    this.orderVersion
+    const block = this.cursorMembers.get(key)?.[0]
+    const row = block === undefined ? undefined : this.rowByBlock.get(block)
+    return row === undefined ? undefined : this.rowPosition(row)
   }
 
   block(id: string): ChatBlock | undefined {
@@ -204,6 +242,7 @@ export class TranscriptGraph {
     this.children.clear()
     this.rowMembers.clear()
     this.skeletons.clear()
+    this.blockSkeletons.clear()
     this.shapes.clear()
     this.rowShapes.clear()
     this.failed.clear()
@@ -211,9 +250,13 @@ export class TranscriptGraph {
     this.owners.clear()
     this.rowByBlock.clear()
     this.toolMembers.clear()
+    this.operatorIds[0].length = this.operatorIds[1].length = 0
+    this.cursorMembers.clear()
+    this.aliasById.clear()
     this.ranks.clear()
     this.answers.clear()
     this.assistants.clear()
+    this.prose.clear()
     this.questions.clear()
     this.searchIndex.clear()
     this.fileIds = items.map(item => item.id)
@@ -237,7 +280,7 @@ export class TranscriptGraph {
   apply(change: TranscriptGraphChange): void {
     const insertions = change.insertions ?? []
     const removed = change.removed ?? []
-    const beforeHead = insertions.length > 0 && insertions[0]!.before === this.fileIds[0]
+    const beforeHead = insertions.length > 0 && insertions.every(insertion => insertion.before === this.fileIds[0])
     const append = insertions.every(insertion => insertion.before === undefined)
     const identityChanged = change.changed.some(item => {
       const held = this.items.get(item.id)
@@ -357,10 +400,14 @@ export class TranscriptGraph {
       this.blockIds.splice(at, 1)
       this.searchIndex.remove(id)
       this.shapes.delete(id)
+      this.blockSkeletons.delete(id)
       this.answers.set(id, false)
       this.assistants.set(id, false)
+      this.prose.set(id, false)
       this.questions.set(id, false)
       this.setFailure(id, false)
+      this.indexOperators(id, undefined)
+      this.indexAlias(id, undefined)
     }
     for (const neighbor of [this.blockIds[at - 1], this.blockIds[at], id])
       if (neighbor) dirty.add(neighbor)
@@ -495,6 +542,7 @@ export class TranscriptGraph {
       const row = this.row(first)!
       this.skeletons.set(first, row)
       this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
+      this.orderVersion++
       this.updateSummary(first)
     }
   }
@@ -514,19 +562,57 @@ export class TranscriptGraph {
   private indexBlock(id: string): void {
     const block = this.block(id)
     if (!block) return
+    if (this.shapes.get(id) !== shape(block)) this.blockSkeletons.set(id, block)
     this.shapes.set(id, shape(block))
     this.setFailure(id, rowSurvivesSummary({ kind: 'tools', blocks: [block], blockIndices: [0], title: '' }))
     this.searchIndex.set(id, [block.item.text, block.item.toolName ?? '', block.item.toolInput ?? '',
       block.result ?? block.item.toolResult ?? ''].join('\n'))
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
+    this.prose.set(id, block.item.role === 'assistant' && block.item.text.trim() !== '')
     this.questions.set(id, isAskUserQuestion(block.item) && !block.item.toolResult && block.result === undefined)
+    this.indexOperators(id, block.item)
+    this.indexAlias(id, block.item.cursor ?? id)
   }
 
   private publishFacts(): void {
     this.latestAnswerId = this.answers.latest()
     this.latestAssistantId = this.assistants.latest()
+    this.latestProseId = this.prose.latest()
     this.pendingQuestionId = this.questions.latest()
+  }
+
+  private indexOperators(id: string, item: TranscriptItem | undefined): void {
+    const operatorText = item?.role === 'user' ? parseEnvelopeBatch(item.text)?.operatorText : undefined
+    for (const collapse of [false, true]) {
+      const ids = this.operatorIds[collapse ? 1 : 0]
+      const at = this.insertionPoint(ids, id)
+      const held = ids[at] === id
+      const next = item !== undefined && isOperatorPrompt(item, {
+        collapseMachineContext: collapse, operatorTextOf: () => operatorText,
+      })
+      if (held && !next) { ids.splice(at, 1); this.operatorVersion++ }
+      else if (!held && next) { ids.splice(at, 0, id); this.operatorVersion++ }
+    }
+  }
+
+  private indexAlias(id: string, alias: string | undefined): void {
+    const previous = this.aliasById.get(id)
+    if (previous === alias) return
+    if (previous !== undefined) {
+      const ids = this.cursorMembers.get(previous)!
+      const at = this.insertionPoint(ids, id)
+      if (ids[at] === id) ids.splice(at, 1)
+      if (!ids.length) this.cursorMembers.delete(previous)
+    }
+    if (alias === undefined) this.aliasById.delete(id)
+    else {
+      let ids = this.cursorMembers.get(alias)
+      if (!ids) { ids = []; this.cursorMembers.set(alias, ids) }
+      ids.splice(this.insertionPoint(ids, id), 0, id)
+      this.aliasById.set(id, alias)
+    }
+    this.orderVersion++
   }
 
   private setFailure(id: string, failed: boolean): void {

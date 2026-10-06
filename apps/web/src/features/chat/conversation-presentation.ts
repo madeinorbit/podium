@@ -1,7 +1,7 @@
-import type { TranscriptChange, TranscriptLog } from '@podium/client-core/conversation'
-import { type ChatBlock, type ChatRow, type TranscriptSearchState } from '@podium/client-core/values'
-import { action, actionBound, compareStructural, computed, makeObservable, observable, observableRef, runInAction, type IComputedValue } from 'mobx'
-import { transcriptComputeClient, type WebTranscriptComputeResult } from './transcript-compute-client'
+import { TranscriptGraph, type TranscriptChange, type TranscriptLog, type TranscriptGraphInsertion } from '@podium/client-core/conversation'
+import { type ChatBlock, type ChatRow, type RenderableRow, type TranscriptSearchState } from '@podium/client-core/values'
+import { action, actionBound, computed, makeObservable, observable, observableRef, runInAction, type IComputedValue } from 'mobx'
+import { transcriptComputeClient, type TranscriptGraphSource, type WebTranscriptGraphResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 
 export const RENDER_WINDOW = 300
@@ -11,104 +11,136 @@ const EMPTY_SEARCH: TranscriptSearchState = { matches: [], activeMatch: undefine
 const EMPTY_BLOCKS: ChatBlock[] = []
 const EMPTY_ROWS: ChatRow[] = []
 
-function blockShape(block: ChatBlock) {
-  const { item } = block
-  return [item.id, item.cursor, item.role, item.answer, item.systemKind, item.ts, item.toolName]
-}
-function sameRows(left: ChatRow[], right: ChatRow[]): boolean {
-  return compareStructural(left.map(row => row.kind === 'tools'
-    ? [rowIdentity(row), row.blockIndices, row.blocks.map(blockShape)]
-    : [rowIdentity(row), row.blockIndex, blockShape(row.block)]), right.map(row => row.kind === 'tools'
-    ? [rowIdentity(row), row.blockIndices, row.blocks.map(blockShape)]
-    : [rowIdentity(row), row.blockIndex, blockShape(row.block)]))
+/** A source-owned transport journal survives coalesced and cancelled requests. */
+class PresentationSource implements TranscriptGraphSource {
+  version = 0
+  needsReset = true
+  private readonly changed = new Map<string, TranscriptLog['items'][number]>()
+  private readonly insertions = new Map<string, TranscriptGraphInsertion>()
+  private readonly removed = new Set<string>()
+  constructor(readonly graph: TranscriptGraph, private readonly log: TranscriptLog) {}
+  snapshot(): TranscriptLog['items'] { return this.log.items }
+  record(change: TranscriptChange): void {
+    if (!change.rebuild && !change.changed.length && !change.insertions?.length && !change.removed?.length) return
+    this.version++
+    if (change.rebuild) { this.clear(); this.needsReset = true; return }
+    if (this.needsReset) return
+    for (const item of change.changed) { this.changed.set(item.id, item); this.removed.delete(item.id) }
+    for (const insertion of change.insertions ?? []) this.insertions.set(insertion.id, insertion)
+    for (const id of change.removed ?? []) {
+      this.changed.delete(id)
+      this.insertions.delete(id)
+      this.removed.add(id)
+    }
+  }
+  pending() { return { changed: [...this.changed.values()], insertions: [...this.insertions.values()], removed: [...this.removed] } }
+  sent(): void { this.clear(); this.needsReset = false }
+  private clear(): void { this.changed.clear(); this.insertions.clear(); this.removed.clear() }
 }
 
-/** Worker state belongs to the warm conversation, never to a mounted panel. */
+/** Worker and addressed graph state belong to the warm conversation. */
 export class ConversationPresentation {
-  result: WebTranscriptComputeResult | null = null
+  result: WebTranscriptGraphResult | null = null
   query = ''
   cursor = 0
   renderCount = RENDER_WINDOW
   followTail = true
   deepeningSearch = false
   private log: TranscriptLog | undefined
+  private graph: TranscriptGraph | undefined
+  private ownsGraph = false
+  private source: PresentationSource | undefined
   private readonly client = transcriptComputeClient()
+  private readonly emptyMarkdown = new Map<string, string>()
   private request: AbortController | undefined
-  private lastItems: TranscriptLog['items'] = []
   private disposed = false
   private deepened = false
   private heldHead: string | null = null
-  private readonly blockValues = new Map<string, IComputedValue<ChatBlock | undefined>>()
+  private readonly rendered = new Map<string, IComputedValue<RenderableRow[]>>()
 
   constructor() {
     makeObservable<this, 'heldHead'>(this, {
-      result: observableRef,
-      query: observable,
-      cursor: observable,
-      renderCount: observable,
-      followTail: observable,
-      heldHead: observable,
+      result: observableRef, query: observable, cursor: observable,
+      renderCount: observable, followTail: observable, heldHead: observable,
       deepeningSearch: observable,
       changed: action,
-      blocks: computed({ equals: (a: ChatBlock[], b: ChatBlock[]) => compareStructural(a.map(blockShape), b.map(blockShape)) }),
-      rows: computed({ equals: sameRows }),
-      blocksById: computed,
-      computeReady: computed,
-      markdownHtml: computed,
-      search: computed({ equals: compareStructural }),
-      renderStart: computed,
-      visibleRows: computed({ equals: sameRows }),
-      setQuery: actionBound,
-      moveCursor: actionBound,
-      setRenderCount: actionBound,
-      setFollowTail: actionBound,
+      blocks: computed, rows: computed, computeReady: computed,
+      markdownHtml: computed, search: computed, renderStart: computed, visibleRows: computed,
+      setQuery: actionBound, moveCursor: actionBound,
+      setRenderCount: actionBound, setFollowTail: actionBound,
     })
   }
 
-  bind(log: TranscriptLog): void {
+  bind(log: TranscriptLog, graph?: TranscriptGraph): void {
     this.log = log
+    this.graph = graph ?? new TranscriptGraph(log.items)
+    this.ownsGraph = graph === undefined
+    this.source = new PresentationSource(this.graph, log)
     this.refresh()
   }
-  get blocks(): ChatBlock[] { return this.result?.blocks ?? EMPTY_BLOCKS }
-  get rows(): ChatRow[] { return this.result?.rows ?? EMPTY_ROWS }
-  get blocksById(): ReadonlyMap<string, ChatBlock> {
-    return new Map((this.result?.blocks ?? EMPTY_BLOCKS).map(block => [block.item.id, block]))
+  /** Cold structural readers retained for explicit snapshot demands. */
+  get blocks(): ChatBlock[] { return this.computeReady ? this.graph!.structuralBlocks : EMPTY_BLOCKS }
+  get rows(): ChatRow[] { return this.computeReady ? this.graph!.structuralRows : EMPTY_ROWS }
+  get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
+  get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
+  get rowVersion(): number { return this.graph?.version ?? 0 }
+  get lastAnswer() { return this.graph?.lastAnswer ?? { blockIndex: -1, text: '' } }
+  get headKey(): string {
+    const id = this.log?.ids[0]
+    return id === undefined ? '' : this.log?.byId.get(id)?.cursor ?? id
   }
-  get search(): TranscriptSearchState { return this.result?.search ?? EMPTY_SEARCH }
+  get pendingAskIndex(): number {
+    const id = this.graph?.pendingQuestionId
+    return id === undefined ? -1 : this.graph!.blockPosition(id) ?? -1
+  }
+  get search(): TranscriptSearchState { return this.computeReady ? this.graph!.search(this.query, this.cursor) : EMPTY_SEARCH }
   get renderStart(): number {
-    const tail = Math.max(0, this.rows.length - this.renderCount)
-    const held = !this.followTail && this.heldHead ? this.rows.findIndex(row => rowIdentity(row) === this.heldHead) : -1
-    return held >= 0 ? Math.min(tail, held) : tail
+    const tail = Math.max(0, this.rowCount - this.renderCount)
+    const held = !this.followTail && this.heldHead ? this.graph?.rowPosition(this.heldHead) : undefined
+    return held === undefined ? tail : Math.min(tail, held)
   }
-  get visibleRows(): ChatRow[] { return this.renderStart ? this.rows.slice(this.renderStart) : this.rows }
+  get visibleRows(): ChatRow[] {
+    if (!this.computeReady) return EMPTY_ROWS
+    return this.graph!.rowIds.slice(this.renderStart).map(id => this.graph!.structuralRow(id)!)
+  }
   get retainHistory(): boolean { return !this.followTail || this.query.trim() !== '' }
   get computeReady(): boolean { return this.result !== null }
-  get markdownHtml(): ReadonlyMap<string, string> { return this.result?.markdownHtml ?? new Map() }
+  get markdownHtml(): ReadonlyMap<string, string> { return this.result?.markdownHtml ?? this.emptyMarkdown }
 
-  /** Each observed row tracks its own frozen item and worker folding metadata. */
-  block(id: string): ChatBlock | undefined {
-    let value = this.blockValues.get(id)
+  block(id: string): ChatBlock | undefined { return this.computeReady ? this.graph?.block(id) : undefined }
+  revealRow = (key: string): number | undefined => this.computeReady ? this.graph?.revealRow(key) : undefined
+
+  renderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
+    const key = String(sticky) + ':' + String(collapseContext)
+    let value = this.rendered.get(key)
     if (!value) {
       value = computed(() => {
-        const item = this.log?.byId.get(id)
-        const indexed = this.blocksById.get(id)
-        if (!item || !indexed) return undefined
-        return {
-          ...indexed,
-          item: {
-            ...item,
-            ...(indexed.item.toolPaths?.length ? { toolPaths: indexed.item.toolPaths } : {}),
-            ...(indexed.item.tags?.length ? { tags: indexed.item.tags } : {}),
-            ...(indexed.item.toolEffects ? { toolEffects: indexed.item.toolEffects } : {}),
-          },
+        const rows: RenderableRow[] = []
+        const start = this.renderStart
+        const prompt = sticky && start > 0 ? this.graph?.operatorBefore(start, collapseContext) : undefined
+        const rowId = prompt === undefined ? undefined : this.graph?.rowIdForBlock(prompt)
+        if (rowId !== undefined) {
+          const row = this.graph!.structuralRow(rowId)
+          const index = this.graph!.rowPosition(rowId)
+          if (row && index !== undefined) rows.push({ row, index })
         }
-      }, { equals: compareStructural })
-      this.blockValues.set(id, value)
+        this.visibleRows.forEach((row, at) => rows.push({ row, index: start + at }))
+        return rows
+      })
+      this.rendered.set(key, value)
     }
     return value.get()
   }
 
-  changed(change: TranscriptChange): void { this.refresh(change) }
+  changed(change: TranscriptChange): void {
+    if (!this.source || !this.graph || !this.log || this.disposed) return
+    if (this.ownsGraph) {
+      if (change.rebuild) this.graph.reset(this.log.items)
+      else this.graph.apply(change)
+    }
+    this.source.record(change)
+    this.refresh()
+  }
   setQuery(query: string): void {
     this.query = query
     this.cursor = 0
@@ -148,29 +180,25 @@ export class ConversationPresentation {
     finally { runInAction(() => { this.deepeningSearch = false }) }
   }
 
-  private refresh(change?: TranscriptChange): void {
-    if (!this.log || this.disposed) return
+  private refresh(): void {
+    if (!this.source || this.disposed) return
     this.request?.abort()
     const request = this.request = new AbortController()
-    const input = { items: this.log.items, verbosity: 'normal' as const, query: this.query, cursor: this.cursor }
-    const delta = change ? { baseItems: this.lastItems, changed: change.changed, order: this.log.ids.slice() } : undefined
-    this.lastItems = input.items
-    const accept = (result: WebTranscriptComputeResult) => {
+    const source = this.source
+    const accept = (result: WebTranscriptGraphResult) => {
       if (this.disposed || request.signal.aborted || this.request !== request) return
-      runInAction(() => {
-        this.result = result
-        this.log?.markRendered()
-      })
-      for (const id of this.blockValues.keys()) if (!this.log?.byId.has(id)) this.blockValues.delete(id)
+      runInAction(() => { this.result = result; this.log?.markRendered() })
     }
-    if (!this.client.usesWorker) { accept(this.client.computeOnMain(input)); return }
-    void this.client.compute(input, { owner: this, signal: request.signal, delta }).then(accept, () => {
-      if (!request.signal.aborted) accept(this.client.computeOnMain(input))
+    if (!this.client.usesWorker) { accept(this.client.computeGraphOnMain(source, this.query, this.cursor)); return }
+    void this.client.computeGraph(source, this.query, this.cursor, { owner: this, signal: request.signal }).then(accept, () => {
+      if (!request.signal.aborted) accept(this.client.computeGraphOnMain(source, this.query, this.cursor))
     })
   }
   dispose(): void {
     this.disposed = true
     this.request?.abort()
-    this.blockValues.clear()
+    if (this.source) this.client.forgetGraph(this.source)
+    if (this.ownsGraph) this.graph?.dispose()
+    this.rendered.clear()
   }
 }
