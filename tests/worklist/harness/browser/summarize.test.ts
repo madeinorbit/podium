@@ -172,7 +172,7 @@ describe('runSummary (the entry point)', () => {
   it('summarises a complete set: exit 0, tables printed, no withheld or provisional column', () => {
     const { code, lines } = summary(write(grid()))
     expect(code).toBe(0)
-    expect(lines.some((line) => line.startsWith('| hand | click | 4x | 20 |'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('| mobx-write | click | 4x | 20 |'))).toBe(true)
     const headers = lines.filter((line) => line.startsWith('| Arm |'))
     expect(headers).toHaveLength(2)
     for (const header of headers) expect(header).not.toMatch(/withheld|provisional|n < 20/i)
@@ -183,7 +183,7 @@ describe('runSummary (the entry point)', () => {
     const runs = grid().filter((r) => !(r.arm === 'mobx-write' && r.scale === 2))
     const { code, lines } = summary(write(runs))
     expect(code).toBe(2)
-    expect(lines).toContain('INCOMPLETE (not summarised): cell hand rename 2x: 0 of 20 samples')
+    expect(lines).toContain('INCOMPLETE (not summarised): cell mobx-write rename 2x: 0 of 20 samples')
     expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
@@ -196,7 +196,7 @@ describe('runSummary (the entry point)', () => {
     expect(lines[0]).toMatch(
       /^FAILED RUN \(not summarised\): .*r5\.json — load 8\.40 > 8 at click#3$/,
     )
-    expect(lines).toContain('INCOMPLETE (not summarised): cell hand click 4x: 0 of 20 samples')
+    expect(lines).toContain('INCOMPLETE (not summarised): cell mobx-write click 4x: 0 of 20 samples')
     expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
@@ -210,7 +210,7 @@ describe('runSummary (the entry point)', () => {
     const { code, lines } = summary(write([...runs, failed]))
     expect(code).toBe(0)
     expect(lines[0]).toMatch(/^FAILED RUN \(not summarised\): /)
-    expect(lines.some((line) => line.startsWith('| hand | click | 4x | 20 |'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('| mobx-write | click | 4x | 20 |'))).toBe(true)
   })
 
   it('refuses a record above load 8 even in a run marked ok', () => {
@@ -219,7 +219,7 @@ describe('runSummary (the entry point)', () => {
     const { code, lines } = summary(write(runs))
     expect(code).toBe(2)
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatch(/^INCOMPLETE \(not summarised\): load 8\.50 > 8 at hand 2x /)
+    expect(lines[0]).toMatch(/^INCOMPLETE \(not summarised\): load 8\.50 > 8 at mobx-write 2x /)
   })
 
   it('holds a matrix directory to its plan', () => {
@@ -264,7 +264,7 @@ describe('runSummary (the entry point)', () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatch(/^TARGETS DIFFER \(not summarised\): 1x click#0: /)
     expect(lines[0]).toContain('1-click-0 (noop)')
-    expect(lines[0]).toContain('i17 (hand)')
+    expect(lines[0]).toContain('i17 (mobx-write)')
   })
 
   it('refuses runs timed on two machines: exit 2, no table', () => {

@@ -136,7 +136,7 @@ describe('gridShortfalls (the summary refuses an incomplete set)', () => {
     const runs = grid(['noop', 'mobx-write']).filter((r) => !(r.arm === 'mobx-write' && r.scale === 4))
     const out = gridShortfalls(runs, { minSamples: 20 })
     expect(out).toHaveLength(SCENARIOS.length)
-    expect(out[0]).toBe('cell hand heartbeat 4x: 0 of 20 samples')
+    expect(out[0]).toBe('cell mobx-write heartbeat 4x: 0 of 20 samples')
   })
 
   it('refuses an arm without the no-op floor its budgets need', () => {
@@ -151,7 +151,7 @@ describe('gridShortfalls (the summary refuses an incomplete set)', () => {
     const out = gridShortfalls(runs, { minSamples: 20 })
     expect(out).toContain('cell noop rename 1x: 20 of 25 samples')
     expect(gridShortfalls(grid(['noop', 'mobx-write'], 10), { minSamples: 20 })).toContain(
-      'cell hand click 1x: 10 of 20 samples',
+      'cell mobx-write click 1x: 10 of 20 samples',
     )
   })
 
@@ -184,13 +184,13 @@ describe('gridShortfalls (the summary refuses an incomplete set)', () => {
     }
     expect(gridShortfalls(runs, { minSamples: 20, plan, files })).toEqual([])
     // Round 3's hand 2x never passed: its cells are 15 of 20 and its file is missing.
-    const drop = files.indexOf('r3-hand-2x.json')
+    const drop = files.indexOf('r3-mobx-write-2x.json')
     const out = gridShortfalls(
       runs.filter((_, i) => i !== drop),
       { minSamples: 20, plan, files: files.filter((_, i) => i !== drop) },
     )
-    expect(out).toContain('cell hand rename 2x: 15 of 20 samples')
-    expect(out).toContain('run r3-hand-2x.json: no ok output')
+    expect(out).toContain('cell mobx-write rename 2x: 15 of 20 samples')
+    expect(out).toContain('run r3-mobx-write-2x.json: no ok output')
     // A plan too small for a p95 refuses before any run.
     expect(gridShortfalls(runs, { minSamples: 20, plan: { ...plan, rounds: 2 }, files })).toContain(
       'plan gives 10 samples per cell, fewer than 20',

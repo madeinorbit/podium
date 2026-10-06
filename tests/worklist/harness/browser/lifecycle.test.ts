@@ -90,14 +90,14 @@ describe('runSummary over a lifecycle-only set', () => {
   it('prints the lifecycle table, no hot-path table and no control-relative verdict', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4561-'))
     writeFileSync(join(dir, 'control.json'), JSON.stringify(CONTROL))
-    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('mobx-write', { wall: 250 })))
+    writeFileSync(join(dir, 'mobx-write.json'), JSON.stringify(lifecycleRun('mobx-write', { wall: 250 })))
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(0)
     const headers = lines.filter((line) => line.startsWith('| Arm |'))
     expect(headers).toHaveLength(1)
     expect(headers[0]).toContain('| Lifecycle |')
     // 2.5x the control's wall is reported, and judged nowhere here (POD-4747).
-    expect(lines.some((line) => line.startsWith('| hand | coldBootstrap | 1x |'))).toBe(true)
+    expect(lines.some((line) => line.startsWith('| mobx-write | coldBootstrap | 1x |'))).toBe(true)
     expect(lines.some((line) => /OVER|within/.test(line))).toBe(false)
   })
 
@@ -117,7 +117,7 @@ describe('runSummary over a lifecycle-only set', () => {
       join(dir, 'control.json'),
       JSON.stringify(lifecycleRun('control', { samples: 19 })),
     )
-    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('mobx-write')))
+    writeFileSync(join(dir, 'mobx-write.json'), JSON.stringify(lifecycleRun('mobx-write')))
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
     expect(lines).toContain(

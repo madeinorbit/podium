@@ -195,6 +195,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
+        "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-sections.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/podium-route.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/screening.ts",
