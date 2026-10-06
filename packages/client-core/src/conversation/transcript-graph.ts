@@ -161,7 +161,7 @@ export class TranscriptGraph {
   row(id: string): ChatRow | undefined {
     let value = this.rows.get(id)
     if (!value) {
-      value = computed<ChatRow | undefined>(() => {
+      value = computed<ChatRow | undefined>((): ChatRow | undefined => {
         const members = this.rowMembers.get(id)
         if (!members?.length) return undefined
         const first = this.block(members[0]!)

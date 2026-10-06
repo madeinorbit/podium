@@ -4,7 +4,7 @@ import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../../tests/worklist/harness/src/work-meter'
 import { ConversationPresentation } from './conversation-presentation'
-import { TranscriptComputeClient } from './transcript-compute-client'
+import { TranscriptComputeClient, type TranscriptGraphSource } from './transcript-compute-client'
 import type { TranscriptComputeWorkerRequest, TranscriptWorkerResponse } from './transcript-compute.worker'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
@@ -40,6 +40,12 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     const items = Array.from({ length: 512 * scale }, (_, at) => item(at))
     let page = { items, head: items[0]!.cursor, hasMore: true }
     const client = new TranscriptComputeClient()
+    let retainedSource: TranscriptGraphSource | undefined
+    const computeGraph = client.computeGraph.bind(client)
+    vi.spyOn(client, 'computeGraph').mockImplementation((source, ...args) => {
+      retainedSource = source
+      return computeGraph(source, ...args)
+    })
     const presentation = new ConversationPresentation(client)
     presentation.setFollowTail(false)
     const log = new TranscriptLog({ sessionId: asSessionId('retained-web'),
@@ -71,13 +77,18 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
       const older = await count('retainedWeb.older', () => log.loadOlder())
       const search = await count('retainedWeb.search', () => presentation.setQuery('needle'))
       const cursor = await count('retainedWeb.cursor', () => presentation.moveCursor(1))
+      let verbosityResult: ReturnType<TranscriptComputeClient['computeGraph']> | undefined
+      const verbosity = await count('retainedWeb.verbosity', () => {
+        verbosityResult = client.computeGraph(retainedSource!, '', 0, { verbosity: 'summary' })
+      })
+      expect((await verbosityResult)!.search.total).toBe(0)
       expect(presentation.search.total).toBe(1)
       expect(presentation.block(items.at(-1)!.id)?.item.text).toBe('streamed token')
       expect(log.ids.length).toBe(items.length + 3)
-      samples.push({ scale, history: items.length, stream, incoming, older, search, cursor })
+      samples.push({ scale, history: items.length, stream, incoming, older, search, cursor, verbosity })
     } finally { stop(); presentation.dispose(); log.dispose(); client.dispose() }
   }
-  for (const name of ['stream', 'incoming', 'older', 'search', 'cursor'] as const) {
+  for (const name of ['stream', 'incoming', 'older', 'search', 'cursor', 'verbosity'] as const) {
     // Small MobX subscriber differences are allowed; a retained-history walk
     // would grow fourfold and exceed this bound by hundreds of elements.
     expect(samples[1]![name].elements).toBeLessThanOrEqual(samples[0]![name].elements + 20)
