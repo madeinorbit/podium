@@ -39,33 +39,37 @@ export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
 }
 
 const EMPTY_MACHINE_IDS: readonly string[] = []
+const EMPTY_TARGETS: Record<string, string> = {}
 function machineReaders(pool: MobxPool) {
   return pool.sources.view('web.settings.machines', () => {
     const ids = keyedComputed('settings.machineIds', (_key: null) => {
       const catalog = pool.row('settingsCatalog', 'catalog')
       return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
     })
-    const target = keyedComputed('settings.machineTarget', (id: string) => {
+    const override = keyedComputed('settings.machineChannel', (id: string) => {
       const row = pool.row('settingsMachine', id)
-      return loaded(row)
-        ? JSON.stringify([row.updateChannelOverride ?? null, row.targetVersion ?? null])
-        : '[null,null]'
+      return loaded(row) ? (row.updateChannelOverride ?? null) : null
+    })
+    const version = keyedComputed('settings.machineTarget', (id: string) => {
+      const row = pool.row('settingsMachine', id)
+      return loaded(row) ? (row.targetVersion ?? null) : null
     })
     const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
       const result: Record<string, string> = {}
       for (const id of ids(null)) {
-        const [override, version] = JSON.parse(target(id)) as [string | null, string | null]
-        const selected = override ?? channel
-        if (selected && version) result[selected] ??= version
+        const selected = override(id) ?? channel
+        const target = version(id)
+        if (selected && target) result[selected] ??= target
       }
-      return JSON.stringify(result)
+      return result
     })
     return {
       ids,
       targets,
       dispose() {
         ids.clear()
-        target.clear()
+        override.clear()
+        version.clear()
         targets.clear()
       },
     }
@@ -87,8 +91,7 @@ export function useSettingsMachine(id: string): Store['machines'][number] | null
 }
 export function useSettingsMachineTargets(channel: string | null): Record<string, string> {
   const read = useCallback((pool: MobxPool) => machineReaders(pool).targets(channel), [channel])
-  const raw = useWorklistPoolProjection(read, '{}')
-  return useMemo(() => JSON.parse(raw) as Record<string, string>, [raw])
+  return useWorklistPoolProjection(read, EMPTY_TARGETS)
 }
 
 const readTab = (pool: MobxPool) => {

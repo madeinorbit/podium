@@ -20,6 +20,7 @@ export interface SettingsData extends MobileSettingsDiagnostics {
   outboxDeadLetterCount: number
 }
 const EMPTY_IDS: readonly string[] = []
+const UPDATE_STATES = ['current', 'behind', 'ahead', 'unreported', 'unknown'] as const
 const EMPTY_SETTINGS: SettingsData = {
   machineIds: EMPTY_IDS,
   machineCount: 0,
@@ -49,9 +50,9 @@ function machineReaders(pool: MobxPool) {
     )
     const flags = keyedComputed('phone.settings.machineFlags', (id: string) => {
       const row = pool.row('settingsMachine', id)
-      if (!loaded(row)) return null
+      if (!loaded(row)) return -1
       const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
-      return JSON.stringify([view.online, view.updateState])
+      return (UPDATE_STATES.indexOf(view.updateState) << 1) | Number(view.online)
     })
     const summary = keyedComputed('phone.settings.fleetSummary', (_key: null) => {
       let count = 0,
@@ -60,9 +61,10 @@ function machineReaders(pool: MobxPool) {
         ahead = 0,
         unreported = 0
       for (const id of ids(null)) {
-        const raw = flags(id)
-        if (raw === null) continue
-        const [live, update] = JSON.parse(raw) as [boolean, MachineOperationsView['updateState']]
+        const bits = flags(id)
+        if (bits < 0) continue
+        const live = bits & 1,
+          update = UPDATE_STATES[bits >> 1]
         count++
         if (live) online++
         if (update === 'behind') behind++
@@ -83,7 +85,7 @@ function machineReaders(pool: MobxPool) {
               : count === 0
                 ? 'No visible machines'
                 : 'All visible machines current'
-      return JSON.stringify({ machineCount: count, fleetLabel, updateLabel })
+      return { machineCount: count, fleetLabel, updateLabel }
     })
     const status = keyedComputed(
       'phone.settings.machineStatus',
@@ -116,10 +118,7 @@ export function readSettingsData(pool: MobxPool): SettingsData {
   const notices = pool.row('noticeCatalog', 'catalog')
   const machines = machineReaders(pool)
   return {
-    ...(JSON.parse(machines.summary(null)) as Pick<
-      SettingsData,
-      'machineCount' | 'fleetLabel' | 'updateLabel'
-    >),
+    ...machines.summary(null),
     machineIds: machines.shown(null),
     sessionCount: settingsView(pool).sessionCount(),
     issueCount: loaded(diagnostics) ? diagnostics.issueCount : 0,
