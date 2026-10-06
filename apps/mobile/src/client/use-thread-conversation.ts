@@ -1,6 +1,7 @@
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
+import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
@@ -133,6 +134,7 @@ export function useThreadConversation(
           },
         },
         cache: {
+          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
           read: () => {
             const sid = readSid()
             return sid ? owner.replica.transcriptWindow(sid) : undefined

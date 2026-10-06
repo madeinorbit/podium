@@ -48,6 +48,8 @@ export interface TranscriptCacheEntry {
 export interface TranscriptCache {
   read(sessionId: SessionId): TranscriptCacheEntry | undefined
   write(sessionId: SessionId, items: readonly TranscriptItem[]): void
+  /** A bounded cache needs only this trailing window, even while history is retained. */
+  maxItems?: number
 }
 
 export interface TranscriptConnection {

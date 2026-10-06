@@ -7,7 +7,7 @@ import {
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   chatActivity,
@@ -243,6 +243,7 @@ export function SessionConversation(
           },
         },
         cache: {
+          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
           read: (id) => owner.replica.transcriptWindow(id),
           write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
         },

@@ -4,6 +4,7 @@ import {
 } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
+import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import { useStoreHandle, useConversation as useOwnedConversation } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
@@ -134,7 +135,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         read: request => trpc.sessions.transcriptRead.query(request),
         subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
       },
-      ...(replica ? { cache: { read: id => replica.transcriptWindow(id), write: (id, items) => replica.putTranscriptWindow(id, [...items]) } } : {}),
+      ...(replica ? { cache: { maxItems: REPLICA_TRANSCRIPT_ITEM_CAP, read: id => replica.transcriptWindow(id), write: (id, items) => replica.putTranscriptWindow(id, [...items]) } } : {}),
     },
     onTranscriptChange: change => presentation.changed(change),
     ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),

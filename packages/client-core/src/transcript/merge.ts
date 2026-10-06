@@ -132,11 +132,12 @@ export function dedupeTranscriptItems(items: readonly TranscriptItem[]): Transcr
 export function freshOlderTranscriptPage(
   page: readonly TranscriptItem[],
   held: readonly TranscriptItem[],
+  heldIds?: Pick<ReadonlyMap<string, unknown>, 'has'>,
 ): TranscriptItem[] {
   if (page.length === 0) return page as TranscriptItem[]
-  const seen = new Set(held.map((item) => item.id))
+  const seen = new Set(heldIds ? [] : held.map((item) => item.id))
   return page.filter((item) => {
-    if (seen.has(item.id)) return false
+    if (heldIds?.has(item.id) || seen.has(item.id)) return false
     seen.add(item.id)
     return true
   })
