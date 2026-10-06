@@ -1,3 +1,4 @@
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
 /**
  * THE LAUNCH SHEET AFTER THE WIZARD [POD-1354].
@@ -145,7 +146,7 @@ describe('phone launch demand bounds', () => {
     expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(1)
     rows.mockClear()
     await act(async () => {
-      attached.header.apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
+      headerEntities(attached).apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
         value: { ...linked[0]!, branch: 'unshown' } }])
     })
     expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(0)
