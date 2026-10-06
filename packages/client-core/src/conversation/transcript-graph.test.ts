@@ -134,7 +134,7 @@ it('selects the last result and last supplied effects without demanding all prog
   f.append({ ...result('first', 'same', 'first'), toolEffects: [{ kind: 'unknown', key: 'first' }] }, result('last'))
   f.apply({ changed: [{ ...result('first', 'same', 'updated'), toolEffects: [{ kind: 'unknown', key: 'updated' }] }] })
   expect(f.graph.block('call')?.result).toBe('last')
-  expect(f.graph.block('call')?.item.toolEffects?.[0]?.key).toBe('updated')
+  expect(f.graph.block('call')?.item.toolEffects?.[0]).toEqual({ kind: 'unknown', key: 'updated' })
   f.apply({ changed: [result('first')] })
   expect(f.graph.block('call')?.item.toolEffects).toBeUndefined()
 })
