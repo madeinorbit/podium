@@ -505,20 +505,33 @@ describe('latest handoff pair (POD-5652)', () => {
         row(`a${index}`, 'assistant', index + 2, { text: `line ${index}` }),
       ),
     ]
-    const f = await fixture(items, 8, false)
+    let retain = true
+    let page: TranscriptPage = { items, head: 'head', tail: items.at(-1)?.cursor, hasMore: true }
+    const log = new TranscriptLog({
+      sessionId: asSessionId('facts'),
+      source: {
+        read: async () => page,
+        subscribe: () => () => {},
+      },
+      initialLimit: 8,
+      retainHistory: () => retain,
+      visible: () => false,
+    })
     try {
-      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt')
-      f.emit([row('fresh', 'assistant', 30, { text: 'fresh' })])
-      expect(f.controller.latestHandoffPair).toBeNull()
-      f.page({
+      await log.start()
+      expect(log.latestHandoffPair?.prompt.item.id).toBe('prompt')
+      retain = false
+      log.merge([row('fresh', 'assistant', 30, { text: 'fresh' })])
+      expect(log.latestHandoffPair).toBeNull()
+      page = {
         items: [row('prompt', 'user', 1, { text: 'question' })],
         head: 'older',
         hasMore: false,
-      })
-      await f.controller.loadOlder()
-      expect(f.controller.latestHandoffPair?.prompt.item.id).toBe('prompt')
+      }
+      await log.loadOlder()
+      expect(log.latestHandoffPair?.prompt.item.id).toBe('prompt')
     } finally {
-      f.controller.dispose()
+      log.dispose()
     }
   })
 
