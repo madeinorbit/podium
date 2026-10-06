@@ -19,7 +19,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
-import { SEATED, UNSETTLED, sessionSeats, type SeatRelation } from './session-seats'
+import { sessionSeats, type SeatRelation } from './session-seats'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -850,8 +850,8 @@ export class MissionViewReader {
   private archivedSession(id: string): Loaded<boolean> {
     const seat = sessionSeats(this.pool).seat(id)
     if (seat === LOADING || seat === undefined) return seat
-    if (seat === SEATED) return false
-    if (seat !== UNSETTLED) return true
+    if (seat.seat === 'seated') return false
+    if (seat.seat === 'retired') return true
     const row = this.rawSession(id)
     return row === LOADING || row === undefined ? row : Boolean(row.archived)
   }

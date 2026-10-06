@@ -79,6 +79,9 @@ type SeatRow = {
  */
 function createSessionSeats(pool: MobxPool): SessionSeats {
   const seat = cachedKey('SessionSeat', 'seat', (sessionId): Loaded<Seat> => {
+    // Present seats need only the maintained flag. Display changes must not
+    // invalidate this question through the complete session row.
+    if (pool.queries.sessionArchived(sessionId) === false) return SEATED
     // A resident row already has the exact flag and history fields. Asking
     // for a cold summary as well repeats one read for every mission seat.
     const residentRow = pool.row('session', sessionId, 'mark') as Loaded<SeatRow>

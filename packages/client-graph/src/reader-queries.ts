@@ -639,6 +639,8 @@ export class ReaderQueries {
     const next = questions.fact(id)
     if (beforePresent !== (next !== undefined))
       this.sessionAtoms.get(`presence:${id}`)?.reportChanged()
+    if (previous?.archived !== next?.archived)
+      this.sessionAtoms.get(`archived:${id}`)?.reportChanged()
     const after = next?.issueId
     if (before) this.publishIssueClose(before)
     if (after && after !== before) this.publishIssueClose(after)
@@ -1216,11 +1218,17 @@ export class ReaderQueries {
     this.counts.scalarVisits++
     return this.sessionQuestions().present(id)
   }
+  /** The maintained flag, independent of display/read-marker row identity. */
+  sessionArchived(id: string): boolean | undefined {
+    this.observeSession('archived', id)
+    this.counts.scalarVisits++
+    return this.sessionQuestions().fact(id)?.archived
+  }
   orderKey(id: string): string {
     this.observeSession('order', id)
     return this.index().sessionOrderKey(id)
   }
-  private observeSession(kind: 'collapsed' | 'order' | 'presence', id: string): void {
+  private observeSession(kind: 'collapsed' | 'order' | 'presence' | 'archived', id: string): void {
     const key = `${kind}:${id}`
     const atom = this.sessionAtoms.get(key)
     if (!atom) {
