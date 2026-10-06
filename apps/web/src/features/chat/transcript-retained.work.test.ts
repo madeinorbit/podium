@@ -40,6 +40,8 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
     const items = Array.from({ length: 512 * scale }, (_, at) => item(at))
     let page = { items, head: items[0]!.cursor, hasMore: true }
     const client = new TranscriptComputeClient()
+    expect(client.usesWorker).toBe(true)
+    expect(() => new URL('./transcript-compute.worker.ts', import.meta.url)).not.toThrow()
     let retainedSource: TranscriptGraphSource | undefined
     const computeGraph = client.computeGraph.bind(client)
     vi.spyOn(client, 'computeGraph').mockImplementation((source, ...args) => {
@@ -54,6 +56,7 @@ it('bounds warm web stream, append, prepend, query and cursor work at 1x/4x hist
       retainHistory: () => presentation.retainHistory,
       onChange: change => presentation.changed(change) })
     presentation.bind(log)
+    expect(client.usesWorker).toBe(true)
     await log.start()
     await worker!.flush()
     // Model observation remains mounted while the history grows. Its window is
