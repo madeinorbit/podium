@@ -1448,8 +1448,7 @@ pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bo
     let staging = parent.join(format!(".payload-seed-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging);
     if let Err(error) = copy_payload_tree(seed, &staging)
-        .and_then(|_| ensure_executable(&staging.join("podium")))
-        .and_then(|_| ensure_executable(&staging.join("podium-cli")))
+        .and_then(|_| ensure_executable(&payload_entrypoint(&staging)))
         .and_then(|_| strip_payload_quarantine(&staging))
         .and_then(|_| std::fs::rename(&staging, install))
     {
@@ -1462,6 +1461,35 @@ pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bo
     Ok(true)
 }
 
+/// The program the shell starts from a payload install. On Unix that is the `podium` sh
+/// launcher, which exports PODIUM_HOME and the web dirs and then execs `podium-cli`.
+/// Windows has no sh, and `Command` cannot run the `podium.cmd` launcher (nor should a
+/// cmd.exe sit between the shell and the process it supervises), so the shell runs the
+/// compiled CLI itself and sets what the launcher would (`payload_launcher_env`).
+pub fn payload_entrypoint(install: &Path) -> PathBuf {
+    if cfg!(windows) {
+        install.join("podium-cli.exe")
+    } else {
+        install.join("podium")
+    }
+}
+
+/// What `podium.cmd` exports before running `podium-cli.exe`; empty on Unix, where the
+/// `podium` launcher itself does it. A variable the shell's own environment already sets
+/// wins, as it does in the launcher.
+pub fn payload_launcher_env(install: &Path) -> Vec<(&'static str, PathBuf)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let mut env = vec![("PODIUM_HOME", install.to_path_buf())];
+    for (key, dir) in [("PODIUM_WEB_DIR", "web"), ("PODIUM_MOBILE_WEB_DIR", "mobile")] {
+        if std::env::var_os(key).is_none() {
+            env.push((key, install.join(dir)));
+        }
+    }
+    env
+}
+
 /// Ensure a payload entrypoint is executable without ever copying or refreshing it.
 /// First-run seeding and fleet grants are the only writers of the payload directory.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
@@ -1472,6 +1500,10 @@ pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
         perms.set_mode(0o755);
         std::fs::set_permissions(path, perms)?;
     }
+    // No mode bits to set on Windows, but a missing entrypoint must fail here, by name,
+    // not later as a bare "cannot find the file specified" from the spawn.
+    #[cfg(not(unix))]
+    std::fs::metadata(path)?;
     Ok(path.to_path_buf())
 }
 

@@ -272,6 +272,22 @@ fn native_open_bridge_script() -> &'static str {
     include_str!("../native-open.js")
 }
 
+/// A `Command` for the payload entrypoint. On Windows the backend is a console program:
+/// without CREATE_NO_WINDOW every start would open a console window next to the app.
+fn payload_command(runnable: &Path) -> Command {
+    let mut command = Command::new(runnable);
+    if let Some(install) = runnable.parent() {
+        command.envs(bootstrap::payload_launcher_env(install));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn local_host_sidecar_command(
     runnable: &Path,
     sidecar_args: &[String],
@@ -283,7 +299,7 @@ fn local_host_sidecar_command(
     // A transfer or prior orderly stop may have consumed this marker. Every new child starts
     // from an absent marker; the path is scoped to this shell PID.
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(sidecar_args)
         // The daemon makes this exact fleet-managed CLI authoritative for every session.
@@ -322,7 +338,7 @@ fn local_host_sidecar_command(
 /// §2). The shell starts it; it never tells it what to run.
 fn remote_parent_command(runnable: &Path, shutdown_file: &Path) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(["parent", "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
@@ -1684,7 +1700,7 @@ fn main() {
                     let web_dir = install.join("web");
                     let mobile_web_dir = install.join("mobile");
                     if payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");
@@ -1791,7 +1807,7 @@ fn main() {
                         .as_ref()
                         .expect("a daemon host has an external payload");
                     if server_transport_error.is_none() && payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");

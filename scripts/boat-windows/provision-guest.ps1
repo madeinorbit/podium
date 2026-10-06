@@ -16,6 +16,7 @@ function Refresh-Path {
 # Defender real-time scanning roughly doubles bun install and cargo build times.
 Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
 Add-MpPreference -ExclusionPath 'C:\src', "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup", "$env:LOCALAPPDATA\mise" -ErrorAction SilentlyContinue
+Set-ExecutionPolicy -Scope LocalMachine Bypass -Force
 # Long paths: node_modules trees exceed MAX_PATH.
 Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' LongPathsEnabled 1
 # No automatic updates or reboots in the middle of an agent's run.

@@ -9,6 +9,8 @@
 #   boat-win.sh sync ID [REF]         ship the local checkout (REF, default HEAD) to C:\src\podium
 #   boat-win.sh win ID [CMD...]       run a PowerShell command in the guest (no CMD: interactive)
 #   boat-win.sh pull ID GUESTPATH LOCALPATH   copy a file out of the guest
+#   boat-win.sh gui ID CMD...         run PowerShell in the signed-in desktop session (GUI apps)
+#   boat-win.sh shot ID OUT.png       screenshot of the Windows desktop
 #   boat-win.sh desktop ID            print the noVNC URL of the Windows screen
 #   boat-win.sh stop ID               shut Windows down cleanly, then stop (snapshot) the sandbox
 #   boat-win.sh resume ID             resume a stopped sandbox and wait for Windows SSH
@@ -35,7 +37,7 @@ host() { local id="$1"; shift; boat ssh "$id" "$*"; }
 ps() {
   local id="$1" enc
   enc=$(printf '$ProgressPreference="SilentlyContinue"\n%s\nexit $LASTEXITCODE' "$2" | iconv -t UTF-16LE | base64 -w0)
-  host "$id" "$GUEST_SSH powershell -NoProfile -NonInteractive -EncodedCommand $enc"
+  host "$id" "$GUEST_SSH powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $enc"
 }
 
 # Start Windows only once boat has finished restoring the sandbox's files. Boat's lazy
@@ -110,6 +112,19 @@ for s in json.load(sys.stdin)["sandboxes"]:
     need_id "${1:-}"; id="$1"; src="$2"; dst="$3"
     ps "$id" "Copy-Item -Force '$src' \\\\host.lan\\Data\\out.bin"
     boat scp "$id:/home/user/win/shared/out.bin" "$dst" >/dev/null
+    ;;
+  gui|shot)
+    need_id "${1:-}"; id="$1"; shift
+    boat scp "$(dirname "$0")/gui.ps1" "$id:/home/user/win/shared/gui.ps1" >/dev/null
+    if [[ "$cmd" == gui ]]; then
+      tmp=$(mktemp); printf '%s\n' "$*" > "$tmp"
+      boat scp "$tmp" "$id:/home/user/win/shared/gui-cmd.ps1" >/dev/null; rm -f "$tmp"
+      ps "$id" '& \\host.lan\Data\gui.ps1 -Command (Get-Content -Raw \\host.lan\Data\gui-cmd.ps1)'
+    else
+      [[ -n "${1:-}" ]] || die "missing output path"
+      ps "$id" 'Remove-Item -Force C:\shot.png -EA 0; & \\host.lan\Data\gui.ps1 -Shot C:\shot.png; Copy-Item -Force C:\shot.png \\host.lan\Data\shot.png'
+      boat scp "$id:/home/user/win/shared/shot.png" "$1" >/dev/null
+    fi
     ;;
   desktop)
     need_id "${1:-}"
