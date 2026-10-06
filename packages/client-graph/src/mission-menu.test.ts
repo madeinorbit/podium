@@ -260,7 +260,7 @@ it('observes the source alone until Handoff opens, then releases the destination
         value: { ...machine, id: asMachineId(`other-${i}`), name: `Other ${i}` } })),
     ])
     const opened = observable.box(false)
-    const row = vi.spyOn(pool, 'row'), catalog = vi.spyOn(headerView(pool), 'ids')
+    const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(headerView(pool), 'row'), catalog = vi.spyOn(headerView(pool), 'ids')
     let publications = 0
     const menu = observe(() => {
       publications++
@@ -272,7 +272,7 @@ it('observes the source alone until Handoff opens, then releases the destination
       expect(top.repos.map(repo => repo.path)).toEqual(['/source'])
       expect(top.machines).toEqual([])
       expect(catalog).not.toHaveBeenCalled()
-      expect(row.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'source-repo')).toBe(true)
+      expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'source-repo')).toBe(true)
       work.push(row.mock.calls.length)
       const before = publications
       headerEntities(pool).apply([{ kind: 'repository', id: 'clone-repo', value: { ...clone, branch: 'changed' } },
@@ -290,6 +290,19 @@ it('observes the source alone until Handoff opens, then releases the destination
       const closed = publications
       headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: machine }])
       expect(publications).toBe(closed)
+      // A source on a non-primary clone still has an addressed top menu and
+      // the same complete target picture when the submenu is opened.
+      const moved = { ...picked, cwd: '/clone/old-0', machineId: asMachineId('target') }
+      input.set('session:picked', moved)
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: moved }] })
+      const cloneTop = JSON.parse(menu.value) as import('./mission-view').MissionActionInputs
+      expect(cloneTop.repos.map(repo => repo.path)).toEqual(['/clone'])
+      expect(cloneTop.machines).toEqual([])
+      runInAction(() => opened.set(true))
+      const cloneTargets = JSON.parse(menu.value) as import('./mission-view').MissionActionInputs
+      expect(cloneTargets.repos.map(repo => repo.path)).toEqual(['/source', '/clone'])
+      expect(handoffAvailability(cloneTargets.session!, reposToViews(cloneTargets.repos), cloneTargets.machines, cloneTargets.issue))
+        .toEqual(handoffAvailability(cloneTargets.session!, reposToViews([source, clone]), cloneTargets.machines, cloneTargets.issue))
     } finally { menu.stop() }
   }
   expect(work[1]).toBe(work[0])
