@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { type AsyncLedger, installAsyncLedger } from './async-ledger'
+import { insideArm, measureWork } from './work-meter'
 
 const START = Date.parse('2026-09-20T12:00:00Z')
 let ledger: AsyncLedger | undefined
@@ -12,6 +13,21 @@ afterEach(() => {
 const settle = (tag: string | null) => ledger!.settle(tag, { maxDelayMs: 1_000, deadlineMs: 5_000 })
 
 describe('async ledger (POD-5466)', () => {
+  it('counts the scheduled callback while excluding ledger stack formatting', async () => {
+    ledger = installAsyncLedger({ holdBeyondMs: 1_000, startAt: START })
+    ledger.open('measured')
+    const { work } = await measureWork(async () => {
+      insideArm(() => queueMicrotask(() => {
+        for (const row of ['addressed-row']) void row
+      }))
+      await settle('measured')
+    })
+    ledger.close()
+    expect(work.elements).toBe(1)
+    expect(work.visits).toBe(1)
+    expect(ledger.takeForeign()).toEqual([])
+  })
+
   it("settles a window only after its own microtasks and short timers ran, and their children's", async () => {
     ledger = installAsyncLedger({ holdBeyondMs: 1_000, startAt: START })
     const ran: string[] = []

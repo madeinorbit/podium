@@ -1,3 +1,4 @@
+import { outsideArm } from './work-meter'
 /**
  * POD-5466: the deferred work a count window owes, and whether it has run.
  *
@@ -91,6 +92,11 @@ function siteOf(stack: string | undefined): string {
   return '(unknown)'
 }
 
+/** Stack construction and source-map formatting are ledger bookkeeping. */
+function schedulerSite(): string {
+  return outsideArm(() => siteOf(new Error().stack))
+}
+
 export function installAsyncLedger(options: {
   holdBeyondMs: number
   /** The virtual wall clock's start, fixed so absolute time is the same every run. */
@@ -152,7 +158,7 @@ export function installAsyncLedger(options: {
       kind: 'microtask',
       tag: tagNow(),
       delayMs: 0,
-      site: siteOf(new Error().stack),
+      site: schedulerSite(),
     }
     pending.set(key, entry)
     real.queueMicrotask.call(globalThis, () => run(key, entry, fn))
@@ -171,7 +177,7 @@ export function installAsyncLedger(options: {
         kind,
         tag: tagNow(),
         delayMs: Math.max(0, Number(ms) || 0),
-        site: siteOf(new Error().stack),
+        site: schedulerSite(),
       }
       if (entry.delayMs > options.holdBeyondMs) {
         // Never started: a handle the app can clear, ref and unref like a real one.
