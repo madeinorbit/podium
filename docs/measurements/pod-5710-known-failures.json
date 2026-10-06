@@ -217,6 +217,30 @@
       "trace": "POD-5640 artifact .review/launcher-getter-trace.json",
       "method": "One focused flatblock trace reads the former palette displayRef getter and the actual sidebar row on fresh identical IssueModels. Both invoke the same IssueModel.loaded group once. displayRef reaches loaded through models.ts label; sidebarValues reads model.loaded.facts directly before its displayRef field. Removing the palette getter makes the sidebar the first evaluator; the full census records the resulting cold-demand attribution.",
       "limit": "The trace establishes shared getter demand; it does not claim to repair the IssueModel cold-load rule or to reproduce the 1x/4x residency difference on the small fixture."
+    },
+    "latestCensus": {
+      "candidate": "97aabf80c1",
+      "pilotBase": "41462131b8",
+      "readers": 50,
+      "allReaderCounters": 1376,
+      "expectedOtherIssueFailures": 68,
+      "fixedCountsGreen": 96,
+      "unexpectedCounters": 10,
+      "newUnownedCounters": 0,
+      "evidence": "POD-5640 artifact .review/census-land.json",
+      "paletteSelectedChildGetters": "Absent in rows, derivations and elements at both scales.",
+      "classification": "Seven sidebar counters documented under POD-5716, one existing header.folded counter under POD-5639, and two accepted addressed MRU bounds under POD-5708. The raw executable census remains red; no allowances were added.",
+      "declaredQueryFailures": {
+        "owner": "POD-5618",
+        "selectElements": [
+          55,
+          151
+        ],
+        "navigateByRefElements": [
+          49,
+          145
+        ]
+      }
     }
   }
 }
