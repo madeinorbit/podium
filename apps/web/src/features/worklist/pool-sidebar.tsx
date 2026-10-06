@@ -264,21 +264,14 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const { items, settle, discardExit } = useRowTransitions(targets)
   // Membership owns these indexes. Selection, heartbeat, scroll and drag frames
   // reuse them; a gesture never rebuilds the complete order from its DOM window.
-  const { targetById, scopeOrders } = useMemo(() => {
+  const targetById = useMemo(() => {
     const targetById = new Map<string, RowTransitionTarget<Slot>>()
-    const scopeOrders = new Map<string, string[]>()
     for (const target of targets) {
       targetById.set(target.value.id, target)
-      if (target.value.kind !== 'issue') continue
-      const lane = target.value.lane
-      if (lane !== 'pinned' && lane !== 'open') continue
-      const scope = lane === 'pinned' ? 'pinned' : `group:${target.value.groupKey}`
-      const order = scopeOrders.get(scope) ?? []
-      order.push(target.value.id)
-      scopeOrders.set(scope, order)
     }
-    return { targetById, scopeOrders }
+    return targetById
   }, [targets])
+  const bandByKey = useMemo(() => new Map(sections.bands.map((band) => [band.key, band])), [sections])
   const reduceMotion = useReducedMotion()
   const layoutGroupId = useId()
   const [quickArchive, setQuickArchive] = useState<ReadonlySet<string>>(() => new Set())
@@ -325,7 +318,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     return value === undefined || value === LOADING ? undefined : value
   }
   const { startDrag, dragging, draggedId } = useRowDrag({
-    virtualOrder: (scope) => scopeOrders.get(scope) ?? NO_DRAG_ROWS,
+    virtualOrder: (scope) => scope === 'pinned' ? sections.pinnedIds : bandByKey.get(scope.slice('group:'.length))?.rowIds ?? NO_DRAG_ROWS,
     allowedTargets: (scope, id) => {
       const value = issue(id)
       return scope === 'pinned'
