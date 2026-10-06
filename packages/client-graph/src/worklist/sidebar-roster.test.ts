@@ -160,23 +160,25 @@ it('derives sidebar ownership inside the applying action without refiling seats'
 /** Most resident paths have represented owners, so only the unowned path is
  * drawn. Evicting one owner adds its path without revisiting the other paths. */
 async function evictionWork(scale: number, plant = false) {
-  const group = '/synthetic/group'
+  const group = 'synthetic-repo'
+  const repoPath = '/synthetic/group'
   const paths = Array.from({ length: 32 * scale }, (_, n) => `/synthetic/seat-${String(n).padStart(3, '0')}`)
   const unowned = '/synthetic/unowned'
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
   const issues = paths.map((path, n) => ({
-    id: `owner-${n}`, seq: n + 1, title: `Owner ${n}`, repoPath: group,
+    id: `owner-${n}`, seq: n + 1, title: `Owner ${n}`, repoId: group, repoPath,
     worktreePath: path, stage: 'in_progress', audience: 'human',
     createdAt: new Date(NOW).toISOString(), updatedAt: new Date(NOW).toISOString(),
   }))
   pool.apply({ type: 'replace', rows: [
     ...[...paths, unowned].map(path => ({ kind: 'worktree' as const, id: path,
-      value: { path, repoPath: group, repoName: 'Group' } as never })),
+      value: { path, repoId: group, repoPath, repoName: 'Group' } as never })),
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value: value as never })),
     ...[...paths, unowned].map((cwd, n) => ({ kind: 'session' as const, id: `seat-${n}`,
       value: { sessionId: `seat-${n}`, cwd, issueId: issues[n]?.id ?? null,
         agentKind: 'codex', status: 'live', lastActiveAt: new Date(NOW).toISOString() } as never })),
   ] })
+  expect(pool.graph.size('repo', group, 'worktrees')).toBe(paths.length + 1)
   const roster = sidebarRosterView(pool)
   const original = roster.band.bind(roster)
   const planted = plant ? vi.spyOn(roster, 'band').mockImplementation(key => ({
@@ -210,7 +212,8 @@ async function evictionWork(scale: number, plant = false) {
     const detached = await measureWork(async () => {
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[0]!.id, value: undefined }] })
     }, { pool })
-    expect(Object.keys(detached.work.derivationsBy).filter(name => name.includes('rosterPath.'))).toEqual([])
+    expect(Object.keys(detached.work.derivationsBy).filter(name =>
+      /\.(?:hasCandidates|rosterPaths|rosterIds)$/.test(name))).toEqual([])
     runInAction(() => {
       // An imperative read inside the action still sees the current facts.
       expect(roster.band(group).ids).toEqual([paths[0]])
@@ -225,7 +228,10 @@ function assertAddressedRoster(first: Awaited<ReturnType<typeof evictionWork>>, 
 }
 
 it('keeps observed group IDs addressed across eviction, restore and roster churn', async () => {
-  assertAddressedRoster(await evictionWork(1), await evictionWork(4))
+  const first = await evictionWork(1)
+  const second = await evictionWork(4)
+  console.info('[sidebar eviction work]', JSON.stringify({ at1x: first, at4x: second }))
+  assertAddressedRoster(first, second)
 })
 
 it('rejects a planted whole-group path filter on eviction', async () => {

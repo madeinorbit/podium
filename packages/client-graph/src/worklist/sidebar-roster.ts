@@ -1,4 +1,4 @@
-import { createDemandAtoms, keyedComputed } from '@podium/mobx-helpers'
+import { keyedComputed } from '@podium/mobx-helpers'
 /** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
  *
@@ -8,7 +8,7 @@ import { createDemandAtoms, keyedComputed } from '@podium/mobx-helpers'
  * never be a retained seat; one only waiting for the load window is filed
  * when it arrives. The former cold lane summaries (one per history session,
  * built at every attach) are gone. */
-import { compareStructural, observable, observe, reaction, runInAction, type ObservableSet } from 'mobx'
+import { compareStructural, observable, observe, type ObservableSet } from 'mobx'
 import { debugName } from '../debug-name'
 import { cachedKey } from '../cached'
 import type { MobxPool } from '../pool'
@@ -43,17 +43,19 @@ export class SidebarRosterIndex {
   private readonly projectCounts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.projectCounts') })
   private readonly worktrees = new Map<string, { readonly group: string; readonly project?: number }>()
   private readonly paths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.rosterPaths')
-  /** Eligibility is observed only for a drawn group. Each path files its own
-   * boolean; changing one owner never filters the group's possible paths. */
-  private readonly shownPaths = new SortedLanes<string, string>((a, b) => a < b ? -1 : a > b ? 1 : 0, 'pool.sidebar.shownRosterPaths')
-  private readonly groupStops = new Map<string, Map<string, () => void>>()
-  private readonly groupDemand = createDemandAtoms<string>(key => `pool.sidebar.rosterGroup.${key}`, {
-    onObserved: key => this.watchGroup(key),
-    onUnobserved: key => this.releaseGroup(key),
-  })
+  /** Group membership comes from the existing relation bucket. Path-only
+   * groups have no repo foreign key and use their existing resident lane. */
+  private readonly groupPaths = cachedKey('pool.sidebar', 'rosterPaths', key => {
+    const paths = [...this.pool.graph.many('repo', key, 'worktrees')]
+    return paths.length === 0
+      ? this.paths.lane(key).slice()
+      : paths.filter(path => this.lanes.has(path)).sort()
+  }, compareStructural)
+  private readonly groupIds = cachedKey('pool.sidebar', 'rosterIds', key =>
+    this.groupPaths(key).filter(path => this.hasCandidates(path)), compareStructural)
   // The lane snapshot and metadata record are freshly assembled on a change.
   private readonly bands = keyedComputed((key: string) => debugName(() => `pool.sidebar.rosterBand.${key}`), (key: string) => {
-    return this.bandOf(key, this.shownPaths.lane(key).slice())
+    return this.bandOf(key, this.groupIds(key))
   }, { equals: compareStructural })
   private bandOf(key: string, ids: readonly string[]) {
     const head = ids[0] === undefined ? undefined : this.pool.row('worktree', ids[0])
@@ -97,7 +99,11 @@ export class SidebarRosterIndex {
   }, Object.is)
   private readonly candidateIds = cachedKey('pool.sidebar', 'candidateIds', (path) =>
     [...(this.lanes.get(path) ?? EMPTY)].filter((id) => this.candidate(id)), compareStructural)
-  private readonly hasCandidates = cachedKey('pool.sidebar', 'hasCandidates', path => this.candidateIds(path).length > 0)
+  /** Scalar eligibility observes only candidates needed to establish presence. */
+  private readonly hasCandidates = cachedKey('pool.sidebar', 'hasCandidates', path => {
+    for (const id of this.lanes.get(path) ?? EMPTY) if (this.candidate(id)) return true
+    return false
+  })
 
   private readonly stops: readonly (() => void)[]
   constructor(private readonly pool: MobxPool) {
@@ -124,10 +130,6 @@ export class SidebarRosterIndex {
   }
   band(key: string) {
     this.pool.worklist.need()
-    // Imperative reads retain the direct, current answer inside applying
-    // actions; only reactive readers acquire the maintained group lane.
-    if (!this.groupDemand.observe(key))
-      return this.bandOf(key, this.paths.lane(key).filter(path => this.hasCandidates(path)))
     return this.bands(key)
   }
   unpinnedProjectLanes(project: number | undefined, pinned: readonly string[]): number {
@@ -244,43 +246,7 @@ export class SidebarRosterIndex {
   private filePath(path: string): void {
     const group = this.worktrees.get(path)?.group
     const present = (this.lanes.get(path)?.size ?? 0) > 0
-    for (const [key, stops] of this.groupStops) {
-      if (key === group && present) continue
-      const stop = stops.get(path)
-      if (!stop) continue
-      stop()
-      stops.delete(path)
-      this.shownPaths.file(path, undefined, undefined)
-    }
     this.paths.file(path, present ? group : undefined, path)
-    if (group !== undefined && present && this.groupStops.has(group)) this.watchPath(group, path)
-  }
-
-  private watchGroup(key: string): void {
-    this.groupStops.set(key, new Map())
-    for (const path of this.paths.lane(key)) this.watchPath(key, path)
-  }
-
-  private watchPath(key: string, path: string): void {
-    const stops = this.groupStops.get(key)!
-    if (stops.has(path)) return
-    stops.set(path, reaction(
-      () => this.hasCandidates(path),
-      shown => this.shownPaths.file(path, shown ? key : undefined, path),
-      { fireImmediately: true, name: debugName(() => `pool.sidebar.rosterPath.${path}`) },
-    ))
-  }
-
-  private releaseGroup(key: string): void {
-    const stops = this.groupStops.get(key)
-    if (!stops) return
-    this.groupStops.delete(key)
-    runInAction(() => {
-      for (const [path, stop] of stops) {
-        stop()
-        this.shownPaths.file(path, undefined, undefined)
-      }
-    })
   }
 
   private schedule(id: string, at: number): void {
@@ -308,8 +274,6 @@ export class SidebarRosterIndex {
   }
 
   clear(): void {
-    for (const key of this.groupStops.keys()) this.releaseGroup(key)
-    this.groupDemand.clear(); this.shownPaths.clear()
     this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear(); this.bands.clear()
