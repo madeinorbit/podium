@@ -1733,7 +1733,8 @@ export async function main(
       const { resolveInstallDir } = await import('@podium/runtime/config')
       const { fileURLToPath } = await import('node:url')
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
-      const compiled = import.meta.url.includes('/$bunfs/')
+      // A compiled binary's modules live under /$bunfs/ on POSIX and B:/~BUN/ on Windows.
+      const compiled = /\/\$bunfs\/|[\\/]~BUN[\\/]/.test(import.meta.url)
       const supervisorState = loadSupervisorState(stateDir())
       let topologyConfig = config
       if (config.workspaceId && supervisorState.workspaceId !== config.workspaceId) {

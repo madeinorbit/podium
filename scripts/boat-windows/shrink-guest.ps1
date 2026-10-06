@@ -6,10 +6,15 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
 if (-not $ZeroOnly) {
-# No pagefile: the 6 GB VM RAM covers builds, and a pagefile is GBs of churn per snapshot.
+# A fixed 4 GB pagefile: 6 GB of RAM alone runs out during the web build (node.exe at 3.5 GB
+# was reported as "low virtual memory" and the build died). Windows zeroes it at every
+# clean shutdown, and zeroed clusters take no space in the qcow2 disk, so the snapshot
+# carries only the pages in use when it was taken (boat-win.sh stop shuts down cleanly).
 $cs = Get-CimInstance Win32_ComputerSystem
 if ($cs.AutomaticManagedPagefile) { Set-CimInstance $cs -Property @{ AutomaticManagedPagefile = $false } }
 Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
+New-CimInstance -ClassName Win32_PageFileSetting -Property @{ Name = 'C:\pagefile.sys'; InitialSize = [uint32]4096; MaximumSize = [uint32]4096 } | Out-Null
+Set-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management' ClearPageFileAtShutdown 1
 powercfg /hibernate off
 
 # Installer and update leftovers.
