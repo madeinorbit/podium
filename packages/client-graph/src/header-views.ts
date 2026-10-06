@@ -56,15 +56,15 @@ export function createHeaderViews(pool: MobxPool) {
   function offlineMachines(): HeaderRows['machine'][] {
     offline ??= createQueryResult<HeaderRows['machine']>({
       name: 'header.offlineMachines',
-      ids: () => pool.header.offlineMachineIds(pool.clock.current),
-      has: (id) => pool.header.hasOfflineMachine(id, pool.clock.current),
+      ids: () => pool.header.offlineMachineIds(pool.clock.peekNow()),
+      has: (id) => pool.header.hasOfflineMachine(id, pool.clock.peekNow()),
       read: (id) => row('machine', id),
       order: (id) => pool.header.offlineMachineOrder(id),
       subscribe(changed) {
         const stopSource = pool.header.subscribeOfflineMachines(changed)
         const stopClock = reaction(
           () => {
-            const now = pool.clock.current
+            const now = pool.clock.peekNow()
             const { previous, next } = pool.header.offlineMachineBoundaries(now)
             if (previous !== undefined) pool.clock.passed(previous)
             if (next !== undefined) pool.clock.passed(next)

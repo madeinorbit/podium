@@ -90,7 +90,7 @@ export class SidebarRosterIndex {
 
   private readonly stops: readonly (() => void)[]
   constructor(private readonly pool: MobxPool) {
-    this.now = pool.clock.current
+    this.now = pool.clock.peekNow()
     this.stops = [
       observe(pool.tables.session, change => this.queueSession(change.name)),
       observe(pool.tables.worktree, change => this.fileWorktree(change.name)),
@@ -195,7 +195,7 @@ export class SidebarRosterIndex {
     if (candidate) {
       const row = this.pool.row('session', id, 'mark')
       const retention = row === LOADING ? null : retentionOf(row as SliceSession | undefined)
-      const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.current > at }
+      const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.peekNow() > at }
       candidate = retention !== null && retention.seat && !retention.shell && retains(retention, undefined, undefined, { passed })
     }
     this.schedule(id, candidate ? deadline : Number.POSITIVE_INFINITY)

@@ -621,12 +621,11 @@ const PoolMotionRow = observer(function PoolMotionRow({
       }>(
         () => {
           const value = kind === 'issue' ? pool.sidebar.row(id) : undefined
-          const now = pool.clock.current
+          const now = pool.clock.trackedNow()
           let paint: unknown
           if (value !== undefined && value !== LOADING) {
             if (folded) {
               // A folded age observes clock ticks, but publishes only a changed word.
-              pool.clock.reached(now + 1)
               const issue = navigationIssue(value.issue)
               const stamp = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
               paint = {
@@ -867,7 +866,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   const read = useCallback(() => projection.get(), [projection])
   const value = useWorklistPoolProjection(read, undefined, visible, true)
   const now = useRef(0)
-  if (visible) now.current = pool.clock.current
+  if (visible) now.current = pool.clock.trackedNow()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(

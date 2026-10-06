@@ -1179,7 +1179,7 @@ export class ReaderQueries {
    * The source includes pending overlays; resident edits shadow changed keys. */
   nextTriageSession(id: string): string | undefined {
     const questions = this.sessionQuestions(),
-      now = this.pool.clock.current,
+      now = this.pool.clock.peekNow(),
       before = questions.visits
     const after = questions.triageFact(id, now)
     const answer = questions.next(after, now) ?? questions.next(undefined, now)

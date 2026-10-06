@@ -371,7 +371,7 @@ export class MobxPool {
             index: () => this.coldIndex(),
             load: (entity, id) => lazy.load(entity, id),
             // Read at ingest, after the constructor has built the clock.
-            now: () => this.clock.current,
+            now: () => this.clock.peekNow(),
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             summaries: summaries ?? {},
@@ -479,7 +479,7 @@ export class MobxPool {
       session: (id) => untracked(() => this.row('session', id, 'peek')) as SliceSession | undefined,
       // untracked-read: seat-issue-maintenance
       issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
-      now: () => this.clock.current,
+      now: () => this.clock.peekNow(),
     })
     sidebarView(this)
     this.selectedId = null

@@ -247,13 +247,13 @@ export function createMobileScreenReader(pool: MobxPool) {
             'issueBoardCard',
             JSON.stringify({
               id: row.issue.id,
-              now: pool.clock.current,
+              now: pool.clock.trackedNow(),
               agents: options.showAgentTasks,
             }),
           ),
         )
         if (!card) throw LOADING
-        workingByIssue.set(row.issue.id, confirmedWorkingAgentCount(card.fleet, pool.clock.current))
+        workingByIssue.set(row.issue.id, confirmedWorkingAgentCount(card.fleet, pool.clock.trackedNow()))
         progressByIssue.set(row.issue.id, card.progress)
         for (const seat of card.sessions) sessions.set(seat.sessionId, seat)
       }

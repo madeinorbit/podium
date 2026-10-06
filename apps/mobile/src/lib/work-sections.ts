@@ -118,13 +118,9 @@ export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): 
   return null
 }
 
-/** Pair the clock's plain current value with the next coarse tick. The
- * equality-filtered reader wakes React only if its displayed stamp changed. */
+/** The equality-filtered reader wakes React only if its displayed stamp changed. */
 export function mobilePaintNow(pool: MobxPool): number {
-  const now = pool.clock.current
-  pool.clock.reached(now)
-  pool.clock.reached(now + 1)
-  return now
+  return pool.clock.trackedNow()
 }
 
 /** Search is opt-in work. Without a query the pool's stable native arrays go

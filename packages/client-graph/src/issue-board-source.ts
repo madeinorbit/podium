@@ -548,7 +548,7 @@ export function createIssueBoardSource(
         .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))
       if (Number.isFinite(at)) pool.clock.passed(at + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)
     }
-    return confirmedWorkingAgentCount(seats, pool.clock.current)
+    return confirmedWorkingAgentCount(seats, pool.clock.trackedNow())
   }
   function progress(id: string) {
     if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null

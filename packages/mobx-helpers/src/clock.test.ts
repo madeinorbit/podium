@@ -3,6 +3,36 @@ import { describe, expect, it } from 'vitest'
 import { DeadlineClock, nextUp } from './clock'
 
 describe('DeadlineClock', () => {
+  it('tracks forward ticks and rewinds without waking other deadline readers', () => {
+    const clock = new DeadlineClock(100), times: number[] = [], deadlines: boolean[] = []
+    const stopTime = autorun(() => times.push(clock.trackedNow()))
+    const stopDeadline = autorun(() => deadlines.push(clock.reached(200)))
+    try {
+      runInAction(() => clock.advance(101))
+      runInAction(() => clock.advance(101))
+      runInAction(() => clock.advance(99))
+      runInAction(() => clock.advance(100))
+      expect(times).toEqual([100, 101, 99, 100])
+      expect(deadlines).toEqual([false])
+      runInAction(() => clock.advance(200))
+      expect(times.at(-1)).toBe(200)
+      expect(deadlines).toEqual([false, true])
+    } finally { stopTime(); stopDeadline(); clock.clear() }
+  })
+
+  it('registers no deadlines for untracked time reads and releases the last time reader', () => {
+    const clock = new DeadlineClock(100)
+    for (let i = 0; i < 100; i++) expect(clock.trackedNow()).toBe(100)
+    expect(clock.peekNow()).toBe(100)
+    runInAction(() => clock.advance(200))
+    expect(clock.crossings).toBe(0)
+    const stop = autorun(() => clock.trackedNow())
+    stop()
+    runInAction(() => clock.advance(300))
+    expect(clock.crossings).toBe(0)
+    clock.clear()
+  })
+
   it('wakes only readers whose deadline is crossed', () => {
     const clock = new DeadlineClock(0), answers: boolean[][] = [[], []]
     const first = autorun(() => { answers[0]!.push(clock.reached(10)) })

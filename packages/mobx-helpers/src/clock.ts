@@ -77,6 +77,19 @@ export class DeadlineClock {
     return this.now
   }
 
+  /** The current coarse tick, tracked in both directions. The rewind atom
+   * also admits tracked reads, so an imperative read registers no deadline. */
+  trackedNow(): number {
+    const now = this.now
+    if (this.rewind.reportObserved()) this.reached(now + 1)
+    return now
+  }
+
+  /** Maintenance, or a reader that pairs time with its own exact deadlines. */
+  peekNow(): number {
+    return this.now
+  }
+
   /** `coarseNow >= t`, tracked so that the answer's change wakes the reader. */
   reached(t: number): boolean {
     if (this.now >= t) {

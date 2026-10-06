@@ -256,7 +256,7 @@ const PoolRailTile = observer(function PoolRailTile({
     const working = phases.filter((p) => p === 'working').length
     const urgent = mostUrgentSession(
       sessions.filter((_, index) => phases[index] === 'waiting') as SessionView[],
-      pool.clock.current,
+      pool.clock.trackedNow(),
     )
     status =
       phase === 'waiting'
