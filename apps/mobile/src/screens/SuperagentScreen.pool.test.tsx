@@ -8,7 +8,7 @@ import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createSuperagentFixture } from '../../../web/src/features/superagent/fixture'
+import { createSuperagentFixture } from '../../../web/test/superagent/fixture'
 import type { MobilePool } from '../client/mobile-pool'
 
 const state = vi.hoisted(() => ({
