@@ -209,11 +209,11 @@ dependencies = [
 name = "podium-host"
 version = "1.0.0"
 dependencies = [
- "bitflags",
- "windows-sys 0.61.2",
  "alacritty_terminal",
+ "bitflags",
  "libc",
  "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

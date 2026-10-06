@@ -38,7 +38,7 @@ const log = createLogger('pty:host')
  * owns the child and its pty, keeps a byte-sequenced ring of output, grants one
  * writer lease, applies resizes itself and answers with the kernel's size, and
  * reports the child's real exit status. It is the only durable backend on Linux
- * and macOS (POD-4986): the Rust host is the one spawned, and a C host an older
+ * macOS and Windows (POD-4986): the Rust host is the one spawned, and a C host an older
  * daemon started is still adopted through this same protocol until it exits.
  */
 

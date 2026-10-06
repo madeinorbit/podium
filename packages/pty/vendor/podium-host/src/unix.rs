@@ -1,6 +1,5 @@
 //! POSIX launcher; unchanged fork/PTY and socket ownership semantics.
 use std::ffi::OsStr;
-use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::os::fd::OwnedFd;
@@ -14,7 +13,7 @@ use args::{Command, CreateOpts};
 use host::{Child, ChildIo, Host};
 use ring::Ring;
 
-use crate::{args, host, ring, sys, die, die_raw, usage, VERSION, HOST_FEATURES};
+use crate::{args, host, ring, sys, die_raw, usage, VERSION, HOST_FEATURES};
 macro_rules! die {
     ($($t:tt)*) => { crate::die(format_args!($($t)*)) };
 }

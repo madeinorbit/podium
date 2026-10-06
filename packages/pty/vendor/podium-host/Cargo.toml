@@ -16,6 +16,7 @@ path = "src/main.rs"
 rustix = { version = "1", default-features = false, features = ["std", "event", "fs", "net", "process", "pty", "stdio", "termios"] }
 # Only what rustix cannot offer safely: fork, sigaction, and macOS LOCAL_PEERCRED.
 libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 bitflags = "2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Storage_FileSystem"] }

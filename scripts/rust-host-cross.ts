@@ -150,7 +150,7 @@ export function crossBuildRustHost(
 
 /**
  * The Rust host for a local (this-machine) bundle, built with this host's own cargo.
- * No fallback: the Rust host is the only durable process host a POSIX bundle has, so
+ * No fallback: the Rust host is the only durable process host a bundle has, so
  * a machine without the crate's toolchain cannot package one and says so.
  */
 export function buildLocalRustHost(crate = RUST_HOST_CRATE): string {

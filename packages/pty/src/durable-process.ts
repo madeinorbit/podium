@@ -33,7 +33,8 @@ import {
  * adapters below are the only code that knows which host it is talking to.
  *
  * ONE BACKEND SPAWNS (POD-4986). podium-host is the only durable host a new
- * session starts on, on Linux and macOS. What already runs is adopted:
+ * session starts on, on Linux, macOS and Windows. Legacy adoption is POSIX-only
+ * (neither predecessor ran on Windows); Windows reattaches to named-pipe hosts. What already runs is adopted:
  *  - a C host (spawned by an older daemon) is located and attached like any
  *    other host: both hosts speak the one protocol in `./host.js`, and only a
  *    NEW spawn selects a binary;
