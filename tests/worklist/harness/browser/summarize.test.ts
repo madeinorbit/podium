@@ -130,8 +130,8 @@ describe('targetMismatches', () => {
       record({ arm: 'noop', scenario: 'click', target: 'i50' }),
     ])
     const hand = run([
-      record({ arm: 'hand', target: 'i23' }),
-      record({ arm: 'hand', scenario: 'click', target: 'i50' }),
+      record({ arm: 'mobx-write', target: 'i23' }),
+      record({ arm: 'mobx-write', scenario: 'click', target: 'i50' }),
     ])
     expect(targetMismatches([noop, hand])).toEqual([])
   })
@@ -144,7 +144,7 @@ describe('targetMismatches', () => {
 
   it('keeps warm-up and measured samples apart', () => {
     const a = run([record({ arm: 'noop', warmup: true, sample: -1, target: 'i1' })])
-    const b = run([record({ arm: 'hand', warmup: false, sample: -1, target: 'i2' })])
+    const b = run([record({ arm: 'mobx-write', warmup: false, sample: -1, target: 'i2' })])
     expect(targetMismatches([a, b])).toEqual([])
   })
 })
@@ -153,7 +153,7 @@ describe('runSummary (the entry point)', () => {
   const SCALES: Scale[] = [1, 2, 4]
   /** noop and hand at every scale and scenario, n = 20 per cell: a complete set. */
   const grid = (): RunOutput[] =>
-    (['noop', 'hand'] as const).flatMap((arm) => SCALES.map((scale) => completeRun(arm, scale)))
+    (['noop', 'mobx-write'] as const).flatMap((arm) => SCALES.map((scale) => completeRun(arm, scale)))
 
   function write(runs: RunOutput[], names?: string[]): string {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4558-entry-'))
@@ -180,7 +180,7 @@ describe('runSummary (the entry point)', () => {
   })
 
   it('refuses a missing cell: exit 2, each shortfall named, no table', () => {
-    const runs = grid().filter((r) => !(r.arm === 'hand' && r.scale === 2))
+    const runs = grid().filter((r) => !(r.arm === 'mobx-write' && r.scale === 2))
     const { code, lines } = summary(write(runs))
     expect(code).toBe(2)
     expect(lines).toContain('INCOMPLETE (not summarised): cell hand rename 2x: 0 of 20 samples')
@@ -203,7 +203,7 @@ describe('runSummary (the entry point)', () => {
   it('summarises a retried cell: the failed attempt is listed, the passing retry fills the cell', () => {
     const runs = grid()
     const failed: RunOutput = {
-      ...completeRun('hand', 4),
+      ...completeRun('mobx-write', 4),
       status: 'failed',
       failures: ['load 8.40 > 8 at click#3'],
     }
@@ -224,7 +224,7 @@ describe('runSummary (the entry point)', () => {
 
   it('holds a matrix directory to its plan', () => {
     const plan: MatrixPlan = {
-      arms: ['noop', 'hand'],
+      arms: ['noop', 'mobx-write'],
       scales: SCALES,
       rounds: 4,
       samples: 5,
@@ -235,7 +235,7 @@ describe('runSummary (the entry point)', () => {
     const runs: RunOutput[] = []
     const names: string[] = []
     for (let round = 0; round < 4; round += 1) {
-      for (const arm of plan.arms as ('noop' | 'hand')[]) {
+      for (const arm of plan.arms as ('noop' | 'mobx-write')[]) {
         for (const scale of SCALES) {
           runs.push(completeRun(arm, scale, { samples: 5 }))
           names.push(matrixRunFile(round, arm, scale))

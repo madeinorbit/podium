@@ -84,6 +84,7 @@ describe('page schema generic relation collections', () => {
 
   it('keeps multi-edges and uncollapsed membership correct in the pool and rebuild', () => {
     const locals = { selectedIssueId: null, coarseNow: Date.parse(STAMP) }
+    const pool = new MobxPool(locals)
     const reader = pool.graph
     const read = <T,>(fn: () => T) => tracked(fn)
     const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }]), session('twin-a'), session('twin-b')]

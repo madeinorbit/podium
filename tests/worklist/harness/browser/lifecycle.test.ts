@@ -47,23 +47,23 @@ const CONTROL = lifecycleRun('control', {
 
 describe('gridShortfalls over lifecycle cells', () => {
   it('passes the control and an arm at 1x only: lifecycle needs no 2x or 4x', () => {
-    expect(gridShortfalls([CONTROL, lifecycleRun('hand')], { minSamples: 20 })).toEqual([])
+    expect(gridShortfalls([CONTROL, lifecycleRun('mobx-write')], { minSamples: 20 })).toEqual([])
   })
 
   it('refuses an arm without the control its budgets are multiples of', () => {
-    const out = gridShortfalls([lifecycleRun('hand')], { minSamples: 20 })
+    const out = gridShortfalls([lifecycleRun('mobx-write')], { minSamples: 20 })
     expect(out).toContain('cell control coldBootstrap 1x: 0 of 20 samples')
     expect(out).toContain('cell control rescope 1x: 0 of 20 samples')
   })
 
   it('does not ask a lifecycle-only set for the no-op floor', () => {
-    const out = gridShortfalls([CONTROL, lifecycleRun('hand')], { minSamples: 20 })
+    const out = gridShortfalls([CONTROL, lifecycleRun('mobx-write')], { minSamples: 20 })
     expect(out.some((line) => line.includes('noop'))).toBe(false)
   })
 
   it('holds a lifecycle matrix to its planned scales', () => {
     const plan: MatrixPlan = {
-      arms: ['control', 'hand'],
+      arms: ['control', 'mobx-write'],
       scales: [1],
       rounds: 4,
       samples: 5,
@@ -73,11 +73,11 @@ describe('gridShortfalls over lifecycle cells', () => {
     }
     const runs = [0, 1, 2, 3].flatMap(() => [
       lifecycleRun('control', { samples: 5 }),
-      lifecycleRun('hand', { samples: 5 }),
+      lifecycleRun('mobx-write', { samples: 5 }),
     ])
     const files = [0, 1, 2, 3].flatMap((round) => [
       matrixRunFile(round, 'control', 1),
-      matrixRunFile(round, 'hand', 1),
+      matrixRunFile(round, 'mobx-write', 1),
     ])
     expect(gridShortfalls(runs, { minSamples: 20, plan, files })).toEqual([])
     const out = gridShortfalls(runs.slice(1), { minSamples: 20, plan, files: files.slice(1) })
@@ -90,7 +90,7 @@ describe('runSummary over a lifecycle-only set', () => {
   it('prints the lifecycle table, no hot-path table and no control-relative verdict', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4561-'))
     writeFileSync(join(dir, 'control.json'), JSON.stringify(CONTROL))
-    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('hand', { wall: 250 })))
+    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('mobx-write', { wall: 250 })))
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(0)
     const headers = lines.filter((line) => line.startsWith('| Arm |'))
@@ -117,7 +117,7 @@ describe('runSummary over a lifecycle-only set', () => {
       join(dir, 'control.json'),
       JSON.stringify(lifecycleRun('control', { samples: 19 })),
     )
-    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('hand')))
+    writeFileSync(join(dir, 'hand.json'), JSON.stringify(lifecycleRun('mobx-write')))
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
     expect(lines).toContain(
