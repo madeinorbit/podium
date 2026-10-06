@@ -133,6 +133,21 @@ async function mount(count = 8, scale?: number) {
   const data = createHeaderFixture(count, count),
     errors: string[] = [],
     seen: unknown[] = []
+  const scaledMachines = scale
+    ? Array.from({ length: 16 * scale }, (_, i) => ({
+        id: `host-${i}`,
+        name: `Host ${i + 1}`,
+        hostname: `host-${i}`,
+        online: true,
+        lastSeenAt: '2026-10-06T10:00:00Z',
+      }))
+    : null
+  if (scaledMachines) {
+    const discovery = await data.api.discovery.refreshRepos.mutate()
+    Object.assign(data.api.discovery.refreshRepos, {
+      mutate: async () => ({ ...discovery, machines: scaledMachines }),
+    })
+  }
   // Include archived, deleted and draft rows in the count, and resume twins in
   // the session summary; count parity must not inherit worklist filtering.
   const issue = data.records.get('issueProjection:synthetic-0')!
@@ -208,14 +223,8 @@ async function mount(count = 8, scale?: number) {
     data.publishMetrics(0)
   })
   await waitFor(() => expect(view.getByText('Host 1')).toBeTruthy())
-  if (scale) {
-    const machines = Array.from({ length: 16 * scale }, (_, i) => ({
-      id: `host-${i}`,
-      name: `Host ${i + 1}`,
-      hostname: `host-${i}`,
-      online: true,
-      lastSeenAt: '2026-10-06T10:00:00Z',
-    }))
+  if (scaledMachines) {
+    const machines = scaledMachines
     const template = data.inputs().metrics[0]!
     const hosts = machines.map((row) => ({
       ...template,
@@ -339,7 +348,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
   expect(roster).not.toHaveBeenCalled()
-  expect(count).toHaveBeenCalled()
+  expect(count).not.toHaveBeenCalled()
   expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
   expect(enabled.errors).toEqual([])
 })

@@ -50,6 +50,35 @@ const settle = async () => {
     })
 }
 
+function projectDialog() {
+  const save = vi.fn(async () => {})
+  seam.projects = [
+    { key: 'repo-a', name: 'Alpha', aliases: ['/alpha'] },
+    { key: 'repo-b', name: 'Beta', aliases: ['/beta'] },
+  ]
+  seam.owner = { sidebarSettings: { repoOrder: ['repo-a', 'repo-b'] }, setSidebarSettings: save }
+  const view = render(<ManageProjectsButton />)
+  fireEvent.click(view.getByLabelText('Manage projects'))
+  return { view, save }
+}
+
+it('saves the displayed project order after a move', async () => {
+  const { view, save } = projectDialog()
+  fireEvent.click(view.getByLabelText('Move Alpha down'))
+  expect(view.getByRole('status').textContent).toBe('Alpha moved to position 2')
+  await act(async () => fireEvent.click(view.getByRole('button', { name: 'Save order' })))
+  expect(save).toHaveBeenCalledWith({ repoSort: 'custom', repoOrder: ['repo-b', 'repo-a'] })
+})
+
+it('discards the project draft on cancel and restores order on reopen', () => {
+  const { view, save } = projectDialog()
+  fireEvent.click(view.getByLabelText('Move Alpha down'))
+  fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
+  fireEvent.click(view.getByLabelText('Manage projects'))
+  expect(view.getByLabelText('Move Alpha up').hasAttribute('disabled')).toBe(true)
+  expect(save).not.toHaveBeenCalled()
+})
+
 it('measures the mounted settings sections and project dialog at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     const machines = Array.from({ length: 16 * scale }, (_, i) => ({
