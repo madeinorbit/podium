@@ -41,7 +41,7 @@ async function main() {
     process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'
   phase = 1
   const { token } = JSON.parse(
-    readFileSync(join(homedir(), '../../../packages/client-graph/diagnostics/.podium/cli-session.json'), 'utf8'),
+    readFileSync(join(homedir(), '.podium/cli-session.json'), 'utf8'),
   ) as { token: string }
   const cookie = `podium_session=${token}`
   const cache = new ScenarioCache(),
