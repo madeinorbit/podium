@@ -438,7 +438,12 @@ const PoolFoldRow = memo(function PoolFoldRow({
       return {
         title: value.label,
         ref: issueDisplayRef(issue),
-        marker: foldedMarker(issue, lane, mobilePaintNow(pool)),
+        // Only a snoozed marker shows time; a closed marker must not wake on ticks.
+        marker: foldedMarker(
+          issue,
+          lane,
+          lane === 'snoozed' ? mobilePaintNow(pool) : pool.clock.peekNow(),
+        ),
       }
     },
     [id, lane],

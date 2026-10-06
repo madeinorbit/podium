@@ -1,7 +1,7 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import { agentBadge, type MotionPhase, mostUrgentSession } from '@podium/client-core/values'
+import { agentBadge, type MotionPhase, mostUrgentSession, STALE_INACTIVE_MS } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { compareStructural, computed, observer } from '@podium/client-graph/react'
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
@@ -27,6 +27,25 @@ import { type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-wor
 export function PoolSidebarRail(): JSX.Element | null {
   const pool = useWorklistPool()
   return pool ? <PoolRail pool={pool} /> : null
+}
+
+/** The rail's waiting pick shows no time: read the clock untracked and pair it
+ * with the exact per-seat rank deadlines, so a minute tick wakes the tile only
+ * when the pick can change. Snooze expiry flips `isSnoozed` at `until`
+ * (`reached`); the 16 h stale line flips recency past `lastActiveAt + 16 h`
+ * (`passed`). Anything else that moves the pick is a row-field change, tracked
+ * through the session rows themselves. */
+export function railWaitingNow(pool: MobxPool, waiting: readonly SessionView[]): number {
+  const now = pool.clock.peekNow()
+  for (const seat of waiting) {
+    if (typeof seat.snoozedUntil === 'string') {
+      const until = Date.parse(seat.snoozedUntil)
+      if (Number.isFinite(until)) pool.clock.reached(until)
+    }
+    const active = Date.parse(seat.lastActiveAt)
+    if (Number.isFinite(active)) pool.clock.passed(active + STALE_INACTIVE_MS)
+  }
+  return now
 }
 
 const PoolRail = observer(function PoolRail({ pool }: { pool: MobxPool }): JSX.Element {
@@ -255,10 +274,8 @@ const PoolRailTile = observer(function PoolRailTile({
     title = tree!.worktree.branch ?? id.split('/').pop() ?? id
     const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
     const working = phases.filter((p) => p === 'working').length
-    const urgent = mostUrgentSession(
-      sessions.filter((_, index) => phases[index] === 'waiting') as SessionView[],
-      pool.clock.trackedNow(),
-    )
+    const waiting = sessions.filter((_, index) => phases[index] === 'waiting') as SessionView[]
+    const urgent = mostUrgentSession(waiting, railWaitingNow(pool, waiting))
     status =
       phase === 'waiting'
         ? head + (urgent ? (agentBadge(urgent as SessionView)?.label ?? 'needs you') : 'needs you')
