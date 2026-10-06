@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { accessSync, constants, statSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
-import { delimiter, extname, isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { extname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 const PATH_START = '__PODIUM_PATH_START__'
 const PATH_END = '__PODIUM_PATH_END__'
@@ -122,7 +122,7 @@ async function windowsRegistryPath(
     const stdout = await query(key, 'Path').catch(() => '')
     const line = stdout.split(/\r?\n/).find((row) => /^\s+Path\s+REG_(?:EXPAND_)?SZ\s/i.test(row))
     const raw = line?.replace(/^\s+Path\s+REG_(?:EXPAND_)?SZ\s+/i, '') ?? ''
-    entries.push(...expandWindowsVariables(raw, env).split(';').filter(Boolean))
+    entries.push(...splitPath(expandWindowsVariables(raw, env), 'win32'))
   }
   return entries
 }
@@ -147,8 +147,13 @@ function fallbacks(platform: NodeJS.Platform, home: string, env: NodeJS.ProcessE
   return entries
 }
 
-function splitPath(value: string | undefined): string[] {
-  return (value ?? '').split(delimiter).filter(Boolean)
+/** PATH's separator on the platform being described, not necessarily this host's. */
+function pathDelimiter(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? ';' : ':'
+}
+
+function splitPath(value: string | undefined, platform: NodeJS.Platform): string[] {
+  return (value ?? '').split(pathDelimiter(platform)).filter(Boolean)
 }
 
 function dedupe(entries: readonly string[], platform: NodeJS.Platform): string[] {
@@ -245,7 +250,7 @@ export async function createCommandEnvironment(
       : undefined
   const loginShell =
     options.loginShell || accountShell || input.SHELL || defaultShell(platform, input)
-  const inherited = splitPath(input[environmentPathKey(input, platform)])
+  const inherited = splitPath(input[environmentPathKey(input, platform)], platform)
   let shellEntries: string[] = []
   let failure: CommandEnvironmentFailure | undefined = accountFailed
     ? 'account-unavailable'
@@ -268,8 +273,8 @@ export async function createCommandEnvironment(
       })
       const shellPath = parseShellPath(stdout)
       if (shellPath === undefined) failure = 'shell-probe-malformed'
-      else if (splitPath(shellPath).length === 0) failure = 'shell-path-empty'
-      else shellEntries = splitPath(shellPath)
+      else if (splitPath(shellPath, platform).length === 0) failure = 'shell-path-empty'
+      else shellEntries = splitPath(shellPath, platform)
     } catch {
       failure = 'shell-probe-failed'
     }
@@ -287,7 +292,11 @@ export async function createCommandEnvironment(
     ),
   )
   const key = environmentPathKey(input, platform)
-  const env = Object.freeze({ ...baseEnv, HOME: machineHome, [key]: entries.join(delimiter) })
+  const env = Object.freeze({
+    ...baseEnv,
+    HOME: machineHome,
+    [key]: entries.join(pathDelimiter(platform)),
+  })
   const result: CommandEnvironment = {
     env,
     pathEntries: entries,
