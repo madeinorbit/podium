@@ -34,7 +34,7 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
   for (const scale of [1, 4]) {
     const machines = Array.from({ length: 16 * scale }, (_, i) => ({ id: `machine-${i}`, name: `Machine ${i}`, hostname: `host-${i}`, online: true, appVersion: '1.0.0' }))
     const repos = Array.from({ length: 8 * scale }, (_, i) => ({ path: `/project-${i}`, kind: 'repository', worktrees: [] }))
-    const devices = Array.from({ length: 8 * scale }, (_, i) => ({ sessionId: `device-${i}`, userId: 'operator', label: 'mobile', deviceId: `device-${i}`, deviceName: `Phone ${i}`, platform: 'ios', lastSeenAt: '2026-10-06T10:00:00Z', createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-11-01T10:00:00Z', current: false }))
+    const devices = Array.from({ length: 8 * scale }, (_, i) => ({ sessionId: String(i).padStart(24, '0'), userId: 'operator', label: 'mobile', deviceId: `device-${i}`, deviceName: `Phone ${i}`, platform: 'ios', lastSeenAt: '2026-10-06T10:00:00Z', createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-11-01T10:00:00Z', current: false }))
     const listeners = new Set<() => void>(), uiListeners = new Set<(keys: ReadonlySet<string>) => void>(), values = new Map<string, string>()
     const ui = { get: (key: string) => values.get(key) ?? null, set(key: string, value: string | null) { if (value === null) values.delete(key); else values.set(key, value); for (const wake of uiListeners) wake(new Set([key])) }, subscribe(wake: (keys: ReadonlySet<string>) => void) { uiListeners.add(wake); return () => { uiListeners.delete(wake) } } } as RoutedUiState
     let state = { machines, repos, settingsTab: 'sessions', sessions: [] }
@@ -56,7 +56,7 @@ it('measures the mounted settings sections and project dialog at 1x and 4x', asy
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ sessions: devices }), { headers: { 'content-type': 'application/json' } })))
     const publish = (patch: Partial<typeof state>) => { state = { ...state, ...patch }; for (const wake of listeners) wake() }
     for (const tab of ['sessions', 'updates', 'repos', 'devices', 'projects']) {
-      publish({ settingsTab: tab === 'projects' ? 'sessions' : tab })
+      publish({ machines, repos, settingsTab: tab === 'projects' ? 'sessions' : tab })
       const Surface = () => insideReader(tab, () => tab === 'projects' ? ManageProjectsButton() : SettingsView({ onClose() {} }))
       let view!: ReturnType<typeof render>
       const record = async (action: string, run: () => void) => {

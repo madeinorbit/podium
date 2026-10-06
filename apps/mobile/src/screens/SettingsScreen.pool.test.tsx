@@ -8,7 +8,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { MobxPool } from '@podium/client-graph'
 import { asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Alert, Platform } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
@@ -158,12 +158,15 @@ async function mount(count = 8, scale?: number) {
     },
   })
   let runtime!: ClientRuntime
+  let show!: (shown: boolean) => void
   function Surface() {
     runtime = useStoreHandle() as ClientRuntime
-
+    const [shown, setShown] = useState(true)
+    show = setShown
     seen.push(useMobilePool())
-    return insideReader('phone.SettingsScreen', () => SettingsScreen())
+    return shown ? <MeasuredSettings /> : null
   }
+  function MeasuredSettings() { return insideReader('phone.SettingsScreen', () => SettingsScreen()) }
   storeStats.enable()
   storeStats.reset()
   const view = render(
@@ -206,17 +209,16 @@ async function mount(count = 8, scale?: number) {
       data.publishHostMetrics(hosts as HostMetricsWire[])
     })
   }
-  return { data, view, runtime, errors, seen }
+  return { data, view, runtime, errors, seen, show }
 }
 
 it('measures phone settings and its real device feed at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({ sessionId: `device-${i}`, userId: 'operator', label: 'mobile', deviceId: `device-${i}`, deviceName: `Phone ${i}`, platform: 'ios', lastSeenAt: '2026-10-06T10:00:00Z', createdAt: '2026-10-01T10:00:00Z', expiresAt: '2026-11-01T10:00:00Z', current: false }))
-    const opened = await measureWork(async () => mount(24 * scale, scale))
-    const current = opened.value
+    const current = await mount(24 * scale, scale)
+    await act(async () => current.show(false))
     const retained = current.seen.at(-1) as MobxPool
     expect(retained).toBeTruthy()
-    console.log('SETTINGS_WORK', JSON.stringify({ scale, tab: 'phone', action: 'open', ...opened.work }))
     const record = async (action: string, run: () => void) => {
       const measured = await measureWork(async () => {
         await act(async () => run())
@@ -224,6 +226,7 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
       }, { pool: retained })
       console.log('SETTINGS_WORK', JSON.stringify({ scale, tab: 'phone', action, ...measured.work }))
     }
+    await record('open', () => current.show(true))
     await record('setting', () => fireEvent.change(current.view.getByLabelText('Server name'), { target: { value: 'Renamed phone' } }))
     await record('device', () => { seams.devices = seams.devices.map((row, i) => i === 0 ? { ...row, deviceName: 'Updated phone' } : row); seams.reloadDevices() })
     await record('repository', () => current.data.patch('repo', 'synthetic-repo', { name: 'Renamed repo' }))
