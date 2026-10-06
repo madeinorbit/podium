@@ -35,7 +35,7 @@
  *
  * It exists because the census that produced the ownership map counted only
  * EXTERNAL consumers, and `sortSessionsForSidebar` has none outside tests — its
- * real callers are `issueNavList` (issues) and `sidebarSections` (worklist),
+ * real callers are `issueNavList` (issues) and `sidebarSections` (retained worklist fixture),
  * both INSIDE the file being cut. Left where it looked like it lived, it would
  * have made `issues -> worklist` an edge on top of the known `worklist ->
  * issues` one: a cycle, arrived at by not looking inside the file.

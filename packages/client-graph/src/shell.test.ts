@@ -8,8 +8,8 @@ import {
   compareShellSnapshots,
   legacyShellSnapshot,
   poolShellSnapshot,
-} from '../diagnostics/shell-check'
-import { shellFixture } from '../diagnostics/shell-fixture'
+} from '../../../tests/worklist/diagnostics/shell-check'
+import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
 import { ShellSource } from './shell-source'
 import { shellViews } from './shell-views'

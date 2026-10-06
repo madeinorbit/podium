@@ -1,17 +1,8 @@
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionView, SessionViewInput } from '../session-values'
-import {
-  groupUnifiedWorkRows,
-  type IssueNavigationModel,
-  rowAwaitsTuck,
-  rowCanBringBack,
-  rowInClosedFold,
-  rowInSnoozedFold,
-  type SidebarSections,
-  type UnifiedIssueRow,
-  unifiedWorkList,
-} from './index'
+import { type IssueNavigationModel, rowAwaitsTuck, rowCanBringBack, rowInClosedFold, rowInSnoozedFold, type SidebarSections, type UnifiedIssueRow } from './index'
+import { groupUnifiedWorkRows, unifiedWorkList } from '../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-07-23T12:00:00.000Z')
 

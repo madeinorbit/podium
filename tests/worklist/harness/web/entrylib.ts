@@ -1,5 +1,5 @@
-import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { issueActivityAt } from '../../diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 import { upsertIssue } from '../../shared/src/scenarios'
 /**
  * POD-4445 — shared web-entry wiring. Every arm/control page mounts the same

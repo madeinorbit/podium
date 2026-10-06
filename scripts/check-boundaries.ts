@@ -3989,16 +3989,16 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   'packages/api-types/build.ts',
   // Client-graph diagnostics replays (POD-5615): offline replay and measurement
   // tools whose printed evidence is the product.
-  'packages/client-graph/diagnostics/automation-replay.ts',
-  'packages/client-graph/diagnostics/command-launch-replay.ts',
-  'packages/client-graph/diagnostics/debug-name-heap.ts',
-  'packages/client-graph/diagnostics/input-mechanisms.ts',
-  'packages/client-graph/diagnostics/notice-replay.ts',
-  'packages/client-graph/diagnostics/projection-comparison-mechanism.ts',
-  'packages/client-graph/diagnostics/session-pane-replay.ts',
-  'packages/client-graph/diagnostics/shell-red-controls.ts',
-  'packages/client-graph/diagnostics/shell-replay.ts',
-  'packages/client-graph/diagnostics/workflow-replay.ts',
+  'tests/worklist/diagnostics/automation-replay.ts',
+  'tests/worklist/diagnostics/command-launch-replay.ts',
+  'tests/worklist/diagnostics/debug-name-heap.ts',
+  'tests/worklist/diagnostics/input-mechanisms.ts',
+  'tests/worklist/diagnostics/notice-replay.ts',
+  'tests/worklist/diagnostics/projection-comparison-mechanism.ts',
+  'tests/worklist/diagnostics/session-pane-replay.ts',
+  'tests/worklist/diagnostics/shell-red-controls.ts',
+  'tests/worklist/diagnostics/shell-replay.ts',
+  'tests/worklist/diagnostics/workflow-replay.ts',
 ])
 
 /**

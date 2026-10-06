@@ -1,4 +1,4 @@
-import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
+import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
 import type { JSX, ReactNode } from 'react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'

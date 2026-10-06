@@ -1,5 +1,5 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { MobxPool } from '@podium/client-graph'
 import { createMobileSettingsSource } from '@podium/client-graph/mobile-settings'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'

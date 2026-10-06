@@ -4,12 +4,12 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { dedupeSessions } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { sessionViews } from '@podium/client-core/session-values'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
-import { inBoardCheck } from '@podium/client-graph/diagnostics/issue-board-check'
+import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-check'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,

@@ -1,7 +1,7 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4748 — the tracking objects the MobX pool builds, counted from outside
  * and held to a committed baseline.

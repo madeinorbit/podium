@@ -1,6 +1,6 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import {
   type ClientRuntime,
   createEngineOutbox,
@@ -10,11 +10,11 @@ import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { missionIssueIds, missionRootFor, pickPaneSession, planReorderKeys, sessionsForIssueNav } from '@podium/client-core/values'
-import { worklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
+import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { poolSidebarSnapshot } from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { spreadSortKeys } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'

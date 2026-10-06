@@ -68,7 +68,7 @@ describe('pool startup bundle boundary', () => {
         'packages/client-graph/src/automation-views.ts',
         'packages/client-graph/src/workflow-views.ts',
         'packages/client-graph/src/new-optional-screen.ts',
-        'packages/client-graph/diagnostics/sidebar-check.ts',
+        'tests/worklist/diagnostics/sidebar-check.ts',
         'packages/client-core/src/loading.ts',
       ]),
     ).toHaveLength(7)

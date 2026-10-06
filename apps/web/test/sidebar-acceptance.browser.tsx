@@ -1,6 +1,6 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Synthetic acceptance fixture. No operator RPC, cache, runtime or data. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { buildFlightDeckRows } from '../../../packages/client-core/src/values/mission'
 import {
   buildCorpus,
@@ -415,7 +415,7 @@ const fixture = {
   },
   async compare() {
     if (!graph) throw new Error('No pool for side-by-side comparison')
-    const { checkSidebar } = await import('@podium/client-graph/diagnostics/sidebar-check')
+    const { checkSidebar } = await import('../../../tests/worklist/diagnostics/sidebar-check')
     const s = referenceState(owner!)
     const keys = [
       'podium:sidebar:pinned-fold',

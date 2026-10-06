@@ -1,9 +1,9 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
-import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
+import { setFixtureSpawnPrompt } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 import {
@@ -18,7 +18,7 @@ import { MobxPool } from '@podium/client-graph'
 import {
   SESSION_PANE_NOW,
   sessionPaneFixture,
-} from '@podium/client-graph/diagnostics/session-pane-fixture'
+} from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,

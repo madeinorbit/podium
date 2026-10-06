@@ -6,7 +6,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '../diagnostics/sidebar-check'
+import { compareSidebarSnapshots, type SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { automationViews } from './automation-views'
 import { chatMentionIssues, chatReferenceSessions } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'

@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Cumulative derivations, not a subscription guard: enable before bootstrap
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */

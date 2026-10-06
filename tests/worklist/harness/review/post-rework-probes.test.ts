@@ -1,5 +1,5 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /**
  * POD-4942 — probes for the post-rework review of the MobX pool
  * (`docs/decisions/pod-4545-round-three-mobx-post-rework-review.md`).

@@ -4,7 +4,7 @@ import { createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { checkPreferences } from '../diagnostics/preference-check'
+import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 

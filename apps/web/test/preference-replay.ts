@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { createRoutedUiState, UI_STATE_KEYS } from '@podium/client-core/ui-state'
 import { layoutKeyFromLegacy } from '@podium/model'
 import { MobxPool } from '@podium/client-graph'
-import { checkPreferences } from '@podium/client-graph/diagnostics/preference-check'
+import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
 if (hostname() !== 'ludovico') throw new Error('Operator preference replay is ludovico-only')
 const { token, expiresAt } = JSON.parse(readFileSync(join(homedir(), '.podium', 'cli-session.json'), 'utf8')) as { token: string; expiresAt?: string }
 if (expiresAt && Date.parse(expiresAt) < Date.now()) throw new Error('CLI authentication expired')

@@ -4,7 +4,7 @@ import type { SessionView, SessionViewInput } from '../../../session-values'
 import type { IssueNavigationModel } from '../issues'
 import type { SidebarSections } from './nav'
 import type { UnifiedWorkRow } from './row-types'
-import { unifiedWorkList } from './rows'
+import { unifiedWorkList } from '../../../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-08-17T12:00:00.000Z')
 

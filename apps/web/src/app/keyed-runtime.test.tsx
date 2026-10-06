@@ -6,7 +6,7 @@ import {
 } from '@podium/client-core/engine'
 import { DraftStore } from '@podium/client-core/conversation'
 import { MobxPool } from '@podium/client-graph'
-import { setFixtureSpawnPrompt } from '@podium/client-graph/diagnostics/session-pane-fixture'
+import { setFixtureSpawnPrompt } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { asMachineId, asSessionId } from '@podium/model/browser'

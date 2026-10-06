@@ -1,10 +1,10 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import { reaction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkMissions, poolMissionSnapshot } from '@podium/client-graph/diagnostics/mission-check'
+import { checkMissions, poolMissionSnapshot } from '../../../diagnostics/mission-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import type { MobxPool } from '@podium/client-graph/pool'

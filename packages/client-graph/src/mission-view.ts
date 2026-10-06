@@ -5,7 +5,7 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
 
-import { issueDisplayRef as joinedIssueRef } from '@podium/client-graph/diagnostics/reference/issue-views'
+import { displayRefOf } from './views'
 import {
   deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
   motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
@@ -22,6 +22,9 @@ import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
+
+const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
+  displayRefOf(issue.seq, issue.prefix)
 
 const issueRefOverlay = createRowOverlay()
 const issueNavigationOverlay = createRowOverlay()

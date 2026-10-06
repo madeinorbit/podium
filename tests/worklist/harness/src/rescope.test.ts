@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4572 (Mb4, coordinator ruling 2026-09-24) — the rescope staging

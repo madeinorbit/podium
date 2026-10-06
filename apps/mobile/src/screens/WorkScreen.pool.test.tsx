@@ -1,5 +1,5 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
 

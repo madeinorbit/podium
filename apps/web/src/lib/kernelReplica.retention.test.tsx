@@ -1,6 +1,6 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { type IssueViewModel } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { asUserId, ISSUE_STAGES, issueUserStateRowId } from '@podium/model/browser'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'

@@ -1,7 +1,7 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { sessionViews } from '@podium/client-core/session-values'
@@ -10,7 +10,7 @@ import {
   readBoardSnapshot,
   explorerSnapshot,
   inBoardCheck,
-} from '@podium/client-graph/diagnostics/issue-board-check'
+} from '../../../../../tests/worklist/diagnostics/issue-board-check'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,

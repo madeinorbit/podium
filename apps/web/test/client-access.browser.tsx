@@ -1,5 +1,5 @@
 import { preferenceSource } from '@podium/client-graph/preference-source'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -147,7 +147,7 @@ const driver = {
   },
   async check() {
     if (!pool) return null
-    const { checkPreferences } = await import('@podium/client-graph/diagnostics/preference-check')
+    const { checkPreferences } = await import('../../../tests/worklist/diagnostics/preference-check')
     return checkPreferences(pool, owner.ui)
   },
   close: () => root.unmount(),

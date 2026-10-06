@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4746 — the work-per-change check (`scale-check.ts`) on every roster arm,

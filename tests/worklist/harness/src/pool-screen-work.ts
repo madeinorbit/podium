@@ -4,7 +4,7 @@ import { headerView } from '@podium/client-graph/header-views'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceView } from '@podium/client-graph/issue-reference'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /** All app-wide pool readers, retained as their consumers retain them. No timers or walls are judged. */
 
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'

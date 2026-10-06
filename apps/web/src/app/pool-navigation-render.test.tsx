@@ -1,6 +1,6 @@
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'

@@ -18,7 +18,7 @@ import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { useWaterfallActivity } from './FlightDeckWaterfall'
 import { MissionCostChip } from './MissionCostChip'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 import type { Trpc } from './trpc'
 import { useHandoffTranscript } from './use-handoff-transcript'

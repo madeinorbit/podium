@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../diagnostics/reference-state'
 /**
  * POD-4681 — the three R-VIS plants as PERMANENT tests on the MobX arm. Each
  * planted mistake runs a default 3x200 against the shared oracle and must

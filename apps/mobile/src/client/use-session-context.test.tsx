@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -7,7 +7,7 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionCardModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
+import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,

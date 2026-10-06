@@ -2,7 +2,7 @@ import { referenceView } from './issue-reference'
 import { compareStructural, computed, getObserverTree } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
-import { projectionComparisonMechanism } from '../diagnostics/projection-comparison-mechanism'
+import { projectionComparisonMechanism } from '../../../tests/worklist/diagnostics/projection-comparison-mechanism'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 

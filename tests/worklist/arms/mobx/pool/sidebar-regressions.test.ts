@@ -1,10 +1,10 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime } from '@podium/client-core/engine'
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../diagnostics/reference-state'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
@@ -20,9 +20,9 @@ import { cachedGroup } from '@podium/client-graph/cached'
 import {
   legacyDerivationFromStore,
   visibleIssueRows,
-} from '@podium/client-graph/diagnostics/legacy'
-import { legacySidebarRow, legacySidebarSections } from '@podium/client-graph/diagnostics/oracle'
-import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+} from '../../../diagnostics/legacy'
+import { legacySidebarRow, legacySidebarSections } from '../../../diagnostics/oracle'
+import { checkSidebar, poolSidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
 import { IssueModel } from '@podium/client-graph/models'

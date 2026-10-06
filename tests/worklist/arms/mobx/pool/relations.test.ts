@@ -21,7 +21,7 @@ import { sidebarRosterView } from '@podium/client-graph/worklist/sidebar-roster'
  *   purpose), compared with the scan after every step.
  */
 
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../diagnostics/reference-state'
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'

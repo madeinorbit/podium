@@ -1,10 +1,10 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { worklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
+import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
 import { sessionUserStateRowId } from '@podium/model'
 import {
   asIssueId,

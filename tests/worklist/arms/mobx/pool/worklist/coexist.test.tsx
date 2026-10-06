@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4576 (Mc4) — the MobX pool runs beside the legacy control on one

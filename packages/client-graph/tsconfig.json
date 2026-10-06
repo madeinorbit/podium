@@ -1,8 +1,7 @@
 {
   "extends": "../../tooling/tsconfig/react.json",
   "include": [
-    "src",
-    "diagnostics"
+    "src"
   ],
   "compilerOptions": {
     "types": [

@@ -1,5 +1,5 @@
 import { headerEntities } from './header-entities'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import type { GitRepositoryWire } from '@podium/model'

@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -7,8 +7,8 @@ import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
 import { asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, StrictMode, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'

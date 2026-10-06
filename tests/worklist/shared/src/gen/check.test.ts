@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4556 (L4b) — the checker can say NO: a planted incremental mistake turns
  * it red on a random run and shrinks to its cause, and the correct arm passes

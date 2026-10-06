@@ -1,5 +1,5 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4444 — row-source tests: one event per runtime publication, folded

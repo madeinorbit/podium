@@ -1,8 +1,8 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
 import {
   missionIndexStats,
   missionRootFor,
@@ -10,7 +10,7 @@ import {
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { poolMissionViewSnapshot } from '@podium/client-graph/diagnostics/mission-view-check'
+import { poolMissionViewSnapshot } from '../../../diagnostics/mission-view-check'
 import {
   missionView,
   readMissionView,

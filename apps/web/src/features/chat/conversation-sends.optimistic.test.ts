@@ -19,7 +19,7 @@ import { renderHook } from '@testing-library/react'
 import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 import { type ModelSendOptions, type ModelSendResult, useModelSend } from './test-support/model-send'

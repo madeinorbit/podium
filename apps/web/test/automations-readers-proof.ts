@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
-import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import type {} from './automations-readers.browser'
 
 async function main() {

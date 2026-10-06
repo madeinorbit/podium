@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'

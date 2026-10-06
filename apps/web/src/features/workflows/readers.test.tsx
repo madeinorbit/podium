@@ -3,11 +3,11 @@ import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/values'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import {
   checkWorkflows,
   probeWorkflowCheckScope,
-} from '@podium/client-graph/diagnostics/workflow-check'
+} from '../../../../../tests/worklist/diagnostics/workflow-check'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'

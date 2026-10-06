@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4556 (L4b) — the correctness gate: incremental versus rebuild versus
  * oracle, after every generated change.

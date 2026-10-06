@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Count real pool publications across bootstrap, updates, gestures, idle and
  * provider rebuilds. Settled screen projections must reuse their cached paint
  * without reading rows or rerunning derivations. All data is synthetic; the

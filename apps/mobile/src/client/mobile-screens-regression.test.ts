@@ -1,9 +1,9 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Exact pool-only phone outputs frozen after the accepted parity controls.
  * Synthetic fixture roots select the same questions and publication gates. */
 
 import { createHash } from 'node:crypto'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
@@ -11,7 +11,7 @@ import {
   observeMobileScreens,
   poolMobileScreensSnapshot,
   trackMobileScreenRead as tracked,
-} from '@podium/client-graph/diagnostics/mobile-screens-snapshot'
+} from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import type { MobxPool } from '@podium/client-graph/pool'

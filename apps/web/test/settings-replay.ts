@@ -12,7 +12,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { createRoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
-import { checkSettings } from '@podium/client-graph/diagnostics/settings-check'
+import { checkSettings } from '../../../tests/worklist/diagnostics/settings-check'
 
 
 if (hostname() !== 'ludovico') throw new Error('Settings operator replay is ludovico-only')

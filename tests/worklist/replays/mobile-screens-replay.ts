@@ -7,7 +7,7 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
 
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
@@ -27,7 +27,7 @@ import { ScenarioCache } from '../shared/src/scenarios'
 import { attachMobileScreens } from '../../../packages/client-graph/src/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '../../../packages/client-graph/src/mobile-screens-schema'
 import { createRuntimeWorklistPool } from '../../../packages/client-graph/src/runtime-pool'
-import type { MobileScreenInput } from '../../../packages/client-graph/diagnostics/mobile-screens-snapshot'
+import type { MobileScreenInput } from '../diagnostics/mobile-screens-snapshot'
 
 const MAX_CHECKS_PER_POOL = 100
 let phase = 0
@@ -35,7 +35,7 @@ async function main() {
   if (hostname() !== 'ludovico') throw new Error('Replay is restricted to ludovico')
   storeStats.enable()
   storeStats.reset()
-  const { poolMobileScreensSnapshot } = await import('../../../packages/client-graph/diagnostics/mobile-screens-snapshot')
+  const { poolMobileScreensSnapshot } = await import('../diagnostics/mobile-screens-snapshot')
   const { mostRelevantSession } = await import('../../../apps/mobile/src/lib/mission-session')
   const origin =
     process.argv.find((arg) => arg.startsWith('--origin='))?.slice(9) ?? 'http://127.0.0.1:18787'

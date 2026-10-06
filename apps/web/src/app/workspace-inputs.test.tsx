@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { LOADING, MobxPool } from '@podium/client-graph'
-import { sessionPaneFixture } from '@podium/client-graph/diagnostics/session-pane-fixture'
+import { sessionPaneFixture } from '../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createColdIndex } from '@podium/client-graph/shared/cold-index'
 import { SCHEMA } from '@podium/client-graph/shared/schema'

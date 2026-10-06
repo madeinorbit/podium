@@ -1,5 +1,5 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
@@ -7,7 +7,7 @@ import {
   poolSidebarSnapshot,
   type SidebarDifference,
   type SidebarSnapshot,
-} from '@podium/client-graph/diagnostics/sidebar-check'
+} from '../../../diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'

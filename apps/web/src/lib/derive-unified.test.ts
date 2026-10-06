@@ -1,28 +1,6 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import {
-  archivedSessionsForIssue,
-  archivedSessionsForWorktreePath,
-  branchRollup,
-  deepAttentionSource,
-  groupUnifiedWorkRows,
-  type IssueNavigationModel,
-  isRowUnread,
-  issueVisibleInSidebar,
-  mostUrgentSession,
-  partitionUnifiedWork,
-  type RepoNavView,
-  repoUsageAt,
-  rowStatusLine,
-  rowUnreadEmphasized,
-  rowWaitingCount,
-  type SidebarSections,
-  sessionUrgencyRank,
-  spawnTargetForRepo,
-  splitPinnedWork,
-  type UnifiedWorkRow,
-  unifiedWorkList,
-  type WorktreeNavView,
-} from '@podium/client-core/values'
+import { archivedSessionsForIssue, archivedSessionsForWorktreePath, branchRollup, deepAttentionSource, type IssueNavigationModel, isRowUnread, issueVisibleInSidebar, mostUrgentSession, type RepoNavView, repoUsageAt, rowStatusLine, rowUnreadEmphasized, rowWaitingCount, type SidebarSections, sessionUrgencyRank, spawnTargetForRepo, splitPinnedWork, type UnifiedWorkRow, type WorktreeNavView } from '@podium/client-core/values'
+import { groupUnifiedWorkRows, partitionUnifiedWork, unifiedWorkList } from '../../../../tests/worklist/legacy-values/index'
 import {
   asIssueId,
   asMachineId,

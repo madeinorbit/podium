@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import { storeStats } from '@podium/client-core/perf'
@@ -29,7 +29,7 @@ import {
   compareCommandLaunchSnapshots,
   legacyCommandLaunchSnapshot,
   poolCommandLaunchSnapshot,
-} from '../diagnostics/command-launch-check'
+} from '../../../tests/worklist/diagnostics/command-launch-check'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { commandLaunchViews, createCommandLaunchViews } from './command-launch-views'

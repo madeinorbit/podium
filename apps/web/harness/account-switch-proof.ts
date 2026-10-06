@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Focused Chromium proof over the ordinary synthetic full-screen fixture.
  * Run on flatblock: bun apps/web/harness/account-switch-proof.ts
  * --plant-stale-handler retains the first real close-tab closure and must fail. */

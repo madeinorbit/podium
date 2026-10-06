@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4825 (item 1) — the MobX pages for the arm that owns optimism, built by
  * the page through `createArm` like every arm (`entrylib.ts`). Two pages,

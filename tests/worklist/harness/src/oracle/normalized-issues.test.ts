@@ -1,9 +1,9 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { checkSidebar, poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { checkSidebar, poolSidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
 import { runInAction } from 'mobx'

@@ -1,5 +1,5 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4565 (Ma1) — the correctness gate (L4b, `shared/src/gen/check.ts`) on
  * the pool, and the pool's own-row fields against the legacy oracle.

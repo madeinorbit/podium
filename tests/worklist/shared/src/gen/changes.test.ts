@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4555 (L4a) — the generator is deterministic, covers the whole
  * vocabulary through the real engine, and emits the audit §3.3 shapes.

@@ -6,12 +6,8 @@ import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
-import {
-  partitionUnifiedWork,
-  type SidebarSections,
-  type UnifiedIssueRow,
-  unifiedWorkList,
-} from './index'
+import { type SidebarSections, type UnifiedIssueRow } from './index'
+import { partitionUnifiedWork, unifiedWorkList } from '../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000

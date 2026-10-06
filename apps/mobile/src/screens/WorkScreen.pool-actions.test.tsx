@@ -1,5 +1,5 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
 

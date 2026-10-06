@@ -17,7 +17,7 @@
  *   members included (decision doc, "the bubbling contradiction, adjudicated").
  */
 
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../diagnostics/reference-state'
 import { motionPhase } from '@podium/client-core/values'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { FixtureCorpus } from '../fixture/index'

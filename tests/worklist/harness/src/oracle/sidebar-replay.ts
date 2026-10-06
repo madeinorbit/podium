@@ -9,16 +9,16 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { hostname } from 'node:os'
 import type { PodiumClientApi } from '@podium/client-core/api'
 
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   checkSidebar,
   poolSidebarSnapshot,
   type SidebarDifference,
-} from '@podium/client-graph/diagnostics/sidebar-check'
+} from '../../../diagnostics/sidebar-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'

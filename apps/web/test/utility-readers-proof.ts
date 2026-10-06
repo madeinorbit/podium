@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { chromium } from '@playwright/test'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { compareSidebarSnapshots, type SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import type {} from './utility-readers.browser'
 
 const sources = [

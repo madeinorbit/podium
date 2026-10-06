@@ -1,6 +1,6 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 
 import { headerStats } from '@podium/client-core/perf'
@@ -8,8 +8,8 @@ import {
   checkHeader,
   legacyHeaderSnapshot,
   poolHeaderSnapshot,
-} from '@podium/client-graph/diagnostics/header-check'
-import { startHeaderCheck } from '@podium/client-graph/diagnostics/header-runtime-check'
+} from '../../diagnostics/header-check'
+import { startHeaderCheck } from '../../diagnostics/header-runtime-check'
 import { HEADER_RELATIONS, HEADER_SCHEMA } from '@podium/client-graph/header-schema'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import { asIssueId, type HostMetricsWire, type MachineId } from '@podium/model/browser'

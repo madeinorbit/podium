@@ -1,5 +1,5 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { workspaceKeyForState } from '@podium/client-core/engine'
 import { vi } from 'vitest'
 import { useRuntimeSelector as selectLocals } from '@/app/store'

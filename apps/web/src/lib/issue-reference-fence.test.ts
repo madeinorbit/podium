@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment node
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -25,7 +25,7 @@ function sources(directory: string): string[] {
 describe('client issue reference network fence', () => {
   it('rejects server lookup access in shipped client sources', () => {
     const paths = ['apps/web/src', 'apps/mobile/src', 'packages/client-core/src',
-      'packages/client-graph/src', 'packages/client-graph/diagnostics'].flatMap(sources)
+      'packages/client-graph/src', 'tests/worklist/diagnostics'].flatMap(sources)
     expect(paths.length).toBeGreaterThan(100)
     for (const path of paths) requireLocalReferences(readFileSync(join(root, path), 'utf8'), path)
   })

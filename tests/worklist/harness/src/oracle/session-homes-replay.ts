@@ -12,7 +12,7 @@ import { sessionUserStateRowId, type GitRepositoryWire, type MachineWire } from 
 import { createWorklistPool } from '@podium/client-graph/create'
 import { createRowSource } from '../../../shared/src/row-source'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
-import { poolSidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import { poolSidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { runInAction } from 'mobx'
 import { ScenarioCache, seedCacheFromCorpus } from '../../../shared/src/scenarios'
 import { corpusFromLive, type LiveCollections } from '../fixture/live-snapshot'

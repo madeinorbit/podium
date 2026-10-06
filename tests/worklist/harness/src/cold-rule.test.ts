@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /**
  * POD-4665 — the cold rule against the rows the list draws, at 1x and 4x.
  *

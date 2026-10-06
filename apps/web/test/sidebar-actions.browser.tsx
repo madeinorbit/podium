@@ -1,5 +1,5 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
 import {
   type ClientRuntime,
@@ -9,7 +9,7 @@ import {
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { checkSidebar } from '@podium/client-graph/diagnostics/sidebar-check'
+import { checkSidebar } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { spreadSortKeys } from '@podium/model'
 import { asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'

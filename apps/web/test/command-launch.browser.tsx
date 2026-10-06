@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -191,7 +191,7 @@ const driver = {
   async check() {
     if (!pool) return null
     const { checkCommandLaunch, poolCommandLaunchSnapshot } = await import(
-      '@podium/client-graph/diagnostics/command-launch-check'
+      '../../../tests/worklist/diagnostics/command-launch-check'
     )
     for (let round = 0; round < 32; round++) {
       poolCommandLaunchSnapshot(pool)

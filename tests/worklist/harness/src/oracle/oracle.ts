@@ -11,18 +11,19 @@ import { fixtureGitStates, fixtureMarkers } from '../fixture/normalized-issues'
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import type { Replica } from '@podium/client-core/replica'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import { groupUnifiedWorkRows, indexMissionSessions, issueDisplayTitle, missionRollup, rowHasWorkingSession, rowInClosedFold, rowMotionPhase, rowWaitingCount, splitPinnedWork, type UnifiedIssueRow, type UnifiedWorkRow, unifiedRowBand } from '@podium/client-core/values'
-import { worklistSlice } from '@podium/client-graph/diagnostics/reference/worklist'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
+import { indexMissionSessions, issueDisplayTitle, missionRollup, rowHasWorkingSession, rowInClosedFold, rowMotionPhase, rowWaitingCount, splitPinnedWork, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/values'
+import { groupUnifiedWorkRows, unifiedRowBand } from '../../../legacy-values/index'
+import { worklistSlice } from '../../../diagnostics/reference/worklist'
 import {
   type LegacyDerivation,
   legacyDerivationFromStore,
   visibleIssueRows,
-} from '@podium/client-graph/diagnostics/legacy'
+} from '../../../diagnostics/legacy'
 import type {
   SliceGroup,
   SliceLocals,
@@ -36,7 +37,7 @@ export {
   type LegacyDerivation,
   legacyDerivationFromStore,
   visibleIssueRows,
-} from '@podium/client-graph/diagnostics/legacy'
+} from '../../../diagnostics/legacy'
 
 function stubReplica(corpus: FixtureCorpus): Replica {
   const byKind = {

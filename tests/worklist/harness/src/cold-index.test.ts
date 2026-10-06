@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /**
  * POD-5405 — the row source's cold index (`client-graph/src/shared/cold-index.ts`)
  * equals the rule over whole rows, at 1x and 4x and along generated change

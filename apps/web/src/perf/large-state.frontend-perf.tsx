@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { indexSessionOwnership, sidebarSections } from '@podium/client-core/values'
+import { indexSessionOwnership } from '@podium/client-core/values'
+import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
 import { type GitRepositoryWire, ISSUE_STAGES } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'

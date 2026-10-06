@@ -1,5 +1,5 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { issueInput } from '@podium/client-graph/shared/issue-input'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'

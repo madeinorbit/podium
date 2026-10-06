@@ -1,0 +1,52 @@
+import { asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { SYNTHETIC_CODEX_KIND } from './fixture-kinds.fixtures'
+import type { SessionView } from '@podium/client-core/session-values'
+import { runInAction } from 'mobx'
+import type { PoolTransactions } from '../../../packages/client-graph/src/write/transactions'
+
+/** Drive the transaction map directly when a UI fixture has no create transport. */
+export function setFixtureSpawnPrompt(transactions: PoolTransactions, id: string, text: string | null | undefined): void {
+  runInAction(() => {
+    const prompts = transactions.spawnPrompts as Map<string, string | null>
+    if (text === undefined) prompts.delete(id)
+    else prompts.set(id, text)
+  })
+}
+
+export const SESSION_PANE_NOW = Date.parse('2026-10-02T00:00:00Z')
+/** Covers process, urgency, queue, capabilities, recovery and model provenance. */
+export function sessionPaneFixture(): SessionView[] {
+  const variants = [
+    {},
+    { agentState: { phase: 'working' }, resumable: true },
+    { agentState: { phase: 'compacting' }, resumable: true },
+    { agentState: { phase: 'needs_user', since: '2026-10-01T23:30:00Z' }, offer: { message: 'Review ready', actions: [{ label: 'Continue', prompt: 'continue' }], createdAt: '2026-10-01T23:40:00Z' } },
+    { agentState: { phase: 'errored', error: 'synthetic failure' } },
+    { status: 'hibernated', resumable: true },
+    { status: 'hibernated', agentState: { phase: 'idle' }, queuedMessageCount: 2, resumable: true },
+    { status: 'exited', exitCode: 2, resumable: true },
+    { status: 'exited', agentKind: 'shell', exitCode: 0 },
+    { status: 'exited', neverBound: true, spawnFailure: 'synthetic spawn refusal' },
+    { status: 'exited', resumable: false },
+    { status: 'starting' },
+    { status: 'reconnecting' },
+    { condition: 'logged-out', agentKind: SYNTHETIC_CODEX_KIND, machineId: 'machine-b', machineName: 'Offline host' },
+    { driverFamily: 'server', attachKinds: [], headless: true, configureFields: ['permissionMode'] },
+    { requestedModel: 'gpt-6', requestedEffort: 'high', configureFields: ['model', 'effort'] },
+    { observedModel: 'claude-opus-4-8', observedEffort: 'medium', requestedModel: 'gpt-6' },
+    { snoozedUntil: '2026-10-03T00:00:00Z' },
+    { handoffTarget: 'Another host', machineName: 'Host' },
+    { agentKind: 'shell', status: 'hibernated' },
+    { driverFamily: undefined, attachKinds: undefined },
+    { machineId: 'machine-b', machineName: 'Offline host' },
+    { archived: true, status: 'exited', lastActiveAt: '2020-01-01T00:00:00Z', stoppedAt: '2020-01-01T00:00:00Z',
+      readAt: '2020-01-02T00:00:00Z', unread: false },
+  ]
+  return variants.map((patch, i) => ({ sessionId: asSessionId(`pane-${i}`), agentKind: DEFAULT_HARNESS_AGENT,
+    title: `Synthetic pane ${i}`, name: i % 2 ? `Named pane ${i}` : undefined, cwd: `/synthetic/w${i}`, status: 'live',
+    machineId: 'machine-a', machineName: 'Host', displayRef: `POD-${i}.a`, controllerId: 'controller',
+    geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 1, createdAt: '2026-10-01T00:00:00Z',
+    lastActiveAt: '2026-10-01T23:50:00Z', origin: { kind: 'spawn' }, archived: false, readAt: null, unread: true,
+    agentState: { phase: 'idle' }, driverFamily: 'terminal', attachKinds: ['client'],
+    model: 'auto', effort: 'auto', ...patch } as SessionView))
+}

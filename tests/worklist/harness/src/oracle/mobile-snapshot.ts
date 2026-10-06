@@ -4,8 +4,8 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkRef, MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
-import type { CheckRow, SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
-import { sidebarComparable, sessionComparable } from '@podium/client-graph/diagnostics/oracle'
+import type { CheckRow, SidebarSnapshot } from '../../../diagnostics/sidebar-check'
+import { sidebarComparable, sessionComparable } from '../../../diagnostics/oracle'
 import { mobileRowPaint } from '../../../../../apps/mobile/src/lib/work-sections'
 
 function comparable(value: MobileRowValues): Record<string, unknown> {

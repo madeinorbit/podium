@@ -2,23 +2,8 @@
 import { asIssueId, asSessionId, type UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionView, SessionViewInput } from '../session-values'
-import {
-  elevateCoordinatorSession,
-  type IssueNavigationModel,
-  isCoordinatorSession,
-  isDraftAgentVessel,
-  issueIdOwningSession,
-  issueVisibleInSidebar,
-  nestStartedByIssues,
-  orderTabs,
-  rowMotionPhase,
-  rowStatusLine,
-  rowWaitingCount,
-  type SidebarSections,
-  sessionVisibleInLiveRoster,
-  type UnifiedIssueRow,
-  unifiedWorkList,
-} from './index'
+import { elevateCoordinatorSession, type IssueNavigationModel, isCoordinatorSession, isDraftAgentVessel, issueIdOwningSession, issueVisibleInSidebar, orderTabs, rowMotionPhase, rowStatusLine, rowWaitingCount, type SidebarSections, sessionVisibleInLiveRoster, type UnifiedIssueRow } from './index'
+import { nestStartedByIssues, unifiedWorkList } from '../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 const HOUR = 3_600_000

@@ -1,10 +1,7 @@
 import { withoutShells } from '@podium/client-core/focus'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import {
-  partitionWorkItems,
-  sessionsForWorktree,
-  sidebarSections,
-} from '@podium/client-core/values'
+import { partitionWorkItems, sessionsForWorktree } from '@podium/client-core/values'
+import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
 import {
   asSessionId,
   dedupeSessionsByResume,

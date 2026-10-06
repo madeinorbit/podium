@@ -1,7 +1,7 @@
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { IssueProjection } from '@podium/model'
-import { issueActivityAt } from '@podium/client-graph/diagnostics/reference-state'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { issueActivityAt } from '../../../../tests/worklist/diagnostics/reference-state'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import {
   type EngineState,
   knownTabIdsForWorkspace,

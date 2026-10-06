@@ -1,7 +1,7 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
 import { loadingNavigationProvider } from '@podium/client-core/engine'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /**
  * POD-4563 (L6a) — the one scenario list every arm's fences run over.
  *

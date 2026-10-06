@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 /**
  * POD-4572 (Mb4, coordinator ruling 2026-09-24) — staging a rescope the way a
  * real one arrives: the new scope's kernel ROWS and its worktree SCANS.

@@ -2,7 +2,8 @@ import { asSessionId, type GitRepositoryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionView } from '../../../session-values'
 import type { PinState } from '../../types'
-import { EMPTY_PINS, lastUsedMaps, sidebarSections } from './nav'
+import { EMPTY_PINS } from './nav'
+import { lastUsedMaps, sidebarSections } from '../../../../../../tests/worklist/legacy-values/index'
 import { groupSessionsByParent, partitionWorkItems } from './session-groups'
 
 // ---------------------------------------------------------------------------

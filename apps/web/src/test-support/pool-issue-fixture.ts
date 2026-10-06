@@ -1,4 +1,4 @@
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 /** Convert older test inputs at the fixture boundary, then exercise real joins. */
 
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'

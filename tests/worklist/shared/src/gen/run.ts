@@ -1,6 +1,6 @@
 import { SYNTHETIC_CLAUDE_KIND, SYNTHETIC_CODEX_KIND, SYNTHETIC_CODEX_TITLE } from '../../../harness/src/fixture/fixture-kinds.fixtures'
-import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { watchReference } from '../../../diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import { upsertIssue } from '../scenarios'
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.

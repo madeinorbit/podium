@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 /**
  * POD-4559 — the store helpers run on ONE clock: the caller's.
@@ -46,7 +46,7 @@ import {
 const HOUR = 60 * 60 * 1000
 const AHEAD_MS = [1, 6, 24, 72, 7 * 24, 30 * 24, 90 * 24, 365 * 24].map((h) => h * HOUR)
 
-type Store = import('@podium/client-graph/diagnostics/reference-state').ReferenceState
+type Store = import('../../../diagnostics/reference-state').ReferenceState
 
 interface Truth {
   locals: SliceLocals

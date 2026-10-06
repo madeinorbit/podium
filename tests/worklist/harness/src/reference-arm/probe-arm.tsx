@@ -1,5 +1,5 @@
-import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { watchReference } from '../../../diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4564 (L6b) — the PROBE reference arm: the arm every planted-mistake
  * probe (`shared/src/probes/`) is proven ARMED on.

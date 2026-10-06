@@ -1,6 +1,6 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
 // @vitest-environment happy-dom
 /**
  * POD-4444 / POD-4550 — scenario tests on the ONE corpus: every methodology

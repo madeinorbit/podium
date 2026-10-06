@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4572 (Mb4) — a draft's display title at 4x, where the fixture first

@@ -19,7 +19,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import {
   type IssueNavigationModel,
   isSessionWorking,

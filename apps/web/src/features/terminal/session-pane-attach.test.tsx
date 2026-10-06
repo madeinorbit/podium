@@ -9,7 +9,7 @@ import type { MobxPool } from '@podium/client-graph'
 import {
   SESSION_PANE_NOW,
   sessionPaneFixture,
-} from '@podium/client-graph/diagnostics/session-pane-fixture'
+} from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { asUserId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'

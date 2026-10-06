@@ -1,5 +1,5 @@
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
-import type { IssueViewModel } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import type { IssueViewModel } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
 import { compareRank, type RowRank } from '@podium/client-graph/shared/row-view'
 import { issueAbandoned } from '@podium/client-graph/shared/predicates'
@@ -9,7 +9,7 @@ import type { SidebarSections } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { poolFixtureIssues } from './pool-issue-fixture'
 import { isDeepStrictEqual } from 'node:util'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 // Older provider-free fixtures carry saved documents as plain test data.
 type Store = ReferenceState & { drafts?: Record<string, string> }
 import type { MobxPool } from '@podium/client-graph'

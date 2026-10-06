@@ -1,21 +1,6 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import {
-  agentBadge,
-  chatActivity,
-  defaultChatCapable,
-  exitedRecovery,
-  formatMemBytes,
-  hostMemoryView,
-  orderTabs,
-  orphanSessionFor,
-  panelLabel,
-  partitionWorkItems,
-  reposToViews,
-  sessionDotTone,
-  sessionsForWorktree,
-  sidebarSections,
-  sortSessionsForSidebar,
-} from '@podium/client-core/values'
+import { agentBadge, chatActivity, defaultChatCapable, exitedRecovery, formatMemBytes, hostMemoryView, orderTabs, orphanSessionFor, panelLabel, partitionWorkItems, reposToViews, sessionDotTone, sessionsForWorktree, sortSessionsForSidebar } from '@podium/client-core/values'
+import { sidebarSections } from '../../../tests/worklist/legacy-values/index'
 import {
   asSessionId,
   type GitRepositoryWire,

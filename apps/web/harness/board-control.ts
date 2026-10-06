@@ -1,14 +1,14 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { MobxPool } from '@podium/client-graph'
 import {
   boardSnapshot,
   compareBoardValues,
   explorerSnapshot,
   readBoardSnapshot,
-} from '@podium/client-graph/diagnostics/issue-board-check'
+} from '../../../tests/worklist/diagnostics/issue-board-check'
 import type {
   BoardOptions,
   BoardSnapshotData,

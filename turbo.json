@@ -35,7 +35,6 @@
         "$TURBO_ROOT$/packages/mobx-helpers/src/**",
         "$TURBO_ROOT$/packages/client-graph/package.json",
         "$TURBO_ROOT$/packages/client-graph/src/**",
-        "$TURBO_ROOT$/packages/client-graph/diagnostics/**",
         "$TURBO_ROOT$/packages/commands/package.json",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/package.json",
@@ -164,7 +163,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts"
+        "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
+        "$TURBO_ROOT$/tests/worklist/legacy-values/**"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
@@ -184,6 +184,8 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/tests/worklist/harness/src/**",
         "$TURBO_ROOT$/tests/worklist/shared/src/**",
+        "$TURBO_ROOT$/tests/worklist/diagnostics/**",
+        "$TURBO_ROOT$/tests/worklist/legacy-values/**",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
@@ -622,7 +624,7 @@
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
-        "$TURBO_ROOT$/packages/client-graph/diagnostics/notice-fixture.ts",
+        "$TURBO_ROOT$/tests/worklist/diagnostics/notice-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**",
         "$TURBO_ROOT$/tests/worklist/harness/src/oracle/mobile.ts"
       ],

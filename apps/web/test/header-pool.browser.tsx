@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { headerStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -120,7 +120,7 @@ const driver = {
   async check() {
     if (!pool || !runtime) return null
     const { checkHeader, poolHeaderSnapshot } = await import(
-      '@podium/client-graph/diagnostics/header-check'
+      '../../../tests/worklist/diagnostics/header-check'
     )
     for (let round = 0; round < 64; round++) {
       poolHeaderSnapshot(pool, fixture.inputs() as never)

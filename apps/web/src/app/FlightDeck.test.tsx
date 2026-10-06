@@ -2,9 +2,9 @@ import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { DraftStore } from '@podium/client-core/conversation'
-import { dedupeSessions } from '@podium/client-graph/diagnostics/reference-state'
+import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import {
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,

@@ -42,7 +42,7 @@ import { fixtureGitStates, fixtureMarkers, fixtureProjection } from './normalize
  */
 
 
-import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-graph/diagnostics/reference/issue-views'
+import { deriveIssueRollups, indexSessionsByIssue } from '../../../diagnostics/reference/issue-views'
 import type { PinState } from '@podium/client-core/values'
 import type {
   SliceIssue,

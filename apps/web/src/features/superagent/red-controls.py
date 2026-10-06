@@ -31,7 +31,7 @@ cases = [
     ("question-order", source, "ids: replica.rows('pendingInteractions').map(row => row.id)", "ids: replica.rows('pendingInteractions').map(row => row.id).sort()", graph_test, "reuses notice payloads"),
     ("cold-index", source, "this.previousThreads = next;", "replica.rows('sessions'); this.previousThreads = next;", graph_test, "batches addressed cold session"),
     ("dispose", source, "for (const stop of this.stops) stop()", "for (const stop of []) stop()", graph_test, "releases all scoped state"),
-    ("differential", "packages/client-graph/diagnostics/superagent-check.ts", "differences: result.differences", "differences: 0", graph_test, "reports planted errors"),
+    ("differential", "tests/worklist/diagnostics/superagent-check.ts", "differences: result.differences", "differences: 0", graph_test, "reports planted errors"),
     ("divider-attach", web + "useIssueEvents.ts", "if (visible && !wasVisible.current) setDivider(readPosition.get('issueEvents'))\n    wasVisible.current = visible", "if (visible && !loading && !wasVisible.current) setDivider(cursor)\n    wasVisible.current = visible && !loading", web + "SuperagentView.pool.test.tsx", "preserves saved thread"),
     ("web-owner", web + "SuperagentView.tsx", "await trpc.superagent.clear.mutate({ threadId: THREAD_ID })", "await Promise.resolve()", web + "SuperagentView.pool.test.tsx", "keeps the existing mutation"),
     ("phone-context", phone + "SuperagentScreen.tsx", "pool.sessionPanes.session(id)", "undefined", phone + "SuperagentScreen.pool.test.tsx", "renders the same phone session"),

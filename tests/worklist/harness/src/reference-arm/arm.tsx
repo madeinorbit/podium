@@ -1,5 +1,5 @@
-import { watchReference } from '@podium/client-graph/diagnostics/reference-state'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { watchReference } from '../../../diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 /**
  * POD-4563 (L6a) — the REFERENCE arm: the fence suite's "can say YES" arm.
  *

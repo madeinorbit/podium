@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
 
 // @vitest-environment happy-dom

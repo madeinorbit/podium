@@ -1,4 +1,4 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
  * POD-4557 — the reads fence, end to end, in BOTH directions, through the

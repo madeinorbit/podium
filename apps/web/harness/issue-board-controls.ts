@@ -233,8 +233,8 @@ const cases = [
   },
   {
     name: 'mismatch-detector',
-    file: 'packages/client-graph/diagnostics/issue-board-check.ts',
-    test: 'packages/client-graph/diagnostics/issue-board-check.test.ts',
+    file: 'tests/worklist/diagnostics/issue-board-check.ts',
+    test: 'tests/worklist/diagnostics/issue-board-check.test.ts',
     title: 'detects a planted',
     from: 'const field = issuePageFirstDifference(expected, actual)',
     to: 'const field = null',

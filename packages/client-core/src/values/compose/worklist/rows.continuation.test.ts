@@ -5,7 +5,7 @@ import type { IssueNavigationModel } from '../issues'
 import type { SidebarSections } from './nav'
 import { rowPendingDecision, rowStatusLine } from './row-attention'
 import type { UnifiedIssueRow } from './row-types'
-import { unifiedWorkList } from './rows'
+import { unifiedWorkList } from '../../../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-08-17T12:00:00.000Z')
 

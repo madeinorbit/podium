@@ -1,6 +1,6 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { poolIssuePageSnapshot } from '@podium/client-graph/diagnostics/issue-page-check'
+import { poolIssuePageSnapshot } from '../../../diagnostics/issue-page-check'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'

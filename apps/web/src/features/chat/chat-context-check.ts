@@ -13,12 +13,12 @@ import {
   chatReferenceMachines,
   chatReferenceSessions,
 } from '@podium/client-graph/chat-context'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState & { drafts?: Record<string, string> }
 import {
   type CheckSection,
   compareSidebarSnapshots,
-} from '@podium/client-graph/diagnostics/sidebar-check'
+} from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
 import { resolveRef, sessionForIssue } from '@/lib/ref-miniview'
 

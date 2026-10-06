@@ -1,11 +1,11 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real production consumers and one offline runtime. Every row is synthetic. */
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import type { SidebarSnapshot } from '@podium/client-graph/diagnostics/sidebar-check'
+import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
@@ -312,7 +312,7 @@ const driver = {
   async check() {
     if (!pool || !runtime) return null
     const { checkShell, poolShellSnapshot } = await import(
-      '@podium/client-graph/diagnostics/shell-check'
+      '../../../tests/worklist/diagnostics/shell-check'
     )
     for (let round = 0; round < 64; round++) {
       poolShellSnapshot(pool)

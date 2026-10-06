@@ -1,10 +1,6 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import {
-  EMPTY_PINS,
-  partitionStaleSessions,
-  sessionsForWorktree,
-  sidebarSections,
-} from '@podium/client-core/values'
+import { EMPTY_PINS, partitionStaleSessions, sessionsForWorktree } from '@podium/client-core/values'
+import { sidebarSections } from '../../../../tests/worklist/legacy-values/index'
 import type { GitRepositoryWire } from '@podium/model'
 import { dedupeSessionsByResume, worktreeForCwd } from '@podium/model'
 import { describe, expect, it } from 'vitest'

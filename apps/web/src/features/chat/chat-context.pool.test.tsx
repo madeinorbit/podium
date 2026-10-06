@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 
 type Store = ReferenceState<import('@/app/trpc').Trpc> & { drafts: Record<string, string> }
 

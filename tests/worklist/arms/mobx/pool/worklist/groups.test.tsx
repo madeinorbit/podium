@@ -1,7 +1,7 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../../diagnostics/reference-state'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../diagnostics/reference/issue-view-models'
 
 // @vitest-environment happy-dom
 /**

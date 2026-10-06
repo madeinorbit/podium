@@ -13,7 +13,7 @@ import type { MobxPool } from '@podium/client-graph'
 import {
   type CheckRow,
   compareSidebarSnapshots,
-} from '@podium/client-graph/diagnostics/sidebar-check'
+} from '../../../../../tests/worklist/diagnostics/sidebar-check'
 import { LOADING } from '@podium/client-graph/loading'
 
 export const FILE_VIEWER_PREFERENCE_KEYS = [

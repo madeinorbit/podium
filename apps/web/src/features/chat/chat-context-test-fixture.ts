@@ -2,7 +2,7 @@ import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState & { drafts: Record<string, string> }
 import { outboxChatSends } from '@podium/client-core/engine'
 import type { IssueViewModel, ReplicaAddressedBatch } from '@podium/client-core/replica'
@@ -16,7 +16,7 @@ import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { createSuperagentSource, SUPERAGENT_ENTITIES } from '@podium/client-graph/superagent'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
-import { noticeFixture } from '@podium/client-graph/diagnostics/notice-fixture'
+import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
 
 

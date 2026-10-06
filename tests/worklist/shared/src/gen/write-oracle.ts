@@ -1,6 +1,6 @@
-import { referenceState } from '@podium/client-graph/diagnostics/reference-state'
+import { referenceState } from '../../../diagnostics/reference-state'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
 
 /**
  * POD-4574 (Mc2, coordinator ruling F4) — the oracle for a writable arm:
@@ -44,7 +44,7 @@ import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/i
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import type { Replica } from '@podium/client-core/replica'
 import { baseOf, subscribeReceipts } from '@podium/client-graph/shared/receipts'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'

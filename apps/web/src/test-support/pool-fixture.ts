@@ -5,9 +5,9 @@ import { createHeaderPollingService } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
-import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 
-import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { reposToViews } from '@podium/client-core/values'
 import type { RowSourceEvent } from '@podium/client-graph'

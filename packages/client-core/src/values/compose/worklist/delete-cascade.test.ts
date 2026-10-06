@@ -25,12 +25,8 @@ import type { SessionView, SessionViewInput } from '../../../session-values'
 
 import type { UnbrandIds } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import {
-  type IssueNavigationModel,
-  type SidebarSections,
-  type UnifiedWorkRow,
-  unifiedWorkList,
-} from '../../index'
+import { type IssueNavigationModel, type SidebarSections, type UnifiedWorkRow } from '../../index'
+import { unifiedWorkList } from '../../../../../../tests/worklist/legacy-values/index'
 
 const NOW = Date.parse('2026-08-12T12:00:00.000Z')
 
