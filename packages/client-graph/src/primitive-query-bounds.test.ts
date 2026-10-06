@@ -9,6 +9,7 @@ import { createRelationIndex } from './shared/relation-index'
 import { SCHEMA } from './shared/schema'
 import type { RowSourceEvent } from './shared/source'
 import { createObservableTables } from './tables'
+import { knownIds, residentIds } from './enumerate'
 import { workProbe, type PrimitiveWork } from './primitive-work.test.helpers'
 import { LOADING } from './worklist/rollup'
 
@@ -207,4 +208,26 @@ it('the lightweight probe detects real iteration and restores methods after fail
   expect(four.visits).toBe(one.visits * 4)
   expect(() => probe.measure(() => { throw new Error('stop') })).toThrow('stop')
   expect(Set.prototype.values).toBe(original)
+  const slots = probe.measure(() => Array.from({ length: 128 }, (_, i) => i).splice(0, 1)).work
+  expect(slots.visits).toBe(128)
+})
+
+it('whole-catalog enumeration costs its explicitly requested output', () => {
+  const run = (count: number) => {
+    const probe = workProbe(), tables = createObservableTables(), source = createColdIndex(SCHEMA)
+    const rows = records(1).slice(0, 2)
+    rows.push(...Array.from({ length: count }, (_, i): ProbeRecord => ({ kind: 'issue', id: `cold-${i}`, value: issue(`cold-${i}`) })))
+    source.apply({ type: 'replace', rows })
+    runInAction(() => { for (const row of rows) tables.issue.set(row.id, row.value) })
+    const pool = { tables, coldIndex: () => source } as unknown as MobxPool
+    const resident = probe.measure(() => residentIds(pool, 'issue'))
+    const known = probe.measure(() => knownIds(pool, 'issue'))
+    expect(resident.value.length).toBe(count + 2)
+    expect(known.value).toEqual(resident.value.toSorted())
+    return { resident: resident.work, known: known.work }
+  }
+  const one = run(128), four = run(512)
+  console.info(`[primitive bounds] explicit catalog enumeration ${JSON.stringify({ one, four })}`)
+  expect(four.resident.visits).toBeGreaterThan(one.resident.visits)
+  expect(four.known.visits).toBeGreaterThan(one.known.visits)
 })

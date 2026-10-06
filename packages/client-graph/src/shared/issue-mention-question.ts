@@ -124,9 +124,15 @@ export function createIssueMentionIndex() {
         before?.at === next?.at
       )
         return
+      // Title/ref posting updates need not move unchanged ordering positions.
+      // Removing and reinserting either array shifts unrelated rows even when
+      // its rank inputs stayed equal (for example a title-only publication).
+      const recentMoved = before?.at !== next?.at
+      const sequenceMoved = before?.seq !== next?.seq || before?.repo !== next?.repo ||
+        Boolean(before && !before.ref) !== Boolean(next && !next.ref)
       if (before) {
-        remove(recent, id, byRecency)
-        if (!before.ref) {
+        if (recentMoved) remove(recent, id, byRecency)
+        if (!before.ref && sequenceMoved) {
           const ids = repos.get(before.repo)!
           remove(ids, id, bySequence)
           if (!ids.length) repos.delete(before.repo)
@@ -139,8 +145,8 @@ export function createIssueMentionIndex() {
       }
       if (next) {
         facts.set(id, next)
-        insert(recent, id, byRecency)
-        if (!next.ref) {
+        if (recentMoved) insert(recent, id, byRecency)
+        if (!next.ref && sequenceMoved) {
           let ids = repos.get(next.repo)
           if (!ids) {
             ids = []
