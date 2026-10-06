@@ -11,13 +11,14 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../test/header-fixture'
 import { NewPanelMenu } from './NewPanelMenu'
+import { NewIssueDialog } from '../features/issues/NewIssueDialog'
 import { attachWorklistPool, useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
-it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
+it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1x/4x with a fixed origin', async surface => {
   const samples = []
   for (const scale of [1, 4]) {
     const fixture = createHeaderFixture(128 * scale)
@@ -43,12 +44,16 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
     let pool: MobxPool | null = null
     let owner!: ReturnType<typeof useStoreHandle<Trpc>>
     let choose!: (path: string) => void
+    let show!: (open: boolean) => void
     const fatal = vi.fn()
     function Host() {
       pool = useWorklistPool()
       owner = useStoreHandle<Trpc>()
       const [path, setPath] = useState('/synthetic/project')
+      const [open, setOpen] = useState(false)
       choose = setPath
+      show = setOpen
+      if (surface === 'NewIssueDialog') return open ? <NewIssueDialog onClose={() => setOpen(false)} /> : null
       return <NewPanelMenu worktree={{ path, repoPath: path, isMain: true, branch: 'main', machineId: 'host-one' } as never} onOpened={() => {}} />
     }
     const app = render(<StoreProvider principal={asClientPrincipal(asUserId('open-launcher-proof'))}
@@ -60,7 +65,7 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Web pool missing')
     async function measured(action: string, fn: () => unknown) {
-      const result = await measureWork(async () => insideReader(`web.NewPanelMenu.${action}`, async () => {
+      const result = await measureWork(async () => insideReader(`web.${surface}.${action}`, async () => {
         await act(async () => { await fn() })
         for (let at = 0; at < 20; at++) {
           let loaded = 0
@@ -71,26 +76,30 @@ it('meters actual open NewPanelMenu at 1x/4x with a fixed origin', async () => {
       return { action, ...result.work }
     }
     const cells = []
-    cells.push(await measured('open', () => fireEvent.click(screen.getByRole('button', { name: 'New panel' }))))
-    expect(screen.getByRole('menuitem', { name: /^New Claude$/ })).toBeTruthy()
-    cells.push(await measured('repository-choice', () => choose('/synthetic/p1')))
-    expect(screen.getByText('p1', { exact: true })).toBeTruthy()
-    cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
+    cells.push(await measured('open', () => surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(true)))
+    if (surface === 'NewPanelMenu') {
+      expect(screen.getByRole('menuitem', { name: /^New Claude$/ })).toBeTruthy()
+      cells.push(await measured('repository-choice', () => choose('/synthetic/p1')))
+      expect(screen.getByText('p1', { exact: true })).toBeTruthy()
+      cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
+    } else expect(screen.getByLabelText('Title')).toBeTruthy()
     cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); return owner.access.refreshRepos() }))
     expect(attached.row('commandRepository', JSON.stringify(['host-one', '/synthetic/project']))).toMatchObject({ branch: 'updated' })
     cells.push(await measured('usage', () => fixture.patch('session', 'synthetic-session-0', { createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' })))
     cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New panel' })) })
+    await act(async () => { surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(false) })
     cells.push(await measured('closed-heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' })))
     expect(fatal).not.toHaveBeenCalled()
-    expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
-    expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
+    if (surface === 'NewPanelMenu') {
+      expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
+      expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
+    }
     samples.push({ scale, repositories: repos.length, sessions: 128 * scale, cells })
     app.unmount(); cleanup()
   }
-  console.info('[supported launcher NewPanelMenu]', JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
+  console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
-  for (const sample of samples) {
+  for (const sample of surface === 'NewPanelMenu' ? samples : []) {
     const heartbeat = sample.cells.find(cell => cell.action === 'heartbeat')!
     const closed = sample.cells.find(cell => cell.action === 'closed-heartbeat')!
     expect(heartbeat.rows).toBe(closed.rows)
