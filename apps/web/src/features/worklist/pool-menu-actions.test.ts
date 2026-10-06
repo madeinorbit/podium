@@ -30,7 +30,7 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
       harnessHandoff: true,
       createdAt: stamp,
       lastActiveAt: stamp,
-    } satisfies SliceSession
+    } satisfies SliceSession & { harnessHandoff: boolean }
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
     pool.apply({
       type: 'replace',
@@ -119,7 +119,7 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
     status: 'live',
     createdAt: stamp,
     lastActiveAt: stamp,
-  } satisfies SliceSession
+  } satisfies SliceSession & { harnessHandoff: boolean }
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.apply({
     type: 'replace',

@@ -51,7 +51,7 @@ const machine = (id: string) => ({
   id: asMachineId(id), name: id, hostname: id, online: true, lastSeenAt: stamp,
   serviceAssignment: { server: false, agentExecution: true },
   availability: { epoch: 'boot', server: false, daemon: true, supervisor: true },
-  inventory: { os: 'linux' as const, arch: 'x64', tools: [], agents: [{ kind: 'codex' as const, installed: true, login: { state: 'in' as const } }] },
+  inventory: { os: 'linux' as const, arch: 'x64' as const, tools: [], agents: [{ kind: 'codex' as const, installed: true, login: { state: 'in' as const } }] },
 })
 function fixture(scale: number) {
   const subject: SessionView = {
