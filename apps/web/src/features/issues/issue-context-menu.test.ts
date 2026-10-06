@@ -529,7 +529,7 @@ describe('describeCascade', () => {
     expect(describeCascade(2, cascadeSessionCount([first, second])))
       .toBe('This affects 2 tasks and 162 agents.')
     expect(cascadeSessionCount([{ sessionSummary: { total: 0, byPhase: {} } }])).toBe(0)
-    expect(cascadeSessionCount([{ memberSessionIds: ['first', 'second'] }])).toBe(2)
+    expect(cascadeSessionCount([{ memberSessionIds: [asSessionId('first'), asSessionId('second')] }])).toBe(2)
   })
   it('names the agents, not just the tasks', () => {
     expect(describeCascade(4, 5)).toBe('This affects 4 tasks and 5 agents.')
