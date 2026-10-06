@@ -24,7 +24,7 @@
 
 import { harnessMobxPoolArm } from './adapters/mobx-pool'
 import type { ArmHandle, CheckableArm } from '../../shared/src/arm'
-import type { RowSourceMode } from '@podium/client-graph/shared/row-source'
+import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '@podium/client-graph/shared/slice-types'
 import type { WriteTransport } from '../../shared/src/write-contract'

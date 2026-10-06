@@ -5,7 +5,7 @@ import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/pri
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import { POOL_OWNED_KINDS, screenOptions } from '@podium/client-graph/host'
+import { screenOptions } from '@podium/client-graph/host'
 import * as runtimePool from '@podium/client-graph/runtime-pool'
 import { asUserId } from '@podium/model'
 import { act, StrictMode } from 'react'
@@ -112,7 +112,6 @@ describe('StoreProvider owns the sidebar pool', () => {
     expect(create).toHaveBeenCalledTimes(1)
     // Both client transaction kinds belong to the pool.
     expect(create).toHaveBeenCalledExactlyOnceWith(runtime, {
-      owns: POOL_OWNED_KINDS,
       ...screenOptions(poolBackedScreens, runtime!),
     })
     expect(replicaFactory).toHaveBeenCalledTimes(1)

@@ -3,8 +3,7 @@ import { type SessionValueInput, sessionValues } from '@podium/client-core/sessi
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
 /** Addressed replica rows, optionally painted by PoolTransactions.
- * `truth` reads server rows; `pooled` folds the supplied per-row transaction
- * lists. There is no runtime record snapshot or whole-list optimism fold.
+ * The feed folds the supplied per-row transaction lists over kernel truth. There is no runtime record snapshot or whole-list optimism fold.
  * Kernel addresses and transaction repaint calls name exactly the touched
  * rows; ordinary locals are followed only for discovery worktree lanes.
  * Bootstrap/rescope and explicit snapshots enumerate identities. All other
@@ -19,7 +18,6 @@ import {
   type PendingOverlay,
 } from '@podium/client-core/command-reducers'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
-import { shallowEqual } from '@podium/client-core/store'
 import {
   asIssueId,
   asSessionId,
@@ -36,6 +34,23 @@ import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSource, RowSourceEvent } from './source'
 
+/** Shallow equality over own enumerable keys (Object.is per value). */
+function shallowEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return false
+  const ka = Object.keys(a)
+  const kb = Object.keys(b)
+  if (ka.length !== kb.length) return false
+  for (const k of ka) {
+    if (
+      !Object.hasOwn(b, k) ||
+      !Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])
+    )
+      return false
+  }
+  return true
+}
+
 type AnyRow = { [k: string]: unknown }
 
 interface RepoEntry {
@@ -50,7 +65,7 @@ interface RepoEntry {
 }
 
 /** The runtime discovery surface. Entity rows come from the replica and
- *  PoolTransactions, by id; both modes follow the keyed `repos` local. */
+ *  PoolTransactions, by id; discovery follows the keyed `repos` local. */
 export interface RowSourceRuntime {
   /** Keyed locals (POD-5433): the feed wakes on discovery (`repos`) and, while
    *  discovery reports a changed scan. */
@@ -141,12 +156,6 @@ const OVERLAID: readonly OverlayTarget[] = [
 ]
 const NO_OVERLAYS: readonly PendingOverlay[] = []
 type PendingByRow = Record<OverlayTarget, PendingRows>
-const NO_PENDING: PendingByRow = {
-  sessions: new Map(),
-  sessionUserStates: new Map(),
-  issueUserStates: new Map(),
-  issueProjections: new Map(),
-}
 
 function repoNameOf(path: string): string {
   const tail = path.split('/').filter(Boolean).pop()
@@ -177,31 +186,18 @@ export interface PendingRows {
   keys(): Iterable<string>
 }
 
-/** Consumers explicitly choose server truth or server truth painted by the
- * pool's transaction log. Transaction changes name rows through `repaint`;
- * runtime local changes signal discovery only. */
-export type RowSourceMode = 'truth' | 'pooled'
-
-/** The row kinds the pool's transaction log can own (POD-5432). */
-export type PoolOwnedKind = 'issue' | 'session'
-
-export type RowSourceOptions =
-  | { readonly mode: 'truth' }
-  | {
-      readonly mode: 'pooled'
-      readonly pending: PooledPending
-    }
+/** The row source folds the pool's per-row transaction overlays over kernel truth. */
+export interface RowSourceOptions {
+  readonly pending: PooledPending
+}
 
 export function createRowSource(
   runtime: RowSourceRuntime,
   replica: RowSourceReplica,
   options: RowSourceOptions,
 ): RowSourceHandle & RowSourceRepaint {
-  const { mode } = options
-  if (mode !== 'truth' && mode !== 'pooled') {
-    throw new Error(`createRowSource: mode must be 'truth' or 'pooled', got ${String(mode)}`)
-  }
-  const pooled = options.mode === 'pooled' ? options.pending : null
+  const pooled = options.pending
+  if (!pooled) throw new Error('createRowSource: pending overlays are required')
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -348,16 +344,15 @@ export function createRowSource(
     schedule()
   }
 
-  /** Truth mode reads nothing else the runtime publishes: only a discovery
-   *  (the `repos` array moved) is a signal. */
-  function onTruthPublication(): void {
+  /** Only discovery is read from runtime publications: a change to
+   *  the `repos` array is a signal. */
+  function onDiscoveryPublication(): void {
     if (disposed || currentRepos() === heldFrom) return
     discoveryDirty = true
     schedule()
   }
 
   function readPending(): PendingByRow {
-    if (pooled === null) return NO_PENDING
     return {
       sessions: pooled.byRow('sessions'),
       sessionUserStates: pooled.byRow('sessionUserStates'),
@@ -1086,11 +1081,10 @@ export function createRowSource(
 
   const offs: Array<() => void> = []
   offs.push(subscribeAddressed(onAddressed))
-  // Truth mode, and a pooled feed that owns every kind, read nothing the
-  // runtime publishes but discovery: kernel addresses and the log's repaint
+  // The feed reads no runtime publication but discovery: kernel addresses and the log's repaint
   // name their rows, so only a moved `repos` array is a signal.
   heldFrom = currentRepos()
-  offs.push(runtime.onLocals(['repos'], onTruthPublication))
+  offs.push(runtime.onLocals(['repos'], onDiscoveryPublication))
 
   function repaint(
     rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,

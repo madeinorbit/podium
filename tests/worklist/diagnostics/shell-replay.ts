@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../shared/src/row-source'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Ludovico-only read-side operator replay. All payloads and credentials stay
  * in process memory; only aggregate counts and numeric positions are printed. */
@@ -65,7 +66,7 @@ async function main() {
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous principal')
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
-  }), replica, { mode: 'truth' })
+  }), replica, { pending: EMPTY_PENDING })
   let sessions: Store['sessions']
   try {
     sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))

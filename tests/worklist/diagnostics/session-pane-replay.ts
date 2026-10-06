@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../shared/src/row-source'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only live bootstrap on ludovico. Auth, rows, paths and texts stay in
@@ -47,7 +48,7 @@ async function main() {
   if (new Set(users.map(row => row.userId)).size > 1) throw new Error('Ambiguous replay principal')
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: users[0]?.userId ?? '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
-  }), replica, { mode: 'truth' })
+  }), replica, { pending: EMPTY_PENDING })
   let sessions: Store['sessions']
   try {
     sessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))

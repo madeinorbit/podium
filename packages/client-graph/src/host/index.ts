@@ -1,4 +1,4 @@
-export { createPoolHost, POOL_OWNED_KINDS, type PoolHost, type PoolHostOptions } from './pool-host'
+export { createPoolHost, type PoolHost, type PoolHostOptions } from './pool-host'
 export {
   attachPoolScreens,
   type PoolScreen,

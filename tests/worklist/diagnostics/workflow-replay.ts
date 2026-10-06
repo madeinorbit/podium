@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../shared/src/row-source'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Ludovico-only persisted operator replay. Query-only database access, no
  * credentials or authored text; output contains counts and positions only. */
@@ -58,7 +59,7 @@ async function main() {
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: 'workflow-replay' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
-  }), { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  }), { ...replica, sessionUserStatesLoaded: () => true }, { pending: EMPTY_PENDING })
   let normalizedSessions: Store['sessions']
   try {
     normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))

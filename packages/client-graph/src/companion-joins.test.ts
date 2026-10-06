@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { sessionValues } from '@podium/client-core/session-values'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
@@ -41,7 +42,7 @@ function fixture(scale: 1 | 4) {
   }, {
     row: (kind, id) => tables.get(kind)?.get(id), rows: kind => [...(tables.get(kind)?.values() ?? [])],
     subscribeAddressedBatch(listener) { addressed = listener; return () => {} },
-  }, { mode: 'truth' })
+  }, { pending: EMPTY_PENDING })
   const handle = createWorklistPool(source.source, fixedLocals({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }).source,
     { summaries: { session: ['sessionId', ...displayed], issue: ['id', 'repoPath'] }, schedule: () => () => {} })
   const change = (kind: ReplicaKind, id: string, patch: Row) => {

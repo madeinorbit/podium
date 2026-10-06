@@ -13,7 +13,6 @@ import type { SettingsOwner } from './settings-source'
 import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
 import {
   createRowSource,
-  type PoolOwnedKind,
   type RowSourceReplica,
   type RowSourceRuntime,
 } from './shared/row-source'
@@ -283,17 +282,15 @@ export function createRuntimeWorklistPool(
     settings?: boolean
     header?: boolean
     summaries?: PoolSummaryFields
-    owns?: readonly PoolOwnedKind[]
   } = {},
-): WorklistPoolHandle & { readonly transactions?: PoolTransactions } {
-  const owned = new Set<PoolOwnedKind>(options.owns ?? ['issue', 'session'])
-  const transactions = owned.size > 0 ? createRuntimeTransactions(runtime) : null
+): WorklistPoolHandle & { readonly transactions: PoolTransactions } {
+  const transactions = createRuntimeTransactions(runtime)
   let rows: ReturnType<typeof createRowSource>
   try {
     rows = createRowSource(runtime, runtime.replica,
-      transactions === null ? { mode: 'truth' } : { mode: 'pooled', pending: transactions.pending })
+      { pending: transactions.pending })
   } catch (error) {
-    transactions?.dispose()
+    transactions.dispose()
     throw error
   }
   let stopWriter: (() => void) | undefined
@@ -344,18 +341,16 @@ export function createRuntimeWorklistPool(
         handle.pool,
         runtime as Parameters<typeof attachHeaderSource>[1],
       )
-    if (transactions !== null) {
-      spawnPools.set(runtime, handle.pool)
-      transactions.bind(rows)
-      handle.pool.attachTransactions(transactions, owned.has('session'))
-      stopWriter = attachRuntimeWriter(runtime, transactions)
-    }
+    spawnPools.set(runtime, handle.pool)
+    transactions.bind(rows)
+    handle.pool.attachTransactions(transactions, true)
+    stopWriter = attachRuntimeWriter(runtime, transactions)
   } catch (error) {
     stopWriter?.()
     stopHeader?.()
     handle?.dispose()
     locals?.dispose()
-    transactions?.dispose()
+    transactions.dispose()
     rows.dispose()
     throw error
   }
@@ -363,7 +358,7 @@ export function createRuntimeWorklistPool(
   let disposed = false
   return {
     pool: attached.pool,
-    ...(transactions === null ? {} : { transactions }),
+    transactions,
     dispose(): void {
       if (disposed) return
       disposed = true
@@ -374,7 +369,7 @@ export function createRuntimeWorklistPool(
       try {
         attached.dispose()
       } finally {
-        transactions?.dispose()
+        transactions.dispose()
         locals?.dispose()
         rows.dispose()
       }

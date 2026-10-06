@@ -17,7 +17,7 @@ import {
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createReadOnlyRuntimePool } from '../../../../../tests/worklist/shared/src/read-only-pool'
 import { expect, it } from 'vitest'
 import { buildCorpus, FIXED_NOW } from '../../../../../tests/worklist/harness/src/fixture'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
@@ -89,7 +89,7 @@ it('matches legacy columns, values, nested positions, facets, progress and explo
     ui: { get: () => null, subscribe: () => () => {} },
   })
   // This frozen-value fixture only reads server truth; it owns no mutations.
-  const handle = createRuntimeWorklistPool(runtime as never, { summaries: ISSUE_BOARD_SUMMARIES, owns: [] })
+  const handle = createReadOnlyRuntimePool(runtime as never, ISSUE_BOARD_SUMMARIES)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )

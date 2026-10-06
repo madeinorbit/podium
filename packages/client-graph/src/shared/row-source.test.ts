@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { observe } from 'mobx'
 import type { ColdIndex } from './cold-index'
@@ -8,7 +9,7 @@ import { fixedLocals } from './locals-source'
 import { createRowSource, type RowSourceOptions, type RowSourceReplica } from './row-source'
 import type { RowSourceEvent } from './source'
 
-function fixture(options: RowSourceOptions = { mode: 'truth' }) {
+function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
   const tables = new Map<ReplicaKind, Map<string, Record<string, unknown>>>()
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
   const replica: RowSourceReplica = {
@@ -205,8 +206,7 @@ it('explicitly reseeds a failed cold index from the next replace with all declar
 it('recovery includes pending optimism, removals, and rollback', () => {
   const overlays = new Map<string, readonly PendingOverlay[]>()
   const f = fixture({
-    mode: 'pooled',
-    pending: { byRow: (kind) => (kind === 'sessions' ? overlays : new Map()) },
+        pending: { byRow: (kind) => (kind === 'sessions' ? overlays : new Map()) },
   })
   vi.spyOn(console, 'error').mockImplementation(() => {})
   f.session('removed', 'before')

@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -26,7 +27,7 @@ it('supplies registered zero-issue prefixes from the production feed and keeps a
     const source = createRowSource(
       { principal: { userId: 'operator' }, readLocal: () => discovery, onLocals: () => () => {} },
       replica,
-      { mode: 'truth' },
+      { pending: EMPTY_PENDING },
     )
     const handle = createWorklistPool(
       source.source,

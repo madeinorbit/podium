@@ -1,7 +1,7 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { MobxPool } from '../pool'
-import { createPoolHost, POOL_OWNED_KINDS } from './pool-host'
+import { createPoolHost } from './pool-host'
 import type { PoolScreen, PoolScreenOptions } from './screens'
 
 const graph = vi.hoisted(() => ({ log: [] as string[], pool: {} as object }))
@@ -53,7 +53,7 @@ it('starts, prepares, creates with merged options, plugs in screens, and tears d
     'start',
     'prepare header',
     'prepare preferences',
-    'create {"owns":["issue","session"],"header":true,"preferences":true}',
+    'create {"header":true,"preferences":true}',
     'attach header true',
     'attach preferences true',
   ])
@@ -92,15 +92,15 @@ it('one pool per runtime: a user switch gets its own pool and the old one is dis
   await settle()
   second()
   expect(graph.log.filter((line) => line.startsWith('create') || line === 'dispose')).toEqual([
-    'create {"owns":["issue","session"],"header":true}',
+    'create {"header":true}',
     'dispose',
-    'create {"owns":["issue","session"],"header":true}',
+    'create {"header":true}',
     'dispose',
   ])
 })
 
-it('starts before reading ownership options; defaults to POOL_OWNED_KINDS and retains the revert path', async () => {
-  for (const options of [undefined, () => ({ owns: [] }) as PoolScreenOptions]) {
+it('starts before reading screen options and retains screen overrides', async () => {
+  for (const options of [undefined, () => ({ header: false }) as PoolScreenOptions]) {
     let started = false
     const host = createPoolHost({
       screens: [screen('header')],
@@ -120,7 +120,7 @@ it('starts before reading ownership options; defaults to POOL_OWNED_KINDS and re
     stop()
   }
   expect(graph.log.filter((line) => line.startsWith('create'))).toEqual([
-    `create {"owns":${JSON.stringify(POOL_OWNED_KINDS)},"header":true}`,
-    'create {"owns":[],"header":true}',
+    'create {"header":true}',
+    'create {"header":false}',
   ])
 })

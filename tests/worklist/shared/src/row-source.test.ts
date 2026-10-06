@@ -21,7 +21,8 @@ import {
   memoryStorage,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { type RowSourceMode, type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import { type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
+import { type RowSourceMode } from './row-source'
 import { createRowSource } from './row-source'
 import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import {

@@ -1,3 +1,4 @@
+import { EMPTY_PENDING } from '../shared/src/row-source'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Read-only persisted operator corpus. Run ONLY on ludovico. No credentials,
  * authenticated RPC, files containing payloads, or running service changes.
@@ -66,7 +67,7 @@ async function main() {
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
   const sessionReader = createRowSource(withKeyedInputs({ principal: { userId: '' },
     getSnapshot: () => ({ repos: [] }), subscribe: () => () => {},
-  }), { ...replica, sessionUserStatesLoaded: () => true }, { mode: 'truth' })
+  }), { ...replica, sessionUserStatesLoaded: () => true }, { pending: EMPTY_PENDING })
   let normalizedSessions: Store['sessions']
   try {
     normalizedSessions = dedupeSessions(sessionReader.source.snapshot('session').map(row => row.value as Store['sessions'][number]))

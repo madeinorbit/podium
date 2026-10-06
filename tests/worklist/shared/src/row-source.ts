@@ -1,11 +1,15 @@
 /** Standalone harness feeds attach the same transaction writer as the pool host. */
 import { createRowSource as createSource, type PooledPending,
-  type RowSourceHandle, type RowSourceMode, type RowSourceRepaint,
+  type RowSourceHandle, type RowSourceRepaint,
   type RowSourceReplica, type RowSourceRuntime } from '@podium/client-graph/shared/row-source'
 import { createRuntimeTransactions } from '@podium/client-graph/runtime-pool'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { PoolTransactions } from '@podium/client-graph/write/transactions'
 export type { RowSourceHandle }
+export type RowSourceMode = 'truth' | 'pooled'
+export type RowSourceOptions = { readonly mode: RowSourceMode; readonly pending?: PooledPending }
+const emptyRows = new Map()
+export const EMPTY_PENDING: PooledPending = { byRow: () => emptyRows }
 
 interface FixtureInputs extends RowSourceRuntime {
   readonly pending?: PooledPending
@@ -30,15 +34,15 @@ function followPending(rows: RowSourceRepaint, pending: PooledPending, follow: (
 }
 
 export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceReplica,
-  options: { mode: RowSourceMode; pending?: PooledPending } = { mode: 'truth' },
+  options: RowSourceOptions = { mode: 'truth' },
 ): RowSourceHandle & RowSourceRepaint {
   if (options.mode !== 'truth' && options.mode !== 'pooled')
-    return createSource(runtime, replica, options as Parameters<typeof createSource>[2])
+    throw new Error(`createRowSource: mode must be 'truth' or 'pooled', got ${String(options.mode)}`)
   const fixture = runtime as FixtureInputs
-  if (options.pending) return createSource(runtime, replica, options as Parameters<typeof createSource>[2])
+  if (options.pending) return createSource(runtime, replica, { pending: options.mode === 'truth' ? EMPTY_PENDING : options.pending })
   if (fixture.pending) {
     const rows = createSource(runtime, replica, options.mode === 'truth'
-      ? { mode: 'truth' } : { mode: 'pooled', pending: fixture.pending })
+      ? { pending: EMPTY_PENDING } : { pending: fixture.pending })
     const stop = options.mode === 'pooled' && fixture.onPending
       ? followPending(rows, fixture.pending, fixture.onPending) : () => {}
     return { ...rows, dispose() { stop(); rows.dispose() } }
@@ -47,7 +51,7 @@ export function createRowSource(runtime: RowSourceRuntime, replica: RowSourceRep
   const existing = (owner as unknown as { poolWriter: PoolTransactions | null }).poolWriter
   const log = existing ?? createRuntimeTransactions(owner)
   const rows = createSource(runtime, replica, options.mode === 'truth'
-    ? { mode: 'truth' } : { mode: 'pooled', pending: log.pending })
+    ? { pending: EMPTY_PENDING } : { pending: log.pending })
   if (existing) {
     const stop = options.mode === 'pooled'
       ? followPending(rows, log.pending, changed => owner.outbox.subscribe(changed)) : () => {}

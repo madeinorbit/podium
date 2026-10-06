@@ -16,7 +16,7 @@ import {
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { createReadOnlyRuntimePool } from '../../../tests/worklist/shared/src/read-only-pool'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
@@ -91,7 +91,7 @@ async function main() {
     getSnapshot: () => state,
     subscribe: () => () => {},
   })
-  const handle = createRuntimeWorklistPool(runtime as never, { owns: [], summaries: ISSUE_BOARD_SUMMARIES })
+  const handle = createReadOnlyRuntimePool(runtime as never, ISSUE_BOARD_SUMMARIES)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )
