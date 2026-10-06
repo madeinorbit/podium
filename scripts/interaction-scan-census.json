@@ -7988,6 +7988,26 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/web/src/features/chat/ChatView.tsx",
+      "holder": "ConversationChatView/ConversationChatView/chat",
+      "rule": "reader-summary",
+      "tokens": "8fd928e061b9dfb7a44eab38f2943efcade0052e353561e9e64fb69f90e18e6e",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "3867b12a3065faa4384a2fe935624b5db4eef30898c33bb8fc7a22b6d96dbc2e",
+        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
+      ],
+      "fingerprint": "846dfabb0b8683cfa098775a441a557a53fcfbae91a18da963775e97a9aa45f5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useChatSurface",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
       "file": "apps/web/src/features/chat/offer-artifacts.ts",
       "holder": "newestMatch",
       "rule": "loop:for-of",
@@ -8121,26 +8141,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/ChatView.tsx",
-      "holder": "ConversationChatView/ConversationChatView/chat",
-      "rule": "reader-summary",
-      "tokens": "4255f7f76257602339eb47f3a0361c9ddca75c03bcc15354acf66f0b0f7ee1f8",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "3867b12a3065faa4384a2fe935624b5db4eef30898c33bb8fc7a22b6d96dbc2e",
-        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
-      ],
-      "fingerprint": "05a464934bf1ee07da76b86e5df6da8f5a9057115311c0f398e7c380fbfebe11",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatSurface",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/chat/use-chat-layout.ts",
       "holder": "useChatLayout/attachments",
       "rule": "reader-summary",
@@ -8232,24 +8232,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/livePendingAskIndex/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "b76f28ccb2496ae3c5cdf7da2419535348cfe311decb83c48644056c18bc61b5",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "011fe431dc93b6a3c84a65d3c8cfb409386acf9d808553c64fb754cf47af7d63",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/livePendingAskIndex/useMemo:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
       "holder": "useChatLayout/pendingAskBlock/useMemo:callback",
       "rule": "reader-summary",
       "tokens": "c045856622a8428af0f570979cbeca35ac3bb4843dafc1a33af4a91feace6e9d",
@@ -8304,78 +8286,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/revealedRow",
-      "rule": "helper-consumer",
-      "tokens": "fd9f852e9ab1a739194a1eb0132437ff9204a9efef3fddaa0e479d5538912a18",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "3c0a7874974ba62fd51ec8e0fcc06af1a51aaaead35d176456fdab9bdd02f5d9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/revealedRow through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/rowsToRender/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "831484d069ab940872a3afb3fe7a4da6e927ace1a89324e58d7f4047ddd1179c",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "ec24054beb9dc9de87606877b8381abbda2deea359d589d41740a9e4e899169d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/rowsToRender/useMemo:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/scroll",
-      "rule": "helper-consumer",
-      "tokens": "b671cb87cebc7ba7627e74d1652e2908b684c5253420557bfead3e74214a413c",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "1b6662228ddfd00894b49efa514ecf4684680382da43c415c7ae3bc8f5e3ed2a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/scroll",
-      "rule": "reader-summary",
-      "tokens": "5158b66e08a3237d7d2b1ad3b385a74b91339b9fcbff9ea6ccf3735e752219ab",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "873481dd7201c14c5f7ec33b74246be1cb1c5fe7f52bc677cedec4eaa2fd75d4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
       "holder": "useChatLayout/session",
       "rule": "reader-summary",
       "tokens": "ace0369328eb7e5037201c37526ab39efe3820892d903c6e7e372e933c488826",
@@ -8388,6 +8298,60 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useChatLayout/session through the direct screen factory.",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/web/src/features/chat/use-chat-layout.ts",
+      "holder": "useChatLayout/revealedRow",
+      "rule": "helper-consumer",
+      "tokens": "f3b7d26bbb5bd57eeb3564298c55d04c6f8874c133b82861e3e0b78044e06360",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
+      ],
+      "fingerprint": "013c56d8533fc4dbd980a6a202af3ac1c3c807f6ce6f289806d95ec4148bbe75",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useChatLayout/revealedRow through the direct screen factory.",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/web/src/features/chat/use-chat-layout.ts",
+      "holder": "useChatLayout/scroll",
+      "rule": "helper-consumer",
+      "tokens": "1d8123f67206ca93620882a3638fa695a06975e7b00f099096cca92784005d49",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
+      ],
+      "fingerprint": "e15c156570638cd376d103fadf57475dd492490d9f440eee9e7bef9b9603bc4a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
+      "bound": "No per-interaction bound established for this existing collection origin.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/web/src/features/chat/use-chat-layout.ts",
+      "holder": "useChatLayout/scroll",
+      "rule": "reader-summary",
+      "tokens": "926c592a78fad4a444fb7c46031e20df5a07ce197878a89ca4df0ceeb56fa945",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
+      ],
+      "fingerprint": "8120487080ef8a40bce30ff2225404790cac1d7d392dabd6f59310d0f3cbece8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
@@ -46683,25 +46647,6 @@
     {
       "file": "packages/client-core/src/conversation/transcript-log.ts",
       "holder": "TranscriptLog/applyFrame",
-      "rule": "loop:for-of",
-      "tokens": "aa880e243c9ca2a32d0484ba1f39ad4eda4d6dbf7c4adbe5c0cd76fd6d87a7ba",
-      "gate": [],
-      "origin": [
-        "65b9644711ffb7f3e0a7f6af3e24b8adf79d6b8533a6e996c3ef54c25e511e5b",
-        "bc75ac1357e9472c9fe2d1f0e9649508a89ccb619de2620738d3b0b79e403a2a"
-      ],
-      "fingerprint": "a788de36d983c6b0610b38fac13edbebcaab8e7cc215bb8214928db70bdfa5f3",
-      "count": 1,
-      "classification": "ingest",
-      "owner": "POD-5629",
-      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
-      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
-      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
-      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
-    },
-    {
-      "file": "packages/client-core/src/conversation/transcript-log.ts",
-      "holder": "TranscriptLog/applyFrame",
       "rule": "enumerate:values",
       "tokens": "fb2c1a57da2b51ebdeae8420b6af6dee1f238ccbf8b3b22fa3cb1a1267ed2da1",
       "gate": [],
@@ -46817,6 +46762,43 @@
         "dbb7c8fa981e10f654659f6bfff62b69c2e96d742a4376b66f2dbf41da75c329"
       ],
       "fingerprint": "733a002a66c660d72669e803ff2b0d7e804410e01bb39334e39eea9bf34ce27f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/applyFrame",
+      "rule": "loop:for-of",
+      "tokens": "a4edf0a1fb15d1242d37d4f783cc74e35276f87c63df1b45e63a8404ec19e64a",
+      "gate": [],
+      "origin": [
+        "65b9644711ffb7f3e0a7f6af3e24b8adf79d6b8533a6e996c3ef54c25e511e5b",
+        "bc75ac1357e9472c9fe2d1f0e9649508a89ccb619de2620738d3b0b79e403a2a"
+      ],
+      "fingerprint": "3b0ebb17b8b16b96ab679d160dfd37a3ce12b5ec94b194a9a50e623391726fff",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "A frame, retained newest read or older page reaches this addressed conversation.",
+      "bound": "Frame/page entries plus affected insertion or trim suffix; prefix ranks shift without reading retained IDs. Replica cache output is capped at 200 items. Authoritative resets and explicitly demanded full snapshots still materialize their window.",
+      "reason": "The source action maintains keyed raw items, relative ranks and facts. Stream, append, retained read and prepend counters are equal at 256/1024 retained items; native array shifts are outside those counters. Worker and phone shaping remain separate required work.",
+      "guard": "conversation/transcript-log.incremental.test.ts measures ingress at 1x/4x and preserves immutable snapshots/cache behavior; transcript-log.test.ts, transcript-log.facts.test.ts and model-observation.test.ts preserve paging/reset/source facts/optimistic reconciliation."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/prepend",
+      "rule": "consume:map",
+      "tokens": "2a6033527e626e0a1163a802a7dc835c2557b986748c3ca14354ee9418e1918f",
+      "gate": [],
+      "origin": [
+        "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
+      ],
+      "fingerprint": "94700c59e2689949c0e1dc04479913958e90c5499de6987673970aca457eedab",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
@@ -46970,6 +46952,150 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset",
+      "rule": "consume:forEach",
+      "tokens": "c2c8db843ba50293f1ff31eac98725ada0c084d29cf0d9e192f0dc372965cd43",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "04f3d2fb49e2641d1904b5095ce2c1ccf566b22dc01944e9714c90700e4a117e",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset",
+      "rule": "consume:map",
+      "tokens": "61e6ff8aa60e1592dd968bd0d171d102a6301071aff9e01a66ccf3bab9ca5c94",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "7e529a35a61717ee52c249dc199f86e2948d65e1c0a4a421b1a8dfa4fd04d5e5",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset",
+      "rule": "consume:map",
+      "tokens": "22f9ec2a160b5056431d3405d923c374b363eeb2cdd24ac8f01373226fc02e7c",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "c890ae5aa19b51706f76d351faaf7ffa001b99229c34bffcf8552997143adfec",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset",
+      "rule": "enumerate:forEach",
+      "tokens": "c2c8db843ba50293f1ff31eac98725ada0c084d29cf0d9e192f0dc372965cd43",
+      "gate": [],
+      "origin": [
+        "746726e3483c64f1c86f8b422cc0b3394d97776c94a2a3289f015396cf71d348"
+      ],
+      "fingerprint": "d3544e73e517daf2668d14b21807d0ea30636a83db33953e378a4a8e02707aaf",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset",
+      "rule": "loop:for-of",
+      "tokens": "b88384b90788d615a96165fc803c48911581281776c5fc0eaffcc02f093ce783",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "fc60e54a044e34678429c86a64bc8afbb909d40fbb6e24e94c7a77521622cb75",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset/ordered",
+      "rule": "spread",
+      "tokens": "75f0b59839b4d6618128ae90a29de04afd88dfe0689ec0a719fc1449e4389b43",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "387a1006d2864970a857995ab96a0ed63335b069c5bb2319c9ae107b6f21c9e0",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset/ordered",
+      "rule": "helper-consumer",
+      "tokens": "2b3f1853dc2a971881977adecced1a397cadc5716f1089e37d22f80bd73108c4",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "6473ed7e55591bade5b430716ba0c80ae77180b2d7d6d134205888f84e844be5",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-graph.ts",
+      "holder": "TranscriptGraph/reset/ordered",
+      "rule": "reader-summary",
+      "tokens": "55bf88f128492593c85e1e39512bae3a74dff66f8bb540c3cfdd2cfc11ee87ff",
+      "gate": [],
+      "origin": [
+        "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
+      ],
+      "fingerprint": "811f479ba464e86fb083b463734f1a918f38c8d915ff5b11a9dfaa9f3fd8af5c",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5629",
+      "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
+      "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     }
   ]
 }
