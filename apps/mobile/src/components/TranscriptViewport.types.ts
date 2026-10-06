@@ -9,6 +9,8 @@ export interface TranscriptViewportHandle {
 export interface TranscriptViewportProps<Item> extends ScrollViewProps {
   identity: string
   data: readonly Item[]
+  /** Source-owned membership version for a stable observable data array. */
+  extraData?: unknown
   keyExtractor(item: Item, index: number): string
   /** Maintained row-key and folded-item aliases, addressed in display order. */
   positionOfKey(key: string): number | undefined

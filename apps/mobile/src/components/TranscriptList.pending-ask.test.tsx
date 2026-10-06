@@ -661,3 +661,39 @@ it('reveals the first streamed text through the existing row observer', async ()
   view.unmount()
   transcript.dispose()
 })
+
+
+it('renders retained phone rows through stream, Find, envelope reshaping and paging without rebuilding history', async () => {
+  const { MobileConversation } = await import('../lib/mobile-conversation')
+  const { DraftStore } = await import('@podium/client-core/conversation')
+  const { asSessionId } = await import('@podium/model')
+  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} },
+    hub: { on: () => () => {}, sendDraftEdit: () => true, connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }) } })
+  const seed: TranscriptItem = { id: 'answer', role: 'assistant', text: 'Settled answer' }
+  let page = { items: [seed], hasMore: true }
+  const conversation = new MobileConversation({ sessionId: asSessionId('retained-phone'), drafts,
+    transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true },
+    sends: { createDeliveryId: () => 'delivery', deliver: async () => ({ state: 'sent' as const }) },
+  })
+  try {
+    await conversation.start()
+    const props = { transcript: conversation.transcript, presentation: conversation.presentation,
+      transcriptQuestion: null, live: false, onAnswer: async () => {} }
+    const view = render(<TranscriptList {...props} />)
+    const data = viewportData.at(-1)
+    expect(transcriptBuilds).not.toHaveBeenCalled()
+    act(() => conversation.transcript.merge([{ ...seed, text: 'Streamed needle' }]))
+    expect(screen.getByText('Streamed needle')).toBeTruthy()
+    expect(viewportData.at(-1)).toBe(data)
+    view.rerender(<TranscriptList {...props} findRequest={1} />)
+    fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
+    expect(screen.getByText('1/1')).toBeTruthy()
+    act(() => conversation.transcript.merge([{ id: 'message', role: 'user', text:
+      '[podium message msg_one · from system:auto-continue · to your session]\nEnvelope needle\n[end podium message msg_one]' }]))
+    expect(screen.getByText('Envelope needle')).toBeTruthy()
+    page = { items: [{ id: 'older', role: 'user', text: 'Older page' }], hasMore: false }
+    await act(async () => conversation.transcript.loadOlder())
+    expect(conversation.presentation.positionOfKey('answer')).toBe(1)
+    expect(transcriptBuilds).not.toHaveBeenCalled()
+  } finally { conversation.dispose(); drafts.dispose() }
+})

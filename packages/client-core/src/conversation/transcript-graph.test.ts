@@ -152,3 +152,22 @@ it('retains coalesced prefix pages and tail appends in their source order', () =
   expect(f.graph.blockIds[0]).toBe('new-head')
   expect(f.graph.blockIds.at(-1)).toBe('new-tail')
 })
+
+
+it('publishes addressed rows atomically across prefix rekeys and coalesced source changes', () => {
+  const graph = new TranscriptGraph([call('first')])
+  try {
+    graph.apply({ changed: [call('last')], insertions: [{ id: 'last' }] })
+    expect(graph.rowPublication).toEqual({ reset: false, changed: ['first'], removed: [] })
+    graph.apply({ changed: [call('prefix')], insertions: [{ id: 'prefix', before: 'first' }] })
+    expect(graph.rowPublication.removed).toEqual(['first'])
+    expect(graph.rowPublication.changed).toEqual(['prefix'])
+    graph.apply({ changed: [call('older'), prose('tail', 'New')],
+      insertions: [{ id: 'older', before: 'prefix' }, { id: 'tail' }] })
+    expect(graph.rowPublication.reset).toBe(false)
+    expect(graph.rowPublication.removed).toContain('prefix')
+    expect(graph.rowPublication.changed).toEqual(expect.arrayContaining(['older', 'tail']))
+    graph.reset([prose('reset', 'Replacement')])
+    expect(graph.rowPublication).toEqual({ reset: true, changed: [], removed: [] })
+  } finally { graph.dispose() }
+})

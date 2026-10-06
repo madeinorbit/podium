@@ -25,6 +25,12 @@ export interface TranscriptGraphChange {
   readonly removed?: readonly string[]
 }
 
+export interface TranscriptRowPublication {
+  readonly reset: boolean
+  readonly changed: readonly string[]
+  readonly removed: readonly string[]
+}
+
 interface ToolMembers { calls: string[]; results: string[] }
 
 function relationship(item: TranscriptItem): string {
@@ -64,6 +70,12 @@ export class TranscriptGraph {
   private readonly blocks = new Map<string, IComputedValue<ChatBlock | undefined>>()
   private readonly rows = new Map<string, IComputedValue<ChatRow | undefined>>()
   private readonly queries = new Map<string, IComputedValue<readonly string[]>>()
+  /** The last source mutation's row membership/content journal. */
+  rowPublication: TranscriptRowPublication = { reset: true, changed: [], removed: [] }
+  private applyDepth = 0
+  private resetRows = false
+  private readonly publishedRows = new Set<string>()
+  private readonly removedRows = new Set<string>()
   private fileIds: string[] = []
   private orderedIds: string[] = []
   private readonly ranks = new Map<string, number>()
@@ -185,6 +197,11 @@ export class TranscriptGraph {
     return value.get()
   }
 
+  itemPosition(id: string): number {
+    this.orderVersion
+    return this.rank(id)
+  }
+
   blockPosition(id: string): number | undefined {
     this.orderVersion
     const at = this.insertionPoint(this.blockIds, id)
@@ -286,9 +303,26 @@ export class TranscriptGraph {
     for (const id of this.rows.keys()) if (!this.rowMembers.has(id)) this.rows.delete(id)
     this.publishFacts()
     this.orderVersion++
+    if (this.applyDepth) this.resetRows = true
+    else this.rowPublication = { reset: true, changed: [], removed: [] }
   }
 
   apply(change: TranscriptGraphChange): void {
+    const outer = this.applyDepth++ === 0
+    if (outer) {
+      this.resetRows = false
+      this.publishedRows.clear()
+      this.removedRows.clear()
+    }
+    try { this.applyChange(change) }
+    finally {
+      this.applyDepth--
+      if (outer) this.rowPublication = { reset: this.resetRows,
+        changed: [...this.publishedRows], removed: [...this.removedRows] }
+    }
+  }
+
+  private applyChange(change: TranscriptGraphChange): void {
     const insertions = change.insertions ?? []
     const removed = change.removed ?? []
     const beforeHead = insertions.length > 0 && insertions.every(insertion => insertion.before === this.fileIds[0])
@@ -406,7 +440,10 @@ export class TranscriptGraph {
       const row = this.rowOwner(id)
       if (row) changedRows.add(row)
     }
-    for (const id of changedRows) this.updateSummary(id)
+    for (const id of changedRows) {
+      this.updateSummary(id)
+      this.publishedRows.add(id)
+    }
     this.publishFacts()
   }
 
@@ -592,6 +629,7 @@ export class TranscriptGraph {
         members.every((member, at) => previous[at] === member && oldShapes?.[at] === this.shapes.get(member)))
         continue
       for (const old of oldRows) {
+        this.removedRows.add(old)
         const at = this.insertionPoint(this.rowIds, old)
         if (this.rowIds[at] === old) this.rowIds.splice(at, 1)
         const summary = this.insertionPoint(this.summaryRowIds, old)
@@ -620,6 +658,7 @@ export class TranscriptGraph {
         for (const member of ownedMembers) this.rowByBlock.set(member, run ?? first)
         this.skeletons.set(first, run ? this.toolSkeleton(run) : this.row(first)!)
         this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
+        this.publishedRows.add(first)
         this.updateSummary(first)
         at = end
       }
@@ -759,6 +798,7 @@ export class TranscriptGraph {
     }
     const first = members[0]!
     if (before !== first) {
+      this.removedRows.add(before)
       const rowAt = this.insertionPoint(this.rowIds, before)
       if (this.rowIds[rowAt] === before) this.rowIds.splice(rowAt, 1)
       const summaryAt = this.insertionPoint(this.summaryRowIds, before)
@@ -775,6 +815,7 @@ export class TranscriptGraph {
       this.runs.set(first, run)
       this.rowIds.splice(this.insertionPoint(this.rowIds, first), 0, first)
     }
+    this.publishedRows.add(first)
     this.skeletons.set(first, this.toolSkeleton(run, blocks))
     this.updateSummary(first)
     this.orderVersion++

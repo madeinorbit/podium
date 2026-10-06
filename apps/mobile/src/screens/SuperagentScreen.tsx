@@ -286,6 +286,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
             >
               <TranscriptList
                 transcript={transcript}
+                presentation={conversation?.presentation}
                 transcriptQuestion={transcript?.pendingQuestion ?? null}
                 liveItem={liveItem}
                 live={working}

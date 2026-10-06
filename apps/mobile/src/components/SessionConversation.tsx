@@ -1,3 +1,4 @@
+import { MobileConversation } from '../lib/mobile-conversation'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import {
   type Conversation,
@@ -203,7 +204,7 @@ export function SessionConversation(
   )
   const model = useConversation(
     sessionId,
-    (drafts) => ({
+    (drafts) => new MobileConversation({
       sessionId,
       drafts,
       readSession: () => (pool ? sessionPaneView(pool).session(sessionId) : undefined),
@@ -330,7 +331,7 @@ export function SessionConversation(
         interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       },
-    }),
+    }, { hidePendingQuestion: true }),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
   return model ? (
@@ -351,7 +352,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   onInitialPendingSettled,
 }: {
   session: SessionView
-  model: Conversation
+  model: MobileConversation
   history: { following: boolean; searching: boolean }
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined
@@ -723,6 +724,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
           >
             <TranscriptList
               transcript={transcript}
+              presentation={model.presentation}
               transcriptQuestion={transcriptQuestion}
               live={session.status === 'live'}
               assetContext={assetContext}

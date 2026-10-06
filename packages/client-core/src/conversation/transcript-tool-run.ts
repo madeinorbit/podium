@@ -16,11 +16,13 @@ export class TranscriptToolRun {
   private readonly entries = new Map<string, { category: string; subject: string | undefined }>()
   private readonly failed = new Set<string>()
   private failedCount = 0
+  private readonly durations = new Map<string, number>()
+  durationMs = 0
 
   constructor(readonly ids: readonly string[], private readonly readBlock: (id: string) => ChatBlock | undefined,
     private readonly rankOf: (id: string) => number) {
     makeObservable<this, 'failedCount'>(this, {
-      failedCount: observable, failures: computed, title: computed, count: computed,
+      durationMs: observable, failedCount: observable, failures: computed, title: computed, count: computed,
       blocks: computed, firstBlock: computed, lastBlock: computed, update: action, remove: action,
     })
     for (const id of ids) {
@@ -48,6 +50,9 @@ export class TranscriptToolRun {
   }
 
   update(id: string, block: ChatBlock): void {
+    const duration = block.item.durationMs ?? 0
+    this.durationMs += duration - (this.durations.get(id) ?? 0)
+    this.durations.set(id, duration)
     const failure = toolVerdict(block.result ?? block.item.toolResult, block.item.toolEffects) === 'err'
     const failed = this.failed.has(id)
     if (failure !== failed) {
@@ -79,6 +84,8 @@ export class TranscriptToolRun {
   }
 
   remove(id: string): void {
+    this.durationMs -= this.durations.get(id) ?? 0
+    this.durations.delete(id)
     const previous = this.entries.get(id)
     if (previous) this.removeMembership(id, previous)
     this.entries.delete(id)

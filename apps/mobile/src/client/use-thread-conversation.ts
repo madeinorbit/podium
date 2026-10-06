@@ -1,3 +1,4 @@
+import { MobileConversation } from '../lib/mobile-conversation'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
@@ -62,7 +63,7 @@ export function useThreadConversation(
   }
   const conversation = useConversation(
     CONVERSATION_ID,
-    (drafts) => ({
+    (drafts) => new MobileConversation({
       sessionId: CONVERSATION_ID,
       drafts,
       headless: true,
@@ -167,7 +168,7 @@ export function useThreadConversation(
         interrupt: () =>
           owner.access.trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID }).then(() => {}),
       },
-    }),
+    }, { collapseContext: true }),
     {
       warmLimit: PHONE_WARM_CONVERSATIONS,
       enabled: pool !== null && !superagentState(pool).loading,

@@ -1,3 +1,4 @@
+import type { MobileConversationPresentation } from '../lib/conversation-presentation'
 import {
   type ChatBlock,
   failLine,
@@ -8,7 +9,7 @@ import {
   toolRunFailures,
   toolVerdict,
 } from '@podium/client-core/values'
-import type { TranscriptLog } from '@podium/client-core/conversation'
+import type { TranscriptToolRun, TranscriptLog } from '@podium/client-core/conversation'
 import { untracked } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import type { TranscriptItem } from '@podium/model'
@@ -251,16 +252,17 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
  * A phone-native work line. It spends one line on the run and a tap unfolds a
  * useful result preview.
  */
-function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
+const ToolsRun = observer(function ToolsRun({ blocks = [], run }: { blocks?: ChatBlock[]; run?: TranscriptToolRun }) {
   const [expanded, setExpanded] = useState(false)
-  const failures = toolRunFailures(blocks)
-  const durationMs = blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
+  const failures = run?.failures ?? toolRunFailures(blocks)
+  const durationMs = run?.durationMs ?? blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
+  const title = run?.title ?? toolBatchTitle(blocks)
 
   return (
     <View style={styles.tools}>
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${toolBatchTitle(blocks)}`}
+        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${title}`}
         accessibilityState={{ expanded }}
         aria-expanded={expanded}
         onPress={() => setExpanded((value) => !value)}
@@ -270,13 +272,13 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
           {failures > 0 ? '✕' : '✓'}
         </Text>
         <Text style={styles.workTitle} numberOfLines={1}>
-          {toolBatchTitle(blocks)}
+          {title}
         </Text>
         <Text style={styles.workCount}>{formatChurn(durationMs)}</Text>
         <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
       </PressableScale>
       {expanded
-        ? blocks.map((b) => {
+        ? (run?.blocks ?? blocks).map((b) => {
             const { item } = b
             const result = b.result ?? item.toolResult
             const verdict = toolVerdict(result)
@@ -318,7 +320,7 @@ function ToolsRun({ blocks }: { blocks: ChatBlock[] }) {
         : null}
     </View>
   )
-}
+})
 
 /** An answered AskUserQuestion, collapsed to "? question — picked" so past
  *  decisions stay auditable without spending attention. */
@@ -555,6 +557,7 @@ function sameRow(previous: Row, next: Row): boolean {
     )
   }
   if (previous.item !== next.item) return false
+  if (previous.kind === 'tools' && next.kind === 'tools' && previous.run && previous.run === next.run) return true
   const previousBlocks = previous.blocks
   const nextBlocks = next.blocks
   if (previousBlocks === nextBlocks) return true
@@ -564,6 +567,13 @@ function sameRow(previous: Row, next: Row): boolean {
       block.item === nextBlocks[index]?.item && block.result === nextBlocks[index]?.result,
   )
 }
+
+const RetainedTranscriptRow = observer(function RetainedTranscriptRow({
+  presentation, rowKey, ...props
+}: Omit<TranscriptFeedRowProps, 'row'> & { presentation: MobileConversationPresentation; rowKey: string }) {
+  const row = presentation.row(rowKey)
+  return row ? <TranscriptFeedRow row={row} {...props} /> : null
+})
 
 /** Each settled row tracks only the map entries that make up its message/tool run. */
 const ObservedTranscriptRow = observer(function ObservedTranscriptRow({
@@ -735,7 +745,7 @@ const TranscriptFeedRow = memo(
         content = <AskReceipt item={row.item} />
         break
       case 'tools':
-        content = <ToolsRun blocks={row.blocks ?? []} />
+        content = row.run ? <ToolsRun run={row.run} /> : <ToolsRun blocks={row.blocks ?? []} />
         break
       case 'shared':
         content = <SharedFiles item={row.item} context={assetContext} />
@@ -931,6 +941,7 @@ function JumpToNewest({
 export const TranscriptList = observer(function TranscriptList({
   items: suppliedItems,
   transcript,
+  presentation,
   transcriptQuestion,
   liveItem,
   live,
@@ -964,6 +975,7 @@ export const TranscriptList = observer(function TranscriptList({
 }: {
   items?: TranscriptItem[]
   transcript?: TranscriptLog
+  presentation?: MobileConversationPresentation
   /** Source-owned raw-order answer; every host supplies its addressed fact. */
   transcriptQuestion: TranscriptItem | null
   /** In-progress assistant prose, kept outside the stable settled item array. */
@@ -1035,11 +1047,11 @@ export const TranscriptList = observer(function TranscriptList({
   pinRequest?: number
 }) {
   // Order is the list's subscription. Message versions belong to row observers.
-  const order = transcript ? JSON.stringify(transcript.ids.slice()) : undefined
+  const order = !presentation && transcript ? JSON.stringify(transcript.ids.slice()) : undefined
   const items = useMemo(
     // untracked-read: transcript-order-snapshot
-    () => (transcript ? untracked(() => transcript.items) : (suppliedItems ?? [])),
-    [transcript, order, suppliedItems],
+    () => (presentation ? [] : transcript ? untracked(() => transcript.items) : (suppliedItems ?? [])),
+    [presentation, transcript, order, suppliedItems],
   )
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
@@ -1088,19 +1100,19 @@ export const TranscriptList = observer(function TranscriptList({
   const pendingKey = pending ? transcriptItemKey(pending) : null
   const model = useMemo(
     () =>
-      buildMobileTranscript(items, {
+      presentation ? undefined : buildMobileTranscript(items, {
         collapseContext,
         includeEmpty: transcript !== undefined,
         hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined,
       }),
-    [collapseContext, hidePendingQuestion, items, pendingKey, transcript],
+    [presentation, collapseContext, hidePendingQuestion, items, pendingKey, transcript],
   )
   const rowSources = useMemo(() => {
     const sources = new Map<string, string[]>()
-    if (!transcript) return sources
+    if (presentation || !transcript) return sources
     const calls = new Map<string, string[]>()
     const users = new Map<string, string[]>()
-    for (const row of model.rows) {
+    for (const row of model!.rows) {
       const ids = [...new Set([row.item.id, ...(row.blocks ?? []).map((block) => block.item.id)])]
       sources.set(row.key, ids)
       for (const block of row.blocks ?? [])
@@ -1118,13 +1130,12 @@ export const TranscriptList = observer(function TranscriptList({
       } else previousUser = undefined
     }
     return sources
-  }, [items, model, transcript])
-  const liveRow = useMemo(
-    () => liveAssistantRow(liveItem, model.blocks.length),
-    [liveItem, model.blocks.length],
-  )
+  }, [items, model, presentation, transcript])
+  const blockCount = presentation ? presentation.graph.blockIds.length : model!.blocks.length
+  const membershipVersion = presentation?.version
+  const itemCount = transcript?.ids.length ?? items.length
+  const liveRow = useMemo(() => liveAssistantRow(liveItem, blockCount), [liveItem, blockCount])
   const statePendingKey = pendingAsk ? transcriptItemKey(pendingAsk) : null
-  const visibleModel = model
   // The settled rows remain stable viewport data while transport text changes.
   // Tail-only rows are a bounded suffix rendered in the footer, in the same
   // order they had when all rows shared one array.
@@ -1162,18 +1173,19 @@ export const TranscriptList = observer(function TranscriptList({
     }
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
-  const rows = visibleModel.rows
+  const rows: readonly (string | Row)[] = presentation ? presentation.keys : model!.rows
   const searchModel =
-    searching && transcript
+    !presentation && searching && transcript
       ? buildMobileTranscript(
           transcript.ids.map((id) => transcript.byId.get(id)!),
           { collapseContext, hiddenQuestionId: hidePendingQuestion ? pendingKey : undefined },
         )
-      : visibleModel
-  const matches = useMemo(
-    () => matchMobileTranscript(searchModel, findOpen ? query : ''),
+      : model
+  const legacyMatches = useMemo(
+    () => searchModel ? matchMobileTranscript(searchModel, findOpen ? query : '') : undefined,
     [findOpen, query, searchModel],
   )
+  const matches = presentation ? presentation.matches(findOpen ? query : '') : legacyMatches!
   const search = useMemo(() => positionMobileTranscriptSearch(matches, cursor), [cursor, matches])
   const listRef = useRef<TranscriptViewportHandle>(null)
   const seenKeys = useRef<Set<string> | null>(null)
@@ -1187,8 +1199,9 @@ export const TranscriptList = observer(function TranscriptList({
     lastFindRequest.current = findRequest
     setFindOpen(true)
   }, [findRequest])
-  const arrivedKeys = useMemo(() => {
-    const ordered = rows.map((row) => row.key)
+  const legacyArrivedKeys = useMemo(() => {
+    if (presentation) return undefined
+    const ordered = rows.map((row) => (row as Row).key)
     const keys = new Set(ordered)
     if (seenKeys.current === null) {
       seenKeys.current = keys
@@ -1205,7 +1218,10 @@ export const TranscriptList = observer(function TranscriptList({
     for (const key of keys) seenKeys.current.add(key)
     previousKeys.current = ordered
     return arrived
-  }, [rows])
+  }, [presentation, rows])
+  const arrivedKeys = presentation?.arrivalKeys ?? legacyArrivedKeys!
+  const appendCount = presentation?.appendCount
+  const seenAppendCount = useRef(appendCount)
   const suffixArrivedKeys = useMemo(() => {
     const keys = suffixRows.map((row) => row.key)
     return suffixCommitted.current
@@ -1216,7 +1232,7 @@ export const TranscriptList = observer(function TranscriptList({
     suffixCommitted.current = true
     for (const row of suffixRows) seenSuffixKeys.current.add(row.key)
   }, [suffixRows])
-  const latestAssistantKey = model.latestAssistantKey
+  const latestAssistantKey = presentation ? presentation.latestAssistantKey : model!.latestAssistantKey
   const transcriptId = assetContext?.sessionId ?? 'transcript'
   const followChangeRef = useRef(onFollowChange)
   useLayoutEffect(() => {
@@ -1247,13 +1263,16 @@ export const TranscriptList = observer(function TranscriptList({
   // What landed while the operator was reading further up. `arrivedKeys` is
   // already derived for the row entrance, so the count costs nothing extra.
   useEffect(() => {
+    const newlyAppended = appendCount === undefined ? arrivedKeys.size
+      : Math.max(0, appendCount - (seenAppendCount.current ?? appendCount))
+    seenAppendCount.current = appendCount
     if (atTail) {
       setUnread(0)
       return
     }
-    const arrivals = arrivedKeys.size + suffixArrivedKeys.size
+    const arrivals = newlyAppended + suffixArrivedKeys.size
     if (arrivals > 0) setUnread((count) => count + arrivals)
-  }, [arrivedKeys, atTail, suffixArrivedKeys])
+  }, [appendCount, arrivedKeys, atTail, suffixArrivedKeys])
 
   useEffect(() => {
     if (search.activeRow === undefined) return
@@ -1269,7 +1288,7 @@ export const TranscriptList = observer(function TranscriptList({
   useEffect(() => {
     if (!findOpen || !query.trim()) return
     onLoadOlder?.()
-  }, [findOpen, items.length, onLoadOlder, query])
+  }, [findOpen, itemCount, onLoadOlder, query])
 
   const messageActions = useMemo<SheetAction[]>(() => {
     if (!actionText) return []
@@ -1301,13 +1320,15 @@ export const TranscriptList = observer(function TranscriptList({
         onLoadOlder={onLoadOlder}
         onFollowChange={followChanged}
         data={rows}
-        positionOfKey={model.positionOfKey}
-        keyExtractor={(row) => row.key}
-        anchorKeys={(row) =>
-          row.kind === 'tools'
+        extraData={membershipVersion}
+        positionOfKey={presentation?.positionOfKey ?? model!.positionOfKey}
+        keyExtractor={(row) => typeof row === 'string' ? row : row.key}
+        anchorKeys={presentation ? undefined : (entry) => {
+          const row = entry as Row
+          return row.kind === 'tools'
             ? (row.blocks?.map((block) => block.item.id) ?? [row.item.id])
             : [row.key]
-        }
+        }}
         contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
@@ -1349,31 +1370,26 @@ export const TranscriptList = observer(function TranscriptList({
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
         }
-        renderItem={({ item: row, index }) => (
-          <ObservedTranscriptRow
-            transcript={transcript}
-            collapseContext={collapseContext}
-            sourceIds={rowSources.get(row.key)}
-            row={row}
-            arrived={arrivedKeys.has(row.key)}
-            highlighted={search.activeRow === index}
-            dimmed={query.trim().length > 0 && !search.matchingRows.has(index)}
-            reduceMotion={reduceMotion}
-            liveQuestion={
-              statePendingKey === row.key || (live && pendingKey !== null && pendingKey === row.key)
-            }
-            streaming={streaming && liveRow === undefined && row.key === latestAssistantKey}
-            assetContext={assetContext}
-            onAnswer={answerRow}
-            answerInteractionId={answerInteractionId}
-            onRefPress={onRefPress ? pressRowRef : undefined}
-            onRetryPending={onRetryPending ? retryPendingRow : undefined}
-            onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
-            onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
-            onRetractPending={onRetractPending ? retractPendingRow : undefined}
-            onHold={setActionText}
-          />
-        )}
+        renderItem={({ item: entry, index }) => {
+          const key = typeof entry === 'string' ? entry : entry.key
+          const props = {
+            arrived: arrivedKeys.has(key), highlighted: search.activeRow === index,
+            dimmed: query.trim().length > 0 && !search.matchingRows.has(index),
+            reduceMotion, liveQuestion: statePendingKey === key || (live && pendingKey !== null && pendingKey === key),
+            streaming: streaming && liveRow === undefined && key === latestAssistantKey,
+            assetContext, onAnswer: answerRow, answerInteractionId,
+            onRefPress: onRefPress ? pressRowRef : undefined,
+            onRetryPending: onRetryPending ? retryPendingRow : undefined,
+            onDiscardPending: onDiscardPending ? discardPendingRow : undefined,
+            onSendAgainPending: onSendAgainPending ? sendAgainPendingRow : undefined,
+            onRetractPending: onRetractPending ? retractPendingRow : undefined,
+            onHold: setActionText,
+          }
+          return presentation && typeof entry === 'string'
+            ? <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
+            : <ObservedTranscriptRow transcript={transcript} collapseContext={collapseContext}
+                sourceIds={rowSources.get(key)} row={entry as Row} {...props} />
+        }}
       />
 
       {findOpen ? (

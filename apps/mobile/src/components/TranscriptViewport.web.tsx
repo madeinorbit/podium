@@ -26,6 +26,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
   {
     identity,
     data,
+    extraData,
     keyExtractor,
     positionOfKey,
     anchorKeys,
@@ -56,7 +57,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
       ? (positionOfKey(heldHead.current.key) ?? -1)
       : -1
   const renderStart = retainedStart >= 0 ? Math.min(tailStart, retainedStart) : tailStart
-  const visibleRows = useMemo(() => data.slice(renderStart), [data, renderStart])
+  const visibleRows = useMemo(() => data.slice(renderStart), [data, extraData, renderStart])
   useLayoutEffect(() => {
     windowIdentity.current = identity
     setFollowing(true)
@@ -90,6 +91,10 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     loadingOlder,
     loadOlder: revealOlder,
     rowsToRender: visibleRows,
+    lookupAnchorRow: key => {
+      const index = positionOfKey(key)
+      return index === undefined ? null : scrollerRef.current?.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? null
+    },
     onFollowChange: followChanged,
   })
   useEffect(() => {

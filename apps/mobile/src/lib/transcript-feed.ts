@@ -1,3 +1,4 @@
+import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import {
   type ChatBlock,
   type ChatRow,
@@ -38,6 +39,7 @@ export interface MobileTranscriptRow {
     | 'context'
   item: TranscriptItem
   blocks?: ChatBlock[]
+  readonly run?: TranscriptToolRun
   blockIndices: number[]
   envelope?: ParsedEnvelope
   quietText?: string
@@ -75,6 +77,157 @@ export function transcriptItemKey(item: TranscriptItem): string {
   return item.id
 }
 
+export interface MobileRowOptions {
+  collapseContext?: boolean
+  hiddenQuestionId?: string | null
+  includeEmpty?: boolean
+}
+
+/** Shape one addressed paired row, including its envelope slots. */
+export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions = {}): MobileTranscriptRow[] {
+  const rows: MobileTranscriptRow[] = []
+  const append = (row: MobileTranscriptRow) => rows.push(row)
+  const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
+
+  if (chatRow.kind === 'tools') {
+    const first = chatRow.blocks[0]
+    if (!first) return rows
+    append({
+      key: transcriptItemKey(first.item),
+      kind: 'tools',
+      item: first.item,
+      blocks: chatRow.blocks,
+      blockIndices,
+      turn: 'bind',
+    })
+    return rows
+  }
+
+  const { item } = chatRow.block
+  if (isAskUserQuestion(item)) {
+    if (!item.toolResult && item.id === options.hiddenQuestionId) return rows
+    append({
+      key: transcriptItemKey(item),
+      kind: item.toolResult ? 'receipt' : 'question',
+      item,
+      blockIndices,
+      turn: 'beat',
+    })
+    return rows
+  }
+  if (item.role === 'tool' && item.toolName === 'SendUserFile') {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'shared',
+      item,
+      blockIndices,
+      turn: 'beat',
+    })
+    return rows
+  }
+  if (item.role === 'tool') {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'tools',
+      item,
+      blocks: [chatRow.block],
+      blockIndices,
+      turn: 'bind',
+    })
+    return rows
+  }
+  if (item.role === 'system') {
+    if (item.systemKind === 'recap' && item.text.trim()) {
+      append({
+        key: transcriptItemKey(item),
+        kind: 'recap',
+        item,
+        blockIndices,
+        turn: 'beat',
+      })
+      return rows
+    }
+    const quietText =
+      item.systemKind === 'duration' && item.durationMs !== undefined
+        ? `churned ${formatChurn(item.durationMs)}`
+        : item.text.trim()
+    if (quietText) {
+      append({
+        key: transcriptItemKey(item),
+        kind: 'quiet',
+        item,
+        quietText,
+        blockIndices,
+        turn: item.systemKind === 'duration' ? 'bind' : 'beat',
+      })
+    }
+    return rows
+  }
+  if (item.event === 'interrupt') {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'quiet',
+      item,
+      quietText: '⏹ interrupted',
+      blockIndices,
+      turn: 'bind',
+    })
+    return rows
+  }
+  if (!item.text.trim() && !options.includeEmpty) return rows
+  if (options.collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text)) {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'context',
+      item,
+      blockIndices,
+      turn: 'beat',
+    })
+    return rows
+  }
+  if (item.role === 'user') {
+    const batch = parseEnvelopeBatch(item.text)
+    if (batch) {
+      batch.envelopes.forEach((envelope, index) => {
+        append({
+          key: `${transcriptItemKey(item)}:message:${envelope.id}`,
+          kind: 'envelope',
+          item,
+          envelope,
+          blockIndices,
+          turn: index === 0 ? 'open' : 'bind',
+        })
+      })
+      if (batch.operatorText) {
+        append({
+          key: `${transcriptItemKey(item)}:operator`,
+          kind: 'user',
+          item: { ...item, text: batch.operatorText },
+          blockIndices,
+          turn: 'open',
+        })
+      }
+      return rows
+    }
+    append({
+      key: transcriptItemKey(item),
+      kind: 'user',
+      item,
+      blockIndices,
+      turn: 'open',
+    })
+    return rows
+  }
+  append({
+    key: transcriptItemKey(item),
+    kind: item.answer ? 'answer' : 'prose',
+    item,
+    blockIndices,
+    turn: 'beat',
+  })
+  return rows
+}
+
 /** Build phone rows from the same normal-detail paired blocks as web. */
 export function buildMobileTranscript(
   items: TranscriptItem[],
@@ -106,145 +259,10 @@ export function buildMobileTranscript(
   let latestAssistantKey: string | undefined
 
   for (const chatRow of chatRows) {
-    const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
-
-    if (chatRow.kind === 'tools') {
-      const first = chatRow.blocks[0]
-      if (!first) continue
-      append({
-        key: transcriptItemKey(first.item),
-        kind: 'tools',
-        item: first.item,
-        blocks: chatRow.blocks,
-        blockIndices,
-        turn: 'bind',
-      })
-      continue
+    for (const row of shapeMobileChatRow(chatRow, options)) {
+      append(row)
+      if (row.kind === 'answer' || row.kind === 'prose') latestAssistantKey = row.item.id
     }
-
-    const { item } = chatRow.block
-    if (isAskUserQuestion(item)) {
-      if (!item.toolResult && item.id === options.hiddenQuestionId) continue
-      append({
-        key: transcriptItemKey(item),
-        kind: item.toolResult ? 'receipt' : 'question',
-        item,
-        blockIndices,
-        turn: 'beat',
-      })
-      continue
-    }
-    if (item.role === 'tool' && item.toolName === 'SendUserFile') {
-      append({
-        key: transcriptItemKey(item),
-        kind: 'shared',
-        item,
-        blockIndices,
-        turn: 'beat',
-      })
-      continue
-    }
-    if (item.role === 'tool') {
-      append({
-        key: transcriptItemKey(item),
-        kind: 'tools',
-        item,
-        blocks: [chatRow.block],
-        blockIndices,
-        turn: 'bind',
-      })
-      continue
-    }
-    if (item.role === 'system') {
-      if (item.systemKind === 'recap' && item.text.trim()) {
-        append({
-          key: transcriptItemKey(item),
-          kind: 'recap',
-          item,
-          blockIndices,
-          turn: 'beat',
-        })
-        continue
-      }
-      const quietText =
-        item.systemKind === 'duration' && item.durationMs !== undefined
-          ? `churned ${formatChurn(item.durationMs)}`
-          : item.text.trim()
-      if (quietText) {
-        append({
-          key: transcriptItemKey(item),
-          kind: 'quiet',
-          item,
-          quietText,
-          blockIndices,
-          turn: item.systemKind === 'duration' ? 'bind' : 'beat',
-        })
-      }
-      continue
-    }
-    if (item.event === 'interrupt') {
-      append({
-        key: transcriptItemKey(item),
-        kind: 'quiet',
-        item,
-        quietText: '⏹ interrupted',
-        blockIndices,
-        turn: 'bind',
-      })
-      continue
-    }
-    if (!item.text.trim() && !options.includeEmpty) continue
-    if (options.collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text)) {
-      append({
-        key: transcriptItemKey(item),
-        kind: 'context',
-        item,
-        blockIndices,
-        turn: 'beat',
-      })
-      continue
-    }
-    if (item.role === 'user') {
-      const batch = parseEnvelopeBatch(item.text)
-      if (batch) {
-        batch.envelopes.forEach((envelope, index) => {
-          append({
-            key: `${transcriptItemKey(item)}:message:${envelope.id}`,
-            kind: 'envelope',
-            item,
-            envelope,
-            blockIndices,
-            turn: index === 0 ? 'open' : 'bind',
-          })
-        })
-        if (batch.operatorText) {
-          append({
-            key: `${transcriptItemKey(item)}:operator`,
-            kind: 'user',
-            item: { ...item, text: batch.operatorText },
-            blockIndices,
-            turn: 'open',
-          })
-        }
-        continue
-      }
-      append({
-        key: transcriptItemKey(item),
-        kind: 'user',
-        item,
-        blockIndices,
-        turn: 'open',
-      })
-      continue
-    }
-    latestAssistantKey = transcriptItemKey(item)
-    append({
-      key: transcriptItemKey(item),
-      kind: item.answer ? 'answer' : 'prose',
-      item,
-      blockIndices,
-      turn: 'beat',
-    })
   }
 
   return {
