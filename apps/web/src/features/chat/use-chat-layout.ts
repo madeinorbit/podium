@@ -204,6 +204,12 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { trpc, openFile, httpOrigin, tldrSession, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
   const session = useChatSession(sessionId)
   const presenceOfflineMachineName = useChatMachinePresence(session, active)
+  // Triple-state presence for the reconnect re-read below: unknown (no row)
+  // never triggers, matching the deleted machineOnline effect's contract.
+  const presenceMachine = usePoolMachine(active ? session?.machineId : undefined)
+  const presenceOnline = presenceMachine
+    ? !isMachineOfflineForLiveTerminal(presenceMachine)
+    : undefined
   const sessionExitKind = useChatSessionExitKind(sessionId)
   const { attachedSessionId, transcriptReveal } = useChatContextWindow()
 
@@ -238,6 +244,22 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const setRenderCount = view.setRenderCount
   const search = view.search
   useEffect(() => view.setFollowTail(followTail), [view, followTail])
+
+  // MACHINE RECONNECT (POD-4808): the empty-chat promise — "history will load
+  // when it reconnects" — holds without a reload. A false->true presence
+  // transition re-reads the newest window; the reconcile replaces the offline
+  // message with history (or the genuine empty state). Unknown presence never
+  // triggers. This React trigger is the single path: it fires off the same
+  // pool rows in fixtures (plain reads re-render) and production (observable
+  // projections re-render alike).
+  const prevPresenceOnline = useRef(presenceOnline)
+  useEffect(() => {
+    const was = prevPresenceOnline.current
+    prevPresenceOnline.current = presenceOnline
+    if (!initialLoaded) return
+    if (was !== false || presenceOnline !== true) return
+    void conversation.transcript.refresh({ disclose: true }).catch(() => {})
+  }, [presenceOnline, initialLoaded, conversation])
 
   // Operator-prompt recognition needs the message-envelope parser, which is a
   // web module; the slice takes it as an injected resolver so the predicate has
