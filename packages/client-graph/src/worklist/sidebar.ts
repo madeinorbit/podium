@@ -12,7 +12,7 @@ import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { attentionGroup, LOADING, type Loaded } from './rollup'
-import { NO_SIDEBAR_SESSIONS, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
+import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
 
 const overlayRow = createRowOverlay()
@@ -108,6 +108,18 @@ export const sidebarIssueRow = cachedGroup(
   'sidebar', sidebarValues, sameSidebar,
 )
 
+/** Formal unit counts, without the sidebar's labels, seats or attention payload. */
+export const sidebarIssueProgress = cachedGroup('sidebarProgress', (model: IssueModel): SidebarProgress | typeof LOADING => {
+  const below = model.unitsBelow, own = model.unitOwn
+  if (below.pending > 0 || own.cold) return LOADING
+  return below.members > 0
+    ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...below.progress, total: below.units }
+    : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: own.solo ? 1 : 0,
+        ...(own.solo ? { [own.state ?? 'wait']: 1 } : {}) }
+}, (a, b) => a === b || (a !== LOADING && b !== LOADING &&
+  a.total === b.total && a.done === b.done && a.run === b.run && a.review === b.review &&
+  a.stall === b.stall && a.block === b.block && a.wait === b.wait))
+
 function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   const host = hostOf(model)
   const own = host.rollupInputs.loadedIssue(model.id)
@@ -155,27 +167,8 @@ function sidebarValues(model: IssueModel): Loaded<SidebarRowValues> {
   )
     return LOADING
   const fromChildren = model.unitsBelow.members > 0
-  const progress = fromChildren
-    ? {
-        done: 0,
-        run: 0,
-        review: 0,
-        stall: 0,
-        block: 0,
-        wait: 0,
-        ...model.unitsBelow.progress,
-        total: model.unitsBelow.units,
-      }
-    : {
-        done: 0,
-        run: 0,
-        review: 0,
-        stall: 0,
-        block: 0,
-        wait: 0,
-        total: model.unitOwn.solo ? 1 : 0,
-        ...(model.unitOwn.solo ? { [model.unitOwn.state ?? 'wait']: 1 } : {}),
-      }
+  const progress = sidebarIssueProgress(model)
+  if (progress === LOADING) return LOADING
   const decision = model.ownAttention.deciding ? facts.decision : null
   let continuation: SidebarRowValues['continuation'] = null
   if (targetId) {

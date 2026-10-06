@@ -16,7 +16,7 @@ import { sessionSeats } from './session-seats'
 import { isFinished } from './shared/predicates'
 import type { SliceIssue, SliceSession } from './shared/slice-types'
 import { isSessionWorking, LOADING } from './worklist/rollup'
-import { sidebarIssueRow } from './worklist/sidebar'
+import { sidebarIssueProgress } from './worklist/sidebar'
 
 export { EMPTY_HOST_AGGREGATE, type HeaderAggregate } from './header-session'
 
@@ -286,11 +286,11 @@ function createHeaderViews(pool: MobxPool) {
     )
       return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
     const model = pool.model('issue', root.id)
-    const sidebar = model === undefined ? undefined : sidebarIssueRow(model)
-    if (sidebar === LOADING) loading = true
+    const progress = model === undefined ? undefined : sidebarIssueProgress(model)
+    if (progress === LOADING) loading = true
     return {
       root,
-      progress: sidebar && sidebar !== LOADING ? sidebar.progress : NO_PROGRESS,
+      progress: progress && progress !== LOADING ? progress : NO_PROGRESS,
       live: crew.length,
       working: crew.filter(isSessionWorking).length,
       needs,
